@@ -1,8 +1,8 @@
-extern crate proc_macro;
-
-use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, ItemFn};
+use {
+    proc_macro::TokenStream,
+    quote::quote,
+    syn::{parse_macro_input, ItemFn},
+};
 
 #[proc_macro_attribute]
 pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
