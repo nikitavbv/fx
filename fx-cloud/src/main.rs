@@ -6,9 +6,23 @@ use {
     http_body_util::Full,
     rayon::{ThreadPool, ThreadPoolBuilder},
     thread_local::ThreadLocal,
-    wasmer::{wasmparser::Operator, Cranelift, CompilerConfig, Store, EngineBuilder, Module, FunctionEnv, FunctionEnvMut, Memory, Instance, Function, imports},
+    wasmer::{
+        wasmparser::Operator,
+        Cranelift,
+        CompilerConfig,
+        Store,
+        EngineBuilder,
+        Module,
+        FunctionEnv,
+        FunctionEnvMut,
+        Memory,
+        Instance,
+        Function,
+        Value,
+        imports,
+    },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    fx_core::HttpResponse,
+    fx_core::{HttpResponse, HttpRequest},
 };
 
 #[tokio::main]
@@ -72,8 +86,17 @@ impl Engine {
         let memory = ctx.instance.exports.get_memory("memory").unwrap();
         ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
 
+        let client_malloc = ctx.instance.exports.get_function("malloc").unwrap();
+
+        let request = HttpRequest {
+            url: req.uri().to_string(),
+        };
+        let request = bincode::encode_to_vec(&request, bincode::config::standard()).unwrap();
+        let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(request.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
+        memory.view(&mut ctx.store).write(target_addr, &request).unwrap();
+
         let function = ctx.instance.exports.get_function("handle").unwrap();
-        function.call(&mut ctx.store, &[]).unwrap();
+        function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(request.len() as i64)]).unwrap();
 
         let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
             MeteringPoints::Remaining(v) => v,
