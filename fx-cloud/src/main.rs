@@ -1,11 +1,14 @@
 use {
-    std::{net::SocketAddr, sync::Arc, convert::Infallible, pin::Pin},
+    std::{net::SocketAddr, sync::{Arc, Mutex}, convert::Infallible, pin::Pin, fs, ops::DerefMut},
     tokio::{net::TcpListener, sync::oneshot::{self, Sender}},
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
-    hyper::{server::conn::http1, Request, Response, body::Bytes},
+    hyper::{server::conn::http1, Response, body::Bytes},
     http_body_util::Full,
     rayon::{ThreadPool, ThreadPoolBuilder},
     thread_local::ThreadLocal,
+    wasmer::{wasmparser::Operator, Cranelift, CompilerConfig, Store, EngineBuilder, Module, FunctionEnv, FunctionEnvMut, Memory, Instance, Function, imports},
+    wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
+    fx_core::HttpResponse,
 };
 
 #[tokio::main]
@@ -47,7 +50,7 @@ impl FxCloud {
 
 struct Engine {
     thread_pool: ThreadPool,
-    execution_context: ThreadLocal<ExecutionContext>,
+    execution_context: ThreadLocal<Mutex<ExecutionContext>>,
 }
 
 impl Engine {
@@ -59,9 +62,27 @@ impl Engine {
     }
 
     pub fn handle(&self, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
-        let execution_context = self.execution_context.get_or(|| self.create_execution_context());
+        let ctx = self.execution_context.get_or(|| Mutex::new(self.create_execution_context()));
+        let mut ctx = ctx.lock().unwrap();
+        let ctx = ctx.deref_mut();
 
-        tx.send(Ok(Response::new(Full::new(Bytes::from(format!("hello from thread: {:?}\n", std::thread::current().id())))))).unwrap();
+        let points_before = u64::MAX;
+        set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
+
+        let memory = ctx.instance.exports.get_memory("memory").unwrap();
+        ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
+
+        let function = ctx.instance.exports.get_function("handle").unwrap();
+        function.call(&mut ctx.store, &[]).unwrap();
+
+        let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
+            MeteringPoints::Remaining(v) => v,
+            MeteringPoints::Exhausted => panic!("didn't expect that"),
+        };
+        println!("points used: {:?}", points_used);
+
+        let response_body = ctx.function_env.as_ref(&mut ctx.store).http_response.as_ref().unwrap().body.as_bytes().to_vec();
+        tx.send(Ok(Response::new(Full::new(Bytes::from(response_body))))).unwrap();
     }
 
     fn create_execution_context(&self) -> ExecutionContext {
@@ -83,10 +104,61 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for FxCloud 
     }
 }
 
-struct ExecutionContext {}
+struct ExecutionContext {
+    instance: Instance,
+    store: Store,
+    function_env: FunctionEnv<ExecutionEnv>,
+}
 
 impl ExecutionContext {
     pub fn new() -> Self {
-        Self {}
+        let cost_function = |_: &Operator| -> u64 { 1 };
+        let mut compiler_config = Cranelift::default();
+        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, cost_function)));
+
+        let mut store = Store::new(EngineBuilder::new(compiler_config));
+
+        let module_code = fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap();
+        let module = Module::new(&store, &module_code).unwrap();
+
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new());
+        let import_object = imports! {
+            "fx" => {
+                "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
+            }
+        };
+        let instance = Instance::new(&mut store, &module, &import_object).unwrap();
+
+        Self {
+            instance,
+            store,
+            function_env,
+        }
     }
+}
+
+struct ExecutionEnv {
+    memory: Option<Memory>,
+    http_response: Option<HttpResponse>,
+}
+
+impl ExecutionEnv {
+    pub fn new() -> Self {
+        Self {
+            memory: None,
+            http_response: None,
+        }
+    }
+}
+
+fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
+    let memory = ctx.data().memory.as_ref().unwrap();
+    let view = memory.view(&ctx);
+
+    let addr = addr as u64;
+    let len = len as u64;
+    let response = view.copy_range_to_vec(addr..addr+len).unwrap();
+    let (response, _): (HttpResponse, _) = bincode::decode_from_slice(&response, bincode::config::standard()).unwrap();
+
+    ctx.data_mut().http_response = Some(response);
 }
