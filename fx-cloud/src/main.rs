@@ -135,9 +135,8 @@ struct ExecutionContext {
 
 impl ExecutionContext {
     pub fn new() -> Self {
-        let cost_function = |_: &Operator| -> u64 { 1 };
         let mut compiler_config = Cranelift::default();
-        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, cost_function)));
+        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
@@ -159,6 +158,8 @@ impl ExecutionContext {
         }
     }
 }
+
+fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 struct ExecutionEnv {
     memory: Option<Memory>,
