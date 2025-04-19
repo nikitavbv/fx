@@ -7,5 +7,4 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-fx-core = { path = "../fx-core" }
-bincode = "2.0.1"
+fx = { path = "../fx" }

@@ -716,11 +716,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-app-hello-world"
+name = "fx"
 version = "0.1.0"
 dependencies = [
  "bincode",
  "fx-core",
+]
+
+[[package]]
+name = "fx-app-hello-world"
+version = "0.1.0"
+dependencies = [
+ "fx",
 ]
 
 [[package]]

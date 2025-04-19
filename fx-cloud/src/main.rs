@@ -86,7 +86,7 @@ impl Engine {
         let memory = ctx.instance.exports.get_memory("memory").unwrap();
         ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
 
-        let client_malloc = ctx.instance.exports.get_function("malloc").unwrap();
+        let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
 
         let request = HttpRequest {
             url: req.uri().to_string(),
