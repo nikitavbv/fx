@@ -1,0 +1,11 @@
+[package]
+name = "fx-cloud"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { version = "1.44.2", features = ["full"] }
+hyper = { version = "1.6.0", features = ["server", "http1"] }
+hyper-util = { version = "0.1.11", features = ["tokio"] }
+http-body-util = "0.1.3"
+rayon = "1.10.0"
