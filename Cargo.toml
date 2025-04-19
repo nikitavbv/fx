@@ -1,5 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "fx-cloud"
+    "fx-cloud",
+    "fx-app-hello-world",
+    "fx-core"
 ]

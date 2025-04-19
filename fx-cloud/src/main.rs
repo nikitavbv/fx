@@ -5,6 +5,7 @@ use {
     hyper::{server::conn::http1, Request, Response, body::Bytes},
     http_body_util::Full,
     rayon::{ThreadPool, ThreadPoolBuilder},
+    thread_local::ThreadLocal,
 };
 
 #[tokio::main]
@@ -46,17 +47,25 @@ impl FxCloud {
 
 struct Engine {
     thread_pool: ThreadPool,
+    execution_context: ThreadLocal<ExecutionContext>,
 }
 
 impl Engine {
     pub fn new() -> Self {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
+            execution_context: ThreadLocal::new(),
         }
     }
 
     pub fn handle(&self, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
+        let execution_context = self.execution_context.get_or(|| self.create_execution_context());
+
         tx.send(Ok(Response::new(Full::new(Bytes::from(format!("hello from thread: {:?}\n", std::thread::current().id())))))).unwrap();
+    }
+
+    fn create_execution_context(&self) -> ExecutionContext {
+        ExecutionContext::new()
     }
 }
 
@@ -71,5 +80,13 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for FxCloud 
         engine.clone().thread_pool.spawn(move || engine.handle(tx, req));
 
         Box::pin(async move { rx.await.unwrap() })
+    }
+}
+
+struct ExecutionContext {}
+
+impl ExecutionContext {
+    pub fn new() -> Self {
+        Self {}
     }
 }
