@@ -4,5 +4,6 @@ members = [
     "fx-cloud",
     "fx-app-hello-world",
     "fx-core",
-    "fx"
+    "fx",
+    "fx-macro"
 ]

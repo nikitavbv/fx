@@ -95,7 +95,7 @@ impl Engine {
         let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(request.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
         memory.view(&mut ctx.store).write(target_addr, &request).unwrap();
 
-        let function = ctx.instance.exports.get_function("handle").unwrap();
+        let function = ctx.instance.exports.get_function("_fx_handle").unwrap();
         function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(request.len() as i64)]).unwrap();
 
         let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {

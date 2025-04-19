@@ -1,9 +1,8 @@
-use fx::{send_http_response, read_http_request, HttpRequest, HttpResponse};
+use fx::{HttpRequest, HttpResponse, handler};
 
-#[unsafe(no_mangle)]
-pub extern "C" fn handle(addr: i64, len: i64) -> i64 {
-    send_http_response(HttpResponse {
-        body: format!("Hello from {:?}", read_http_request(addr, len).url),
-    });
-    0
+#[handler]
+pub fn handle(req: HttpRequest) -> HttpResponse {
+    HttpResponse {
+        body: format!("Hello 2 from {:?}", req.url),
+    }
 }
