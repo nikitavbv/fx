@@ -25,6 +25,8 @@ use {
     fx_core::{HttpResponse, HttpRequest, LogMessage},
 };
 
+mod storage;
+
 #[tokio::main]
 async fn main() {
     println!("starting fx...");
