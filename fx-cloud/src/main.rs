@@ -1,5 +1,5 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex}, convert::Infallible, pin::Pin, fs, ops::DerefMut},
+    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, fs, ops::DerefMut},
     tokio::{net::TcpListener, sync::oneshot::{self, Sender}},
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::{server::conn::http1, Response, body::Bytes},
@@ -32,7 +32,8 @@ mod storage;
 async fn main() {
     println!("starting fx...");
 
-    let fx_cloud = FxCloud::new();
+    let fx_cloud = FxCloud::new()
+        .with_storage(SqliteStorage::new(":memory:"));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -63,12 +64,20 @@ impl FxCloud {
             engine: Arc::new(Engine::new()),
         }
     }
+
+    pub fn with_storage(self, new_storage: SqliteStorage) -> Self {
+        {
+            let mut storage = self.engine.storage.write().unwrap();
+            *storage = new_storage;
+        }
+        self
+    }
 }
 
 struct Engine {
     thread_pool: ThreadPool,
     execution_context: ThreadLocal<Mutex<ExecutionContext>>,
-    storage: SqliteStorage,
+    storage: RwLock<SqliteStorage>,
 }
 
 impl Engine {
@@ -76,7 +85,7 @@ impl Engine {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
             execution_context: ThreadLocal::new(),
-            storage: SqliteStorage::new(":memory:"),
+            storage: RwLock::new(SqliteStorage::new(":memory:")),
         }
     }
 
@@ -115,7 +124,8 @@ impl Engine {
     }
 
     fn create_execution_context(&self) -> ExecutionContext {
-        ExecutionContext::new(Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), self.storage.clone())))
+        let storage = self.storage.read().unwrap();
+        ExecutionContext::new(Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())))
     }
 }
 
