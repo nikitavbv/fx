@@ -14,7 +14,9 @@ pub fn handle(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     let counter = counter + 1;
     kv.set("counter", counter.to_string().as_bytes());
 
+    let instance = kv.get("instance").map(|v| String::from_utf8(v).unwrap());
+
     HttpResponse {
-        body: format!("Hello from {:?}, counter value: {counter:?}", req.url),
+        body: format!("Hello from {:?}, counter value: {counter:?}, instance: {instance:?}", req.url),
     }
 }

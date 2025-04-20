@@ -35,10 +35,13 @@ async fn main() {
     let storage = SqliteStorage::new(":memory:");
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+            .with_key(b"hello-service-a/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+            .with_key(b"hello-service-b/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
         )
         .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
-        .with_service(Service::new(ServiceId::new("hello-service".to_owned())));
+        .with_service(Service::new(ServiceId::new("hello-service-a".to_owned())).with_env_var("demo/instance", "A"))
+        .with_service(Service::new(ServiceId::new("hello-service-b".to_owned())).with_env_var("demo/instance", "B"))
+        .with_http_service(ServiceId::new("hello-service-a".to_owned()));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -93,6 +96,14 @@ impl FxCloud {
         }
         self
     }
+
+    pub fn with_http_service(self, service_id: ServiceId) -> Self {
+        {
+            let mut http_service = self.engine.http_service.write().unwrap();
+            *http_service = service_id;
+        }
+        self
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone)]
@@ -110,13 +121,20 @@ impl ServiceId {
 
 struct Service {
     id: ServiceId,
+    env_vars: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl Service {
     pub fn new(id: ServiceId) -> Self {
         Self {
             id,
+            env_vars: HashMap::new(),
         }
+    }
+
+    pub fn with_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.env_vars.insert(key.into().into_bytes(), value.into().into_bytes());
+        self
     }
 }
 
@@ -125,6 +143,7 @@ struct Engine {
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, ExecutionContext>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
+    http_service: RwLock<ServiceId>,
 
     // general purpose storage:
     storage: RwLock<BoxedStorage>,
@@ -140,6 +159,7 @@ impl Engine {
             execution_contexts: ThreadLocal::new(),
 
             services: RwLock::new(HashMap::new()),
+            http_service: RwLock::new(ServiceId::new("http-service".to_owned())),
 
             storage: RwLock::new(BoxedStorage::new(SqliteStorage::new(":memory:"))),
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
@@ -148,7 +168,7 @@ impl Engine {
 
     pub fn handle(&self, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
         let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
-        let target_service_id = ServiceId::new("hello-service".to_owned());
+        let target_service_id = self.http_service.read().unwrap().clone();
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
         let mut ctxs = ctxs.lock().unwrap();
@@ -192,7 +212,8 @@ impl Engine {
         let storage = self.storage.read().unwrap();
         ExecutionContext::new(
             BoxedStorage::new(NamespacedStorage::new(format!("{}/", service.id.id).as_bytes().to_vec(), storage.clone())),
-            self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap()
+            self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap(),
+            service.env_vars.clone()
         )
     }
 }
@@ -215,10 +236,11 @@ struct ExecutionContext {
     instance: Instance,
     store: Store,
     function_env: FunctionEnv<ExecutionEnv>,
+    env_vars: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl ExecutionContext {
-    pub fn new(storage: BoxedStorage, module_code: Vec<u8>) -> Self {
+    pub fn new(storage: BoxedStorage, module_code: Vec<u8>, env_vars: HashMap<Vec<u8>, Vec<u8>>) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
@@ -226,7 +248,7 @@ impl ExecutionContext {
 
         let module = Module::new(&store, module_code).unwrap();
 
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(storage));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(env_vars.clone(), storage));
         let import_object = imports! {
             "fx" => {
                 "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
@@ -241,6 +263,7 @@ impl ExecutionContext {
             instance,
             store,
             function_env,
+            env_vars,
         }
     }
 }
@@ -251,15 +274,17 @@ struct ExecutionEnv {
     instance: Option<Instance>,
     memory: Option<Memory>,
     http_response: Option<HttpResponse>,
+    env_vars: HashMap<Vec<u8>, Vec<u8>>,
     storage: BoxedStorage,
 }
 
 impl ExecutionEnv {
-    pub fn new(storage: BoxedStorage) -> Self {
+    pub fn new(env_vars: HashMap<Vec<u8>, Vec<u8>>, storage: BoxedStorage) -> Self {
         Self {
             instance: None,
             memory: None,
             http_response: None,
+            env_vars,
             storage,
         }
     }
@@ -297,7 +322,14 @@ fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len:
 
 fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) -> i64 {
     let key = read_memory_owned(&ctx, k_addr, k_len);
-    let value = ctx.data().storage.get(&key);
+    let value = {
+        let ctx = ctx.data();
+        if let Some(value) = ctx.env_vars.get(&key) {
+            Some(value.clone())
+        } else {
+            ctx.storage.get(&key)
+        }
+    };
     let value = match value {
         Some(v) => v,
         None => return 1,
