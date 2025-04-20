@@ -23,6 +23,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     fx_core::{HttpResponse, HttpRequest, LogMessage},
+    crate::storage::{KVStorage, SqliteStorage},
 };
 
 mod storage;
@@ -67,6 +68,7 @@ impl FxCloud {
 struct Engine {
     thread_pool: ThreadPool,
     execution_context: ThreadLocal<Mutex<ExecutionContext>>,
+    storage: SqliteStorage,
 }
 
 impl Engine {
@@ -74,6 +76,7 @@ impl Engine {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
             execution_context: ThreadLocal::new(),
+            storage: SqliteStorage::new(":memory:"),
         }
     }
 
@@ -112,7 +115,7 @@ impl Engine {
     }
 
     fn create_execution_context(&self) -> ExecutionContext {
-        ExecutionContext::new()
+        ExecutionContext::new(self.storage.clone())
     }
 }
 
@@ -137,7 +140,7 @@ struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new() -> Self {
+    pub fn new(storage: SqliteStorage) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
@@ -146,7 +149,7 @@ impl ExecutionContext {
         let module_code = fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap();
         let module = Module::new(&store, &module_code).unwrap();
 
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new());
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(storage));
         let import_object = imports! {
             "fx" => {
                 "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
@@ -171,14 +174,16 @@ struct ExecutionEnv {
     instance: Option<Instance>,
     memory: Option<Memory>,
     http_response: Option<HttpResponse>,
+    storage: SqliteStorage,
 }
 
 impl ExecutionEnv {
-    pub fn new() -> Self {
+    pub fn new(storage: SqliteStorage) -> Self {
         Self {
             instance: None,
             memory: None,
             http_response: None,
+            storage,
         }
     }
 
@@ -213,20 +218,29 @@ fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len:
     ctx.data_mut().http_response = Some(decode_memory(&ctx, addr, len));
 }
 
-fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) {
-    let value = "Hello KV!".to_owned();
-    let value = value.as_bytes();
+fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) -> i64 {
+    let key = read_memory_owned(&ctx, k_addr, k_len);
+    let value = ctx.data().storage.get(&key);
+    let value = match value {
+        Some(v) => v,
+        None => return 1,
+    };
+
     let (data, mut store) = ctx.data_and_store_mut();
 
     let len = value.len() as i64;
     let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, value);
+    write_memory(&ctx, ptr, &value);
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+
+    0
 }
 
-fn api_kv_set(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
-    unimplemented!()
+fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
+    let key = read_memory_owned(&ctx, k_addr, k_len);
+    let value = read_memory_owned(&ctx, v_addr, v_len);
+    ctx.data().storage.set(&key, &value);
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
