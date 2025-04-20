@@ -66,3 +66,14 @@ impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
     fn set(&self, key: &[u8], value: &[u8]) { self.inner.set(&self.namespaced_key(key), value) }
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> { self.inner.get(&self.namespaced_key(key)) }
 }
+
+pub trait WithKey {
+    fn with_key(self, key: &[u8], value: &[u8]) -> Self;
+}
+
+impl<S: KVStorage> WithKey for S {
+    fn with_key(self, key: &[u8], value: &[u8]) -> Self {
+        self.set(key, value);
+        self
+    }
+}

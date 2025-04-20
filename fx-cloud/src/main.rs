@@ -23,7 +23,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     fx_core::{HttpResponse, HttpRequest, LogMessage},
-    crate::storage::{KVStorage, SqliteStorage, NamespacedStorage},
+    crate::storage::{KVStorage, SqliteStorage, NamespacedStorage, WithKey},
 };
 
 mod storage;
@@ -33,7 +33,9 @@ async fn main() {
     println!("starting fx...");
 
     let fx_cloud = FxCloud::new()
-        .with_storage(SqliteStorage::new(":memory:"));
+        .with_storage(SqliteStorage::new(":memory:")
+            .with_key(b"services/service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+        );
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -125,7 +127,10 @@ impl Engine {
 
     fn create_execution_context(&self) -> ExecutionContext {
         let storage = self.storage.read().unwrap();
-        ExecutionContext::new(Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())))
+        ExecutionContext::new(
+            Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())),
+            NamespacedStorage::new("services/", storage.clone()).get(b"service").unwrap()
+        )
     }
 }
 
@@ -150,14 +155,13 @@ struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new(storage: Box<dyn KVStorage + Send>) -> Self {
+    pub fn new(storage: Box<dyn KVStorage + Send>, module_code: Vec<u8>) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
-        let module_code = fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap();
-        let module = Module::new(&store, &module_code).unwrap();
+        let module = Module::new(&store, module_code).unwrap();
 
         let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(storage));
         let import_object = imports! {
