@@ -147,6 +147,8 @@ impl ExecutionContext {
         let import_object = imports! {
             "fx" => {
                 "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
+                "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
+                "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
             }
         };
         let instance = Instance::new(&mut store, &module, &import_object).unwrap();
@@ -185,4 +187,12 @@ fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len:
     let (response, _): (HttpResponse, _) = bincode::decode_from_slice(&response, bincode::config::standard()).unwrap();
 
     ctx.data_mut().http_response = Some(response);
+}
+
+fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64) -> (i64, i64) {
+    unimplemented!()
+}
+
+fn api_kv_set(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
+    unimplemented!()
 }
