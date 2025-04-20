@@ -23,7 +23,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     fx_core::{HttpResponse, HttpRequest, LogMessage},
-    crate::storage::{KVStorage, SqliteStorage, NamespacedStorage, WithKey},
+    crate::storage::{KVStorage, SqliteStorage, NamespacedStorage, EmptyStorage, WithKey, BoxedStorage},
 };
 
 mod storage;
@@ -32,10 +32,12 @@ mod storage;
 async fn main() {
     println!("starting fx...");
 
+    let storage = SqliteStorage::new(":memory:");
     let fx_cloud = FxCloud::new()
-        .with_storage(SqliteStorage::new(":memory:")
-            .with_key(b"services/service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
-        );
+        .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
+            .with_key(b"service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+        )
+        .with_storage(storage);
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -70,6 +72,14 @@ impl FxCloud {
     pub fn with_storage(self, new_storage: SqliteStorage) -> Self {
         {
             let mut storage = self.engine.storage.write().unwrap();
+            *storage = new_storage.clone();
+        }
+        self
+    }
+
+    pub fn with_code_storage(self, new_storage: BoxedStorage) -> Self {
+        {
+            let mut storage = self.engine.module_code_storage.write().unwrap();
             *storage = new_storage;
         }
         self
@@ -79,7 +89,12 @@ impl FxCloud {
 struct Engine {
     thread_pool: ThreadPool,
     execution_context: ThreadLocal<Mutex<ExecutionContext>>,
+
+    // general purpose storage:
     storage: RwLock<SqliteStorage>,
+
+    // internal storage where .wasm is loaded from:
+    module_code_storage: RwLock<BoxedStorage>,
 }
 
 impl Engine {
@@ -87,7 +102,9 @@ impl Engine {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
             execution_context: ThreadLocal::new(),
+
             storage: RwLock::new(SqliteStorage::new(":memory:")),
+            module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }
     }
 
@@ -129,7 +146,7 @@ impl Engine {
         let storage = self.storage.read().unwrap();
         ExecutionContext::new(
             Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())),
-            NamespacedStorage::new("services/", storage.clone()).get(b"service").unwrap()
+            self.module_code_storage.read().unwrap().get(b"service").unwrap()
         )
     }
 }

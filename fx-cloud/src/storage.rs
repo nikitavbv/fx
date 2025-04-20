@@ -67,6 +67,35 @@ impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> { self.inner.get(&self.namespaced_key(key)) }
 }
 
+pub struct EmptyStorage;
+
+impl KVStorage for EmptyStorage {
+    fn get(&self, _key: &[u8]) -> Option<Vec<u8>> { None }
+    fn set(&self, _key: &[u8], _value: &[u8]) {}
+}
+
+pub struct BoxedStorage {
+    inner: Box<dyn KVStorage + Send + Sync>,
+}
+
+impl BoxedStorage {
+    pub fn new<T: KVStorage + Send + Sync + 'static>(inner: T) -> Self {
+        Self {
+            inner: Box::new(inner),
+        }
+    }
+}
+
+impl KVStorage for BoxedStorage {
+    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+        self.inner.get(key)
+    }
+
+    fn set(&self, key: &[u8], value: &[u8]) {
+        self.inner.set(key, value)
+    }
+}
+
 pub trait WithKey {
     fn with_key(self, key: &[u8], value: &[u8]) -> Self;
 }
