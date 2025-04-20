@@ -37,7 +37,7 @@ async fn main() {
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
             .with_key(b"service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
         )
-        .with_storage(BoxedStorage::new(storage));
+        .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
