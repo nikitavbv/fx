@@ -1,7 +1,11 @@
-mod sys;
+pub use {
+    fx_core::{HttpRequest, HttpResponse},
+    fx_macro::handler,
+};
 
-pub use fx_core::{HttpRequest, HttpResponse};
-pub use fx_macro::handler;
+use crate::sys::{read_memory, read_memory_owned};
+
+mod sys;
 
 pub struct FxCtx {
 }
@@ -11,12 +15,43 @@ impl FxCtx {
         Self {
         }
     }
+
+    pub fn kv(&self, namespace: impl Into<String>) -> KvStore {
+        KvStore::new(namespace)
+    }
+}
+
+pub struct KvStore {
+    namespace: String,
+}
+
+impl KvStore {
+    pub(crate) fn new(namespace: impl Into<String>) -> Self {
+        Self {
+            namespace: namespace.into(),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Vec<u8> {
+        let key = self.namespaced(key);
+        let key = key.as_bytes();
+        let (addr, len) = unsafe { sys::kv_get(key.as_ptr() as i64, key.len() as i64) };
+        read_memory_owned(addr, len)
+    }
+
+    pub fn set(&self, key: &str, value: &[u8]) {
+        let key = self.namespaced(key);
+        let key = key.as_bytes();
+        unsafe { sys::kv_set(key.as_ptr() as i64, key.len() as i64, value.as_ptr() as i64, value.len() as i64) };
+    }
+
+    fn namespaced(&self, key: &str) -> String {
+        format!("{}/{}", self.namespace, key)
+    }
 }
 
 pub fn read_http_request(addr: i64, len: i64) -> HttpRequest {
-    let request = unsafe { std::slice::from_raw_parts(addr as *const u8, len as usize) };
-    let (request, _): (HttpRequest, _) = bincode::decode_from_slice(&request, bincode::config::standard()).unwrap();
-    request
+    bincode::decode_from_slice(read_memory(addr, len), bincode::config::standard()).unwrap().0
 }
 
 pub fn send_http_response(response: HttpResponse) {
