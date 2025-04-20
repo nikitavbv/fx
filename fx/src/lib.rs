@@ -3,6 +3,16 @@ mod sys;
 pub use fx_core::{HttpRequest, HttpResponse};
 pub use fx_macro::handler;
 
+pub struct FxCtx {
+}
+
+impl FxCtx {
+    pub fn new() -> Self {
+        Self {
+        }
+    }
+}
+
 pub fn read_http_request(addr: i64, len: i64) -> HttpRequest {
     let request = unsafe { std::slice::from_raw_parts(addr as *const u8, len as usize) };
     let (request, _): (HttpRequest, _) = bincode::decode_from_slice(&request, bincode::config::standard()).unwrap();

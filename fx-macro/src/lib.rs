@@ -18,7 +18,7 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let ffi_fn = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn _fx_handle(addr: i64, len: i64) -> i64 {
-            fx::send_http_response(#fn_name(fx::read_http_request(addr, len)));
+            fx::send_http_response(#fn_name(fx::FxCtx::new(), fx::read_http_request(addr, len)));
             0
         }
     };
