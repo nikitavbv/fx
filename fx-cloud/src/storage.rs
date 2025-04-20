@@ -1,21 +1,23 @@
-use sqlite::{Connection, State};
+use {
+    std::sync::Arc,
+    sqlite::{Connection, State},
+};
 
 pub trait KVStorage {
     fn set(&self, key: &[u8], value: &[u8]);
     fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
 }
 
+#[derive(Clone)]
 struct SqliteStorage {
-    connection: Connection,
+    connection: Arc<Connection>,
 }
 
 impl SqliteStorage {
     pub fn new(path: impl AsRef<std::path::Path>) -> Self {
         let connection = sqlite::open(path).unwrap();
         connection.execute("create table kv (key blob primary key, value blob primary key)").unwrap();
-        Self {
-            connection,
-        }
+        Self { connection: Arc::new(connection) }
     }
 }
 
