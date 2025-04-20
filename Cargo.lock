@@ -731,6 +731,16 @@ dependencies = [
 name = "fx-app-hello-world"
 version = "0.1.0"
 dependencies = [
+ "bincode",
+ "fx",
+ "tracing",
+]
+
+[[package]]
+name = "fx-app-rpc-test-service"
+version = "0.1.0"
+dependencies = [
+ "bincode",
  "fx",
  "tracing",
 ]
@@ -763,6 +773,7 @@ dependencies = [
 name = "fx-macro"
 version = "0.1.0"
 dependencies = [
+ "proc-macro2",
  "quote",
  "syn 2.0.100",
 ]

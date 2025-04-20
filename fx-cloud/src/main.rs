@@ -1,5 +1,5 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, fs, collections::HashMap},
+    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, fs, collections::HashMap, ops::DerefMut},
     tokio::{net::TcpListener, sync::oneshot::{self, Sender}},
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::{server::conn::http1, Response, body::Bytes},
@@ -37,10 +37,12 @@ async fn main() {
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
             .with_key(b"hello-service-a/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
             .with_key(b"hello-service-b/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+            .with_key(b"rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm").unwrap())
         )
         .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
         .with_service(Service::new(ServiceId::new("hello-service-a".to_owned())).with_env_var("demo/instance", "A"))
         .with_service(Service::new(ServiceId::new("hello-service-b".to_owned())).with_env_var("demo/instance", "B"))
+        .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
         .with_http_service(ServiceId::new("hello-service-a".to_owned()));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
@@ -140,7 +142,7 @@ impl Service {
 
 struct Engine {
     thread_pool: ThreadPool,
-    execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, ExecutionContext>>>,
+    execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
     http_service: RwLock<ServiceId>,
@@ -166,18 +168,27 @@ impl Engine {
         }
     }
 
-    pub fn handle(&self, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
+    pub fn handle(&self, engine: Arc<Engine>, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
+        let started_at = std::time::Instant::now();
+
+        // TODO: http is basically another rpc call
         let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
         let target_service_id = self.http_service.read().unwrap().clone();
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
-        let mut ctxs = ctxs.lock().unwrap();
-        if !ctxs.contains_key(&target_service_id) {
-            let services = self.services.read().unwrap();
-            let service = services.get(&target_service_id).unwrap();
-            ctxs.insert(target_service_id.clone(), self.create_execution_context(&service));
-        }
-        let ctx = ctxs.get_mut(&target_service_id).unwrap();
+        let ctx = {
+            let mut ctxs = ctxs.lock().unwrap();
+            if !ctxs.contains_key(&target_service_id) {
+                let services = self.services.read().unwrap();
+                let service = services.get(&target_service_id).unwrap();
+                ctxs.insert(target_service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service))));
+            }
+            let ctx = ctxs.get(&target_service_id);
+            let ctx = ctx.unwrap().clone();
+            ctx
+        };
+        let mut ctx = ctx.lock().unwrap();
+        let mut ctx = ctx.deref_mut();
 
         let points_before = u64::MAX;
         set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
@@ -202,15 +213,58 @@ impl Engine {
             MeteringPoints::Remaining(v) => v,
             MeteringPoints::Exhausted => panic!("didn't expect that"),
         };
-        println!("points used: {:?}", points_used);
 
         let response_body = ctx.function_env.as_ref(&mut ctx.store).http_response.as_ref().unwrap().body.as_bytes().to_vec();
         tx.send(Ok(Response::new(Full::new(Bytes::from(response_body))))).unwrap();
+
+        println!("points used: {:?}, total wall clock time: {:?}", points_used, std::time::Instant::now() - started_at);
     }
 
-    fn create_execution_context(&self, service: &Service) -> ExecutionContext {
+    fn handle_rpc(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+        let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
+
+        // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
+        let ctx = {
+            let mut ctxs = ctxs.lock().unwrap();
+            if !ctxs.contains_key(&service_id) {
+                let services = self.services.read().unwrap();
+                let service = services.get(&service_id).unwrap();
+                ctxs.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service))));
+            }
+            let ctx = ctxs.get(&service_id);
+            let ctx = ctx.unwrap().clone();
+            ctx
+        };
+        let mut ctx = ctx.lock().unwrap();
+        let ctx = ctx.deref_mut();
+
+        let points_before = u64::MAX;
+        set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
+
+        let memory = ctx.instance.exports.get_memory("memory").unwrap();
+        ctx.function_env.as_mut(&mut ctx.store).instance = Some(ctx.instance.clone());
+        ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
+
+        let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
+        let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
+        memory.view(&mut ctx.store).write(target_addr, &argument).unwrap();
+
+        let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}")).unwrap();
+        function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)]).unwrap();
+
+        let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
+            MeteringPoints::Remaining(v) => v,
+            MeteringPoints::Exhausted => panic!("didn't expect that"),
+        };
+        println!("points used: {:?}", points_used);
+
+        ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone()
+    }
+
+    fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> ExecutionContext {
         let storage = self.storage.read().unwrap();
         ExecutionContext::new(
+            engine,
             BoxedStorage::new(NamespacedStorage::new(format!("{}/", service.id.id).as_bytes().to_vec(), storage.clone())),
             self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap(),
             service.env_vars.clone()
@@ -226,7 +280,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for FxCloud 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
         let (tx, rx) = oneshot::channel();
         let engine = self.engine.clone();
-        engine.clone().thread_pool.spawn(move || engine.handle(tx, req));
+        engine.clone().thread_pool.spawn(move || engine.clone().handle(engine, tx, req));
 
         Box::pin(async move { rx.await.unwrap() })
     }
@@ -239,17 +293,18 @@ struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new(storage: BoxedStorage, module_code: Vec<u8>, env_vars: HashMap<Vec<u8>, Vec<u8>>) -> Self {
+    pub fn new(engine: Arc<Engine>, storage: BoxedStorage, module_code: Vec<u8>, env_vars: HashMap<Vec<u8>, Vec<u8>>) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = Module::new(&store, module_code).unwrap();
-
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(env_vars, storage));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, env_vars, storage));
         let import_object = imports! {
             "fx" => {
+                "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
+                "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
@@ -269,18 +324,22 @@ impl ExecutionContext {
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 struct ExecutionEnv {
+    engine: Arc<Engine>,
     instance: Option<Instance>,
     memory: Option<Memory>,
+    rpc_response: Option<Vec<u8>>,
     http_response: Option<HttpResponse>,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
     storage: BoxedStorage,
 }
 
 impl ExecutionEnv {
-    pub fn new(env_vars: HashMap<Vec<u8>, Vec<u8>>, storage: BoxedStorage) -> Self {
+    pub fn new(engine: Arc<Engine>, env_vars: HashMap<Vec<u8>, Vec<u8>>, storage: BoxedStorage) -> Self {
         Self {
+            engine,
             instance: None,
             memory: None,
+            rpc_response: None,
             http_response: None,
             env_vars,
             storage,
@@ -312,6 +371,36 @@ fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
 
 fn decode_memory<T: bincode::de::Decode<()>>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> T {
     bincode::decode_from_slice(&read_memory_owned(&ctx, addr, len), bincode::config::standard()).unwrap().0
+}
+
+fn api_rpc(
+    mut ctx: FunctionEnvMut<ExecutionEnv>,
+    service_name_ptr: i64,
+    service_name_len: i64,
+    function_name_ptr: i64,
+    function_name_len: i64,
+    arg_ptr: i64,
+    arg_len: i64,
+    output_ptr: i64,
+) {
+    let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
+    let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
+    let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
+
+    let engine = ctx.data().engine.clone();
+    let return_value = engine.clone().handle_rpc(engine, &service_id, &function_name, argument);
+
+    let (data, mut store) = ctx.data_and_store_mut();
+
+    let len = return_value.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &return_value);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+}
+
+fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
+    ctx.data_mut().rpc_response = Some(read_memory_owned(&ctx, addr, len));
 }
 
 fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {

@@ -5,5 +5,6 @@ members = [
     "fx-app-hello-world",
     "fx-core",
     "fx",
-    "fx-macro"
+    "fx-macro",
+    "fx-app-rpc-test-service"
 ]
