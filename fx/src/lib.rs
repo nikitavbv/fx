@@ -42,8 +42,10 @@ impl KvStore {
     pub fn get(&self, key: &str) -> Vec<u8> {
         let key = self.namespaced(key);
         let key = key.as_bytes();
-        let (addr, len) = unsafe { sys::kv_get(key.as_ptr() as i64, key.len() as i64) };
-        read_memory_owned(addr, len)
+        tracing::info!("calling with {} {}", key.as_ptr() as i64, key.len() as i64);
+        let ptr_and_len = sys::PtrWithLen::new();
+        unsafe { sys::kv_get(key.as_ptr() as i64, key.len() as i64, ptr_and_len.ptr_to_self()) };
+        ptr_and_len.read_owned()
     }
 
     pub fn set(&self, key: &str, value: &[u8]) {

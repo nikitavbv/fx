@@ -84,6 +84,7 @@ impl Engine {
         set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
 
         let memory = ctx.instance.exports.get_memory("memory").unwrap();
+        ctx.function_env.as_mut(&mut ctx.store).instance = Some(ctx.instance.clone());
         ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
 
         let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
@@ -165,6 +166,7 @@ impl ExecutionContext {
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 struct ExecutionEnv {
+    instance: Option<Instance>,
     memory: Option<Memory>,
     http_response: Option<HttpResponse>,
 }
@@ -172,9 +174,14 @@ struct ExecutionEnv {
 impl ExecutionEnv {
     pub fn new() -> Self {
         Self {
+            instance: None,
             memory: None,
             http_response: None,
         }
+    }
+
+    fn client_malloc(&self) -> &Function {
+        self.instance.as_ref().unwrap().exports.get_function("_fx_malloc").unwrap()
     }
 }
 
@@ -186,6 +193,16 @@ fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) ->
     view.copy_range_to_vec(addr..addr+len).unwrap()
 }
 
+fn write_memory_obj<T: Sized>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, obj: T) {
+    write_memory(ctx, addr, unsafe { std::slice::from_raw_parts(&obj as *const T as *const u8, std::mem::size_of_val(&obj)) });
+}
+
+fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
+    let memory = ctx.data().memory.as_ref().unwrap();
+    let view = memory.view(&ctx);
+    view.write(addr as u64, value).unwrap();
+}
+
 fn decode_memory<T: bincode::de::Decode<()>>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> T {
     bincode::decode_from_slice(&read_memory_owned(&ctx, addr, len), bincode::config::standard()).unwrap().0
 }
@@ -194,8 +211,16 @@ fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len:
     ctx.data_mut().http_response = Some(decode_memory(&ctx, addr, len));
 }
 
-fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64) -> (i64, i64) {
-    unimplemented!()
+fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) {
+    let value = "Hello KV!".to_owned();
+    let value = value.as_bytes();
+    let (data, mut store) = ctx.data_and_store_mut();
+
+    let len = value.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, value);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_kv_set(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
@@ -205,4 +230,10 @@ fn api_kv_set(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
     println!("service: {:?}", msg);
+}
+
+#[repr(C)]
+pub(crate) struct PtrWithLen {
+    pub ptr: i64,
+    pub len: i64,
 }

@@ -9,8 +9,36 @@ pub extern "C" fn _fx_malloc(size: i64) -> i64 {
 unsafe extern "C" {
     pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn send_http_response(ptr: i64, len: i64);
-    pub(crate) fn kv_get(ptr: i64, len: i64) -> (i64, i64);
+    pub(crate) fn kv_get(ptr: i64, len: i64, output_ptr: i64);
     pub(crate) fn kv_set(k_ptr: i64, k_len: i64, v_ptr: i64, v_len: i64);
+}
+
+#[derive(Debug)]
+#[repr(C)]
+pub(crate) struct PtrWithLen {
+    pub ptr: i64,
+    pub len: i64,
+}
+
+impl PtrWithLen {
+    pub fn new() -> Self {
+        Self {
+            ptr: 0,
+            len: 0,
+        }
+    }
+
+    pub fn ptr_to_self(&self) -> i64 {
+        self as *const PtrWithLen as i64
+    }
+
+    pub fn read<'a>(&'a self) -> &'a [u8] {
+        read_memory(self.ptr, self.len)
+    }
+
+    pub fn read_owned(&self) -> Vec<u8> {
+        read_memory_owned(self.ptr, self.len)
+    }
 }
 
 // utils:
