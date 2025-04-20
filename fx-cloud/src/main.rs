@@ -236,7 +236,6 @@ struct ExecutionContext {
     instance: Instance,
     store: Store,
     function_env: FunctionEnv<ExecutionEnv>,
-    env_vars: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl ExecutionContext {
@@ -248,7 +247,7 @@ impl ExecutionContext {
 
         let module = Module::new(&store, module_code).unwrap();
 
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(env_vars.clone(), storage));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(env_vars, storage));
         let import_object = imports! {
             "fx" => {
                 "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
@@ -263,7 +262,6 @@ impl ExecutionContext {
             instance,
             store,
             function_env,
-            env_vars,
         }
     }
 }
