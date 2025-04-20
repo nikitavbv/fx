@@ -1,5 +1,5 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, fs, ops::DerefMut},
+    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, fs, collections::HashMap},
     tokio::{net::TcpListener, sync::oneshot::{self, Sender}},
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::{server::conn::http1, Response, body::Bytes},
@@ -35,9 +35,10 @@ async fn main() {
     let storage = SqliteStorage::new(":memory:");
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+            .with_key(b"hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
         )
-        .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)));
+        .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
+        .with_service(Service::new(ServiceId::new("hello-service".to_owned())));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -69,6 +70,14 @@ impl FxCloud {
         }
     }
 
+    pub fn with_service(self, service: Service) -> Self {
+        {
+            let mut services = self.engine.services.write().unwrap();
+            services.insert(service.id.clone(), service);
+        }
+        self
+    }
+
     pub fn with_storage(self, new_storage: BoxedStorage) -> Self {
         {
             let mut storage = self.engine.storage.write().unwrap();
@@ -86,9 +95,36 @@ impl FxCloud {
     }
 }
 
+#[derive(Hash, Eq, PartialEq, Clone)]
+struct ServiceId {
+    id: String,
+}
+
+impl ServiceId {
+    pub fn new(id: String) -> Self {
+        Self {
+            id,
+        }
+    }
+}
+
+struct Service {
+    id: ServiceId,
+}
+
+impl Service {
+    pub fn new(id: ServiceId) -> Self {
+        Self {
+            id,
+        }
+    }
+}
+
 struct Engine {
     thread_pool: ThreadPool,
-    execution_context: ThreadLocal<Mutex<ExecutionContext>>,
+    execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, ExecutionContext>>>,
+
+    services: RwLock<HashMap<ServiceId, Service>>,
 
     // general purpose storage:
     storage: RwLock<BoxedStorage>,
@@ -101,7 +137,9 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
-            execution_context: ThreadLocal::new(),
+            execution_contexts: ThreadLocal::new(),
+
+            services: RwLock::new(HashMap::new()),
 
             storage: RwLock::new(BoxedStorage::new(SqliteStorage::new(":memory:"))),
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
@@ -109,9 +147,17 @@ impl Engine {
     }
 
     pub fn handle(&self, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
-        let ctx = self.execution_context.get_or(|| Mutex::new(self.create_execution_context()));
-        let mut ctx = ctx.lock().unwrap();
-        let ctx = ctx.deref_mut();
+        let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
+        let target_service_id = ServiceId::new("hello-service".to_owned());
+
+        // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
+        let mut ctxs = ctxs.lock().unwrap();
+        if !ctxs.contains_key(&target_service_id) {
+            let services = self.services.read().unwrap();
+            let service = services.get(&target_service_id).unwrap();
+            ctxs.insert(target_service_id.clone(), self.create_execution_context(&service));
+        }
+        let ctx = ctxs.get_mut(&target_service_id).unwrap();
 
         let points_before = u64::MAX;
         set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
@@ -142,11 +188,11 @@ impl Engine {
         tx.send(Ok(Response::new(Full::new(Bytes::from(response_body))))).unwrap();
     }
 
-    fn create_execution_context(&self) -> ExecutionContext {
+    fn create_execution_context(&self, service: &Service) -> ExecutionContext {
         let storage = self.storage.read().unwrap();
         ExecutionContext::new(
-            BoxedStorage::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())),
-            self.module_code_storage.read().unwrap().get(b"service").unwrap()
+            BoxedStorage::new(NamespacedStorage::new(format!("{}/", service.id.id).as_bytes().to_vec(), storage.clone())),
+            self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap()
         )
     }
 }
