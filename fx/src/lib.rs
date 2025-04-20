@@ -1,11 +1,13 @@
 pub use {
     fx_core::{HttpRequest, HttpResponse},
     fx_macro::handler,
+    crate::logging::FxLoggingLayer,
 };
 
 use crate::sys::{read_memory, read_memory_owned};
 
 mod sys;
+mod logging;
 
 pub struct FxCtx {
 }
@@ -14,6 +16,11 @@ impl FxCtx {
     pub fn new() -> Self {
         Self {
         }
+    }
+
+    pub fn init_logger(&self) {
+        use tracing_subscriber::prelude::*;
+        tracing::subscriber::set_global_default(tracing_subscriber::Registry::default().with(FxLoggingLayer)).unwrap();
     }
 
     pub fn kv(&self, namespace: impl Into<String>) -> KvStore {

@@ -22,7 +22,7 @@ use {
         imports,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    fx_core::{HttpResponse, HttpRequest},
+    fx_core::{HttpResponse, HttpRequest, LogMessage},
 };
 
 #[tokio::main]
@@ -149,6 +149,7 @@ impl ExecutionContext {
                 "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
+                "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
             }
         };
         let instance = Instance::new(&mut store, &module, &import_object).unwrap();
@@ -177,16 +178,20 @@ impl ExecutionEnv {
     }
 }
 
-fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
+fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {
     let memory = ctx.data().memory.as_ref().unwrap();
     let view = memory.view(&ctx);
-
     let addr = addr as u64;
     let len = len as u64;
-    let response = view.copy_range_to_vec(addr..addr+len).unwrap();
-    let (response, _): (HttpResponse, _) = bincode::decode_from_slice(&response, bincode::config::standard()).unwrap();
+    view.copy_range_to_vec(addr..addr+len).unwrap()
+}
 
-    ctx.data_mut().http_response = Some(response);
+fn decode_memory<T: bincode::de::Decode<()>>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> T {
+    bincode::decode_from_slice(&read_memory_owned(&ctx, addr, len), bincode::config::standard()).unwrap().0
+}
+
+fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
+    ctx.data_mut().http_response = Some(decode_memory(&ctx, addr, len));
 }
 
 fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64) -> (i64, i64) {
@@ -195,4 +200,9 @@ fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64) ->
 
 fn api_kv_set(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
     unimplemented!()
+}
+
+fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
+    let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
+    println!("service: {:?}", msg);
 }

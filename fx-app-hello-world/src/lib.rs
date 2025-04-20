@@ -1,8 +1,15 @@
-use fx::{FxCtx, HttpRequest, HttpResponse, handler};
+use {
+    fx::{FxCtx, HttpRequest, HttpResponse, handler},
+    tracing::info,
+};
 
 #[handler]
-pub fn handle(_ctx: FxCtx, req: HttpRequest) -> HttpResponse {
+pub fn handle(ctx: FxCtx, req: HttpRequest) -> HttpResponse {
+    ctx.init_logger();
+
+    info!("hello from wasm service!");
+
     HttpResponse {
-        body: format!("Hello 2 from {:?}", req.url),
+        body: format!("Hello from {:?}", req.url),
     }
 }

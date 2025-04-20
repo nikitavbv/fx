@@ -7,4 +7,5 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
+tracing = "0.1.41"
 fx = { path = "../fx" }

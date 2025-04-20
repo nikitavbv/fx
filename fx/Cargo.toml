@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 bincode = "2.0.1"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
 
 fx-core = { path = "../fx-core" }
 fx-macro = { path = "../fx-macro" }

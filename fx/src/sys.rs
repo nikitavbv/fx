@@ -7,6 +7,7 @@ pub extern "C" fn _fx_malloc(size: i64) -> i64 {
 // imports:
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
+    pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn send_http_response(ptr: i64, len: i64);
     pub(crate) fn kv_get(ptr: i64, len: i64) -> (i64, i64);
     pub(crate) fn kv_set(k_ptr: i64, k_len: i64, v_ptr: i64, v_len: i64);
