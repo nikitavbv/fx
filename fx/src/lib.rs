@@ -1,6 +1,6 @@
 pub use {
     fx_core::{HttpRequest, HttpResponse},
-    fx_macro::{handler, rpc},
+    fx_macro::rpc,
 };
 
 use {
@@ -97,15 +97,6 @@ impl KvStore {
     fn namespaced(&self, key: &str) -> String {
         format!("{}/{}", self.namespace, key)
     }
-}
-
-pub fn read_http_request(addr: i64, len: i64) -> HttpRequest {
-    bincode::decode_from_slice(read_memory(addr, len), bincode::config::standard()).unwrap().0
-}
-
-pub fn send_http_response(response: HttpResponse) {
-    let response = bincode::encode_to_vec(response, bincode::config::standard()).unwrap();
-    unsafe { sys::send_http_response(response.as_ptr() as i64, response.len() as i64); }
 }
 
 pub fn read_rpc_request<T: bincode::Decode<()>>(addr: i64, len: i64) -> T {

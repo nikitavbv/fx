@@ -169,55 +169,11 @@ impl Engine {
     }
 
     pub fn handle(&self, engine: Arc<Engine>, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
-        let started_at = std::time::Instant::now();
-
-        // TODO: http is basically another rpc call
-        let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
-        let target_service_id = self.http_service.read().unwrap().clone();
-
-        // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
-        let ctx = {
-            let mut ctxs = ctxs.lock().unwrap();
-            if !ctxs.contains_key(&target_service_id) {
-                let services = self.services.read().unwrap();
-                let service = services.get(&target_service_id).unwrap();
-                ctxs.insert(target_service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service))));
-            }
-            let ctx = ctxs.get(&target_service_id);
-            let ctx = ctx.unwrap().clone();
-            ctx
-        };
-        let mut ctx = ctx.lock().unwrap();
-        let mut ctx = ctx.deref_mut();
-
-        let points_before = u64::MAX;
-        set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
-
-        let memory = ctx.instance.exports.get_memory("memory").unwrap();
-        ctx.function_env.as_mut(&mut ctx.store).instance = Some(ctx.instance.clone());
-        ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
-
-        let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
-
-        let request = HttpRequest {
-            url: req.uri().to_string(),
-        };
+        let request = HttpRequest { url: req.uri().to_string() };
         let request = bincode::encode_to_vec(&request, bincode::config::standard()).unwrap();
-        let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(request.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
-        memory.view(&mut ctx.store).write(target_addr, &request).unwrap();
-
-        let function = ctx.instance.exports.get_function("_fx_handle").unwrap();
-        function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(request.len() as i64)]).unwrap();
-
-        let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
-            MeteringPoints::Remaining(v) => v,
-            MeteringPoints::Exhausted => panic!("didn't expect that"),
-        };
-
-        let response_body = ctx.function_env.as_ref(&mut ctx.store).http_response.as_ref().unwrap().body.as_bytes().to_vec();
-        tx.send(Ok(Response::new(Full::new(Bytes::from(response_body))))).unwrap();
-
-        println!("points used: {:?}, total wall clock time: {:?}", points_used, std::time::Instant::now() - started_at);
+        let response = self.handle_rpc(engine, &self.http_service.read().unwrap(), "http", request);
+        let response: HttpResponse = bincode::decode_from_slice(&response, bincode::config::standard()).unwrap().0;
+        tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap();
     }
 
     fn handle_rpc(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
@@ -305,7 +261,6 @@ impl ExecutionContext {
             "fx" => {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
-                "send_http_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_http_response),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
@@ -328,7 +283,6 @@ struct ExecutionEnv {
     instance: Option<Instance>,
     memory: Option<Memory>,
     rpc_response: Option<Vec<u8>>,
-    http_response: Option<HttpResponse>,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
     storage: BoxedStorage,
 }
@@ -340,7 +294,6 @@ impl ExecutionEnv {
             instance: None,
             memory: None,
             rpc_response: None,
-            http_response: None,
             env_vars,
             storage,
         }
@@ -401,10 +354,6 @@ fn api_rpc(
 
 fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
     ctx.data_mut().rpc_response = Some(read_memory_owned(&ctx, addr, len));
-}
-
-fn api_send_http_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
-    ctx.data_mut().http_response = Some(decode_memory(&ctx, addr, len));
 }
 
 fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) -> i64 {

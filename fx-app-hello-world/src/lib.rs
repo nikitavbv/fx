@@ -1,11 +1,11 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, handler},
+    fx::{FxCtx, HttpRequest, HttpResponse, rpc},
     tracing::info,
     bincode::{Encode, Decode},
 };
 
-#[handler]
-pub fn handle(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
+#[rpc]
+pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
 
     info!("hello from wasm service!");
@@ -25,7 +25,7 @@ pub fn handle(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     }
 
     HttpResponse {
-        body: format!("Hello from {:?}, counter value: {counter:?}, instance: {instance:?}", req.url),
+        body: format!("Hello from {:?} rpc style, counter value: {counter:?}, instance: {instance:?}", req.url),
     }
 }
 
@@ -35,6 +35,7 @@ struct RpcRequest {
 }
 
 #[derive(Decode, Debug)]
+#[allow(dead_code)]
 struct RpcResponse {
     number: i64,
 }

@@ -1,3 +1,3 @@
 # todo
 
-- http is rpc
+- build something more complicated for a demo?

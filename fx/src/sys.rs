@@ -18,7 +18,6 @@ unsafe extern "C" {
     );
     pub(crate) fn send_rpc_response(ptr: i64, len: i64);
     pub(crate) fn log(ptr: i64, len: i64);
-    pub(crate) fn send_http_response(ptr: i64, len: i64);
     pub(crate) fn kv_get(ptr: i64, len: i64, output_ptr: i64) -> i64; // 0 - ok, 1 - value does not exist
     pub(crate) fn kv_set(k_ptr: i64, k_len: i64, v_ptr: i64, v_len: i64);
 }
@@ -42,6 +41,7 @@ impl PtrWithLen {
         self as *const PtrWithLen as i64
     }
 
+    #[allow(dead_code)]
     pub fn read<'a>(&'a self) -> &'a [u8] {
         read_memory(self.ptr, self.len)
     }
