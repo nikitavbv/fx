@@ -40,3 +40,29 @@ impl KVStorage for SqliteStorage {
         }
     }
 }
+
+pub struct NamespacedStorage<T> {
+    namespace: Vec<u8>,
+    inner: T,
+}
+
+impl<T> NamespacedStorage<T> {
+    pub fn new(namespace: impl Into<Vec<u8>>, inner: T) -> Self {
+        Self {
+            namespace: namespace.into(),
+            inner,
+        }
+    }
+
+    fn namespaced_key(&self, key: &[u8]) -> Vec<u8> {
+        let mut namespaced_key = Vec::with_capacity(self.namespace.len() + key.len());
+        namespaced_key.extend_from_slice(&self.namespace);
+        namespaced_key.extend_from_slice(key);
+        namespaced_key
+    }
+}
+
+impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
+    fn set(&self, key: &[u8], value: &[u8]) { self.inner.set(&self.namespaced_key(key), value) }
+    fn get(&self, key: &[u8]) -> Option<Vec<u8>> { self.inner.get(&self.namespaced_key(key)) }
+}

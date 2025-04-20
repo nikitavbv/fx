@@ -23,7 +23,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     fx_core::{HttpResponse, HttpRequest, LogMessage},
-    crate::storage::{KVStorage, SqliteStorage},
+    crate::storage::{KVStorage, SqliteStorage, NamespacedStorage},
 };
 
 mod storage;
@@ -115,7 +115,7 @@ impl Engine {
     }
 
     fn create_execution_context(&self) -> ExecutionContext {
-        ExecutionContext::new(self.storage.clone())
+        ExecutionContext::new(Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), self.storage.clone())))
     }
 }
 
@@ -140,7 +140,7 @@ struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new(storage: SqliteStorage) -> Self {
+    pub fn new(storage: Box<dyn KVStorage + Send>) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
@@ -174,11 +174,11 @@ struct ExecutionEnv {
     instance: Option<Instance>,
     memory: Option<Memory>,
     http_response: Option<HttpResponse>,
-    storage: SqliteStorage,
+    storage: Box<dyn KVStorage + Send>,
 }
 
 impl ExecutionEnv {
-    pub fn new(storage: SqliteStorage) -> Self {
+    pub fn new(storage: Box<dyn KVStorage + Send>) -> Self {
         Self {
             instance: None,
             memory: None,
