@@ -1,24 +1,36 @@
 pub use {
+    std::sync::atomic::{AtomicBool, Ordering},
+    lazy_static::lazy_static,
     fx_core::{HttpRequest, HttpResponse},
     fx_macro::handler,
     crate::logging::FxLoggingLayer,
 };
 
-use crate::sys::{read_memory, read_memory_owned};
+use crate::sys::read_memory;
 
 mod sys;
 mod logging;
 
+lazy_static! {
+    pub static ref CTX: FxCtx = FxCtx::new();
+}
+
 pub struct FxCtx {
+    logger_init: AtomicBool,
 }
 
 impl FxCtx {
     pub fn new() -> Self {
         Self {
+            logger_init: AtomicBool::new(false),
         }
     }
 
     pub fn init_logger(&self) {
+        if self.logger_init.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
+            return;
+        }
+
         use tracing_subscriber::prelude::*;
         tracing::subscriber::set_global_default(tracing_subscriber::Registry::default().with(FxLoggingLayer)).unwrap();
     }

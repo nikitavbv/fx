@@ -4,7 +4,7 @@ use {
 };
 
 #[handler]
-pub fn handle(ctx: FxCtx, req: HttpRequest) -> HttpResponse {
+pub fn handle(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
 
     info!("hello from wasm service!");
