@@ -37,7 +37,7 @@ async fn main() {
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
             .with_key(b"service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
         )
-        .with_storage(storage);
+        .with_storage(BoxedStorage::new(storage));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();
@@ -69,7 +69,7 @@ impl FxCloud {
         }
     }
 
-    pub fn with_storage(self, new_storage: SqliteStorage) -> Self {
+    pub fn with_storage(self, new_storage: BoxedStorage) -> Self {
         {
             let mut storage = self.engine.storage.write().unwrap();
             *storage = new_storage.clone();
@@ -91,7 +91,7 @@ struct Engine {
     execution_context: ThreadLocal<Mutex<ExecutionContext>>,
 
     // general purpose storage:
-    storage: RwLock<SqliteStorage>,
+    storage: RwLock<BoxedStorage>,
 
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
@@ -103,7 +103,7 @@ impl Engine {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
             execution_context: ThreadLocal::new(),
 
-            storage: RwLock::new(SqliteStorage::new(":memory:")),
+            storage: RwLock::new(BoxedStorage::new(SqliteStorage::new(":memory:"))),
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }
     }

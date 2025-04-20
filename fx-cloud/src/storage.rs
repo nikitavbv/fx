@@ -74,14 +74,15 @@ impl KVStorage for EmptyStorage {
     fn set(&self, _key: &[u8], _value: &[u8]) {}
 }
 
+#[derive(Clone)]
 pub struct BoxedStorage {
-    inner: Box<dyn KVStorage + Send + Sync>,
+    inner: Arc<Box<dyn KVStorage + Send + Sync>>,
 }
 
 impl BoxedStorage {
     pub fn new<T: KVStorage + Send + Sync + 'static>(inner: T) -> Self {
         Self {
-            inner: Box::new(inner),
+            inner: Arc::new(Box::new(inner)),
         }
     }
 }
