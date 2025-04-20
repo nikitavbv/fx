@@ -145,7 +145,7 @@ impl Engine {
     fn create_execution_context(&self) -> ExecutionContext {
         let storage = self.storage.read().unwrap();
         ExecutionContext::new(
-            Box::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())),
+            BoxedStorage::new(NamespacedStorage::new("hello-world-app/".as_bytes().to_vec(), storage.clone())),
             self.module_code_storage.read().unwrap().get(b"service").unwrap()
         )
     }
@@ -172,7 +172,7 @@ struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new(storage: Box<dyn KVStorage + Send>, module_code: Vec<u8>) -> Self {
+    pub fn new(storage: BoxedStorage, module_code: Vec<u8>) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
@@ -205,11 +205,11 @@ struct ExecutionEnv {
     instance: Option<Instance>,
     memory: Option<Memory>,
     http_response: Option<HttpResponse>,
-    storage: Box<dyn KVStorage + Send>,
+    storage: BoxedStorage,
 }
 
 impl ExecutionEnv {
-    pub fn new(storage: Box<dyn KVStorage + Send>) -> Self {
+    pub fn new(storage: BoxedStorage) -> Self {
         Self {
             instance: None,
             memory: None,
