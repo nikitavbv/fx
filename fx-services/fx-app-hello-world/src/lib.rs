@@ -25,9 +25,7 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         return HttpResponse { body: String::from_utf8(res.body).unwrap() };
     }
 
-    HttpResponse {
-        body: format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url),
-    }
+    HttpResponse::new().body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))
 }
 
 #[derive(Serialize)]

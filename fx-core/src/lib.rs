@@ -13,6 +13,19 @@ pub struct HttpResponse {
     pub body: String,
 }
 
+impl HttpResponse {
+    pub fn new() -> Self {
+        Self {
+            body: String::new(),
+        }
+    }
+
+    pub fn body(mut self, body: impl Into<String>) -> Self {
+        self.body = body.into();
+        self
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogMessage {
     pub fields: HashMap<String, String>,
