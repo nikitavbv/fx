@@ -105,6 +105,7 @@ pub struct Service {
     is_global: bool,
     storage: BoxedStorage,
     allow_fetch: bool,
+    allow_log: bool,
 }
 
 impl Service {
@@ -115,6 +116,7 @@ impl Service {
             is_global: false,
             storage: BoxedStorage::new(EmptyStorage),
             allow_fetch: false,
+            allow_log: true,
         }
     }
 
@@ -140,6 +142,12 @@ impl Service {
 
     pub fn allow_fetch(mut self) -> Self {
         self.allow_fetch = true;
+        self
+    }
+
+    #[allow(dead_code)]
+    pub fn disallow_log(mut self) -> Self {
+        self.allow_log = false;
         self
     }
 }
@@ -256,6 +264,7 @@ impl Engine {
             self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap(),
             service.env_vars.clone(),
             service.allow_fetch,
+            service.allow_log,
         )
     }
 
@@ -271,14 +280,22 @@ struct ExecutionContext {
 }
 
 impl ExecutionContext {
-    pub fn new(engine: Arc<Engine>, service_id: ServiceId, storage: BoxedStorage, module_code: Vec<u8>, env_vars: HashMap<Vec<u8>, Vec<u8>>, allow_fetch: bool) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        service_id: ServiceId,
+        storage: BoxedStorage,
+        module_code: Vec<u8>,
+        env_vars: HashMap<Vec<u8>, Vec<u8>>,
+        allow_fetch: bool,
+        allow_log: bool
+    ) -> Self {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = Module::new(&store, module_code).unwrap();
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id, env_vars, storage, allow_fetch));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id, env_vars, storage, allow_fetch, allow_log));
         let import_object = imports! {
             "fx" => {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
@@ -311,12 +328,13 @@ struct ExecutionEnv {
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
     storage: BoxedStorage,
     allow_fetch: bool,
+    allow_log: bool,
 
     fetch_client: reqwest::blocking::Client,
 }
 
 impl ExecutionEnv {
-    pub fn new(engine: Arc<Engine>, service_id: ServiceId, env_vars: HashMap<Vec<u8>, Vec<u8>>, storage: BoxedStorage, allow_fetch: bool) -> Self {
+    pub fn new(engine: Arc<Engine>, service_id: ServiceId, env_vars: HashMap<Vec<u8>, Vec<u8>>, storage: BoxedStorage, allow_fetch: bool, allow_log: bool) -> Self {
         Self {
             engine,
             instance: None,
@@ -326,6 +344,7 @@ impl ExecutionEnv {
             env_vars,
             storage,
             allow_fetch,
+            allow_log,
             fetch_client: reqwest::blocking::Client::new(),
         }
     }
@@ -455,6 +474,10 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
+    if !ctx.data().allow_log {
+        // TODO: record a metric somewhere
+        return;
+    }
     let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
     println!("service: {:?}", msg);
 }
