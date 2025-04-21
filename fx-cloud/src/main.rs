@@ -1,6 +1,6 @@
 use {
     std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, fs, collections::HashMap, ops::DerefMut},
-    tokio::{net::TcpListener, sync::oneshot::{self, Sender}},
+    tokio::{net::TcpListener, sync::oneshot},
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::{server::conn::http1, Response, body::Bytes},
     http_body_util::Full,
@@ -42,25 +42,9 @@ async fn main() {
         .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
         .with_service(Service::new(ServiceId::new("hello-service".to_owned())).with_env_var("demo/instance", "A"))
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
-        .with_service(Service::new(ServiceId::new("counter".to_owned())).global())
-        .with_http_service(ServiceId::new("hello-service".to_owned()));
+        .with_service(Service::new(ServiceId::new("counter".to_owned())).global());
 
-    let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
-    let listener = TcpListener::bind(addr).await.unwrap();
-    println!("running on {addr:?}");
-    loop {
-        let (tcp, _) = listener.accept().await.unwrap();
-        let io = TokioIo::new(tcp);
-
-        let fx_cloud = fx_cloud.clone();
-        tokio::task::spawn(async move {
-           http1::Builder::new()
-               .timer(TokioTimer::new())
-               .serve_connection(io, fx_cloud)
-               .await
-               .unwrap();
-        });
-    }
+    fx_cloud.run_http(8080, &ServiceId::new("hello-service".to_owned())).await;
 }
 
 #[derive(Clone)]
@@ -99,12 +83,26 @@ impl FxCloud {
         self
     }
 
-    pub fn with_http_service(self, service_id: ServiceId) -> Self {
-        {
-            let mut http_service = self.engine.http_service.write().unwrap();
-            *http_service = service_id;
+    pub async fn run_http(&self, port: u16, service_id: &ServiceId) {
+        let addr: SocketAddr = ([0, 0, 0, 0], port).into();
+        let listener = TcpListener::bind(addr).await.unwrap();
+
+        let http_handler = HttpHandler::new(self.clone(), service_id.clone());
+
+        println!("running on {addr:?}");
+        loop {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(tcp);
+
+            let http_handler = http_handler.clone();
+            tokio::task::spawn(async move {
+               http1::Builder::new()
+                   .timer(TokioTimer::new())
+                   .serve_connection(io, http_handler)
+                   .await
+                   .unwrap();
+            });
         }
-        self
     }
 }
 
@@ -155,7 +153,6 @@ struct Engine {
     global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
-    http_service: RwLock<ServiceId>,
 
     // general purpose storage:
     storage: RwLock<BoxedStorage>,
@@ -173,22 +170,19 @@ impl Engine {
             global_execution_contexts: RwLock::new(HashMap::new()),
 
             services: RwLock::new(HashMap::new()),
-            http_service: RwLock::new(ServiceId::new("http-service".to_owned())),
 
             storage: RwLock::new(BoxedStorage::new(SqliteStorage::in_memory())),
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }
     }
 
-    pub fn handle_http(&self, engine: Arc<Engine>, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
-        let request = HttpRequest { url: req.uri().to_string() };
-        let request = rmp_serde::to_vec(&request).unwrap();
-        let response = self.invoke_service(engine, &self.http_service.read().unwrap(), "http", request);
-        let response: HttpResponse = rmp_serde::from_slice(&response).unwrap();
-        tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap();
+    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, http_service: &ServiceId, function_name: &str, argument: T) -> S {
+        let argument = rmp_serde::to_vec(&argument).unwrap();
+        let response = self.invoke_service_raw(engine, &http_service, function_name, argument);
+        rmp_serde::from_slice(&response).unwrap()
     }
 
-    fn invoke_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
         if self.is_global_service(service_id) {
             self.invoke_global_service(engine, service_id, function_name, argument)
         } else {
@@ -275,20 +269,6 @@ impl Engine {
     }
 }
 
-impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for FxCloud {
-    type Response = Response<Full<Bytes>>;
-    type Error = Infallible;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
-        let (tx, rx) = oneshot::channel();
-        let engine = self.engine.clone();
-        engine.clone().thread_pool.spawn(move || engine.clone().handle_http(engine, tx, req));
-
-        Box::pin(async move { rx.await.unwrap() })
-    }
-}
-
 struct ExecutionContext {
     instance: Instance,
     store: Store,
@@ -351,6 +331,40 @@ impl ExecutionEnv {
     }
 }
 
+#[derive(Clone)]
+struct HttpHandler {
+    fx: FxCloud,
+    service_id: ServiceId,
+}
+
+impl HttpHandler {
+    pub fn new(fx: FxCloud, service_id: ServiceId) -> Self {
+        Self {
+            fx,
+            service_id,
+        }
+    }
+}
+
+impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandler {
+    type Response = Response<Full<Bytes>>;
+    type Error = Infallible;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        let (tx, rx) = oneshot::channel();
+        let engine = self.fx.engine.clone();
+        let service_id = self.service_id.clone();
+        engine.clone().thread_pool.spawn(move || {
+            let request = HttpRequest { url: req.uri().to_string() };
+            let response: HttpResponse = engine.clone().invoke_service(engine, &service_id, "http", request);
+            tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap()
+        });
+
+        Box::pin(async move { rx.await.unwrap() })
+    }
+}
+
 fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {
     let memory = ctx.data().memory.as_ref().unwrap();
     let view = memory.view(&ctx);
@@ -389,7 +403,7 @@ fn api_rpc(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let return_value = engine.clone().invoke_service(engine, &service_id, &function_name, argument);
+    let return_value = engine.clone().invoke_service_raw(engine, &service_id, &function_name, argument);
 
     let (data, mut store) = ctx.data_and_store_mut();
 
