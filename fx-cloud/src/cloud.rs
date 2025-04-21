@@ -23,7 +23,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     fx_core::{HttpResponse, HttpRequest, LogMessage, FetchRequest, FetchResponse},
-    crate::storage::{KVStorage, SqliteStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
+    crate::storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
 };
 
 #[derive(Clone)]
@@ -42,14 +42,6 @@ impl FxCloud {
         {
             let mut services = self.engine.services.write().unwrap();
             services.insert(service.id.clone(), service);
-        }
-        self
-    }
-
-    pub fn with_storage(self, new_storage: BoxedStorage) -> Self {
-        {
-            let mut storage = self.engine.storage.write().unwrap();
-            *storage = new_storage.clone();
         }
         self
     }
@@ -111,6 +103,7 @@ pub struct Service {
     id: ServiceId,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
     is_global: bool,
+    storage: BoxedStorage,
 }
 
 impl Service {
@@ -119,6 +112,7 @@ impl Service {
             id,
             env_vars: HashMap::new(),
             is_global: false,
+            storage: BoxedStorage::new(EmptyStorage),
         }
     }
 
@@ -127,10 +121,19 @@ impl Service {
         self
     }
 
-    // global service
+    // global service is a service that only has single instance. stateful actor.
     pub fn global(mut self) -> Self {
         self.is_global = true;
         self
+    }
+
+    pub fn with_storage(mut self, storage: BoxedStorage) -> Self {
+        self.storage = storage;
+        self
+    }
+
+    pub fn get_storage(&self) -> BoxedStorage {
+        self.storage.clone()
     }
 }
 
@@ -141,9 +144,6 @@ pub(crate) struct Engine {
     global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
-
-    // general purpose storage:
-    storage: RwLock<BoxedStorage>,
 
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
@@ -159,7 +159,6 @@ impl Engine {
 
             services: RwLock::new(HashMap::new()),
 
-            storage: RwLock::new(BoxedStorage::new(SqliteStorage::in_memory())),
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }
     }
@@ -243,10 +242,9 @@ impl Engine {
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> ExecutionContext {
-        let storage = self.storage.read().unwrap();
         ExecutionContext::new(
             engine,
-            BoxedStorage::new(NamespacedStorage::new(format!("{}/", service.id.id).as_bytes().to_vec(), storage.clone())),
+            service.get_storage(),
             self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap(),
             service.env_vars.clone()
         )
