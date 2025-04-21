@@ -14,6 +14,7 @@ pub struct SqliteStorage {
 }
 
 impl SqliteStorage {
+    #[allow(dead_code)]
     pub fn new(path: impl AsRef<std::path::Path>) -> Self {
         Self::from_connection(Connection::open(path).unwrap())
     }

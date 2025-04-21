@@ -25,7 +25,7 @@ impl FxCloud {
         loop {
             let msg = consumer.recv().await.unwrap();
             let payload = msg.payload().unwrap();
-            self.engine.clone().invoke_service_raw(self.engine.clone(), service_id, function_name, payload.to_vec());
+            self.invoke_service_raw(service_id, function_name, payload.to_vec());
             consumer.commit_message(&msg, CommitMode::Async).unwrap();
         }
     }
