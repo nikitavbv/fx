@@ -124,6 +124,7 @@ impl ServiceId {
 struct Service {
     id: ServiceId,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
+    is_global: bool,
 }
 
 impl Service {
@@ -131,6 +132,7 @@ impl Service {
         Self {
             id,
             env_vars: HashMap::new(),
+            is_global: false,
         }
     }
 
@@ -138,11 +140,19 @@ impl Service {
         self.env_vars.insert(key.into().into_bytes(), value.into().into_bytes());
         self
     }
+
+    // global service
+    pub fn global(mut self) -> Self {
+        self.is_global = true;
+        self
+    }
 }
 
 struct Engine {
     thread_pool: ThreadPool,
+
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>>,
+    global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
     http_service: RwLock<ServiceId>,
@@ -158,7 +168,9 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
+
             execution_contexts: ThreadLocal::new(),
+            global_execution_contexts: RwLock::new(HashMap::new()),
 
             services: RwLock::new(HashMap::new()),
             http_service: RwLock::new(ServiceId::new("http-service".to_owned())),
@@ -168,15 +180,42 @@ impl Engine {
         }
     }
 
-    pub fn handle(&self, engine: Arc<Engine>, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
+    pub fn handle_http(&self, engine: Arc<Engine>, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
         let request = HttpRequest { url: req.uri().to_string() };
         let request = bincode::encode_to_vec(&request, bincode::config::standard()).unwrap();
-        let response = self.handle_rpc(engine, &self.http_service.read().unwrap(), "http", request);
+        let response = self.invoke_service(engine, &self.http_service.read().unwrap(), "http", request);
         let response: HttpResponse = bincode::decode_from_slice(&response, bincode::config::standard()).unwrap().0;
         tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap();
     }
 
-    fn handle_rpc(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    fn invoke_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+        if self.is_global_service(service_id) {
+            self.invoke_global_service(engine, service_id, function_name, argument)
+        } else {
+            self.invoke_thread_local_service(engine, service_id, function_name, argument)
+        }
+    }
+
+    fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+        if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
+            // need to create execution context first
+            let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
+            if !global_execution_contexts.contains_key(service_id) {
+                let services = self.services.read().unwrap();
+                let service = services.get(&service_id).unwrap();
+                global_execution_contexts.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service))));
+            }
+        }
+
+        let ctxs = self.global_execution_contexts.read().unwrap();
+        let ctx = ctxs.get(&service_id).unwrap();
+        let mut ctx = ctx.lock().unwrap();
+        let ctx = ctx.deref_mut();
+
+        self.run_service(ctx, function_name, argument)
+    }
+
+    fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
         let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
@@ -194,6 +233,10 @@ impl Engine {
         let mut ctx = ctx.lock().unwrap();
         let ctx = ctx.deref_mut();
 
+        self.run_service(ctx, function_name, argument)
+    }
+
+    fn run_service(&self, ctx: &mut ExecutionContext, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
         let points_before = u64::MAX;
         set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
 
@@ -226,6 +269,10 @@ impl Engine {
             service.env_vars.clone()
         )
     }
+
+    fn is_global_service(&self, service_id: &ServiceId) -> bool {
+        self.services.read().unwrap().get(service_id).as_ref().unwrap().is_global
+    }
 }
 
 impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for FxCloud {
@@ -236,7 +283,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for FxCloud 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
         let (tx, rx) = oneshot::channel();
         let engine = self.engine.clone();
-        engine.clone().thread_pool.spawn(move || engine.clone().handle(engine, tx, req));
+        engine.clone().thread_pool.spawn(move || engine.clone().handle_http(engine, tx, req));
 
         Box::pin(async move { rx.await.unwrap() })
     }
@@ -341,7 +388,7 @@ fn api_rpc(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let return_value = engine.clone().handle_rpc(engine, &service_id, &function_name, argument);
+    let return_value = engine.clone().invoke_service(engine, &service_id, &function_name, argument);
 
     let (data, mut store) = ctx.data_and_store_mut();
 
