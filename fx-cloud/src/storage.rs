@@ -1,6 +1,6 @@
 use {
     std::sync::{Arc, Mutex},
-    sqlite::{Connection, State},
+    rusqlite::Connection,
 };
 
 pub trait KVStorage {
@@ -15,8 +15,15 @@ pub struct SqliteStorage {
 
 impl SqliteStorage {
     pub fn new(path: impl AsRef<std::path::Path>) -> Self {
-        let connection = sqlite::open(path).unwrap();
-        connection.execute("create table kv (key blob primary key, value blob)").unwrap();
+        Self::from_connection(Connection::open(path).unwrap())
+    }
+
+    pub fn in_memory() -> Self {
+        Self::from_connection(Connection::open_in_memory().unwrap())
+    }
+
+    fn from_connection(connection: Connection) -> Self {
+        connection.execute("create table kv (key blob primary key, value blob)", ()).unwrap();
         Self { connection: Arc::new(Mutex::new(connection)) }
     }
 }
@@ -24,20 +31,17 @@ impl SqliteStorage {
 impl KVStorage for SqliteStorage {
     fn set(&self, key: &[u8], value: &[u8]) {
         let connection = self.connection.lock().unwrap();
-        let mut stmt = connection.prepare("insert or replace into kv (key, value) values (:key, :value)").unwrap();
-        stmt.bind(&[(":key", key), (":value", value)][..]).unwrap();
-        while stmt.next().unwrap() != State::Done {}
+        connection.execute("insert or replace into kv (key, value) values (?1, ?2)", (&key, &value)).unwrap();
     }
 
     fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
         let connection = self.connection.lock().unwrap();
-        let mut stmt = connection.prepare("select value from kv where key = :key").unwrap();
-        stmt.bind((":key", key)).unwrap();
-
-        match stmt.next().unwrap() {
-            State::Done => None,
-            State::Row => Some(stmt.read("value").unwrap()),
-        }
+        connection.prepare("select value from kv where key = ?1")
+            .unwrap()
+            .query_map([(key)], |row| Ok(row.get(0).unwrap()))
+            .unwrap()
+            .next()
+            .map(|v| v.unwrap())
     }
 }
 

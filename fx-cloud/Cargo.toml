@@ -13,6 +13,6 @@ thread_local = "1.1.8"
 wasmer = "5.0.4"
 wasmer-middlewares = "5.0.4"
 bincode = "2.0.1"
-sqlite = "0.37.0"
+rusqlite = { version = "0.35.0", features = ["bundled"] }
 
 fx-core = { path = "../fx-core" }

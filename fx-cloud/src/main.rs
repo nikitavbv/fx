@@ -32,7 +32,7 @@ mod storage;
 async fn main() {
     println!("starting fx...");
 
-    let storage = SqliteStorage::new(":memory:");
+    let storage = SqliteStorage::in_memory();
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
             .with_key(b"hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
@@ -175,7 +175,7 @@ impl Engine {
             services: RwLock::new(HashMap::new()),
             http_service: RwLock::new(ServiceId::new("http-service".to_owned())),
 
-            storage: RwLock::new(BoxedStorage::new(SqliteStorage::new(":memory:"))),
+            storage: RwLock::new(BoxedStorage::new(SqliteStorage::in_memory())),
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }
     }
