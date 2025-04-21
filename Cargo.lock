@@ -728,6 +728,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-app-counter"
+version = "0.1.0"
+dependencies = [
+ "fx",
+]
+
+[[package]]
 name = "fx-app-hello-world"
 version = "0.1.0"
 dependencies = [

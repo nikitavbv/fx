@@ -11,9 +11,7 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     info!("hello from wasm service!");
 
     let kv = ctx.kv("demo");
-    let counter = kv.get("counter").map(|v| String::from_utf8(v).unwrap().parse().unwrap()).unwrap_or(0);
-    let counter = counter + 1;
-    kv.set("counter", counter.to_string().as_bytes());
+    let counter: i64 = ctx.rpc("counter", "incr", ());
 
     let instance = kv.get("instance").map(|v| String::from_utf8(v).unwrap());
 
@@ -25,7 +23,7 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     }
 
     HttpResponse {
-        body: format!("Hello from {:?} rpc style, counter value: {counter:?}, instance: {instance:?}", req.url),
+        body: format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url),
     }
 }
 

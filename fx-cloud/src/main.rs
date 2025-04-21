@@ -35,15 +35,15 @@ async fn main() {
     let storage = SqliteStorage::new(":memory:");
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"hello-service-a/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
-            .with_key(b"hello-service-b/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
+            .with_key(b"hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
             .with_key(b"rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm").unwrap())
+            .with_key(b"counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm").unwrap())
         )
         .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
-        .with_service(Service::new(ServiceId::new("hello-service-a".to_owned())).with_env_var("demo/instance", "A"))
-        .with_service(Service::new(ServiceId::new("hello-service-b".to_owned())).with_env_var("demo/instance", "B"))
+        .with_service(Service::new(ServiceId::new("hello-service".to_owned())).with_env_var("demo/instance", "A"))
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
-        .with_http_service(ServiceId::new("hello-service-a".to_owned()));
+        .with_service(Service::new(ServiceId::new("counter".to_owned())).global())
+        .with_http_service(ServiceId::new("hello-service".to_owned()));
 
     let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
     let listener = TcpListener::bind(addr).await.unwrap();

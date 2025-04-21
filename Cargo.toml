@@ -1,10 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    "fx-cloud",
-    "fx-services/fx-app-hello-world",
-    "fx-core",
     "fx",
+    "fx-cloud",
+    "fx-core",
     "fx-macro",
-    "fx-services/fx-app-rpc-test-service"
+    "fx-services/fx-app-counter",
+    "fx-services/fx-app-hello-world",
+    "fx-services/fx-app-rpc-test-service",
 ]
