@@ -31,6 +31,7 @@ async fn run_demo() {
         )
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
+                .allow_fetch()
                 .with_env_var("demo/instance", "A")
                 .with_storage(BoxedStorage::new(NamespacedStorage::new("data/demo/".as_bytes().to_vec(), storage.clone())))
         )
