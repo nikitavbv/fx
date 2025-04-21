@@ -5,3 +5,4 @@
 - router service
 - cloud ui service
 - blackbox tests for services
+- handle errors everywhere

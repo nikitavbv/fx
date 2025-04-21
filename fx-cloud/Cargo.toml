@@ -15,5 +15,6 @@ wasmer-middlewares = "5.0.4"
 rusqlite = { version = "0.35.0", features = ["bundled"] }
 rmp-serde = "=1.3.0"
 serde = "1.0.219"
+rdkafka = "0.37.0"
 
 fx-core = { path = "../fx-core" }

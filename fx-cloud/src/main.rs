@@ -26,6 +26,7 @@ use {
     crate::storage::{KVStorage, SqliteStorage, NamespacedStorage, EmptyStorage, WithKey, BoxedStorage},
 };
 
+mod kafka;
 mod storage;
 
 #[tokio::main]
@@ -182,7 +183,7 @@ impl Engine {
         rmp_serde::from_slice(&response).unwrap()
     }
 
-    fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
         if self.is_global_service(service_id) {
             self.invoke_global_service(engine, service_id, function_name, argument)
         } else {
