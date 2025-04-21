@@ -1,19 +1,19 @@
 use {
     std::collections::HashMap,
-    bincode::{Encode, Decode},
+    serde::{Serialize, Deserialize},
 };
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {
     pub url: String,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
     pub body: String,
 }
 
-#[derive(Debug, Encode, Decode)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LogMessage {
     pub fields: HashMap<String, String>,
 }

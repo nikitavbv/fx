@@ -1,14 +1,14 @@
 use {
     fx::{FxCtx, rpc},
-    bincode::{Encode, Decode},
+    serde::{Serialize, Deserialize},
 };
 
-#[derive(Decode, Debug)]
+#[derive(Deserialize, Debug)]
 pub struct RpcRequest {
     number: i64,
 }
 
-#[derive(Encode)]
+#[derive(Serialize)]
 pub struct RpcResponse {
     number: i64,
 }

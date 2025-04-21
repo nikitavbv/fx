@@ -182,9 +182,9 @@ impl Engine {
 
     pub fn handle_http(&self, engine: Arc<Engine>, tx: Sender<Result<Response<Full<Bytes>>, Infallible>>, req: hyper::Request<hyper::body::Incoming>) {
         let request = HttpRequest { url: req.uri().to_string() };
-        let request = bincode::encode_to_vec(&request, bincode::config::standard()).unwrap();
+        let request = rmp_serde::to_vec(&request).unwrap();
         let response = self.invoke_service(engine, &self.http_service.read().unwrap(), "http", request);
-        let response: HttpResponse = bincode::decode_from_slice(&response, bincode::config::standard()).unwrap().0;
+        let response: HttpResponse = rmp_serde::from_slice(&response).unwrap();
         tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap();
     }
 
@@ -369,8 +369,9 @@ fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
     view.write(addr as u64, value).unwrap();
 }
 
-fn decode_memory<T: bincode::de::Decode<()>>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> T {
-    bincode::decode_from_slice(&read_memory_owned(&ctx, addr, len), bincode::config::standard()).unwrap().0
+fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> T {
+    let memory = read_memory_owned(&ctx, addr, len);
+    rmp_serde::from_slice(&memory).unwrap()
 }
 
 fn api_rpc(

@@ -23,7 +23,7 @@ impl<S> Layer<S> for FxLoggingLayer where S: Subscriber {
         let mut fields = HashMap::new();
         event.record(&mut FieldVisitor { fields: &mut fields });
         let msg = LogMessage { fields };
-        let msg = bincode::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let msg = rmp_serde::to_vec(&msg).unwrap();
         unsafe { sys::log(msg.as_ptr() as i64, msg.len() as i64); }
     }
 }

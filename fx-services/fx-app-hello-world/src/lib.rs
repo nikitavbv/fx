@@ -1,7 +1,7 @@
 use {
     fx::{FxCtx, HttpRequest, HttpResponse, rpc},
     tracing::info,
-    bincode::{Encode, Decode},
+    serde::{Serialize, Deserialize},
 };
 
 #[rpc]
@@ -27,12 +27,12 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     }
 }
 
-#[derive(Encode)]
+#[derive(Serialize)]
 struct RpcRequest {
     number: i64,
 }
 
-#[derive(Decode, Debug)]
+#[derive(Deserialize, Debug)]
 #[allow(dead_code)]
 struct RpcResponse {
     number: i64,
