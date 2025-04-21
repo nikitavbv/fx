@@ -13,7 +13,15 @@ mod storage;
 #[tokio::main]
 async fn main() {
     println!("starting fx...");
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        run_function(args[1].as_str()).await;
+    } else {
+        run_demo().await;
+    }
+}
 
+async fn run_demo() {
     let storage = SqliteStorage::in_memory();
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
@@ -27,4 +35,16 @@ async fn main() {
         .with_service(Service::new(ServiceId::new("counter".to_owned())).global());
 
     fx_cloud.run_http(8080, &ServiceId::new("hello-service".to_owned())).await;
+}
+
+async fn run_function(function_path: &str) {
+    let storage = SqliteStorage::in_memory();
+    let fx_cloud = FxCloud::new()
+        .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
+            .with_key(b"http/service.wasm", &fs::read(function_path).unwrap())
+        )
+        .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
+        .with_service(Service::new(ServiceId::new("http".to_owned())).global());
+
+    fx_cloud.run_http(8080, &ServiceId::new("http".to_owned())).await;
 }
