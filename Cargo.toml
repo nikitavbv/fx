@@ -2,9 +2,9 @@
 resolver = "2"
 members = [
     "fx-cloud",
-    "fx-app-hello-world",
+    "fx-services/fx-app-hello-world",
     "fx-core",
     "fx",
     "fx-macro",
-    "fx-app-rpc-test-service"
+    "fx-services/fx-app-rpc-test-service"
 ]

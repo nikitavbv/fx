@@ -1,5 +1,5 @@
 [package]
-name = "fx-app-hello-world"
+name = "fx-app-rpc-test-service"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,5 +9,4 @@ crate-type = ["cdylib"]
 [dependencies]
 tracing = "0.1.41"
 bincode = "2.0.1"
-
-fx = { path = "../fx" }
+fx = { path = "../../fx" }
