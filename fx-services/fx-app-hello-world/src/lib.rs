@@ -1,5 +1,5 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, rpc},
+    fx::{FxCtx, HttpRequest, HttpResponse, FetchRequest, rpc},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
@@ -20,6 +20,9 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         return HttpResponse {
             body: format!("rpc demo returned a response: {response:?}\n"),
         };
+    } else if req.url == "/test-fetch" {
+        let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned()));
+        return HttpResponse { body: String::from_utf8(res.body).unwrap() };
     }
 
     HttpResponse {

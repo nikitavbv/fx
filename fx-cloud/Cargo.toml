@@ -16,5 +16,6 @@ rusqlite = { version = "0.35.0", features = ["bundled"] }
 rmp-serde = "=1.3.0"
 serde = "1.0.219"
 rdkafka = "0.37.0"
+reqwest = { version = "0.12.15", features = ["blocking"] }
 
 fx-core = { path = "../fx-core" }

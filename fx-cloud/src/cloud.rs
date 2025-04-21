@@ -22,7 +22,7 @@ use {
         imports,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    fx_core::{HttpResponse, HttpRequest, LogMessage},
+    fx_core::{HttpResponse, HttpRequest, LogMessage, FetchRequest, FetchResponse},
     crate::storage::{KVStorage, SqliteStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
 };
 
@@ -279,6 +279,7 @@ impl ExecutionContext {
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
+                "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
             }
         };
         let instance = Instance::new(&mut store, &module, &import_object).unwrap();
@@ -300,6 +301,7 @@ struct ExecutionEnv {
     rpc_response: Option<Vec<u8>>,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
     storage: BoxedStorage,
+    fetch_client: reqwest::blocking::Client,
 }
 
 impl ExecutionEnv {
@@ -311,6 +313,7 @@ impl ExecutionEnv {
             rpc_response: None,
             env_vars,
             storage,
+            fetch_client: reqwest::blocking::Client::new(),
         }
     }
 
@@ -441,6 +444,39 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
     println!("service: {:?}", msg);
+}
+
+fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
+    let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
+    println!("sending request");
+
+    let mut request = ctx.data().fetch_client.request(
+        match req.method {
+            fx_core::HttpMethod::GET => reqwest::Method::GET,
+            fx_core::HttpMethod::POST => reqwest::Method::POST,
+        }, req.endpoint
+    );
+    for (header_name, header_value) in req.headers {
+        request = request.header(header_name, header_value);
+    }
+    if let Some(body) = req.body {
+        request = request.body(body);
+    }
+
+    let response = request.send().unwrap();
+    let res = FetchResponse {
+        status: response.status().as_u16(),
+        body: response.bytes().unwrap().to_vec(),
+    };
+
+    let (data, mut store) = ctx.data_and_store_mut();
+
+    let res = rmp_serde::to_vec(&res).unwrap();
+    let len = res.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &res);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 #[repr(C)]

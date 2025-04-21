@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse},
+    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse},
     fx_macro::rpc,
 };
 
@@ -61,6 +61,14 @@ impl FxCtx {
                 ptr_and_len.ptr_to_self()
             );
         }
+
+        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+    }
+
+    pub fn fetch(&self, req: FetchRequest) -> FetchResponse {
+        let req = rmp_serde::to_vec(&req).unwrap();
+        let ptr_and_len = sys::PtrWithLen::new();
+        unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64, ptr_and_len.ptr_to_self()); }
 
         rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
     }
