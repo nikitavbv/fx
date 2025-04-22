@@ -1,11 +1,12 @@
 use {
     std::sync::{Arc, Mutex},
     rusqlite::Connection,
+    crate::error::FxCloudError,
 };
 
 pub trait KVStorage {
     fn set(&self, key: &[u8], value: &[u8]);
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>>;
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError>;
 }
 
 #[derive(Clone)]
@@ -35,14 +36,19 @@ impl KVStorage for SqliteStorage {
         connection.execute("insert or replace into kv (key, value) values (?1, ?2)", (&key, &value)).unwrap();
     }
 
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
         let connection = self.connection.lock().unwrap();
-        connection.prepare("select value from kv where key = ?1")
+        let res = connection.prepare("select value from kv where key = ?1")
             .unwrap()
             .query_map([(key)], |row| Ok(row.get(0).unwrap()))
             .unwrap()
             .next()
-            .map(|v| v.unwrap())
+            .map(|v| v.map_err(|err| FxCloudError::StorageInternalError { reason: format!("{err:?}") }));
+
+        match res {
+            None => Ok(None),
+            Some(v) => v,
+        }
     }
 }
 
@@ -69,13 +75,13 @@ impl<T> NamespacedStorage<T> {
 
 impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
     fn set(&self, key: &[u8], value: &[u8]) { self.inner.set(&self.namespaced_key(key), value) }
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> { self.inner.get(&self.namespaced_key(key)) }
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.namespaced_key(key)) }
 }
 
 pub struct EmptyStorage;
 
 impl KVStorage for EmptyStorage {
-    fn get(&self, _key: &[u8]) -> Option<Vec<u8>> { None }
+    fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { Ok(None) }
     fn set(&self, _key: &[u8], _value: &[u8]) {}
 }
 
@@ -93,7 +99,7 @@ impl BoxedStorage {
 }
 
 impl KVStorage for BoxedStorage {
-    fn get(&self, key: &[u8]) -> Option<Vec<u8>> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
         self.inner.get(key)
     }
 

@@ -10,14 +10,21 @@ pub struct HttpRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
+    pub status: u16,
     pub body: String,
 }
 
 impl HttpResponse {
     pub fn new() -> Self {
         Self {
+            status: 200,
             body: String::new(),
         }
+    }
+
+    pub fn status(mut self, status: u16) -> Self {
+        self.status = status;
+        self
     }
 
     pub fn body(mut self, body: impl Into<String>) -> Self {

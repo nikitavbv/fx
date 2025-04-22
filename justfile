@@ -1,7 +1,10 @@
 run:
     cargo run -p fx-cloud
 
-apps: app-counter app-hello-world app-rpc-test-service
+apps: cloud-dashboard app-counter app-hello-world app-rpc-test-service
+
+cloud-dashboard:
+    cargo build --target wasm32-unknown-unknown -p fx-cloud-dashboard --release
 
 app-counter:
     cargo build --target wasm32-unknown-unknown -p fx-app-counter --release

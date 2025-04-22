@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "fx",
     "fx-cloud",
+    "fx-cloud-dashboard",
     "fx-core",
     "fx-macro",
     "fx-services/fx-app-counter",

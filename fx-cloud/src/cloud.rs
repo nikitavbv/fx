@@ -1,9 +1,8 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, convert::Infallible, pin::Pin, collections::HashMap, ops::DerefMut},
-    tokio::{net::TcpListener, sync::oneshot},
+    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, collections::HashMap, ops::DerefMut},
+    tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
-    hyper::{server::conn::http1, Response, body::Bytes},
-    http_body_util::Full,
+    hyper::server::conn::http1,
     rayon::{ThreadPool, ThreadPoolBuilder},
     thread_local::ThreadLocal,
     wasmer::{
@@ -22,8 +21,12 @@ use {
         imports,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    fx_core::{HttpResponse, HttpRequest, LogMessage, FetchRequest, FetchResponse},
-    crate::storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
+    fx_core::{LogMessage, FetchRequest, FetchResponse},
+    crate::{
+        storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
+        error::FxCloudError,
+        http::HttpHandler,
+    },
 };
 
 #[derive(Clone)]
@@ -55,11 +58,11 @@ impl FxCloud {
     }
 
     #[allow(dead_code)]
-    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> S {
+    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument)
     }
 
-    pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         self.engine.invoke_service_raw(self.engine.clone(), service, function_name, argument)
     }
 
@@ -153,7 +156,7 @@ impl Service {
 }
 
 pub(crate) struct Engine {
-    thread_pool: ThreadPool,
+    pub(crate) thread_pool: ThreadPool,
 
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>>,
     global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
@@ -178,28 +181,28 @@ impl Engine {
         }
     }
 
-    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: T) -> S {
+    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
-        let response = self.invoke_service_raw(engine, &service, function_name, argument);
-        rmp_serde::from_slice(&response).unwrap()
+        let response = self.invoke_service_raw(engine, &service, function_name, argument)?;
+        Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
-        if self.is_global_service(service) {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
+        if self.is_global_service(service)? {
             self.invoke_global_service(engine, service, function_name, argument)
         } else {
             self.invoke_thread_local_service(engine, service, function_name, argument)
         }
     }
 
-    fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
             // need to create execution context first
             let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
             if !global_execution_contexts.contains_key(service_id) {
                 let services = self.services.read().unwrap();
                 let service = services.get(&service_id).unwrap();
-                global_execution_contexts.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service))));
+                global_execution_contexts.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service)?)));
             }
         }
 
@@ -208,10 +211,10 @@ impl Engine {
         let mut ctx = ctx.lock().unwrap();
         let ctx = ctx.deref_mut();
 
-        self.run_service(ctx, function_name, argument)
+        Ok(self.run_service(ctx, function_name, argument))
     }
 
-    fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
@@ -220,7 +223,7 @@ impl Engine {
             if !ctxs.contains_key(&service_id) {
                 let services = self.services.read().unwrap();
                 let service = services.get(&service_id).unwrap();
-                ctxs.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service))));
+                ctxs.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service)?)));
             }
             let ctx = ctxs.get(&service_id);
             let ctx = ctx.unwrap().clone();
@@ -229,7 +232,7 @@ impl Engine {
         let mut ctx = ctx.lock().unwrap();
         let ctx = ctx.deref_mut();
 
-        self.run_service(ctx, function_name, argument)
+        Ok(self.run_service(ctx, function_name, argument))
     }
 
     fn run_service(&self, ctx: &mut ExecutionContext, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
@@ -256,20 +259,22 @@ impl Engine {
         ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone()
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> ExecutionContext {
-        ExecutionContext::new(
+    fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
+        Ok(ExecutionContext::new(
             engine,
             service.id.clone(),
             service.get_storage(),
-            self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes()).unwrap(),
+            self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes())?.unwrap(),
             service.env_vars.clone(),
             service.allow_fetch,
             service.allow_log,
-        )
+        ))
     }
 
-    fn is_global_service(&self, service_id: &ServiceId) -> bool {
-        self.services.read().unwrap().get(service_id).as_ref().unwrap().is_global
+    fn is_global_service(&self, service_id: &ServiceId) -> Result<bool, FxCloudError> {
+        Ok(self.services.read().unwrap().get(service_id).as_ref()
+            .ok_or(FxCloudError::ServiceNotFound)?
+            .is_global)
     }
 }
 
@@ -354,40 +359,6 @@ impl ExecutionEnv {
     }
 }
 
-#[derive(Clone)]
-struct HttpHandler {
-    fx: FxCloud,
-    service_id: ServiceId,
-}
-
-impl HttpHandler {
-    pub fn new(fx: FxCloud, service_id: ServiceId) -> Self {
-        Self {
-            fx,
-            service_id,
-        }
-    }
-}
-
-impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandler {
-    type Response = Response<Full<Bytes>>;
-    type Error = Infallible;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
-
-    fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
-        let (tx, rx) = oneshot::channel();
-        let engine = self.fx.engine.clone();
-        let service_id = self.service_id.clone();
-        engine.clone().thread_pool.spawn(move || {
-            let request = HttpRequest { url: req.uri().to_string() };
-            let response: HttpResponse = engine.clone().invoke_service(engine, &service_id, "http", request);
-            tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap()
-        });
-
-        Box::pin(async move { rx.await.unwrap() })
-    }
-}
-
 fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {
     let memory = ctx.data().memory.as_ref().unwrap();
     let view = memory.view(&ctx);
@@ -426,7 +397,7 @@ fn api_rpc(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let return_value = engine.clone().invoke_service_raw(engine, &service_id, &function_name, argument);
+    let return_value = engine.clone().invoke_service_raw(engine, &service_id, &function_name, argument).unwrap();
 
     let (data, mut store) = ctx.data_and_store_mut();
 
@@ -448,7 +419,7 @@ fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, ou
         if let Some(value) = ctx.env_vars.get(&key) {
             Some(value.clone())
         } else {
-            ctx.storage.get(&key)
+            ctx.storage.get(&key).unwrap()
         }
     };
     let value = match value {

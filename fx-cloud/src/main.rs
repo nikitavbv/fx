@@ -1,5 +1,12 @@
+// you don't want your application runtime to randomly crash
+#![warn(clippy::unwrap_used)]
+#![warn(clippy::expect_used)]
+#![warn(clippy::panic)]
+
 use {
     std::fs,
+    tracing::{Level, info, error},
+    tracing_subscriber::FmtSubscriber,
     crate::{
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
@@ -7,28 +14,35 @@ use {
 };
 
 mod cloud;
+mod error;
+mod http;
 mod kafka;
 mod storage;
 
 #[tokio::main]
 async fn main() {
-    println!("starting fx...");
+    FmtSubscriber::builder().with_max_level(Level::INFO).init();
+    info!("starting fx...");
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 {
-        run_function(args[1].as_str()).await;
+        if let Err(err) = run_function(args[1].as_str()).await {
+            error!("failed to run function: {err:?}");
+        }
     } else {
-        run_demo().await;
+        if let Err(err) = run_demo().await {
+            error!("failed to start fx cloud instance: {err:?}");
+        }
     }
 }
 
-async fn run_demo() {
-    let storage = SqliteStorage::in_memory();
+async fn run_demo() -> anyhow::Result<()> {
+    let storage = SqliteStorage::in_memory()
+        .with_key(b"services/dashboard/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
+        .with_key(b"services/hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
+        .with_key(b"services/rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
+        .with_key(b"services/counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?);
     let fx_cloud = FxCloud::new()
-        .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm").unwrap())
-            .with_key(b"rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm").unwrap())
-            .with_key(b"counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm").unwrap())
-        )
+        .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone())))
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()
@@ -38,14 +52,16 @@ async fn run_demo() {
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
         .with_service(Service::new(ServiceId::new("counter".to_owned())).global());
 
-    fx_cloud.run_http(8080, &ServiceId::new("hello-service".to_owned())).await;
+    fx_cloud.run_http(8080, &ServiceId::new("dashboard".to_owned())).await;
+
+    Ok(())
 }
 
-async fn run_function(function_path: &str) {
+async fn run_function(function_path: &str) -> anyhow::Result<()> {
     let storage = SqliteStorage::in_memory();
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"http/service.wasm", &fs::read(function_path).unwrap())
+            .with_key(b"http/service.wasm", &fs::read(function_path)?)
         )
         .with_service(
             Service::new(ServiceId::new("http".to_owned()))
@@ -53,4 +69,6 @@ async fn run_function(function_path: &str) {
         );
 
     fx_cloud.run_http(8080, &ServiceId::new("http".to_owned())).await;
+
+    Ok(())
 }

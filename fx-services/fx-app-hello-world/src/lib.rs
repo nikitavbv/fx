@@ -17,12 +17,10 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
     if req.url == "/test-rpc" {
         let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 });
-        return HttpResponse {
-            body: format!("rpc demo returned a response: {response:?}\n"),
-        };
+        return HttpResponse::new().body(format!("rpc demo returned a response: {response:?}\n"));
     } else if req.url == "/test-fetch" {
         let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned()));
-        return HttpResponse { body: String::from_utf8(res.body).unwrap() };
+        return HttpResponse::new().body(String::from_utf8(res.body).unwrap());
     }
 
     HttpResponse::new().body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))
