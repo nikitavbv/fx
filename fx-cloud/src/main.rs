@@ -17,6 +17,7 @@ mod cloud;
 mod error;
 mod http;
 mod kafka;
+mod sql;
 mod storage;
 
 #[tokio::main]

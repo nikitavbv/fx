@@ -307,6 +307,7 @@ impl ExecutionContext {
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
+                "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
             }
@@ -442,6 +443,10 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr
     let key = read_memory_owned(&ctx, k_addr, k_len);
     let value = read_memory_owned(&ctx, v_addr, v_len);
     ctx.data().storage.set(&key, &value);
+}
+
+fn api_sql_exec(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64) {
+    // TODO: implement this
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
