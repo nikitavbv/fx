@@ -43,6 +43,7 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_key(b"services/counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?);
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone())))
+        .with_service(Service::new(ServiceId::new("dashboard".to_owned())))
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()
