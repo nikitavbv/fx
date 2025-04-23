@@ -5,12 +5,13 @@ use {
 };
 
 pub trait KVStorage {
-    fn set(&self, key: &[u8], value: &[u8]);
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError>;
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError>;
 }
 
 #[derive(Clone)]
 pub struct SqliteStorage {
+    // todo: make connection thread local?
     connection: Arc<Mutex<Connection>>,
 }
 
@@ -31,14 +32,16 @@ impl SqliteStorage {
 }
 
 impl KVStorage for SqliteStorage {
-    fn set(&self, key: &[u8], value: &[u8]) {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
         let connection = self.connection.lock().unwrap();
-        connection.execute("insert or replace into kv (key, value) values (?1, ?2)", (&key, &value)).unwrap();
+        connection.execute("insert or replace into kv (key, value) values (?1, ?2)", (&key, &value))
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to execute sqlite query: {err:?}") })
+            .map(|_| ())
     }
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
-        let connection = self.connection.lock().unwrap();
-
+        let connection = self.connection.lock()
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to acquire sqlite connection: {err:?}") })?;
         let mut stmt = connection.prepare("select value from kv where key = ?1")
             .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to prepare sqlite query: {err:?}") })?;
         let mut rows = stmt.query([(key)])
@@ -78,7 +81,7 @@ impl<T> NamespacedStorage<T> {
 }
 
 impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
-    fn set(&self, key: &[u8], value: &[u8]) { self.inner.set(&self.namespaced_key(key), value) }
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.namespaced_key(key), value) }
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.namespaced_key(key)) }
 }
 
@@ -86,7 +89,7 @@ pub struct EmptyStorage;
 
 impl KVStorage for EmptyStorage {
     fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { Ok(None) }
-    fn set(&self, _key: &[u8], _value: &[u8]) {}
+    fn set(&self, _key: &[u8], _value: &[u8]) -> Result<(), FxCloudError> { Ok(()) }
 }
 
 #[derive(Clone)]
@@ -107,7 +110,7 @@ impl KVStorage for BoxedStorage {
         self.inner.get(key)
     }
 
-    fn set(&self, key: &[u8], value: &[u8]) {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
         self.inner.set(key, value)
     }
 }

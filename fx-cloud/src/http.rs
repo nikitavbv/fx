@@ -44,7 +44,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     },
                 }
             };
-            tx.send(Ok(Response::new(Full::new(Bytes::from(response.body.unwrap_or(Vec::new())))))).unwrap()
+            // ignore errors here, because it can be caused by client disconnecting and channel being closed
+            let _res = tx.send(Ok(Response::new(Full::new(Bytes::from(response.body.unwrap_or(Vec::new()))))));
         });
 
         Box::pin(async move { rx.await.unwrap() })

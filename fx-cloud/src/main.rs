@@ -14,6 +14,7 @@ use {
 };
 
 mod cloud;
+mod compatibility;
 mod error;
 mod http;
 mod kafka;

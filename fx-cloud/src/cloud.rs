@@ -27,6 +27,7 @@ use {
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
         error::FxCloudError,
         http::HttpHandler,
+        compatibility,
     },
 };
 
@@ -307,7 +308,8 @@ impl ExecutionContext {
 
         let module = Module::new(&store, module_code).unwrap();
         let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id, env_vars, storage, allow_fetch, allow_log));
-        let import_object = imports! {
+
+        let mut import_object = imports! {
             "fx" => {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
@@ -316,8 +318,22 @@ impl ExecutionContext {
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
-            }
+            },
         };
+
+        // some libraries, like leptos, have wbidgen imports, but do not use them. Let's add them here so that module can be linked
+        for import in module.imports().into_iter() {
+            let module = import.module();
+            if module != "fx" {
+                match import.ty() {
+                    wasmer::ExternType::Function(f) => {
+                        import_object.define(module, import.name(), Function::new_with_env(&mut store, &function_env, f, compatibility::api_unsupported));
+                    },
+                    other => panic!("unexpected import type: {other:?}"),
+                }
+            }
+        }
+
         let instance = Instance::new(&mut store, &module, &import_object).unwrap();
 
         Self {
@@ -330,7 +346,7 @@ impl ExecutionContext {
 
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
-struct ExecutionEnv {
+pub(crate) struct ExecutionEnv {
     engine: Arc<Engine>,
     instance: Option<Instance>,
     memory: Option<Memory>,
