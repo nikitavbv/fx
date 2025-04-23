@@ -4,6 +4,7 @@ use {
     axum::{Router, routing::{RouterIntoService, get}, body::{Body, Bytes}, http::Request},
     tower::Service,
     futures::StreamExt,
+    fx_utils::block_on,
 };
 
 #[rpc]
@@ -19,7 +20,6 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
     let res = service.call(Request::builder().uri(req.url).body(Body::empty()).unwrap());
 
-    use wasm_rs_async_executor::single_threaded::{spawn, run, block_on};
     let response = block_on(async move {
         let res = res.await.unwrap();
 
@@ -35,7 +35,6 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
         whole_body
     });
-    let _ = run(None);
 
     info!("response: {response:?}");
 

@@ -38,16 +38,20 @@ impl KVStorage for SqliteStorage {
 
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
         let connection = self.connection.lock().unwrap();
-        let res = connection.prepare("select value from kv where key = ?1")
-            .unwrap()
-            .query_map([(key)], |row| Ok(row.get(0).unwrap()))
-            .unwrap()
-            .next()
-            .map(|v| v.map_err(|err| FxCloudError::StorageInternalError { reason: format!("{err:?}") }));
+
+        let mut stmt = connection.prepare("select value from kv where key = ?1")
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to prepare sqlite query: {err:?}") })?;
+        let mut rows = stmt.query([(key)])
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to map sqlite result to value: {err:?}") })?;
+
+        let res = rows.next()
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to read row from sqlite result: {err:?}") })?
+            .map(|v| v.get(0));
 
         match res {
-            None => Ok(None),
-            Some(v) => v,
+            Some(Ok(v)) => Ok(Some(v)),
+            Some(Err(err)) => Err(FxCloudError::StorageInternalError { reason: format!("failed to decode sqlite result: {err:?}") }),
+            None => Ok(None)
         }
     }
 }

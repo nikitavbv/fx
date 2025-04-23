@@ -1,5 +1,6 @@
 use {
     std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, collections::HashMap, ops::DerefMut},
+    tracing::error,
     tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::server::conn::http1,
@@ -79,11 +80,16 @@ impl FxCloud {
 
             let http_handler = http_handler.clone();
             tokio::task::spawn(async move {
-               http1::Builder::new()
+                if let Err(err) =  http1::Builder::new()
                    .timer(TokioTimer::new())
                    .serve_connection(io, http_handler)
-                   .await
-                   .unwrap();
+                   .await {
+                        if err.is_timeout() {
+                            // ignore timeouts, because those can be caused by client
+                        } else {
+                            error!("error while handling http request: {err:?}");
+                        }
+                   }
             });
         }
     }

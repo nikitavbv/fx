@@ -935,10 +935,10 @@ dependencies = [
  "axum",
  "futures",
  "fx",
+ "fx-utils",
  "tokio",
  "tower",
  "tracing",
- "wasm-rs-async-executor",
 ]
 
 [[package]]
@@ -955,6 +955,14 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.100",
+]
+
+[[package]]
+name = "fx-utils"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "wasm-rs-async-executor",
 ]
 
 [[package]]
