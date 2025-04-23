@@ -11,14 +11,14 @@ pub struct HttpRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
     pub status: u16,
-    pub body: String,
+    pub body: Option<Vec<u8>>,
 }
 
 impl HttpResponse {
     pub fn new() -> Self {
         Self {
             status: 200,
-            body: String::new(),
+            body: None,
         }
     }
 
@@ -27,10 +27,26 @@ impl HttpResponse {
         self
     }
 
-    pub fn body(mut self, body: impl Into<String>) -> Self {
-        self.body = body.into();
+    pub fn body(mut self, body: impl HttpResponseBody) -> Self {
+        self.body = Some(body.into_bytes());
         self
     }
+}
+
+pub trait HttpResponseBody {
+    fn into_bytes(self) -> Vec<u8>;
+}
+
+impl HttpResponseBody for Vec<u8> {
+    fn into_bytes(self) -> Vec<u8> { self }
+}
+
+impl HttpResponseBody for String {
+    fn into_bytes(self) -> Vec<u8> { self.into_bytes() }
+}
+
+impl HttpResponseBody for &str {
+    fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

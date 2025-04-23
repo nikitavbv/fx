@@ -44,7 +44,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     },
                 }
             };
-            tx.send(Ok(Response::new(Full::new(Bytes::from(response.body))))).unwrap()
+            tx.send(Ok(Response::new(Full::new(Bytes::from(response.body.unwrap_or(Vec::new())))))).unwrap()
         });
 
         Box::pin(async move { rx.await.unwrap() })

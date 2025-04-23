@@ -933,11 +933,9 @@ name = "fx-cloud-dashboard"
 version = "0.1.0"
 dependencies = [
  "axum",
- "futures",
  "fx",
  "fx-utils",
  "tokio",
- "tower",
  "tracing",
 ]
 
@@ -962,6 +960,9 @@ name = "fx-utils"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures",
+ "fx",
+ "tower",
  "wasm-rs-async-executor",
 ]
 
