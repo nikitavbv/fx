@@ -17,23 +17,25 @@ pub struct SqliteStorage {
 
 impl SqliteStorage {
     #[allow(dead_code)]
-    pub fn new(path: impl AsRef<std::path::Path>) -> Self {
+    pub fn new(path: impl AsRef<std::path::Path>) -> Result<Self, FxCloudError> {
         Self::from_connection(Connection::open(path).unwrap())
     }
 
-    pub fn in_memory() -> Self {
+    pub fn in_memory() -> Result<Self, FxCloudError> {
         Self::from_connection(Connection::open_in_memory().unwrap())
     }
 
-    fn from_connection(connection: Connection) -> Self {
-        connection.execute("create table kv (key blob primary key, value blob)", ()).unwrap();
-        Self { connection: Arc::new(Mutex::new(connection)) }
+    fn from_connection(connection: Connection) -> Result<Self, FxCloudError> {
+        connection.execute("create table kv (key blob primary key, value blob)", ())
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create kv table: {err:?}") })?;
+        Ok(Self { connection: Arc::new(Mutex::new(connection)) })
     }
 }
 
 impl KVStorage for SqliteStorage {
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
-        let connection = self.connection.lock().unwrap();
+        let connection = self.connection.lock()
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to acquire sqlite connection: {err:?}") })?;
         connection.execute("insert or replace into kv (key, value) values (?1, ?2)", (&key, &value))
             .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to execute sqlite query: {err:?}") })
             .map(|_| ())

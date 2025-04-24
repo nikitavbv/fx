@@ -218,7 +218,7 @@ impl Engine {
         let mut ctx = ctx.lock().unwrap();
         let ctx = ctx.deref_mut();
 
-        Ok(self.run_service(ctx, function_name, argument))
+        self.run_service(ctx, function_name, argument)
     }
 
     fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
@@ -239,10 +239,10 @@ impl Engine {
         let mut ctx = ctx.lock().unwrap();
         let ctx = ctx.deref_mut();
 
-        Ok(self.run_service(ctx, function_name, argument))
+        self.run_service(ctx, function_name, argument)
     }
 
-    fn run_service(&self, ctx: &mut ExecutionContext, function_name: &str, argument: Vec<u8>) -> Vec<u8> {
+    fn run_service(&self, ctx: &mut ExecutionContext, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         let points_before = u64::MAX;
         set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
 
@@ -255,7 +255,10 @@ impl Engine {
         memory.view(&mut ctx.store).write(target_addr, &argument).unwrap();
 
         let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}")).unwrap();
-        function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)]).unwrap();
+
+        // TODO: errors like this should be reported to some data stream
+        function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
+            .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?;
 
         let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
             MeteringPoints::Remaining(v) => v,
@@ -263,7 +266,7 @@ impl Engine {
         };
         println!("points used: {:?}", points_used);
 
-        ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone()
+        Ok(ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone())
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
@@ -464,10 +467,11 @@ fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, ou
 fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
     let key = read_memory_owned(&ctx, k_addr, k_len);
     let value = read_memory_owned(&ctx, v_addr, v_len);
-    ctx.data().storage.set(&key, &value);
+    // TODO: report errors to calling service
+    ctx.data().storage.set(&key, &value).unwrap();
 }
 
-fn api_sql_exec(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64) {
+fn api_sql_exec(_ctx: FunctionEnvMut<ExecutionEnv>, _query_addr: i64, _query_len: i64) {
     // TODO: implement this
 }
 

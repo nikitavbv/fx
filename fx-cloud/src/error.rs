@@ -6,5 +6,8 @@ pub enum FxCloudError {
     ServiceNotFound,
 
     #[error("internal storage error: {reason}")]
-    StorageInternalError { reason: String},
+    StorageInternalError { reason: String },
+
+    #[error("internal service error: {reason}")]
+    ServiceInternalError { reason: String },
 }

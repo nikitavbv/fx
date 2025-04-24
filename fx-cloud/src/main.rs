@@ -7,6 +7,7 @@ use {
     std::fs,
     tracing::{Level, info, error},
     tracing_subscriber::FmtSubscriber,
+    anyhow::anyhow,
     crate::{
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
@@ -39,6 +40,7 @@ async fn main() {
 
 async fn run_demo() -> anyhow::Result<()> {
     let storage = SqliteStorage::in_memory()
+        .map_err(|err| anyhow!("failed to create storage: {err:?}"))?
         .with_key(b"services/dashboard/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
         .with_key(b"services/hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
         .with_key(b"services/rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
@@ -61,7 +63,8 @@ async fn run_demo() -> anyhow::Result<()> {
 }
 
 async fn run_function(function_path: &str) -> anyhow::Result<()> {
-    let storage = SqliteStorage::in_memory();
+    let storage = SqliteStorage::in_memory()
+        .map_err(|err| anyhow!("failed to create storage: {err:?}"))?;
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
             .with_key(b"http/service.wasm", &fs::read(function_path)?)
