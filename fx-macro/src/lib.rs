@@ -20,7 +20,12 @@ pub fn rpc(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let ffi_fn = quote! {
         #[unsafe(no_mangle)]
         pub extern "C" fn #wrapper_name(addr: i64, len: i64) -> i64 {
+            use std::sync::Once;
+            static SET_HOOK: Once = Once::new();
+            SET_HOOK.call_once(|| { std::panic::set_hook(Box::new(fx::panic_hook)); });
+
             fx::write_rpc_response(#fn_name(&fx::CTX, fx::read_rpc_request(addr, len)));
+
             0
         }
     };

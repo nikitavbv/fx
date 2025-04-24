@@ -4,7 +4,7 @@ pub use {
 };
 
 use {
-    std::sync::atomic::{AtomicBool, Ordering},
+    std::{sync::atomic::{AtomicBool, Ordering}, panic},
     lazy_static::lazy_static,
     crate::{sys::read_memory, logging::FxLoggingLayer},
 };
@@ -115,3 +115,5 @@ pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
     let response = rmp_serde::to_vec(&response).unwrap();
     unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
 }
+
+pub fn panic_hook(info: &panic::PanicInfo) { tracing::error!("fx module panic: {info:?}"); }
