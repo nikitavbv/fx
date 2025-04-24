@@ -8,4 +8,4 @@
 - cloud ui service
 - blackbox tests for services
 - handle errors everywhere
-- axum integration
+- live reload for local development
