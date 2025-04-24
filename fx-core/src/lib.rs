@@ -11,6 +11,7 @@ pub struct HttpRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
     pub status: u16,
+    pub headers: HashMap<String, String>,
     pub body: Option<Vec<u8>>,
 }
 
@@ -18,12 +19,23 @@ impl HttpResponse {
     pub fn new() -> Self {
         Self {
             status: 200,
+            headers: HashMap::new(),
             body: None,
         }
     }
 
     pub fn status(mut self, status: u16) -> Self {
         self.status = status;
+        self
+    }
+
+    pub fn header(mut self, header_name: impl Into<String>, header_value: impl Into<String>) -> Self {
+        self.headers.insert(header_name.into(), header_value.into());
+        self
+    }
+
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = headers;
         self
     }
 

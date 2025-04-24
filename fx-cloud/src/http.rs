@@ -2,7 +2,7 @@ use {
     std::{convert::Infallible, pin::Pin},
     tracing::error,
     tokio::sync::oneshot,
-    hyper::{Response, body::Bytes},
+    hyper::{Response, body::Bytes, StatusCode, header::HeaderName},
     http_body_util::Full,
     fx_core::{HttpResponse, HttpRequest},
     crate::{FxCloud, ServiceId, error::FxCloudError},
@@ -34,7 +34,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let service_id = self.service_id.clone();
         engine.clone().thread_pool.spawn(move || {
             let request = HttpRequest { url: req.uri().to_string() };
-            let response: HttpResponse = match engine.clone().invoke_service(engine, &service_id, "http", request) {
+            let fx_response: HttpResponse = match engine.clone().invoke_service(engine, &service_id, "http", request) {
                 Ok(v) => v,
                 Err(err) => match err {
                     FxCloudError::ServiceNotFound => response_service_not_found(),
@@ -44,8 +44,15 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     },
                 }
             };
+
+            let mut response = Response::new(Full::new(Bytes::from(fx_response.body.unwrap_or(Vec::new()))));
+            *response.status_mut() = StatusCode::from_u16(fx_response.status).unwrap();
+            for (header_key, header_value) in fx_response.headers {
+                response.headers_mut().append(HeaderName::from_bytes(header_key.as_bytes()).unwrap(), header_value.try_into().unwrap());
+            }
+
             // ignore errors here, because it can be caused by client disconnecting and channel being closed
-            let _res = tx.send(Ok(Response::new(Full::new(Bytes::from(response.body.unwrap_or(Vec::new()))))));
+            let _res = tx.send(Ok(response));
         });
 
         Box::pin(async move { rx.await.unwrap() })
