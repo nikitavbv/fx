@@ -3,7 +3,7 @@ use {
     axum::{Router, routing::get, response::{Response, IntoResponse}},
     leptos::prelude::*,
     fx_utils::handle_http_axum_router,
-    crate::{icons::{Settings, Code}, components::{Button, ButtonVariant}},
+    crate::{icons::{Settings, Code, Activity, Plus, Play}, components::{Button, ButtonVariant}},
 };
 
 mod components;
@@ -12,11 +12,7 @@ mod icons;
 #[rpc]
 pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
-
-    let app = Router::new()
-        .route("/", get(home))
-        .route("/something", get(something));
-
+    let app = Router::new().route("/", get(home));
     handle_http_axum_router(app, req)
 }
 
@@ -42,22 +38,77 @@ async fn home() -> impl IntoResponse {
             <div class="grid flex-1 grid-cols-12 gap-0">
                 <div class="col-span-2 border-r border-emerald-900/50 bg-black/90 p-4">
                     <nav class="flex flex-col gap-2">
-                        { /* for selected menu option, use bg-emerald-950 text-emerald-300 */ }
                         <Button
                             variant=ButtonVariant::Ghost
-                            class="justify-start text-emerald-500 hover:bg-emerald-950 hover:text-emerald-300">
+                            class="justify-start bg-emerald-950 text-emerald-300">
                             <Code class="mr-2 h-4 w-4" />
                             Functions
                         </Button>
+                        <Button
+                            variant=ButtonVariant::Ghost
+                            class="justify-start text-emerald-500 hover:bg-emerald-950 hover:text-emerald-300">
+                            <Activity class="mr-2 h-4 w-4" />
+                            Status
+                        </Button>
                     </nav>
+                </div>
+                <div class="col-span-10 bg-black/95 p-6">
+                    <div class="mb-6 flex items-center justify-between">
+                        <h1 class="text-2xl font-bold tracking-light">Functions</h1>
+                        <Button class="bg-emerald-700 text-black hover:bg-emerald-600">
+                            <Plus class="mr-2 h-4 w-4" />
+                            New Function
+                        </Button>
+                    </div>
+                    <FunctionList />
                 </div>
             </div>
         </div>
     })
 }
 
-async fn something() -> impl IntoResponse {
-    "something"
+#[component]
+fn function_list() -> impl IntoView {
+    view! {
+        <div>
+            <div class="border border-emerald-900/50 rounded-md overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="border-b border-emerald-900/50 bg-black/80">
+                            <th class="px-4 py-3 text-left text-emerald-500">Name</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Status</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Invocations 24h</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Errors 24h</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">CPU ops 24h</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Memory</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Execution duration P99 24h</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        { /* TODO: bg-black/70 for n+1 */}
+                        <tr class="border border-emerald-900/30 bg-black/90 hover:bg-emerald-950/30">
+                            <td class="px-4 py-3">fx-cloud-dashboard</td>
+                            <td class="px-4 py-3">OK</td>
+                            <td class="px-4 py-3">1200</td>
+                            <td class="px-4 py-3">0</td>
+                            <td class="px-4 py-3">1.5M</td>
+                            <td class="px-4 py-3">2MB</td>
+                            <td class="px-4 py-3">210ms</td>
+                            <td class="px-4 py-3 text-right">
+                                <Button
+                                    variant=ButtonVariant::Outline
+                                    class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
+                                    <Play class="h-3 w-3" />
+                                    <span class="sr-only">Invoke</span>
+                                </Button>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
 }
 
 fn render_page(page_component: impl IntoView + 'static) -> Response {
