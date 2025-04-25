@@ -46,3 +46,12 @@ pub fn play(class: impl Into<String>) -> impl IntoView {
             xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
     }
 }
+
+#[component]
+pub fn more_horizontal(class: impl Into<String>) -> impl IntoView {
+    view! {
+        <svg
+            class=class.into()
+            xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+    }
+}

@@ -3,7 +3,7 @@ use {
     axum::{Router, routing::get, response::{Response, IntoResponse}},
     leptos::prelude::*,
     fx_utils::handle_http_axum_router,
-    crate::{icons::{Settings, Code, Activity, Plus, Play}, components::{Button, ButtonVariant, Badge, BadgeVariant}},
+    crate::{icons::{Settings, Code, Activity, Plus, Play, MoreHorizontal}, components::{Button, ButtonVariant, Badge, BadgeVariant}},
 };
 
 mod components;
@@ -81,7 +81,7 @@ fn function_list() -> impl IntoView {
                             <th class="px-4 py-3 text-left text-emerald-500">Errors 24h</th>
                             <th class="px-4 py-3 text-left text-emerald-500">CPU ops 24h</th>
                             <th class="px-4 py-3 text-left text-emerald-500">Memory</th>
-                            <th class="px-4 py-3 text-left text-emerald-500">Execution duration P99 24h</th>
+                            <th class="px-4 py-3 text-left text-emerald-500">Execution duration p99 24h</th>
                             <th class="px-4 py-3 text-left text-emerald-500">Actions</th>
                         </tr>
                     </thead>
@@ -92,16 +92,24 @@ fn function_list() -> impl IntoView {
                             <td class="px-4 py-3"><Badge variant=BadgeVariant::Default class="bg-emerald-900/50 text-emerald-400 hover:bg-emerald-900/70">ok</Badge></td>
                             <td class="px-4 py-3">1200</td>
                             <td class="px-4 py-3">0</td>
-                            <td class="px-4 py-3">1.5M</td>
+                            <td class="px-4 py-3">150M</td>
                             <td class="px-4 py-3">2MB</td>
                             <td class="px-4 py-3">210ms</td>
                             <td class="px-4 py-3 text-right">
-                                <Button
-                                    variant=ButtonVariant::Outline
-                                    class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
-                                    <Play class="h-3 w-3" />
-                                    <span class="sr-only">Invoke</span>
-                                </Button>
+                                <div class="flex items-center justify-end gap-2">
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
+                                        <Play class="h-3 w-3" />
+                                        <span class="sr-only">Invoke</span>
+                                    </Button>
+                                    <Button
+                                        variant=ButtonVariant::Outline
+                                        class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
+                                        <MoreHorizontal class="h-4 w-4" />
+                                        <span class="sr-only">More</span>
+                                    </Button>
+                                </div>
                             </td>
                         </tr>
                     </tbody>
