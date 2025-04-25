@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse},
+    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery},
     fx_macro::rpc,
 };
 
@@ -38,6 +38,10 @@ impl FxCtx {
 
     pub fn kv(&self, namespace: impl Into<String>) -> KvStore {
         KvStore::new(namespace)
+    }
+
+    pub fn sql(&self, name: impl Into<String>) -> SqlDatabase {
+        SqlDatabase::new(name.into())
     }
 
     pub fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> R {
@@ -107,6 +111,28 @@ impl KvStore {
     }
 }
 
+pub struct SqlDatabase {
+    name: String,
+}
+
+impl SqlDatabase {
+    pub fn new(name: String) -> Self {
+        Self { name }
+    }
+
+    pub fn exec(&self, query: SqlQuery) {
+        let query = DatabaseSqlQuery {
+            database: self.name.clone(),
+            query,
+        };
+        let query = rmp_serde::to_vec(&query).unwrap();
+        let ptr_and_len = sys::PtrWithLen::new();
+        unsafe {
+            sys::sql_exec(query.as_ptr() as i64, query.len() as i64, ptr_and_len.ptr_to_self())
+        }
+    }
+}
+
 pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> T {
     rmp_serde::from_slice(read_memory(addr, len)).unwrap()
 }
@@ -116,4 +142,4 @@ pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
     unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
 }
 
-pub fn panic_hook(info: &panic::PanicInfo) { tracing::error!("fx module panic: {info:?}"); }
+pub fn panic_hook(info: &panic::PanicHookInfo) { tracing::error!("fx module panic: {info:?}"); }

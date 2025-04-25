@@ -10,4 +10,7 @@ pub enum FxCloudError {
 
     #[error("internal service error: {reason}")]
     ServiceInternalError { reason: String },
+
+    #[error("compilation error: {reason}")]
+    CompilationError { reason: String },
 }

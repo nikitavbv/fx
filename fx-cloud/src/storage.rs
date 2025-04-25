@@ -18,11 +18,17 @@ pub struct SqliteStorage {
 impl SqliteStorage {
     #[allow(dead_code)]
     pub fn new(path: impl AsRef<std::path::Path>) -> Result<Self, FxCloudError> {
-        Self::from_connection(Connection::open(path).unwrap())
+        Self::from_connection(
+            Connection::open(path)
+                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to open sqlite database: {err:?}") })?
+        )
     }
 
     pub fn in_memory() -> Result<Self, FxCloudError> {
-        Self::from_connection(Connection::open_in_memory().unwrap())
+        Self::from_connection(
+            Connection::open_in_memory()
+                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to open in memory sqlite: {err:?}") })?
+        )
     }
 
     fn from_connection(connection: Connection) -> Result<Self, FxCloudError> {

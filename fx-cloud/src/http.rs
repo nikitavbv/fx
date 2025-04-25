@@ -39,7 +39,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 Err(err) => match err {
                     FxCloudError::ServiceNotFound => response_service_not_found(),
                     FxCloudError::StorageInternalError { reason: _ }
-                    | FxCloudError::ServiceInternalError { reason: _ }=> {
+                    | FxCloudError::ServiceInternalError { reason: _ }
+                    | FxCloudError::CompilationError { reason: _ }=> {
                         error!("internal error while serving request: {err:?}");
                         response_internal_error()
                     },

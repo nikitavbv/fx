@@ -22,12 +22,13 @@ use {
         imports,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    fx_core::{LogMessage, FetchRequest, FetchResponse},
+    fx_core::{LogMessage, FetchRequest, FetchResponse, DatabaseSqlQuery},
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
         error::FxCloudError,
         http::HttpHandler,
         compatibility,
+        sql::SqlDatabase,
     },
 };
 
@@ -114,6 +115,7 @@ pub struct Service {
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
     is_global: bool,
     storage: BoxedStorage,
+    sql: HashMap<String, SqlDatabase>,
     allow_fetch: bool,
     allow_log: bool,
 }
@@ -125,6 +127,7 @@ impl Service {
             env_vars: HashMap::new(),
             is_global: false,
             storage: BoxedStorage::new(EmptyStorage),
+            sql: HashMap::new(),
             allow_fetch: false,
             allow_log: true,
         }
@@ -143,6 +146,11 @@ impl Service {
 
     pub fn with_storage(mut self, storage: BoxedStorage) -> Self {
         self.storage = storage;
+        self
+    }
+
+    pub fn with_sql_database(mut self, name: String, database: SqlDatabase) -> Self {
+        self.sql.insert(name, database);
         self
     }
 
@@ -270,15 +278,16 @@ impl Engine {
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
-        Ok(ExecutionContext::new(
+        ExecutionContext::new(
             engine,
             service.id.clone(),
             service.get_storage(),
+            service.sql.clone(),
             self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes())?.unwrap(),
             service.env_vars.clone(),
             service.allow_fetch,
             service.allow_log,
-        ))
+        )
     }
 
     fn is_global_service(&self, service_id: &ServiceId) -> Result<bool, FxCloudError> {
@@ -299,18 +308,19 @@ impl ExecutionContext {
         engine: Arc<Engine>,
         service_id: ServiceId,
         storage: BoxedStorage,
+        sql: HashMap<String, SqlDatabase>,
         module_code: Vec<u8>,
         env_vars: HashMap<Vec<u8>, Vec<u8>>,
         allow_fetch: bool,
         allow_log: bool
-    ) -> Self {
+    ) -> Result<Self, FxCloudError> {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = Module::new(&store, module_code).unwrap();
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id, env_vars, storage, allow_fetch, allow_log));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id, env_vars, storage, sql, allow_fetch, allow_log));
 
         let mut import_object = imports! {
             "fx" => {
@@ -337,13 +347,14 @@ impl ExecutionContext {
             }
         }
 
-        let instance = Instance::new(&mut store, &module, &import_object).unwrap();
+        let instance = Instance::new(&mut store, &module, &import_object)
+            .map_err(|err| FxCloudError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
 
-        Self {
+        Ok(Self {
             instance,
             store,
             function_env,
-        }
+        })
     }
 }
 
@@ -357,7 +368,10 @@ pub(crate) struct ExecutionEnv {
 
     service_id: ServiceId,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
+
     storage: BoxedStorage,
+    sql: HashMap<String, SqlDatabase>,
+
     allow_fetch: bool,
     allow_log: bool,
 
@@ -365,7 +379,15 @@ pub(crate) struct ExecutionEnv {
 }
 
 impl ExecutionEnv {
-    pub fn new(engine: Arc<Engine>, service_id: ServiceId, env_vars: HashMap<Vec<u8>, Vec<u8>>, storage: BoxedStorage, allow_fetch: bool, allow_log: bool) -> Self {
+    pub fn new(
+        engine: Arc<Engine>,
+        service_id: ServiceId,
+        env_vars: HashMap<Vec<u8>, Vec<u8>>,
+        storage: BoxedStorage,
+        sql: HashMap<String, SqlDatabase>,
+        allow_fetch: bool,
+        allow_log: bool
+    ) -> Self {
         Self {
             engine,
             instance: None,
@@ -374,6 +396,7 @@ impl ExecutionEnv {
             service_id,
             env_vars,
             storage,
+            sql,
             allow_fetch,
             allow_log,
             fetch_client: reqwest::blocking::Client::new(),
@@ -471,7 +494,10 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr
     ctx.data().storage.set(&key, &value).unwrap();
 }
 
-fn api_sql_exec(_ctx: FunctionEnvMut<ExecutionEnv>, _query_addr: i64, _query_len: i64) {
+fn api_sql_exec(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
+    let query: DatabaseSqlQuery = decode_memory(&ctx, query_addr, query_len);
+    println!("running query: {query:?}");
+
     // TODO: implement this
 }
 

@@ -11,6 +11,7 @@ use {
     crate::{
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
+        sql::SqlDatabase,
     },
 };
 
@@ -53,6 +54,7 @@ async fn run_demo() -> anyhow::Result<()> {
                 .allow_fetch()
                 .with_env_var("demo/instance", "A")
                 .with_storage(BoxedStorage::new(NamespacedStorage::new("data/demo/".as_bytes().to_vec(), storage.clone())))
+                .with_sql_database("test-db".to_owned(), SqlDatabase::in_memory())
         )
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
         .with_service(Service::new(ServiceId::new("counter".to_owned())).global());

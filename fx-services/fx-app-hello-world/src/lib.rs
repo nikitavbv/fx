@@ -1,5 +1,5 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, FetchRequest, rpc},
+    fx::{FxCtx, HttpRequest, HttpResponse, FetchRequest, rpc, SqlQuery},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
@@ -21,6 +21,11 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     } else if req.url == "/test-fetch" {
         let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned()));
         return HttpResponse::new().body(String::from_utf8(res.body).unwrap());
+    } else if req.url == "/test-sql" {
+        let database = ctx.sql("test-db");
+        database.exec(SqlQuery::new("create table if not exists hello_table (v integer not null)"));
+        database.exec(SqlQuery::new("insert into hello_table (v) values (42)"));
+        return HttpResponse::new().body("hello sql!\n");
     }
 
     HttpResponse::new().body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))

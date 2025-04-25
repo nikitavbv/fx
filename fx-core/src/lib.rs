@@ -108,3 +108,38 @@ pub struct FetchResponse {
     pub status: u16,
     pub body: Vec<u8>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DatabaseSqlQuery {
+    pub database: String,
+    pub query: SqlQuery,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SqlQuery {
+    pub stmt: String,
+    pub params: Vec<QueryParam>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum QueryParam {
+    Null,
+}
+
+pub trait IntoQueryParam {
+    fn into_query_param(self) -> QueryParam;
+}
+
+impl SqlQuery {
+    pub fn new(stmt: impl Into<String>) -> Self {
+        Self {
+            stmt: stmt.into(),
+            params: Vec::new(),
+        }
+    }
+
+    pub fn bind(mut self, param: impl IntoQueryParam) -> Self {
+        self.params.push(param.into_query_param());
+        self
+    }
+}
