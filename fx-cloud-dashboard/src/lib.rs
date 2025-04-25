@@ -3,7 +3,7 @@ use {
     axum::{Router, routing::get, response::{Response, IntoResponse}},
     leptos::prelude::*,
     fx_utils::handle_http_axum_router,
-    crate::{icons::{Settings, Code, Activity, Plus, Play}, components::{Button, ButtonVariant}},
+    crate::{icons::{Settings, Code, Activity, Plus, Play}, components::{Button, ButtonVariant, Badge, BadgeVariant}},
 };
 
 mod components;
@@ -89,7 +89,7 @@ fn function_list() -> impl IntoView {
                         { /* TODO: bg-black/70 for n+1 */}
                         <tr class="border border-emerald-900/30 bg-black/90 hover:bg-emerald-950/30">
                             <td class="px-4 py-3">fx-cloud-dashboard</td>
-                            <td class="px-4 py-3">OK</td>
+                            <td class="px-4 py-3"><Badge variant=BadgeVariant::Default class="bg-emerald-900/50 text-emerald-400 hover:bg-emerald-900/70">ok</Badge></td>
                             <td class="px-4 py-3">1200</td>
                             <td class="px-4 py-3">0</td>
                             <td class="px-4 py-3">1.5M</td>
