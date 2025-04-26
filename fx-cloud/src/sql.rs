@@ -8,16 +8,25 @@ pub(crate) struct Query {
     params: Vec<QueryParam>,
 }
 
+impl Query {
+    pub fn new(query: String) -> Self {
+        Self { query, params: Vec::new() }
+    }
+}
+
 pub(crate) enum QueryParam {}
 
+#[derive(Debug)]
 pub struct QueryResult {
     pub rows: Vec<Row>,
 }
 
+#[derive(Debug)]
 pub struct Row {
     pub columns: Vec<Value>,
 }
 
+#[derive(Debug)]
 pub enum Value {
     Null,
     Integer(i64),

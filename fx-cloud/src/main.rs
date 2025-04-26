@@ -65,7 +65,7 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke");
 
     fx_cloud.run_queue();
-    fx_cloud.run_http(8080, &ServiceId::new("dashboard".to_owned())).await;
+    fx_cloud.run_http(8080, &ServiceId::new("hello-service".to_owned())).await;
 
     Ok(())
 }

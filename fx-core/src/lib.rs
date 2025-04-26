@@ -143,3 +143,22 @@ impl SqlQuery {
         self
     }
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct SqlResult {
+    pub rows: Vec<SqlResultRow>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SqlResultRow {
+    pub columns: Vec<SqlValue>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum SqlValue {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Blob(Vec<u8>),
+}

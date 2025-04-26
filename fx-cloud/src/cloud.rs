@@ -22,14 +22,14 @@ use {
         imports,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    fx_core::{LogMessage, FetchRequest, FetchResponse, DatabaseSqlQuery},
+    fx_core::{LogMessage, FetchRequest, FetchResponse, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
         error::FxCloudError,
         http::HttpHandler,
         compatibility,
-        sql::SqlDatabase,
+        sql::{self, SqlDatabase},
         queue::Queue,
     },
 };
@@ -553,11 +553,35 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr
     ctx.data().storage.set(&key, &value).unwrap();
 }
 
-fn api_sql_exec(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
+fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
     let query: DatabaseSqlQuery = decode_memory(&ctx, query_addr, query_len);
     println!("running query: {query:?}");
+    let result = ctx.data().sql.get(&query.database).as_ref().unwrap().exec(sql::Query::new(query.query.stmt));
+    let result = SqlResult {
+        rows: result.rows.into_iter()
+            .map(|row| SqlResultRow {
+                columns: row.columns.into_iter()
+                    .map(|value| match value {
+                        sql::Value::Null => SqlValue::Null,
+                        sql::Value::Integer(v) => SqlValue::Integer(v),
+                        sql::Value::Real(v) => SqlValue::Real(v),
+                        sql::Value::Text(v) => SqlValue::Text(v),
+                        sql::Value::Blob(v) => SqlValue::Blob(v),
+                    })
+                    .collect(),
+            })
+            .collect(),
+    };
 
-    // TODO: implement this
+    let result = rmp_serde::to_vec(&result).unwrap();
+
+    let (data, mut store) = ctx.data_and_store_mut();
+
+    let len = result.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &result);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {

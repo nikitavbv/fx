@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery},
+    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult},
     fx_macro::rpc,
     crate::sys::PtrWithLen,
 };
@@ -121,7 +121,7 @@ impl SqlDatabase {
         Self { name }
     }
 
-    pub fn exec(&self, query: SqlQuery) {
+    pub fn exec(&self, query: SqlQuery) -> SqlResult {
         let query = DatabaseSqlQuery {
             database: self.name.clone(),
             query,
@@ -131,6 +131,8 @@ impl SqlDatabase {
         unsafe {
             sys::sql_exec(query.as_ptr() as i64, query.len() as i64, ptr_and_len.ptr_to_self())
         }
+
+        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
     }
 }
 
