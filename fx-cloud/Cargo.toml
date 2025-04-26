@@ -21,6 +21,7 @@ thiserror = "2.0.12"
 anyhow = "1.0.98"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
+crossbeam = "0.8.4"
 
 fx-core = { path = "../fx-core" }
 fx-cloud-common = { path = "../fx-cloud-common" }

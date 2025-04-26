@@ -5,5 +5,6 @@ mod compatibility;
 mod error;
 mod http;
 mod kafka;
+mod queue;
 mod sql;
 pub mod storage;

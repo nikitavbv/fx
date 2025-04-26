@@ -20,6 +20,7 @@ mod compatibility;
 mod error;
 mod http;
 mod kafka;
+mod queue;
 mod sql;
 mod storage;
 
