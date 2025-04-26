@@ -5,16 +5,19 @@ use {
 
 pub(crate) struct Query {
     query: String,
-    params: Vec<QueryParam>,
+    params: Vec<Value>,
 }
 
 impl Query {
     pub fn new(query: String) -> Self {
         Self { query, params: Vec::new() }
     }
-}
 
-pub(crate) enum QueryParam {}
+    pub fn with_param(mut self, param: Value) -> Self {
+        self.params.push(param);
+        self
+    }
+}
 
 #[derive(Debug)]
 pub struct QueryResult {
@@ -81,10 +84,14 @@ impl SqlDatabase {
     }
 }
 
-impl ToSql for QueryParam {
+impl ToSql for Value {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         match self {
-            _ => unimplemented!()
+            Self::Null => None::<i64>.to_sql(),
+            Self::Integer(v) => v.to_sql(),
+            Self::Real(v) => v.to_sql(),
+            Self::Text(v) => v.to_sql(),
+            Self::Blob(v) => v.to_sql(),
         }
     }
 }

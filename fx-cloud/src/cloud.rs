@@ -554,9 +554,20 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr
 }
 
 fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
-    let query: DatabaseSqlQuery = decode_memory(&ctx, query_addr, query_len);
-    println!("running query: {query:?}");
-    let result = ctx.data().sql.get(&query.database).as_ref().unwrap().exec(sql::Query::new(query.query.stmt));
+    let request: DatabaseSqlQuery = decode_memory(&ctx, query_addr, query_len);
+
+    let mut query = sql::Query::new(request.query.stmt);
+    for param in request.query.params {
+        query = query.with_param(match param {
+            SqlValue::Null => sql::Value::Null,
+            SqlValue::Integer(v) => sql::Value::Integer(v),
+            SqlValue::Real(v) => sql::Value::Real(v),
+            SqlValue::Text(v) => sql::Value::Text(v),
+            SqlValue::Blob(v) => sql::Value::Blob(v),
+        });
+    }
+
+    let result = ctx.data().sql.get(&request.database).as_ref().unwrap().exec(query);
     let result = SqlResult {
         rows: result.rows.into_iter()
             .map(|row| SqlResultRow {

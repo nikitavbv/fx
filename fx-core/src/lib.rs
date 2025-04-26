@@ -118,16 +118,17 @@ pub struct DatabaseSqlQuery {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SqlQuery {
     pub stmt: String,
-    pub params: Vec<QueryParam>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum QueryParam {
-    Null,
+    pub params: Vec<SqlValue>,
 }
 
 pub trait IntoQueryParam {
-    fn into_query_param(self) -> QueryParam;
+    fn into_query_param(self) -> SqlValue;
+}
+
+impl IntoQueryParam for i64 {
+    fn into_query_param(self) -> SqlValue {
+        SqlValue::Integer(self)
+    }
 }
 
 impl SqlQuery {
@@ -154,7 +155,7 @@ pub struct SqlResultRow {
     pub columns: Vec<SqlValue>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SqlValue {
     Null,
     Integer(i64),
