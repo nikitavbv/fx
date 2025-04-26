@@ -26,7 +26,7 @@ unsafe extern "C" {
 
 #[derive(Debug)]
 #[repr(C)]
-pub(crate) struct PtrWithLen {
+pub struct PtrWithLen {
     pub ptr: i64,
     pub len: i64,
 }
@@ -50,6 +50,10 @@ impl PtrWithLen {
 
     pub fn read_owned(&self) -> Vec<u8> {
         read_memory_owned(self.ptr, self.len)
+    }
+
+    pub fn read_decode<T: serde::de::DeserializeOwned>(&self) -> T {
+        rmp_serde::from_slice(&self.read_owned()).unwrap()
     }
 }
 

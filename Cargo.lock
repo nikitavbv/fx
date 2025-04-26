@@ -1116,6 +1116,7 @@ name = "fx-cloud"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "fx-cloud-common",
  "fx-core",
  "http-body-util",
  "hyper",
@@ -1136,11 +1137,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-cloud-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "fx-cloud-dashboard"
 version = "0.1.0"
 dependencies = [
  "axum",
  "fx",
+ "fx-cloud-common",
  "fx-utils",
  "leptos",
  "tokio",

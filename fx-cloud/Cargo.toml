@@ -23,3 +23,4 @@ tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 
 fx-core = { path = "../fx-core" }
+fx-cloud-common = { path = "../fx-cloud-common" }

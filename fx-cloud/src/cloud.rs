@@ -332,12 +332,15 @@ impl ExecutionContext {
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
             },
+            "fx_cloud" => {
+                "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
+            }
         };
 
         // some libraries, like leptos, have wbidgen imports, but do not use them. Let's add them here so that module can be linked
         for import in module.imports().into_iter() {
             let module = import.module();
-            if module != "fx" {
+            if module != "fx" && module != "fx_cloud" {
                 match import.ty() {
                     wasmer::ExternType::Function(f) => {
                         import_object.define(module, import.name(), Function::new_with_env(&mut store, &function_env, f, compatibility::api_unsupported));
@@ -540,6 +543,24 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
     let (data, mut store) = ctx.data_and_store_mut();
 
     let res = rmp_serde::to_vec(&res).unwrap();
+    let len = res.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &res);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+}
+
+fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
+    // TODO: permissions check
+    let functions: Vec<_> = ctx.data().engine.services.read().unwrap()
+        .iter()
+        .map(|(function_id, _function)| fx_cloud_common::Function {
+            id: function_id.id.clone(),
+        })
+        .collect();
+
+    let (data, mut store) = ctx.data_and_store_mut();
+    let res = rmp_serde::to_vec(&functions).unwrap();
     let len = res.len() as i64;
     let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
     write_memory(&ctx, ptr, &res);

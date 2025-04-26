@@ -1,22 +1,29 @@
 use {
     fx::{FxCtx, HttpRequest, HttpResponse, rpc},
-    axum::{Router, routing::get, response::{Response, IntoResponse}},
+    axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
     fx_utils::handle_http_axum_router,
-    crate::{icons::{Settings, Code, Activity, Plus, Play, MoreHorizontal}, components::{Button, ButtonVariant, Badge, BadgeVariant}},
+    crate::{icons::{Settings, Code, Activity, Plus, Play, MoreHorizontal}, components::{Button, ButtonVariant, Badge, BadgeVariant}, cloud_api::FxCloudClient},
 };
 
+mod cloud_api;
 mod components;
 mod icons;
 
 #[rpc]
 pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
-    let app = Router::new().route("/", get(home));
+
+    let app = Router::new()
+        .route("/", get(home))
+        .layer(Extension(FxCloudClient::new()));
+
     handle_http_axum_router(app, req)
 }
 
-async fn home() -> impl IntoResponse {
+async fn home(Extension(cloud): Extension<FxCloudClient>) -> impl IntoResponse {
+    let functions = cloud.list_functions();
+
     render_page(view! {
         <div class="flex min-h-screen flex-col bg-black text-emerald-400">
             <header class="border-b border-emerald-900/50 bg-black/90 px-6 py-3">
@@ -60,7 +67,7 @@ async fn home() -> impl IntoResponse {
                             New Function
                         </Button>
                     </div>
-                    <FunctionList />
+                    <FunctionList functions />
                 </div>
             </div>
         </div>
@@ -68,7 +75,7 @@ async fn home() -> impl IntoResponse {
 }
 
 #[component]
-fn function_list() -> impl IntoView {
+fn function_list(functions: Vec<cloud_api::list_functions::Function>) -> impl IntoView {
     view! {
         <div>
             <div class="border border-emerald-900/50 rounded-md overflow-hidden">
@@ -86,36 +93,51 @@ fn function_list() -> impl IntoView {
                         </tr>
                     </thead>
                     <tbody>
-                        { /* TODO: bg-black/70 for n+1 */}
-                        <tr class="border border-emerald-900/30 bg-black/90 hover:bg-emerald-950/30">
-                            <td class="px-4 py-3">fx-cloud-dashboard</td>
-                            <td class="px-4 py-3"><Badge variant=BadgeVariant::Default class="bg-emerald-900/50 text-emerald-400 hover:bg-emerald-900/70">ok</Badge></td>
-                            <td class="px-4 py-3">1200</td>
-                            <td class="px-4 py-3">0</td>
-                            <td class="px-4 py-3">150M</td>
-                            <td class="px-4 py-3">2MB</td>
-                            <td class="px-4 py-3">210ms</td>
-                            <td class="px-4 py-3 text-right">
-                                <div class="flex items-center justify-end gap-2">
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
-                                        <Play class="h-3 w-3" />
-                                        <span class="sr-only">Invoke</span>
-                                    </Button>
-                                    <Button
-                                        variant=ButtonVariant::Outline
-                                        class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
-                                        <MoreHorizontal class="h-4 w-4" />
-                                        <span class="sr-only">More</span>
-                                    </Button>
-                                </div>
-                            </td>
-                        </tr>
+                        {
+                            functions
+                                .iter()
+                                .enumerate()
+                                .map(|(index, function)| view! {
+                                    <FunctionListRow index={index as i64} function=function.clone() />
+                                })
+                                .collect::<Vec<_>>()
+                        }
                     </tbody>
                 </table>
             </div>
         </div>
+    }
+}
+
+#[component]
+fn function_list_row(index: i64, function: cloud_api::list_functions::Function) -> impl IntoView {
+    let tr_class = format!("border border-emerald-900/30 hover:bg-emerald-950/30 {}", if index % 2 == 0 { "bg-black/90" } else { "bg-black/70" });
+    view! {
+        <tr class=tr_class>
+            <td class="px-4 py-3">{ function.id }</td>
+            <td class="px-4 py-3"><Badge variant=BadgeVariant::Default class="bg-emerald-900/50 text-emerald-400 hover:bg-emerald-900/70">ok</Badge></td>
+            <td class="px-4 py-3">1200</td>
+            <td class="px-4 py-3">0</td>
+            <td class="px-4 py-3">150M</td>
+            <td class="px-4 py-3">2MB</td>
+            <td class="px-4 py-3">210ms</td>
+            <td class="px-4 py-3 text-right">
+                <div class="flex items-center justify-end gap-2">
+                    <Button
+                        variant=ButtonVariant::Outline
+                        class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
+                        <Play class="h-3 w-3" />
+                        <span class="sr-only">Invoke</span>
+                    </Button>
+                    <Button
+                        variant=ButtonVariant::Outline
+                        class="h-7 w-7 p-0 border-emerald-900/50 bg-black text-emerald-400 hover:bg-emerald-950 hover:text-emerald-300">
+                        <MoreHorizontal class="h-4 w-4" />
+                        <span class="sr-only">More</span>
+                    </Button>
+                </div>
+            </td>
+        </tr>
     }
 }
 
