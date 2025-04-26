@@ -7,6 +7,8 @@ use {
 
 pub use wasm_rs_async_executor::single_threaded::block_on;
 
+mod database;
+
 pub fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
