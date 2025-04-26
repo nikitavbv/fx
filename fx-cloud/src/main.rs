@@ -48,11 +48,15 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_key(b"services/hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
         .with_key(b"services/rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
         .with_key(b"services/counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?);
+
+    let dashboard_database = SqlDatabase::in_memory();
+    dashboard_database.exec(sql::Query::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned()));
+
     let fx_cloud = FxCloud::new()
         .with_queue()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone())))
-        .with_service(Service::new(ServiceId::new("dashboard".to_owned())))
-        .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system())
+        .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), dashboard_database.clone()))
+        .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), dashboard_database))
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()
@@ -65,7 +69,7 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke");
 
     fx_cloud.run_queue();
-    fx_cloud.run_http(8080, &ServiceId::new("hello-service".to_owned())).await;
+    fx_cloud.run_http(8080, &ServiceId::new("dashboard".to_owned())).await;
 
     Ok(())
 }

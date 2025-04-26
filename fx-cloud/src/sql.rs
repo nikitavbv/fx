@@ -3,6 +3,7 @@ use {
     rusqlite::{Connection, params_from_iter, ToSql, types::{ToSqlOutput, ValueRef}},
 };
 
+#[derive(Debug)]
 pub(crate) struct Query {
     query: String,
     params: Vec<Value>,

@@ -1,6 +1,7 @@
 use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
+    thiserror::Error,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -131,6 +132,12 @@ impl IntoQueryParam for i64 {
     }
 }
 
+impl IntoQueryParam for String {
+    fn into_query_param(self) -> SqlValue {
+        SqlValue::Text(self)
+    }
+}
+
 impl SqlQuery {
     pub fn new(stmt: impl Into<String>) -> Self {
         Self {
@@ -162,4 +169,40 @@ pub enum SqlValue {
     Real(f64),
     Text(String),
     Blob(Vec<u8>),
+}
+
+#[derive(Error, Debug)]
+pub enum SqlMappingError {
+    #[error("this column cannot be converted to this type")]
+    WrongType,
+}
+
+impl TryInto<String> for SqlValue {
+    type Error = SqlMappingError;
+    fn try_into(self) -> Result<String, Self::Error> {
+        match self {
+            Self::Text(text) => Ok(text),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+impl TryFrom<&SqlValue> for String {
+    type Error = SqlMappingError;
+    fn try_from(value: &SqlValue) -> Result<Self, Self::Error> {
+        match value {
+            SqlValue::Text(text) => Ok(text.clone()),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+impl TryFrom<&SqlValue> for u64 {
+    type Error = SqlMappingError;
+    fn try_from(value: &SqlValue) -> Result<Self, Self::Error> {
+        match value {
+            SqlValue::Integer(v) => Ok(*v as u64),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
 }

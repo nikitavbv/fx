@@ -112,6 +112,7 @@ impl KvStore {
     }
 }
 
+#[derive(Clone)]
 pub struct SqlDatabase {
     name: String,
 }

@@ -309,7 +309,7 @@ impl Engine {
 
         if !ctx.is_system {
             self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
-                function_id: function_name.to_owned(),
+                function_id: ctx.service_id.id.clone(),
             });
         }
 
@@ -354,6 +354,8 @@ struct ExecutionContext {
     instance: Instance,
     store: Store,
     function_env: FunctionEnv<ExecutionEnv>,
+
+    service_id: ServiceId,
     is_system: bool,
 }
 
@@ -375,7 +377,7 @@ impl ExecutionContext {
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = Module::new(&store, module_code).unwrap();
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id, env_vars, storage, sql, allow_fetch, allow_log));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
 
         let mut import_object = imports! {
             "fx" => {
@@ -412,6 +414,8 @@ impl ExecutionContext {
             instance,
             store,
             function_env,
+
+            service_id,
             is_system,
         })
     }
