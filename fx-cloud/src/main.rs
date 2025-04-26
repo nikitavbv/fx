@@ -44,12 +44,15 @@ async fn run_demo() -> anyhow::Result<()> {
     let storage = SqliteStorage::in_memory()
         .map_err(|err| anyhow!("failed to create storage: {err:?}"))?
         .with_key(b"services/dashboard/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
+        .with_key(b"services/dashboard-events-consumer/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
         .with_key(b"services/hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
         .with_key(b"services/rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
         .with_key(b"services/counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?);
     let fx_cloud = FxCloud::new()
+        .with_queue()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone())))
         .with_service(Service::new(ServiceId::new("dashboard".to_owned())))
+        .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system())
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()
@@ -58,8 +61,10 @@ async fn run_demo() -> anyhow::Result<()> {
                 .with_sql_database("test-db".to_owned(), SqlDatabase::in_memory())
         )
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
-        .with_service(Service::new(ServiceId::new("counter".to_owned())).global());
+        .with_service(Service::new(ServiceId::new("counter".to_owned())).global())
+        .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke");
 
+    fx_cloud.run_queue();
     fx_cloud.run_http(8080, &ServiceId::new("dashboard".to_owned())).await;
 
     Ok(())

@@ -35,3 +35,8 @@ to avoid endless loops (i.e., function listening on logs emitting logs, calling 
 fx engine is storing only what is necessary to run the system and exposes this info via apis in `fx_cloud` namespace.
 
 it is up to applications like `fx-cloud-dashboard` to persist metrics/logs.
+
+## queues
+
+queues are built on host side instead of being deployed as a global service. while they can be just another service that is deployed, it is a core part of the system,
+so managing them on host side should simplify everything.

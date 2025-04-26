@@ -23,14 +23,18 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     fx_core::{LogMessage, FetchRequest, FetchResponse, DatabaseSqlQuery},
+    fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
         error::FxCloudError,
         http::HttpHandler,
         compatibility,
         sql::SqlDatabase,
+        queue::Queue,
     },
 };
+
+const QUEUE_SYSTEM_INVOCATIONS: &str = "system/invocations";
 
 #[derive(Clone)]
 pub struct FxCloud {
@@ -57,6 +61,17 @@ impl FxCloud {
             let mut storage = self.engine.module_code_storage.write().unwrap();
             *storage = new_storage;
         }
+        self
+    }
+
+    pub fn with_queue(self) -> Self {
+        let engine = self.engine.clone();
+        *self.engine.queue.write().unwrap() = Some(Queue::new(engine));
+        self
+    }
+
+    pub fn with_queue_subscription(self, queue_id: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
+        self.engine.queue.read().unwrap().as_ref().unwrap().subscribe(queue_id.into(), function_id, rpc_function_name.into());
         self
     }
 
@@ -95,6 +110,10 @@ impl FxCloud {
             });
         }
     }
+
+    pub fn run_queue(&self) {
+        self.engine.queue.read().unwrap().as_ref().unwrap().clone().run();
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone)]
@@ -113,6 +132,7 @@ impl ServiceId {
 pub struct Service {
     id: ServiceId,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
+    is_system: bool,
     is_global: bool,
     storage: BoxedStorage,
     sql: HashMap<String, SqlDatabase>,
@@ -125,6 +145,7 @@ impl Service {
         Self {
             id,
             env_vars: HashMap::new(),
+            is_system: false,
             is_global: false,
             storage: BoxedStorage::new(EmptyStorage),
             sql: HashMap::new(),
@@ -135,6 +156,12 @@ impl Service {
 
     pub fn with_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.env_vars.insert(key.into().into_bytes(), value.into().into_bytes());
+        self
+    }
+
+    // system functions do not use common even infrastructure to avoid recursive event generation
+    pub fn system(mut self) -> Self {
+        self.is_system = true;
         self
     }
 
@@ -178,6 +205,8 @@ pub(crate) struct Engine {
 
     services: RwLock<HashMap<ServiceId, Service>>,
 
+    queue: RwLock<Option<Queue>>,
+
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
 }
@@ -191,6 +220,8 @@ impl Engine {
             global_execution_contexts: RwLock::new(HashMap::new()),
 
             services: RwLock::new(HashMap::new()),
+
+            queue: RwLock::new(None),
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }
@@ -274,13 +305,22 @@ impl Engine {
         };
         println!("points used: {:?}", points_used);
 
-        Ok(ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone())
+        let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+
+        if !ctx.is_system {
+            self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
+                function_id: function_name.to_owned(),
+            });
+        }
+
+        Ok(response)
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
         ExecutionContext::new(
             engine,
             service.id.clone(),
+            service.is_system,
             service.get_storage(),
             service.sql.clone(),
             self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes())?.unwrap(),
@@ -295,18 +335,33 @@ impl Engine {
             .ok_or(FxCloudError::ServiceNotFound)?
             .is_global)
     }
+
+    fn push_to_queue<T: serde::ser::Serialize>(&self, queue_id: impl Into<String>, message: T) {
+        self.push_to_queue_raw(queue_id, rmp_serde::to_vec(&message).unwrap());
+    }
+
+    fn push_to_queue_raw(&self, queue_id: impl Into<String>, message: Vec<u8>) {
+        let queue = self.queue.read().unwrap();
+        let queue = match queue.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
+        queue.push(queue_id.into(), message);
+    }
 }
 
 struct ExecutionContext {
     instance: Instance,
     store: Store,
     function_env: FunctionEnv<ExecutionEnv>,
+    is_system: bool,
 }
 
 impl ExecutionContext {
     pub fn new(
         engine: Arc<Engine>,
         service_id: ServiceId,
+        is_system: bool,
         storage: BoxedStorage,
         sql: HashMap<String, SqlDatabase>,
         module_code: Vec<u8>,
@@ -357,6 +412,7 @@ impl ExecutionContext {
             instance,
             store,
             function_env,
+            is_system,
         })
     }
 }

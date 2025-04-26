@@ -8,6 +8,7 @@ use {
 
 mod cloud_api;
 mod components;
+mod events;
 mod icons;
 
 #[rpc]
