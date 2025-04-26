@@ -1,4 +1,7 @@
-use fx::{SqlDatabase, SqlQuery};
+use {
+    fx::{SqlDatabase, SqlQuery},
+    fx_utils::database::{sqlx_core::connection::ConnectOptions, FxDatabaseConnectOptions},
+};
 
 #[derive(Clone)]
 pub struct Database {
@@ -6,7 +9,12 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn new(database: SqlDatabase) -> Self {
+    pub async fn new(database: SqlDatabase) -> Self {
+        /*let pool = FxDatabaseConnectOptions::new("dashboard")
+            .connect()
+            .await
+            .unwrap();*/
+
         Self { database }
     }
 }

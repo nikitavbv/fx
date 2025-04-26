@@ -146,4 +146,4 @@ pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
     unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
 }
 
-pub fn panic_hook(info: &panic::PanicHookInfo) { tracing::error!("fx module panic: {info:?}"); }
+pub fn panic_hook(info: &panic::PanicHookInfo) { tracing::error!("fx module panic: {info:?}, payload: {:?}", info.payload().downcast_ref::<&str>()); }

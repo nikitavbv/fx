@@ -5,6 +5,11 @@ use {
     self::connection::FxDatabaseConnection,
 };
 
+pub use {
+    sqlx_core,
+    self::connection::FxDatabaseConnectOptions,
+};
+
 mod connection;
 mod error;
 

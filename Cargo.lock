@@ -1228,6 +1228,7 @@ dependencies = [
  "sqlx-core",
  "thiserror 2.0.12",
  "tower",
+ "tracing",
  "wasm-rs-async-executor",
 ]
 

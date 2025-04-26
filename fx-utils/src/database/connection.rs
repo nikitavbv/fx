@@ -43,7 +43,18 @@ impl Connection for FxDatabaseConnection {
 }
 
 #[derive(Clone, Debug)]
-pub struct FxDatabaseConnectOptions;
+pub struct FxDatabaseConnectOptions {
+    // database name, as binded from Fx
+    database: String,
+}
+
+impl FxDatabaseConnectOptions {
+    pub fn new(database: impl Into<String>) -> Self {
+        Self {
+            database: database.into(),
+        }
+    }
+}
 
 impl ConnectOptions for FxDatabaseConnectOptions {
     type Connection = FxDatabaseConnection;
@@ -53,6 +64,7 @@ impl ConnectOptions for FxDatabaseConnectOptions {
     }
 
     fn connect(&self) -> BoxFuture<'_, Result<Self::Connection, sqlx::Error>> where Self::Connection: Sized {
+        // TODO: implement this
         unimplemented!()
     }
 
@@ -67,7 +79,9 @@ impl ConnectOptions for FxDatabaseConnectOptions {
 
 impl FromStr for FxDatabaseConnectOptions {
     type Err = sqlx::Error;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        unimplemented!()
+    fn from_str(database: &str) -> Result<Self, Self::Err> {
+        Ok(Self {
+            database: database.trim_start_matches("fx://").to_owned(),
+        })
     }
 }
