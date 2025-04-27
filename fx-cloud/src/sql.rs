@@ -5,7 +5,7 @@ use {
 };
 
 #[derive(Debug)]
-pub(crate) struct Query {
+pub struct Query {
     query: String,
     params: Vec<Value>,
 }
