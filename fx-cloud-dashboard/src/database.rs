@@ -1,21 +1,21 @@
 use {
-    fx::{SqlDatabase, SqlQuery},
-    fx_utils::database::{sqlx_core::connection::ConnectOptions, FxDatabaseConnectOptions},
+    fx::SqlDatabase,
+    fx_utils::database::{sqlx_core::connection::ConnectOptions, FxDatabaseConnection, FxDatabaseConnectOptions, sqlx::{self, prelude::*}},
 };
 
 #[derive(Clone)]
 pub struct Database {
-    database: SqlDatabase,
+    connection: FxDatabaseConnection,
 }
 
 impl Database {
     pub async fn new(database: SqlDatabase) -> Self {
-        /*let pool = FxDatabaseConnectOptions::new("dashboard")
+        let connection = FxDatabaseConnectOptions::new(database.clone())
             .connect()
             .await
-            .unwrap();*/
+            .unwrap();
 
-        Self { database }
+        Self { connection }
     }
 }
 
@@ -29,13 +29,15 @@ pub mod list_functions {
     }
 
     impl Database {
-        pub fn list_functions(&self) -> Vec<Function> {
-            self.database.exec(SqlQuery::new("select function_id, total_invocations from functions"))
-                .rows
+        pub async fn list_functions(&self) -> Vec<Function> {
+            sqlx::query("select function_id, total_invocations from functions")
+                .fetch_all(&self.connection)
+                .await
+                .unwrap()
                 .into_iter()
                 .map(|row| Function {
-                    function_id: row.columns.get(0).unwrap().try_into().unwrap(),
-                    total_invocations: row.columns.get(1).unwrap().try_into().unwrap(),
+                    function_id: row.get(0),
+                    total_invocations: row.get(1),
                 })
                 .collect()
         }

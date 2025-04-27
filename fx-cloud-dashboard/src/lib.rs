@@ -40,7 +40,7 @@ struct Function {
 
 async fn home(Extension(cloud): Extension<FxCloudClient>, Extension(database): Extension<Database>) -> impl IntoResponse {
     let functions = cloud.list_functions();
-    let tracked_functions: HashMap<String, _> = database.list_functions().into_iter()
+    let tracked_functions: HashMap<String, _> = database.list_functions().await.into_iter()
         .map(|v| (v.function_id.clone(), v))
         .collect();
     let functions = functions.into_iter()

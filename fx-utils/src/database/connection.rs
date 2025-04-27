@@ -3,10 +3,20 @@ use {
     sqlx_core::connection::{Connection, ConnectOptions},
     futures::future::BoxFuture,
     log::LevelFilter,
+    fx::SqlDatabase,
     super::FxDatabase,
 };
 
-pub struct FxDatabaseConnection;
+#[derive(Clone, Debug)]
+pub struct FxDatabaseConnection {
+    pub(crate) database: SqlDatabase,
+}
+
+impl FxDatabaseConnection {
+    pub fn new(database: SqlDatabase) -> Self {
+        Self { database }
+    }
+}
 
 impl Connection for FxDatabaseConnection {
     type Database = FxDatabase;
@@ -44,14 +54,13 @@ impl Connection for FxDatabaseConnection {
 
 #[derive(Clone, Debug)]
 pub struct FxDatabaseConnectOptions {
-    // database name, as binded from Fx
-    database: String,
+    database: SqlDatabase,
 }
 
 impl FxDatabaseConnectOptions {
-    pub fn new(database: impl Into<String>) -> Self {
+    pub fn new(database: SqlDatabase) -> Self {
         Self {
-            database: database.into(),
+            database,
         }
     }
 }
@@ -64,8 +73,8 @@ impl ConnectOptions for FxDatabaseConnectOptions {
     }
 
     fn connect(&self) -> BoxFuture<'_, Result<Self::Connection, sqlx::Error>> where Self::Connection: Sized {
-        // TODO: implement this
-        unimplemented!()
+        let database = self.database.clone();
+        Box::pin(async move { Ok(FxDatabaseConnection::new(database)) })
     }
 
     fn log_statements(self, level: LevelFilter) -> Self {
@@ -81,7 +90,7 @@ impl FromStr for FxDatabaseConnectOptions {
     type Err = sqlx::Error;
     fn from_str(database: &str) -> Result<Self, Self::Err> {
         Ok(Self {
-            database: database.trim_start_matches("fx://").to_owned(),
+            database: SqlDatabase::new(database.trim_start_matches("fx://").to_owned()),
         })
     }
 }

@@ -7,3 +7,4 @@
 - handle errors everywhere
 - live reload for local development
 - log to queue
+- simulated testing for fx cloud

@@ -1,17 +1,26 @@
 use {
-    std::{iter::Extend, fmt::Display, marker::PhantomData},
-    sqlx::{Database, Connection},
+    std::{iter::Extend, marker::PhantomData},
+    sqlx::{Database, IntoArguments},
     sqlx_core::{transaction::TransactionManager, row::Row, column::Column, type_info::TypeInfo, value::{Value, ValueRef}, arguments::Arguments, statement::Statement},
-    self::connection::FxDatabaseConnection,
+    self::{
+        value::{FxDatabaseValue, FxDatabaseValueRef},
+        row::FxDatabaseRow,
+        types::FxDatabaseTypeInfo,
+    },
 };
 
 pub use {
+    sqlx,
     sqlx_core,
-    self::connection::FxDatabaseConnectOptions,
+    self::connection::{FxDatabaseConnectOptions, FxDatabaseConnection},
 };
 
 mod connection;
 mod error;
+mod executor;
+mod row;
+mod types;
+mod value;
 
 #[derive(Debug)]
 pub struct FxDatabase {}
@@ -23,20 +32,11 @@ impl FxDatabase {
 }
 
 pub struct FxDatabaseTransactionManager;
-pub struct FxDatabaseRow;
+
 pub struct FxQueryResult;
 
 #[derive(Debug)]
 pub struct FxDatabaseColumn;
-
-#[derive(PartialEq, Clone, Debug)]
-pub struct FxDatabaseTypeInfo;
-
-pub struct FxDatabaseValue;
-
-pub struct FxDatabaseValueRef<'r> {
-    _phantom: PhantomData<&'r str>,
-}
 
 #[derive(Debug)]
 pub struct FxDatabaseArguments<'q> {
@@ -98,18 +98,6 @@ impl TransactionManager for FxDatabaseTransactionManager {
     }
 }
 
-impl Row for FxDatabaseRow {
-    type Database = FxDatabase;
-
-    fn columns(&self) -> &[<Self::Database as Database>::Column] {
-        unimplemented!()
-    }
-
-    fn try_get_raw<I>(&self, index: I) -> Result<<Self::Database as Database>::ValueRef<'_>, sqlx::Error> where I: sqlx::ColumnIndex<Self> {
-        unimplemented!()
-    }
-}
-
 impl Default for FxQueryResult {
     fn default() -> Self {
         Self
@@ -138,42 +126,10 @@ impl Column for FxDatabaseColumn {
     }
 }
 
-impl TypeInfo for FxDatabaseTypeInfo {
-    fn is_null(&self) -> bool {
-        unimplemented!()
-    }
-
-    fn name(&self) -> &str {
-        unimplemented!()
-    }
-}
-
-impl Display for FxDatabaseTypeInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        unimplemented!()
-    }
-}
-
 impl Value for FxDatabaseValue {
     type Database = FxDatabase;
 
     fn as_ref(&self) -> <Self::Database as Database>::ValueRef<'_> {
-        unimplemented!()
-    }
-
-    fn type_info(&self) -> std::borrow::Cow<'_, <Self::Database as Database>::TypeInfo> {
-        unimplemented!()
-    }
-
-    fn is_null(&self) -> bool {
-        unimplemented!()
-    }
-}
-
-impl<'r> ValueRef<'r> for FxDatabaseValueRef<'r> {
-    type Database = FxDatabase;
-
-    fn to_owned(&self) -> <Self::Database as Database>::Value {
         unimplemented!()
     }
 
@@ -199,6 +155,12 @@ impl<'q> Arguments<'q> for FxDatabaseArguments<'q> {
 
     fn len(&self) -> usize {
         unimplemented!()
+    }
+}
+
+impl<'q> IntoArguments<'q, FxDatabase> for FxDatabaseArguments<'q> {
+    fn into_arguments(self) -> <FxDatabase as sqlx::Database>::Arguments<'q> {
+        self
     }
 }
 

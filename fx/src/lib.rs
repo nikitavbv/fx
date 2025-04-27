@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult, CronRequest},
+    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
     crate::sys::PtrWithLen,
 };
@@ -136,7 +136,7 @@ impl KvStore {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SqlDatabase {
     name: String,
 }
@@ -191,4 +191,9 @@ pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
     unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
 }
 
-pub fn panic_hook(info: &panic::PanicHookInfo) { tracing::error!("fx module panic: {info:?}, payload: {:?}", info.payload().downcast_ref::<&str>()); }
+pub fn panic_hook(info: &panic::PanicHookInfo) {
+    let payload = info.payload().downcast_ref::<&str>()
+        .map(|v| v.to_owned().to_owned())
+        .or(info.payload().downcast_ref::<String>().map(|v| v.to_owned()));
+    tracing::error!("fx module panic: {info:?}, payload: {payload:?}");
+}
