@@ -7,3 +7,4 @@
 - blackbox tests for services
 - handle errors everywhere
 - live reload for local development
+- log to queue

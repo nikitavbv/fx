@@ -12,7 +12,6 @@ use {
         CompilerConfig,
         Store,
         EngineBuilder,
-        Module,
         FunctionEnv,
         FunctionEnvMut,
         Memory,
@@ -33,6 +32,7 @@ use {
         sql::{self, SqlDatabase},
         queue::{Queue, AsyncRpcMessage, QUEUE_RPC},
         cron::CronRunner,
+        compiler::{Compiler, BoxedCompiler, SimpleCompiler},
     },
 };
 
@@ -226,6 +226,8 @@ impl Service {
 pub(crate) struct Engine {
     pub(crate) thread_pool: ThreadPool,
 
+    compiler: RwLock<BoxedCompiler>,
+
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>>,
     global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
 
@@ -243,6 +245,8 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             thread_pool: ThreadPoolBuilder::new().build().unwrap(),
+
+            compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
             execution_contexts: ThreadLocal::new(),
             global_execution_contexts: RwLock::new(HashMap::new()),
@@ -414,7 +418,7 @@ impl ExecutionContext {
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
-        let module = Module::new(&store, module_code).unwrap();
+        let module = engine.compiler.read().unwrap().compile(&store, module_code);
         let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
 
         let mut import_object = imports! {

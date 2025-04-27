@@ -12,12 +12,12 @@ use {
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
         sql::SqlDatabase,
-        cron::CronRunner,
     },
 };
 
 mod cloud;
 mod compatibility;
+mod compiler;
 mod cron;
 mod error;
 mod http;
