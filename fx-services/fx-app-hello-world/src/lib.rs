@@ -1,5 +1,5 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, FetchRequest, rpc, SqlQuery},
+    fx::{FxCtx, HttpRequest, HttpResponse, FetchRequest, rpc, SqlQuery, CronRequest},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
@@ -30,6 +30,12 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     }
 
     HttpResponse::new().body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))
+}
+
+#[rpc]
+pub fn on_cron(ctx: &FxCtx, _req: CronRequest) {
+    ctx.init_logger();
+    info!("hello from cron!");
 }
 
 #[derive(Serialize)]

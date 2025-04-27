@@ -9,4 +9,4 @@
 - blackbox tests for services
 - handle errors everywhere
 - live reload for local development
-- cron
+- api for functions to push to queues

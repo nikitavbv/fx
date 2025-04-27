@@ -32,6 +32,7 @@ use {
         compatibility,
         sql::{self, SqlDatabase},
         queue::{Queue, AsyncRpcMessage, QUEUE_RPC},
+        cron::CronRunner,
     },
 };
 
@@ -76,6 +77,16 @@ impl FxCloud {
         self
     }
 
+    pub fn with_cron(self, sql: SqlDatabase) -> Self {
+        *self.engine.cron.write().unwrap() = Some(CronRunner::new(self.engine.clone(), sql));
+        self
+    }
+
+    pub fn with_cron_task(self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
+        self.engine.cron.read().unwrap().as_ref().unwrap().schedule(cron_expression, function_id, rpc_function_name.into());
+        self
+    }
+
     #[allow(dead_code)]
     pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument)
@@ -115,6 +126,10 @@ impl FxCloud {
     pub fn run_queue(&self) {
         self.engine.queue.read().unwrap().as_ref().unwrap().clone().run();
     }
+
+    pub fn run_cron(&self) {
+        self.engine.cron.read().unwrap().as_ref().unwrap().clone().run();
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize)]
@@ -127,6 +142,12 @@ impl ServiceId {
         Self {
             id,
         }
+    }
+}
+
+impl Into<String> for ServiceId {
+    fn into(self) -> String {
+        self.id
     }
 }
 
@@ -208,6 +229,8 @@ pub(crate) struct Engine {
 
     queue: RwLock<Option<Queue>>,
 
+    cron: RwLock<Option<CronRunner>>,
+
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
 }
@@ -223,6 +246,8 @@ impl Engine {
             services: RwLock::new(HashMap::new()),
 
             queue: RwLock::new(None),
+
+            cron: RwLock::new(None),
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
         }

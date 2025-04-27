@@ -206,3 +206,6 @@ impl TryFrom<&SqlValue> for u64 {
         }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CronRequest {}

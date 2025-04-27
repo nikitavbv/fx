@@ -22,6 +22,8 @@ anyhow = "1.0.98"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
 crossbeam = "0.8.4"
+cron = "0.15.0"
+chrono = "0.4.40"
 
 fx-core = { path = "../fx-core" }
 fx-cloud-common = { path = "../fx-cloud-common" }

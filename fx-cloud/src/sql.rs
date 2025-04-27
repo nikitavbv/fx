@@ -1,6 +1,7 @@
 use {
     std::sync::{Arc, Mutex},
     rusqlite::{Connection, params_from_iter, ToSql, types::{ToSqlOutput, ValueRef}},
+    thiserror::Error,
 };
 
 #[derive(Debug)]
@@ -95,4 +96,50 @@ impl ToSql for Value {
             Self::Blob(v) => v.to_sql(),
         }
     }
+}
+
+impl TryInto<i64> for Value {
+    type Error = SqlMappingError;
+    fn try_into(self) -> Result<i64, Self::Error> {
+        match self {
+            Self::Integer(v) => Ok(v),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+impl TryInto<String> for Value {
+    type Error = SqlMappingError;
+    fn try_into(self) -> Result<String, Self::Error> {
+        match self {
+            Self::Text(v) => Ok(v),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+impl TryFrom<&Value> for i64 {
+    type Error = SqlMappingError;
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Integer(v) => Ok(*v),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+impl TryFrom<&Value> for String {
+    type Error = SqlMappingError;
+    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+        match value {
+            Value::Text(v) => Ok(v.clone()),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum SqlMappingError {
+    #[error("wrong type")]
+    WrongType,
 }
