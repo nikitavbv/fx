@@ -8,5 +8,5 @@ mod error;
 mod http;
 mod kafka;
 mod queue;
-mod sql;
+pub mod sql;
 pub mod storage;
