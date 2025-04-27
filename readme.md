@@ -8,6 +8,7 @@ building something similar to [workerd](https://github.com/cloudflare/workerd) o
 - functions can be triggered by http requests, messages from Kafka topics or by cron schedule.
 - KV storage.
 - sql databases powered by sqlite.
+- queues.
 - functions can call other functions via RPC (callee is run in the same thread, so no networking is involved resulting in very low latency).
 - multiple instances of each function spawned, but functions marked as "global" only run in single instance. the latter can be used as a stateful actor or a building block in a distributed system.
 - `log`, `fetch` apis.

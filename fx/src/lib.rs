@@ -45,6 +45,10 @@ impl FxCtx {
         SqlDatabase::new(name.into())
     }
 
+    pub fn queue(&self, name: impl Into<String>) -> Queue {
+        Queue::new(name.into())
+    }
+
     pub fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> R {
         let service_id = service_id.into();
         let service_id = service_id.as_bytes();
@@ -154,6 +158,27 @@ impl SqlDatabase {
         }
 
         rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+    }
+}
+
+#[derive(Clone)]
+pub struct Queue {
+    queue_name: String,
+}
+
+impl Queue {
+    pub fn new(queue_name: String) -> Self {
+        Self { queue_name }
+    }
+
+    pub fn push<T: serde::ser::Serialize>(&self, argument: T) {
+        self.push_raw(rmp_serde::to_vec(&argument).unwrap());
+    }
+
+    pub fn push_raw(&self, argument: Vec<u8>) {
+        unsafe {
+            sys::queue_push(self.queue_name.as_ptr() as i64, self.queue_name.len() as i64, argument.as_ptr() as i64, argument.len() as i64);
+        }
     }
 }
 

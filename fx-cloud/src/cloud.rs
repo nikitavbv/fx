@@ -425,6 +425,7 @@ impl ExecutionContext {
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
+                "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
             },
@@ -658,6 +659,12 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
     write_memory(&ctx, ptr, &result);
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+}
+
+fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len: i64, argument_addr: i64, argument_len: i64) {
+    let queue = String::from_utf8(read_memory_owned(&ctx, queue_addr, queue_len)).unwrap();
+    let argument = read_memory_owned(&ctx, argument_addr, argument_len);
+    ctx.data().engine.push_to_queue_raw(queue, argument);
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {

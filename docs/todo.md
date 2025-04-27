@@ -9,4 +9,3 @@
 - blackbox tests for services
 - handle errors everywhere
 - live reload for local development
-- api for functions to push to queues

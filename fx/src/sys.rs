@@ -25,10 +25,11 @@ unsafe extern "C" {
         arg_len: i64,
     );
     pub(crate) fn send_rpc_response(ptr: i64, len: i64);
-    pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn kv_get(ptr: i64, len: i64, output_ptr: i64) -> i64; // 0 - ok, 1 - value does not exist
     pub(crate) fn kv_set(k_ptr: i64, k_len: i64, v_ptr: i64, v_len: i64);
     pub(crate) fn sql_exec(query_ptr: i64, query_len: i64, output_ptr: i64);
+    pub(crate) fn queue_push(queue_ptr: i64, queue_len: i64, argument_ptr: i64, argument_len: i64);
+    pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn fetch(req_ptr: i64, req_len: i64, output_ptr: i64);
 }
 
