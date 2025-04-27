@@ -51,11 +51,15 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_key(b"services/rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
         .with_key(b"services/counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?);
 
+    let code_storage = BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()));
+    let compiler_storage = BoxedStorage::new(NamespacedStorage::new(b"compiled-functions/", storage.clone()));
+
     let dashboard_database = SqlDatabase::in_memory();
     dashboard_database.exec(sql::Query::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned()));
 
     let fx_cloud = FxCloud::new()
-        .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone())))
+        .with_code_storage(code_storage)
+        .with_memoized_compiler(compiler_storage)
         .with_queue()
         .with_cron(SqlDatabase::in_memory())
         .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), dashboard_database.clone()))

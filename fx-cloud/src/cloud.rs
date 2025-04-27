@@ -32,7 +32,7 @@ use {
         sql::{self, SqlDatabase},
         queue::{Queue, AsyncRpcMessage, QUEUE_RPC},
         cron::CronRunner,
-        compiler::{Compiler, BoxedCompiler, SimpleCompiler},
+        compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
     },
 };
 
@@ -62,6 +62,15 @@ impl FxCloud {
         {
             let mut storage = self.engine.module_code_storage.write().unwrap();
             *storage = new_storage;
+        }
+        self
+    }
+
+    pub fn with_memoized_compiler(self, compiled_code_storage: BoxedStorage) -> Self {
+        {
+            let mut compiler = self.engine.compiler.write().unwrap();
+            let prev_compiler = std::mem::replace(&mut *compiler, BoxedCompiler::new(SimpleCompiler::new()));
+            *compiler = BoxedCompiler::new(MemoizedCompiler::new(compiled_code_storage, prev_compiler));
         }
         self
     }

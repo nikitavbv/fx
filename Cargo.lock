@@ -1212,6 +1212,7 @@ dependencies = [
  "rmp-serde",
  "rusqlite",
  "serde",
+ "sha2",
  "thiserror 2.0.12",
  "thread_local",
  "tokio",
