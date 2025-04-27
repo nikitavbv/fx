@@ -2,9 +2,11 @@ use {
     std::{sync::{Arc, RwLock}, collections::{HashMap, HashSet}, thread},
     tracing::error,
     crossbeam::channel::{self, Sender, Receiver},
+    serde::{Serialize, Deserialize},
     crate::{ServiceId, cloud::Engine},
 };
 
+pub const QUEUE_RPC: &str = "system/rpc";
 const QUEUE_CORE_SIZE_LIMIT: u32 = 100_000;
 
 // more like "queue engine"
@@ -37,6 +39,15 @@ impl Queue {
         thread::spawn(move || {
             loop {
                 let msg = core.rx.recv().unwrap();
+
+                if msg.queue_id == QUEUE_RPC {
+                    let engine = core.cloud_engine.clone();
+                    let msg: AsyncRpcMessage = rmp_serde::from_slice(&msg.body).unwrap();
+                    if let Err(err) = core.cloud_engine.invoke_service_raw(engine, &msg.function_id, &msg.rpc_function_name, msg.argument) {
+                        error!("async rpc call failed: {err:?}");
+                    }
+                }
+
                 let subscriptions = core.subscriptions.read().unwrap();
                 let subscriptions = match subscriptions.get(&msg.queue_id) {
                     Some(v) => v,
@@ -101,4 +112,11 @@ impl Message {
             body,
         }
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AsyncRpcMessage {
+    pub function_id: ServiceId,
+    pub rpc_function_name: String,
+    pub argument: Vec<u8>,
 }

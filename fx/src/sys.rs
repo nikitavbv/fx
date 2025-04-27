@@ -16,6 +16,14 @@ unsafe extern "C" {
         arg_len: i64,
         output_ptr: i64,
     );
+    pub(crate) fn rpc_async(
+        service_name_ptr: i64,
+        service_name_len: i64,
+        function_name_ptr: i64,
+        function_name_len: i64,
+        arg_ptr: i64,
+        arg_len: i64,
+    );
     pub(crate) fn send_rpc_response(ptr: i64, len: i64);
     pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn kv_get(ptr: i64, len: i64, output_ptr: i64) -> i64; // 0 - ok, 1 - value does not exist

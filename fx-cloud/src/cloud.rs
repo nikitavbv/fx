@@ -22,6 +22,7 @@ use {
         imports,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
+    serde::{Serialize, Deserialize},
     fx_core::{LogMessage, FetchRequest, FetchResponse, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
@@ -30,7 +31,7 @@ use {
         http::HttpHandler,
         compatibility,
         sql::{self, SqlDatabase},
-        queue::Queue,
+        queue::{Queue, AsyncRpcMessage, QUEUE_RPC},
     },
 };
 
@@ -116,7 +117,7 @@ impl FxCloud {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone)]
+#[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize)]
 pub struct ServiceId {
     id: String,
 }
@@ -382,6 +383,7 @@ impl ExecutionContext {
         let mut import_object = imports! {
             "fx" => {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
+                "rpc_async" => Function::new_typed_with_env(&mut store, &function_env, api_rpc_async),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
@@ -518,6 +520,28 @@ fn api_rpc(
     write_memory(&ctx, ptr, &return_value);
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+}
+
+fn api_rpc_async(
+    ctx: FunctionEnvMut<ExecutionEnv>,
+    service_name_ptr: i64,
+    service_name_len: i64,
+    function_name_ptr: i64,
+    function_name_len: i64,
+    arg_ptr: i64,
+    arg_len: i64
+) {
+    // TODO: permissions check
+    let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
+    let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
+    let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
+
+    let engine = ctx.data().engine.clone();
+    engine.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
+        function_id: service_id,
+        rpc_function_name: function_name,
+        argument,
+    });
 }
 
 fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
