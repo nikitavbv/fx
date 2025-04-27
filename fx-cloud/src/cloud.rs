@@ -96,6 +96,10 @@ impl FxCloud {
         self.engine.invoke_service_raw(self.engine.clone(), service, function_name, argument)
     }
 
+    pub fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
+        self.engine.invoke_service_async(function_id, rpc_function_name, argument);
+    }
+
     pub async fn run_http(&self, port: u16, service_id: &ServiceId) {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
         let listener = TcpListener::bind(addr).await.unwrap();
@@ -265,6 +269,14 @@ impl Engine {
         } else {
             self.invoke_thread_local_service(engine, service, function_name, argument)
         }
+    }
+
+    pub fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
+        self.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
+            function_id,
+            rpc_function_name,
+            argument: rmp_serde::to_vec(&argument).unwrap(),
+        });
     }
 
     fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {

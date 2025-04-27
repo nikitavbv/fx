@@ -33,12 +33,9 @@ impl CronRunner {
                 let tasks_to_run = cron.get_tasks_to_run();
 
                 for task in tasks_to_run {
-                    if let Err(err) = cloud_engine.invoke_service::<CronRequest, ()>(cloud_engine.clone(), &ServiceId::new(task.function_id), &task.rpc_function_name, CronRequest {}) {
-                        error!("failed to run cron task: {err:?}");
-                    } else {
-                        let next = cron_utils::Schedule::from_str(&task.cron_expression).unwrap().after(&Utc::now()).next().unwrap();
-                        cron.update_task_next_run_at(task.id, next);
-                    }
+                    cloud_engine.invoke_service_async(ServiceId::new(task.function_id), task.rpc_function_name, CronRequest {});
+                    let next = cron_utils::Schedule::from_str(&task.cron_expression).unwrap().after(&Utc::now()).next().unwrap();
+                    cron.update_task_next_run_at(task.id, next);
                 }
 
                 sleep(Duration::from_secs(1));
