@@ -23,13 +23,13 @@ fn main() {
 
     test_simple(&fx);
     test_sql_simple(&fx);
+    test_sqlx(&fx);
     // TODO: test what happens if you invoke function that does not exist
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
     // TODO: test sql with sqlx
-    // TODO: test if sql migrations with sqlx work
     // TODO: test sql with error
 
     println!("all tests passed");
@@ -44,5 +44,11 @@ fn test_simple(fx: &FxCloud) {
 fn test_sql_simple(fx: &FxCloud) {
     println!("> test_sql_simple");
     let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sql_simple", ()).unwrap();
+    assert_eq!(52, result);
+}
+
+fn test_sqlx(fx: &FxCloud) {
+    println!("> test_sqlx");
+    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sqlx", ()).unwrap();
     assert_eq!(52, result);
 }

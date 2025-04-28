@@ -3,7 +3,7 @@ use {
     sqlx::Executor,
     sqlx_core::{describe::Describe, column::ColumnIndex},
     futures::{stream::BoxStream, future::BoxFuture},
-    super::{connection::FxDatabaseConnection, FxDatabase, FxDatabaseRow},
+    super::{connection::FxDatabaseConnection, FxDatabase, FxDatabaseRow, FxQueryResult},
 };
 
 impl<'a> Executor<'a> for &'a FxDatabaseConnection {
@@ -14,7 +14,10 @@ impl<'a> Executor<'a> for &'a FxDatabaseConnection {
     }
 
     fn execute<'e, 'q: 'e, E>(self, query: E,) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::QueryResult, sqlx::Error>> where 'a: 'e, E: 'q + sqlx::Execute<'q, Self::Database>, {
-        unimplemented!()
+        let fx_query = fx::SqlQuery::new(query.sql());
+        // TODO: handle arguments
+        self.database.exec(fx_query);
+        Box::pin(async move { Ok(FxQueryResult) })
     }
 
     fn prepare<'e, 'q: 'e>(self, query: &'q str,) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Statement<'q>, sqlx::Error>> where 'a: 'e, {
@@ -36,8 +39,18 @@ impl<'a> Executor<'a> for &'a FxDatabaseConnection {
         Box::pin(async move { Ok(rows) })
     }
 
-    fn fetch_one<'e, 'q: 'e, E>(self, query: E,) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>> where 'a: 'e, E: 'q + sqlx::Execute<'q, Self::Database>, {
-        unimplemented!()
+    fn fetch_one<'e, 'q: 'e, E>(self, mut query: E,) -> BoxFuture<'e, Result<<Self::Database as sqlx::Database>::Row, sqlx::Error>> where 'a: 'e, E: 'q + sqlx::Execute<'q, Self::Database>, {
+        let sql = query.sql();
+        let fx_query = fx::SqlQuery::new(sql);
+
+        let arguments = query.take_arguments().unwrap();
+        // TODO: handle arguments
+
+        let result = self.database.exec(fx_query);
+        let row = result.rows.get(0).unwrap();
+        let row = FxDatabaseRow::new(row.columns.clone());
+
+        Box::pin(async move { Ok(row) })
     }
 
     fn fetch_many<'e, 'q: 'e, E>(self, query: E,) -> BoxStream<'e, Result<sqlx::Either<<Self::Database as sqlx::Database>::QueryResult, <Self::Database as sqlx::Database>::Row>, sqlx::Error,>,> where 'a: 'e, E: 'q + sqlx::Execute<'q, Self::Database> {

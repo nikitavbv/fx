@@ -7,4 +7,6 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
+sqlx = { version = "0.8.5", default-features = false }
 fx = { path = "../../fx"}
+fx-utils = { path = "../../fx-utils" }

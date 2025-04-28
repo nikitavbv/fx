@@ -1264,6 +1264,8 @@ name = "fx-test-app"
 version = "0.1.0"
 dependencies = [
  "fx",
+ "fx-utils",
+ "sqlx",
 ]
 
 [[package]]
