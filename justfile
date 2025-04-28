@@ -5,6 +5,9 @@ test:
     cargo build --target wasm32-unknown-unknown -p fx-test-app --release
     cargo run -p fx-tests --release
 
+coverage:
+    cargo llvm-cov --html run -p fx-tests --release
+
 apps: cloud-dashboard app-counter app-hello-world app-rpc-test-service
 
 cloud-dashboard:
