@@ -6,8 +6,10 @@ members = [
     "fx-cloud-dashboard",
     "fx-core",
     "fx-macro",
+    "fx-tests",
     "fx-utils",
     "fx-services/fx-app-counter",
     "fx-services/fx-app-hello-world",
     "fx-services/fx-app-rpc-test-service",
+    "fx-services/fx-test-app"
 ]

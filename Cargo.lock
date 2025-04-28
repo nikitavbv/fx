@@ -1260,6 +1260,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-test-app"
+version = "0.1.0"
+dependencies = [
+ "fx",
+]
+
+[[package]]
+name = "fx-tests"
+version = "0.1.0"
+dependencies = [
+ "fx-cloud",
+]
+
+[[package]]
 name = "fx-utils"
 version = "0.1.0"
 dependencies = [
