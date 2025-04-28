@@ -350,11 +350,11 @@ impl Engine {
         function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
             .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?;
 
-        let points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
+        // TODO: record points used
+        let _points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
             MeteringPoints::Remaining(v) => v,
             MeteringPoints::Exhausted => panic!("didn't expect that"),
         };
-        println!("points used: {:?}", points_used);
 
         let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
 
