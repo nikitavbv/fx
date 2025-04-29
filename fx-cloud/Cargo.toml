@@ -25,6 +25,7 @@ crossbeam = "0.8.4"
 cron = "0.15.0"
 chrono = "0.4.40"
 sha2 = "0.10.8"
+serde_yml = "0.0.12"
 
 fx-core = { path = "../fx-core" }
 fx-cloud-common = { path = "../fx-cloud-common" }

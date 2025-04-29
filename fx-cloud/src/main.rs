@@ -12,12 +12,14 @@ use {
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
         sql::SqlDatabase,
+        config::Config,
     },
 };
 
 mod cloud;
 mod compatibility;
 mod compiler;
+mod config;
 mod cron;
 mod error;
 mod http;
@@ -43,6 +45,9 @@ async fn main() {
 }
 
 async fn run_demo() -> anyhow::Result<()> {
+    let config = Config::load(&String::from_utf8(fs::read("./fx.yaml").unwrap()).unwrap());
+    info!("loaded config: {config:?}");
+
     let code_storage = BoxedStorage::new(SqliteStorage::in_memory()
         .map_err(|err| anyhow!("failed to create storage: {err:?}"))?
         .with_key(b"dashboard", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)

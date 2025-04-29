@@ -1,7 +1,8 @@
 kv:
 - id: code
   driver: sqlite
-  in_memory: true
+  params:
+    in_memory: true
   keys:
   - key: dashboard
     file: "./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm"
@@ -15,13 +16,16 @@ kv:
     file: "./target/wasm32-unknown-unknown/release/fx_app_counter.wasm"
 - id: compiler
   driver: sqlite
-  in_memory: true
+  params:
+    in_memory: true
 - id: cron-state
   driver: sqlite
-  in_memory: true
+  params:
+    in_memory: true
 - id: demo-db
   driver: sqlite
-  in_memory: true
+  params:
+    in_memory: true
 
 sql:
 - id: dashboard
