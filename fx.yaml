@@ -1,0 +1,11 @@
+storage:
+- id: code
+  driver: sqlite
+  in_memory: true
+  keys:
+  -
+functions:
+- id: dashboard
+  sql:
+  - binding: "dashboard"
+    id: "dashboard"

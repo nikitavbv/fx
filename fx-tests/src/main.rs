@@ -5,7 +5,7 @@ use {
 
 fn main() {
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
-        .with_key(b"test-app/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
+        .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
     let database_cron = SqlDatabase::in_memory();

@@ -374,7 +374,7 @@ impl Engine {
             service.is_system,
             service.get_storage(),
             service.sql.clone(),
-            self.module_code_storage.read().unwrap().get(format!("{}/service.wasm", service.id.id).as_bytes())?.unwrap(),
+            self.module_code_storage.read().unwrap().get(service.id.id.as_bytes())?.unwrap(),
             service.env_vars.clone(),
             service.allow_fetch,
             service.allow_log,

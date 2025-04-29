@@ -43,16 +43,14 @@ async fn main() {
 }
 
 async fn run_demo() -> anyhow::Result<()> {
-    let storage = SqliteStorage::in_memory()
+    let code_storage = BoxedStorage::new(SqliteStorage::in_memory()
         .map_err(|err| anyhow!("failed to create storage: {err:?}"))?
-        .with_key(b"services/dashboard/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
-        .with_key(b"services/dashboard-events-consumer/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
-        .with_key(b"services/hello-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
-        .with_key(b"services/rpc-test-service/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
-        .with_key(b"services/counter/service.wasm", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?);
-
-    let code_storage = BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()));
-    let compiler_storage = BoxedStorage::new(NamespacedStorage::new(b"compiled-functions/", storage.clone()));
+        .with_key(b"dashboard", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
+        .with_key(b"dashboard-events-consumer", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
+        .with_key(b"hello-service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
+        .with_key(b"rpc-test-service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
+        .with_key(b"counter", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?));
+    let compiler_storage = BoxedStorage::new(SqliteStorage::in_memory()?);
 
     let dashboard_database = SqlDatabase::in_memory();
     dashboard_database.exec(sql::Query::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned()));
@@ -68,7 +66,7 @@ async fn run_demo() -> anyhow::Result<()> {
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()
                 .with_env_var("demo/instance", "A")
-                .with_storage(BoxedStorage::new(NamespacedStorage::new("data/demo/".as_bytes().to_vec(), storage.clone())))
+                .with_storage(BoxedStorage::new(NamespacedStorage::new("data/demo/".as_bytes().to_vec(), SqliteStorage::in_memory()?)))
                 .with_sql_database("test-db".to_owned(), SqlDatabase::in_memory())
         )
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
