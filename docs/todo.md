@@ -7,4 +7,5 @@
 - handle errors everywhere
 - live reload for local development
 - log to queue
-- simulated testing for fx cloud
+- deprecate env vars, use bindings for storage
+- config support
