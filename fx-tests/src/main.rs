@@ -24,6 +24,7 @@ fn main() {
     test_simple(&fx);
     test_sql_simple(&fx);
     test_sqlx(&fx);
+    test_invoke_function_non_existent(&fx);
     // TODO: test what happens if you invoke function that does not exist
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
@@ -51,4 +52,9 @@ fn test_sqlx(fx: &FxCloud) {
     println!("> test_sqlx");
     let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sqlx", ()).unwrap();
     assert_eq!(52, result);
+}
+
+fn test_invoke_function_non_existent(fx: &FxCloud) {
+    println!("> test_invoke_function_non_existent");
+    fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ()).unwrap();
 }
