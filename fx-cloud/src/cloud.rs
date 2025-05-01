@@ -4,7 +4,6 @@ use {
     tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::server::conn::http1,
-    rayon::{ThreadPool, ThreadPoolBuilder},
     thread_local::ThreadLocal,
     wasmer::{
         wasmparser::Operator,
@@ -23,7 +22,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
-    fx_core::{LogMessage, FetchRequest, FetchResponse, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue},
+    fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -234,8 +233,6 @@ impl Service {
 }
 
 pub(crate) struct Engine {
-    pub(crate) thread_pool: ThreadPool,
-
     compiler: RwLock<BoxedCompiler>,
 
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>>,
@@ -254,8 +251,6 @@ pub(crate) struct Engine {
 impl Engine {
     pub fn new() -> Self {
         Self {
-            thread_pool: ThreadPoolBuilder::new().build().unwrap(),
-
             compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
             execution_contexts: ThreadLocal::new(),
@@ -502,7 +497,7 @@ pub(crate) struct ExecutionEnv {
     allow_fetch: bool,
     allow_log: bool,
 
-    fetch_client: reqwest::blocking::Client,
+    // fetch_client: reqwest::blocking::Client,
 }
 
 impl ExecutionEnv {
@@ -526,7 +521,7 @@ impl ExecutionEnv {
             sql,
             allow_fetch,
             allow_log,
-            fetch_client: reqwest::blocking::Client::new(),
+            // fetch_client: reqwest::blocking::Client::new(),
         }
     }
 
@@ -707,7 +702,7 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
         panic!("service {:?} is not allowed to call fetch", ctx.data().service_id.id);
     }
 
-    let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
+    /*let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
 
     let mut request = ctx.data().fetch_client.request(
         match req.method {
@@ -735,7 +730,8 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
     let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
     write_memory(&ctx, ptr, &res);
 
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });*/
+    unimplemented!("refactoring to async")
 }
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {

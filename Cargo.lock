@@ -1159,9 +1159,11 @@ dependencies = [
 name = "fx"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "fx-core",
  "fx-macro",
  "lazy_static",
+ "once_cell",
  "rmp-serde",
  "serde",
  "tracing",

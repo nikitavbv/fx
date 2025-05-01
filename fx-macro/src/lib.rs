@@ -24,7 +24,9 @@ pub fn rpc(_attr: TokenStream, item: TokenStream) -> TokenStream {
             static SET_HOOK: Once = Once::new();
             SET_HOOK.call_once(|| { std::panic::set_hook(Box::new(fx::panic_hook)); });
 
-            fx::write_rpc_response(#fn_name(&fx::CTX, fx::read_rpc_request(addr, len)));
+            let request = fx::read_rpc_request(addr, len);
+            let response = #fn_name(&fx::CTX, request);
+            fx::write_rpc_response(response);
 
             0
         }

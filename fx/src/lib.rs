@@ -10,6 +10,7 @@ use {
     crate::{sys::read_memory, logging::FxLoggingLayer},
 };
 
+mod futures;
 mod sys;
 mod logging;
 
