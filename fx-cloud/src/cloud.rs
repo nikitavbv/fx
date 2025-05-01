@@ -401,6 +401,8 @@ impl Future for FunctionRuntimeFuture {
             let function_name = self.function_name.clone();
             let ctx = &mut self.ctx;
 
+            ctx.function_env.as_mut(&mut ctx.store).futures_waker = Some(cx.waker().clone());
+
             let points_before = u64::MAX;
             set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
 
@@ -438,7 +440,7 @@ impl Future for FunctionRuntimeFuture {
 
             std::task::Poll::Ready(Ok(response))
         } else {
-            unimplemented!()
+            unimplemented!("not expected to happen for now")
         }
     }
 }
@@ -453,6 +455,13 @@ struct ExecutionContext {
     service_id: ServiceId,
     is_system: bool,
 }
+
+struct FutureContext {
+    ctx: *mut std::task::Context<'static>,
+}
+
+// will always be used in single thread
+unsafe impl Send for FutureContext {}
 
 impl ExecutionContext {
     pub fn new(
@@ -528,6 +537,7 @@ fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub(crate) struct ExecutionEnv {
     futures: FuturesPool,
+    futures_waker: Option<std::task::Waker>,
 
     engine: Arc<Engine>,
     instance: Option<Instance>,
@@ -559,6 +569,7 @@ impl ExecutionEnv {
     ) -> Self {
         Self {
             futures,
+            futures_waker: None,
             engine,
             instance: None,
             memory: None,
@@ -794,8 +805,7 @@ fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
 
 fn api_future_poll(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) -> i64 {
     use std::task;
-    let mut cx = task::Context::from_waker(task::Waker::noop()); // TODO: context from global waker
-    let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut cx);
+    let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
 
     println!("polling future: {index}, result: {result:?}");
 
