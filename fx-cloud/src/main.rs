@@ -12,8 +12,8 @@ use {
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
         sql::SqlDatabase,
-        config::{Config, kv_from_config},
-        registry::KVRegistry,
+        config::{Config, kv_from_config, sql_from_config},
+        registry::{KVRegistry, SqlRegistry},
     },
 };
 
@@ -59,18 +59,18 @@ async fn run_demo() -> anyhow::Result<()> {
         kv_registry.register(kv_config.id.clone(), kv_from_config(&kv_config));
     }
 
-    let code_storage = kv_registry.get("code".to_owned());
-    let compiler_storage = kv_registry.get("compiler".to_owned());
-
-    let dashboard_database = SqlDatabase::in_memory();
+    let sql_registry = SqlRegistry::new();
+    for sql_config in config.sql {
+        sql_registry.register(sql_config.id.clone(), sql_from_config(&sql_config));
+    }
 
     let fx_cloud = FxCloud::new()
-        .with_code_storage(code_storage)
-        .with_memoized_compiler(compiler_storage)
+        .with_code_storage(kv_registry.get("code".to_owned()))
+        .with_memoized_compiler(kv_registry.get("compiler".to_owned()))
         .with_queue()
         .with_cron(SqlDatabase::in_memory())
-        .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), dashboard_database.clone()))
-        .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), dashboard_database))
+        .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
+        .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()

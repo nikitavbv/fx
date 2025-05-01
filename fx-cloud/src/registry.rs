@@ -1,6 +1,9 @@
 use {
     std::{sync::{Arc, RwLock}, collections::HashMap},
-    crate::storage::{KVStorage, BoxedStorage},
+    crate::{
+        storage::BoxedStorage,
+        sql::SqlDatabase,
+    },
 };
 
 pub struct KVRegistry {
@@ -19,6 +22,26 @@ impl KVRegistry {
     }
 
     pub fn get(&self, id: String) -> BoxedStorage {
+        self.registry.read().unwrap().get(&id).unwrap().clone()
+    }
+}
+
+pub struct SqlRegistry {
+    registry: Arc<RwLock<HashMap<String, SqlDatabase>>>,
+}
+
+impl SqlRegistry {
+    pub fn new() -> Self {
+        Self {
+            registry: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn register(&self, id: String, sql: SqlDatabase) {
+        self.registry.write().unwrap().insert(id, sql);
+    }
+
+    pub fn get(&self, id: String) -> SqlDatabase {
         self.registry.read().unwrap().get(&id).unwrap().clone()
     }
 }

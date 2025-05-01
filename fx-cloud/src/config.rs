@@ -2,12 +2,16 @@ use {
     std::{collections::HashMap, fs},
     serde_yml::Value,
     serde::Deserialize,
-    crate::storage::{BoxedStorage, SqliteStorage, WithKey},
+    crate::{
+        storage::{BoxedStorage, SqliteStorage, WithKey},
+        sql::SqlDatabase,
+    },
 };
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub kv: Vec<ConfigKv>,
+    pub sql: Vec<ConfigSql>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -27,6 +31,11 @@ pub struct SqliteParams {
 pub struct ConfigKvKey {
     key: String,
     file: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ConfigSql {
+    pub id: String,
 }
 
 impl Config {
@@ -57,4 +66,8 @@ pub fn kv_from_config(config: &ConfigKv) -> BoxedStorage {
     }
 
     storage
+}
+
+pub fn sql_from_config(_config: &ConfigSql) -> SqlDatabase {
+    SqlDatabase::in_memory()
 }
