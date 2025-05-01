@@ -1,11 +1,12 @@
 use {
-    fx::SqlDatabase,
+    fx::{SqlDatabase, SqlQuery},
     fx_utils::database::{sqlx_core::connection::ConnectOptions, FxDatabaseConnection, FxDatabaseConnectOptions, sqlx::{self, prelude::*}},
 };
 
 #[derive(Clone)]
 pub struct Database {
-    connection: FxDatabaseConnection,
+    database: SqlDatabase,
+    connection: FxDatabaseConnection, // TODO: migrate away from sqlx
 }
 
 impl Database {
@@ -15,7 +16,11 @@ impl Database {
             .await
             .unwrap();
 
-        Self { connection }
+        Self { database, connection }
+    }
+
+    pub fn run_migrations(&self) {
+        self.database.exec(SqlQuery::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned()));
     }
 }
 

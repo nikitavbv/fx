@@ -60,10 +60,9 @@ async fn run_demo() -> anyhow::Result<()> {
     }
 
     let code_storage = kv_registry.get("code".to_owned());
-    let compiler_storage = BoxedStorage::new(SqliteStorage::in_memory()?);
+    let compiler_storage = kv_registry.get("compiler".to_owned());
 
     let dashboard_database = SqlDatabase::in_memory();
-    dashboard_database.exec(sql::Query::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned()));
 
     let fx_cloud = FxCloud::new()
         .with_code_storage(code_storage)

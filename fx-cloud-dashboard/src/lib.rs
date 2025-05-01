@@ -23,6 +23,7 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
 
     let database = block_on(async move { Database::new(ctx.sql("dashboard")).await });
+    database.run_migrations();
 
     let app = Router::new()
         .route("/", get(home))
