@@ -291,7 +291,7 @@ impl Engine {
     }
 
     async fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
+        /*if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
             // need to create execution context first
             let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
             if !global_execution_contexts.contains_key(service_id) {
@@ -306,14 +306,15 @@ impl Engine {
         let mut ctx = ctx.lock().unwrap();
         let ctx = ctx.deref_mut();
 
-        self.run_service(ctx, function_name, argument)
+        self.run_service(ctx, function_name, argument)*/
+        unimplemented!("no global services for now")
     }
 
     async fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
+        // let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
-        let ctx = {
+        /*let ctx = {
             let mut ctxs = ctxs.lock().unwrap();
             if !ctxs.contains_key(&service_id) {
                 let services = self.services.read().unwrap();
@@ -325,48 +326,23 @@ impl Engine {
             ctx
         };
         let mut ctx = ctx.lock().unwrap();
-        let ctx = ctx.deref_mut();
+        let ctx = ctx.deref_mut();*/
 
-        self.run_service(ctx, function_name, argument)
+        let mut ctx = {
+            let services = self.services.read().unwrap();
+            let service = services.get(&service_id).unwrap();
+            self.create_execution_context(engine, &service)?
+        };
+        self.run_service(ctx, function_name, argument).await
     }
 
-    fn run_service(&self, ctx: &mut ExecutionContext, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        let points_before = u64::MAX;
-        set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
-
-        let memory = ctx.instance.exports.get_memory("memory").unwrap();
-        ctx.function_env.as_mut(&mut ctx.store).instance = Some(ctx.instance.clone());
-        ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
-
-        let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
-        let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
-        memory.view(&mut ctx.store).write(target_addr, &argument).unwrap();
-
-        let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}"))
-            .map_err(|err| match err {
-               ExportError::Missing(_) => FxCloudError::RpcHandlerNotDefined,
-               ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
-            })?;
-
-        // TODO: errors like this should be reported to some data stream
-        function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
-            .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?;
-
-        // TODO: record points used
-        let _points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
-            MeteringPoints::Remaining(v) => v,
-            MeteringPoints::Exhausted => panic!("didn't expect that"),
-        };
-
-        let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
-
-        if !ctx.is_system {
-            self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
-                function_id: ctx.service_id.id.clone(),
-            });
+    fn run_service(&self, ctx: ExecutionContext, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+        FunctionRuntimeFuture {
+            ctx,
+            invoked: false,
+            function_name: function_name.to_owned(),
+            argument: argument.to_owned(),
         }
-
-        Ok(response)
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
@@ -406,6 +382,64 @@ impl Engine {
             None => return,
         };
         queue.push(queue_id.into(), message);
+    }
+}
+
+struct FunctionRuntimeFuture {
+    ctx: ExecutionContext,
+    invoked: bool,
+    function_name: String,
+    argument: Vec<u8>,
+}
+
+impl Future for FunctionRuntimeFuture {
+    type Output = Result<Vec<u8>, FxCloudError>;
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        if !self.invoked {
+            self.invoked = true;
+            let argument = self.argument.clone();
+            let function_name = self.function_name.clone();
+            let ctx = &mut self.ctx;
+
+            let points_before = u64::MAX;
+            set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
+
+            let memory = ctx.instance.exports.get_memory("memory").unwrap();
+            ctx.function_env.as_mut(&mut ctx.store).instance = Some(ctx.instance.clone());
+            ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
+
+            let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
+            let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
+            memory.view(&mut ctx.store).write(target_addr, &argument).unwrap();
+
+            let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}"))
+                .map_err(|err| match err {
+                   ExportError::Missing(_) => FxCloudError::RpcHandlerNotDefined,
+                   ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
+                })?;
+
+            // TODO: errors like this should be reported to some data stream
+            function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
+                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?;
+
+            // TODO: record points used
+            let _points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
+                MeteringPoints::Remaining(v) => v,
+                MeteringPoints::Exhausted => panic!("didn't expect that"),
+            };
+
+            let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+
+            if !ctx.is_system {
+                /*self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
+                    function_id: ctx.service_id.id.clone(),
+                });*/
+            }
+
+            std::task::Poll::Ready(Ok(response))
+        } else {
+            unimplemented!()
+        }
     }
 }
 
