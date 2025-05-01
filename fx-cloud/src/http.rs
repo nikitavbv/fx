@@ -42,7 +42,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     | FxCloudError::ServiceInternalError { reason: _ }
                     | FxCloudError::CompilationError { reason: _ }
                     | FxCloudError::RpcHandlerNotDefined
-                    | FxCloudError::RpcHandlerIncompatibleType => {
+                    | FxCloudError::RpcHandlerIncompatibleType
+                    | FxCloudError::ModuleCodeNotFound => {
                         error!("internal error while serving request: {err:?}");
                         response_internal_error()
                     },

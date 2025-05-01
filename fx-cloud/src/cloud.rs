@@ -373,13 +373,19 @@ impl Engine {
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
+        let module_code = self.module_code_storage.read().unwrap().get(service.id.id.as_bytes())?;
+        let module_code = match module_code {
+            Some(v) => v,
+            None => return Err(FxCloudError::ModuleCodeNotFound),
+        };
+
         ExecutionContext::new(
             engine,
             service.id.clone(),
             service.is_system,
             service.get_storage(),
             service.sql.clone(),
-            self.module_code_storage.read().unwrap().get(service.id.id.as_bytes())?.unwrap(),
+            module_code,
             service.env_vars.clone(),
             service.allow_fetch,
             service.allow_log,

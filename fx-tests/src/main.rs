@@ -19,12 +19,14 @@ fn main() {
         .with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .with_sql_database("app".to_owned(), database_app)
-        );
+        )
+        .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())));
 
     test_simple(&fx);
     test_sql_simple(&fx);
     test_sqlx(&fx);
     test_invoke_function_non_existent(&fx);
+    test_invoke_function_no_module_code(&fx);
     // TODO: test what happens if you invoke function that does not exist
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
@@ -58,4 +60,10 @@ fn test_invoke_function_non_existent(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent");
     let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ());
     assert_eq!(Err(FxCloudError::RpcHandlerNotDefined), result);
+}
+
+fn test_invoke_function_no_module_code(fx: &FxCloud) {
+    println!("> test_invoke_function_no_module_code");
+    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-no-module-code".to_owned()), "simple", ());
+    assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
 }

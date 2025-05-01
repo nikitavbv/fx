@@ -19,4 +19,7 @@ pub enum FxCloudError {
 
     #[error("rcp handler has incompatible type")]
     RpcHandlerIncompatibleType,
+
+    #[error("storage does not contain code for this module")]
+    ModuleCodeNotFound,
 }
