@@ -1,6 +1,6 @@
 use {
-    std::{sync::{Arc, Mutex}, collections::HashMap},
-    futures::future::BoxFuture,
+    std::{sync::{Arc, Mutex}, task::{Poll, Context}, collections::HashMap},
+    futures::{future::BoxFuture, FutureExt},
 };
 
 #[derive(Clone)]
@@ -9,7 +9,7 @@ pub struct FuturesPool {
 }
 
 #[derive(Debug)]
-pub struct HostPoolIndex(u64);
+pub struct HostPoolIndex(pub u64);
 
 impl FuturesPool {
     pub fn new() -> Self {
@@ -20,6 +20,10 @@ impl FuturesPool {
 
     pub fn push(&self, future: BoxFuture<'static, Vec<u8>>) -> HostPoolIndex {
         self.inner.lock().unwrap().push(future)
+    }
+
+    pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
+        self.inner.lock().unwrap().poll(index, context)
     }
 }
 
@@ -41,5 +45,9 @@ impl FuturesPoolInner {
         self.counter += 1;
         self.pool.insert(counter, future);
         HostPoolIndex(counter)
+    }
+
+    pub fn poll(&mut self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
+        self.pool.get_mut(&index.0).unwrap().poll_unpin(context)
     }
 }

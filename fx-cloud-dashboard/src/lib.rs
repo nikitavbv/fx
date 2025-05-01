@@ -1,5 +1,6 @@
 use {
     std::collections::HashMap,
+    tracing::info,
     fx::{FxCtx, HttpRequest, HttpResponse, rpc},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
@@ -103,7 +104,9 @@ async fn home(Extension(cloud): Extension<FxCloudClient>, Extension(database): E
 }
 
 async fn future() -> &'static str {
-    unsafe { fx::test_future() };
+    info!("before sleep");
+    fx::sleep().await;
+    info!("after sleep");
     "ok.\n"
 }
 

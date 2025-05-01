@@ -33,7 +33,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let service_id = self.service_id.clone();
         Box::pin(async move {
             let request = HttpRequest { url: req.uri().to_string() };
-            let fx_response: HttpResponse = match engine.clone().invoke_service(engine, &service_id, "http", request) {
+            let fx_response: HttpResponse = match engine.clone().invoke_service(engine, &service_id, "http", request).await {
                 Ok(v) => v,
                 Err(err) => match err {
                     FxCloudError::ServiceNotFound => response_service_not_found(),

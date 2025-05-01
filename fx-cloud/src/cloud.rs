@@ -99,12 +99,12 @@ impl FxCloud {
     }
 
     #[allow(dead_code)]
-    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
-        self.engine.invoke_service(self.engine.clone(), service, function_name, argument)
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
+        self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
     }
 
-    pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        self.engine.invoke_service_raw(self.engine.clone(), service, function_name, argument)
+    pub async fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
+        self.engine.invoke_service_raw(self.engine.clone(), service, function_name, argument).await
     }
 
     pub fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
@@ -268,17 +268,17 @@ impl Engine {
         }
     }
 
-    pub fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
-        let response = self.invoke_service_raw(engine, &service, function_name, argument)?;
+        let response = self.invoke_service_raw(engine, &service, function_name, argument).await?;
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
+    pub async fn invoke_service_raw(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         if self.is_global_service(service)? {
-            self.invoke_global_service(engine, service, function_name, argument)
+            self.invoke_global_service(engine, service, function_name, argument).await
         } else {
-            self.invoke_thread_local_service(engine, service, function_name, argument)
+            self.invoke_thread_local_service(engine, service, function_name, argument).await
         }
     }
 
@@ -290,7 +290,7 @@ impl Engine {
         });
     }
 
-    fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
+    async fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
             // need to create execution context first
             let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
@@ -309,7 +309,7 @@ impl Engine {
         self.run_service(ctx, function_name, argument)
     }
 
-    fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
+    async fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
         let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
@@ -453,7 +453,8 @@ impl ExecutionContext {
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
-                "test_future" => Function::new_typed_with_env(&mut store, &function_env, api_test_future),
+                "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
+                "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
             },
             "fx_cloud" => {
                 "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
@@ -581,7 +582,9 @@ fn api_rpc(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let return_value = engine.clone().invoke_service_raw(engine, &service_id, &function_name, argument).unwrap();
+    let return_value = tokio::runtime::Handle::current().block_on(async move {
+        engine.clone().invoke_service_raw(engine, &service_id, &function_name, argument).await
+    }).unwrap();
 
     let (data, mut store) = ctx.data_and_store_mut();
 
@@ -747,11 +750,25 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
     unimplemented!("refactoring to async")
 }
 
-fn api_test_future(ctx: FunctionEnvMut<ExecutionEnv>) {
+fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
     println!("testing future");
     let sleep = tokio::time::sleep(std::time::Duration::from_secs(10));
     let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
     println!("future index: {future_index:?}");
+    future_index.0 as i64
+}
+
+fn api_future_poll(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) -> i64 {
+    use std::task;
+    let mut cx = task::Context::from_waker(task::Waker::noop()); // TODO: context from global waker
+    let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut cx);
+
+    println!("polling future: {index}, result: {result:?}");
+
+    match result {
+        task::Poll::Ready(_) => 0,
+        task::Poll::Pending => 1,
+    }
 }
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {

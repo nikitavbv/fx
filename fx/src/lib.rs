@@ -1,7 +1,7 @@
 pub use {
     fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
-    crate::sys::{PtrWithLen, test_future},
+    crate::sys::PtrWithLen,
 };
 
 use {
@@ -181,6 +181,11 @@ impl Queue {
             sys::queue_push(self.queue_name.as_ptr() as i64, self.queue_name.len() as i64, argument.as_ptr() as i64, argument.len() as i64);
         }
     }
+}
+
+pub async fn sleep() {
+    let index = unsafe { sys::sleep() };
+    unsafe { sys::future_poll(index) };
 }
 
 pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> T {

@@ -3,7 +3,8 @@ use {
     fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError},
 };
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
@@ -22,12 +23,12 @@ fn main() {
         )
         .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())));
 
-    test_simple(&fx);
-    test_sql_simple(&fx);
-    test_sqlx(&fx);
-    test_invoke_function_non_existent(&fx);
-    test_invoke_function_non_existent_rpc(&fx);
-    test_invoke_function_no_module_code(&fx);
+    test_simple(&fx).await;
+    test_sql_simple(&fx).await;
+    test_sqlx(&fx).await;
+    test_invoke_function_non_existent(&fx).await;
+    test_invoke_function_non_existent_rpc(&fx).await;
+    test_invoke_function_no_module_code(&fx).await;
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
@@ -38,38 +39,38 @@ fn main() {
     println!("all tests passed");
 }
 
-fn test_simple(fx: &FxCloud) {
+async fn test_simple(fx: &FxCloud) {
     println!("> test_simple");
-    let result: u32 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "simple", 10).unwrap();
+    let result: u32 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "simple", 10).await.unwrap();
     assert_eq!(52, result);
 }
 
-fn test_sql_simple(fx: &FxCloud) {
+async fn test_sql_simple(fx: &FxCloud) {
     println!("> test_sql_simple");
-    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sql_simple", ()).unwrap();
+    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap();
     assert_eq!(52, result);
 }
 
-fn test_sqlx(fx: &FxCloud) {
+async fn test_sqlx(fx: &FxCloud) {
     println!("> test_sqlx");
-    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sqlx", ()).unwrap();
+    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sqlx", ()).await.unwrap();
     assert_eq!(52, result);
 }
 
-fn test_invoke_function_non_existent(fx: &FxCloud) {
+async fn test_invoke_function_non_existent(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-non-existent".to_owned()), "simple", ());
+    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-non-existent".to_owned()), "simple", ()).await;
     assert_eq!(Err(FxCloudError::ServiceNotFound), result);
 }
 
-fn test_invoke_function_non_existent_rpc(fx: &FxCloud) {
+async fn test_invoke_function_non_existent_rpc(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent_rpc");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ());
+    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ()).await;
     assert_eq!(Err(FxCloudError::RpcHandlerNotDefined), result);
 }
 
-fn test_invoke_function_no_module_code(fx: &FxCloud) {
+async fn test_invoke_function_no_module_code(fx: &FxCloud) {
     println!("> test_invoke_function_no_module_code");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-no-module-code".to_owned()), "simple", ());
+    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-no-module-code".to_owned()), "simple", ()).await;
     assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
 }
