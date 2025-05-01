@@ -75,8 +75,16 @@ impl CronCore {
     }
 
     fn get_tasks_to_run(&self) -> Vec<Task> {
-        self.database.exec(Query::new("select task_id, cron_expression, function_id, rpc_function_name from cron_tasks where next_run_at is null or next_run_at <= CURRENT_TIMESTAMP".to_owned()))
-            .rows
+        let res = self.database.exec(Query::new("select task_id, cron_expression, function_id, rpc_function_name from cron_tasks where next_run_at is null or next_run_at <= CURRENT_TIMESTAMP".to_owned()));
+        let res = match res {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to load tasks to run from database: {err:?}");
+                return Vec::new();
+            }
+        };
+
+        res.rows
             .into_iter()
             .map(|v| Task {
                 id: v.columns.get(0).unwrap().try_into().unwrap(),

@@ -59,7 +59,7 @@ impl SqlDatabase {
         Self { connection: Arc::new(Mutex::new(connection)) }
     }
 
-    pub fn exec(&self, query: Query) -> QueryResult {
+    pub fn exec(&self, query: Query) -> Result<QueryResult, SqlError> {
         let connection = self.connection.lock().unwrap();
         let mut stmt = connection.prepare(&query.query).unwrap();
         let result_columns = stmt.column_count();
@@ -71,18 +71,26 @@ impl SqlDatabase {
         while let Some(row) = rows.next().unwrap() {
             let mut row_columns = Vec::new();
             for column in 0..result_columns {
-                row_columns.push(match row.get_ref(column).unwrap() {
+                let column = match row.get_ref(column) {
+                    Ok(v) => v,
+                    Err(err) => return Err(SqlError::FailedToGetColumn { reason: err.to_string() }),
+                };
+
+                row_columns.push(match column {
                     ValueRef::Null => Value::Null,
                     ValueRef::Integer(v) => Value::Integer(v),
                     ValueRef::Real(v) => Value::Real(v),
-                    ValueRef::Text(v) => Value::Text(String::from_utf8(v.to_owned()).unwrap()),
+                    ValueRef::Text(v) => Value::Text(
+                        String::from_utf8(v.to_owned())
+                            .map_err(|err| SqlError::FailedToDecodeField { reason: err.to_string() })?,
+                    ),
                     ValueRef::Blob(v) => Value::Blob(v.to_owned()),
                 });
             }
             result_rows.push(Row { columns: row_columns });
         }
 
-        QueryResult { rows: result_rows }
+        Ok(QueryResult { rows: result_rows })
     }
 }
 
@@ -136,6 +144,15 @@ impl TryFrom<&Value> for String {
             _ => Err(SqlMappingError::WrongType),
         }
     }
+}
+
+#[derive(Error, Debug)]
+pub enum SqlError {
+    #[error("failed to decode field")]
+    FailedToDecodeField { reason: String },
+
+    #[error("failed to get column")]
+    FailedToGetColumn { reason: String },
 }
 
 #[derive(Error, Debug)]

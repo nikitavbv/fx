@@ -657,7 +657,8 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
         });
     }
 
-    let result = ctx.data().sql.get(&request.database).as_ref().unwrap().exec(query);
+    // TODO: report errors to calling service
+    let result = ctx.data().sql.get(&request.database).as_ref().unwrap().exec(query).unwrap();
     let result = SqlResult {
         rows: result.rows.into_iter()
             .map(|row| SqlResultRow {
