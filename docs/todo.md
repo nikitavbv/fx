@@ -9,3 +9,4 @@
 - log to queue
 - deprecate env vars, use bindings for storage
 - config support
+- rename "storage" to "kv"

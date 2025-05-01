@@ -1,20 +1,26 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, fs},
     serde_yml::Value,
     serde::Deserialize,
+    crate::storage::{BoxedStorage, SqliteStorage, WithKey},
 };
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
-    kv: Vec<ConfigKv>,
+    pub kv: Vec<ConfigKv>,
 }
 
 #[derive(Deserialize, Debug)]
 pub struct ConfigKv {
-    id: String,
-    driver: String,
-    params: HashMap<String, Value>,
-    keys: Option<Vec<ConfigKvKey>>,
+    pub id: String,
+    pub driver: String,
+    pub params: HashMap<String, Value>,
+    pub keys: Option<Vec<ConfigKvKey>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct SqliteParams {
+    in_memory: Option<bool>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -27,4 +33,28 @@ impl Config {
     pub fn load(config_str: &str) -> Self {
         serde_yml::from_str(config_str).unwrap()
     }
+}
+
+pub fn kv_from_config(config: &ConfigKv) -> BoxedStorage {
+    let params: Value = serde_yml::to_value(&config.params).unwrap();
+
+    let mut storage = match config.driver.as_str() {
+        "sqlite" => BoxedStorage::new({
+            let params: SqliteParams = serde_yml::from_value(params).unwrap();
+            if params.in_memory.unwrap_or(false) {
+                SqliteStorage::in_memory().unwrap()
+            } else {
+                panic!("memory-based kv is not implemented yet")
+            }
+        }),
+        other => panic!("unknown kv driver: {other:?}"),
+    };
+
+    for kv in config.keys.as_ref().unwrap_or(&Vec::new()) {
+        let key = kv.key.clone();
+        let value = fs::read(kv.file.as_ref().unwrap()).unwrap();
+        storage = storage.with_key(key.as_bytes(), &value);
+    }
+
+    storage
 }

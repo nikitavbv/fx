@@ -1,19 +1,24 @@
 use {
-    std::{sync::Arc, collections::HashMap},
+    std::{sync::{Arc, RwLock}, collections::HashMap},
     crate::storage::{KVStorage, BoxedStorage},
 };
 
-// TODO: implement registry
 pub struct KVRegistry {
-
+    registry: Arc<RwLock<HashMap<String, BoxedStorage>>>,
 }
 
 impl KVRegistry {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            registry: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
-    pub fn register<T: KVStorage>(&self, id: String, storage: T) {
+    pub fn register(&self, id: String, storage: BoxedStorage) {
+        self.registry.write().unwrap().insert(id, storage);
+    }
 
+    pub fn get(&self, id: String) -> BoxedStorage {
+        self.registry.read().unwrap().get(&id).unwrap().clone()
     }
 }

@@ -12,7 +12,8 @@ use {
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
         sql::SqlDatabase,
-        config::Config,
+        config::{Config, kv_from_config},
+        registry::KVRegistry,
     },
 };
 
@@ -53,13 +54,12 @@ async fn run_demo() -> anyhow::Result<()> {
     let config = Config::load(&config);
     info!("loaded config: {config:?}");
 
-    let code_storage = BoxedStorage::new(SqliteStorage::in_memory()
-        .map_err(|err| anyhow!("failed to create storage: {err:?}"))?
-        .with_key(b"dashboard", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
-        .with_key(b"dashboard-events-consumer", &fs::read("./target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm")?)
-        .with_key(b"hello-service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm")?)
-        .with_key(b"rpc-test-service", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_rpc_test_service.wasm")?)
-        .with_key(b"counter", &fs::read("./target/wasm32-unknown-unknown/release/fx_app_counter.wasm")?));
+    let kv_registry = KVRegistry::new();
+    for kv_config in config.kv {
+        kv_registry.register(kv_config.id.clone(), kv_from_config(&kv_config));
+    }
+
+    let code_storage = kv_registry.get("code".to_owned());
     let compiler_storage = BoxedStorage::new(SqliteStorage::in_memory()?);
 
     let dashboard_database = SqlDatabase::in_memory();
