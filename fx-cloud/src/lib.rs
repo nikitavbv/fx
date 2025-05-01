@@ -5,7 +5,7 @@ mod compatibility;
 mod compiler;
 mod config;
 mod cron;
-mod error;
+pub mod error;
 mod http;
 mod kafka;
 mod queue;

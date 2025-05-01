@@ -19,6 +19,7 @@ use {
         Function,
         Value,
         imports,
+        ExportError,
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
@@ -344,7 +345,11 @@ impl Engine {
         let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
         memory.view(&mut ctx.store).write(target_addr, &argument).unwrap();
 
-        let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}")).unwrap();
+        let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}"))
+            .map_err(|err| match err {
+               ExportError::Missing(_) => FxCloudError::RpcHandlerNotDefined,
+               ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
+            })?;
 
         // TODO: errors like this should be reported to some data stream
         function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])

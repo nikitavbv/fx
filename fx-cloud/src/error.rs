@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Eq, PartialEq)]
 pub enum FxCloudError {
     #[error("service not found")]
     ServiceNotFound,
@@ -13,4 +13,10 @@ pub enum FxCloudError {
 
     #[error("compilation error: {reason}")]
     CompilationError { reason: String },
+
+    #[error("rpc handler not defined")]
+    RpcHandlerNotDefined,
+
+    #[error("rcp handler has incompatible type")]
+    RpcHandlerIncompatibleType,
 }

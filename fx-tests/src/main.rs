@@ -1,6 +1,6 @@
 use {
     std::fs,
-    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId},
+    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError},
 };
 
 fn main() {
@@ -56,5 +56,6 @@ fn test_sqlx(fx: &FxCloud) {
 
 fn test_invoke_function_non_existent(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent");
-    fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ()).unwrap();
+    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ());
+    assert_eq!(Err(FxCloudError::RpcHandlerNotDefined), result);
 }
