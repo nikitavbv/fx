@@ -29,6 +29,7 @@ pub fn button(
     }
 }
 
+#[allow(dead_code)]
 pub enum BadgeVariant {
     Default,
     Destructive,

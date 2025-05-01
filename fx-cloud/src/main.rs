@@ -45,7 +45,11 @@ async fn main() {
 }
 
 async fn run_demo() -> anyhow::Result<()> {
-    let config = Config::load(&String::from_utf8(fs::read("./fx.yaml").unwrap()).unwrap());
+    let config = fs::read("./fx.yaml")
+        .map_err(|err| anyhow!("failed to read config file: {err:?}"))?;
+    let config = String::from_utf8(config)
+        .map_err(|err| anyhow!("failed to parse config file: {err:?}"))?;
+    let config = Config::load(&config);
     info!("loaded config: {config:?}");
 
     let code_storage = BoxedStorage::new(SqliteStorage::in_memory()
