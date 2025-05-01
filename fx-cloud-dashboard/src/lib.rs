@@ -27,6 +27,7 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
     let app = Router::new()
         .route("/", get(home))
+        .route("/future", get(future))
         .layer(Extension(FxCloudClient::new()))
         .layer(Extension(database));
 
@@ -99,6 +100,11 @@ async fn home(Extension(cloud): Extension<FxCloudClient>, Extension(database): E
             </div>
         </div>
     })
+}
+
+async fn future() -> &'static str {
+    unsafe { fx::test_future() };
+    "ok.\n"
 }
 
 #[component]

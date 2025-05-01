@@ -31,6 +31,7 @@ unsafe extern "C" {
     pub(crate) fn queue_push(queue_ptr: i64, queue_len: i64, argument_ptr: i64, argument_len: i64);
     pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn fetch(req_ptr: i64, req_len: i64, output_ptr: i64);
+    pub fn test_future();
 }
 
 #[derive(Debug)]

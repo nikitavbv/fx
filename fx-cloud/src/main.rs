@@ -25,6 +25,7 @@ mod cron;
 mod error;
 mod http;
 mod kafka;
+mod futures;
 mod queue;
 mod registry;
 mod sql;

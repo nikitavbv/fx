@@ -16,7 +16,7 @@ rusqlite = { version = "0.35.0", features = ["bundled"] }
 rmp-serde = "=1.3.0"
 serde = "1.0.219"
 rdkafka = "0.37.0"
-reqwest = { version = "0.12.15", features = ["blocking"] }
+reqwest = { version = "0.12.15" }
 thiserror = "2.0.12"
 anyhow = "1.0.98"
 tracing = "0.1.41"
@@ -26,6 +26,7 @@ cron = "0.15.0"
 chrono = "0.4.40"
 sha2 = "0.10.8"
 serde_yml = "0.0.12"
+futures = "0.3.31"
 
 fx-core = { path = "../fx-core" }
 fx-cloud-common = { path = "../fx-cloud-common" }

@@ -64,3 +64,7 @@ impl FxFuture {
         }
     }
 }
+
+pub struct FxHostFuture {
+    index: PoolIndex,
+}

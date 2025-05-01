@@ -6,6 +6,7 @@ mod compiler;
 mod config;
 mod cron;
 pub mod error;
+mod futures;
 mod http;
 mod kafka;
 mod queue;

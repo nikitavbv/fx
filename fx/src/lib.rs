@@ -1,7 +1,7 @@
 pub use {
     fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
-    crate::sys::PtrWithLen,
+    crate::sys::{PtrWithLen, test_future},
 };
 
 use {

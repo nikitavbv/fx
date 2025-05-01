@@ -22,6 +22,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
+    futures::FutureExt,
     fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
@@ -33,6 +34,7 @@ use {
         queue::{Queue, AsyncRpcMessage, QUEUE_RPC},
         cron::CronRunner,
         compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
+        futures::FuturesPool,
     },
 };
 
@@ -412,6 +414,8 @@ struct ExecutionContext {
     store: Store,
     function_env: FunctionEnv<ExecutionEnv>,
 
+    futures: FuturesPool,
+
     service_id: ServiceId,
     is_system: bool,
 }
@@ -428,13 +432,15 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
+        let futures = FuturesPool::new();
+
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = engine.compiler.read().unwrap().compile(&store, module_code);
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(futures.clone(), engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
 
         let mut import_object = imports! {
             "fx" => {
@@ -447,6 +453,7 @@ impl ExecutionContext {
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
+                "test_future" => Function::new_typed_with_env(&mut store, &function_env, api_test_future),
             },
             "fx_cloud" => {
                 "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
@@ -474,6 +481,8 @@ impl ExecutionContext {
             store,
             function_env,
 
+            futures,
+
             service_id,
             is_system,
         })
@@ -483,6 +492,8 @@ impl ExecutionContext {
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub(crate) struct ExecutionEnv {
+    futures: FuturesPool,
+
     engine: Arc<Engine>,
     instance: Option<Instance>,
     memory: Option<Memory>,
@@ -497,11 +508,12 @@ pub(crate) struct ExecutionEnv {
     allow_fetch: bool,
     allow_log: bool,
 
-    // fetch_client: reqwest::blocking::Client,
+    fetch_client: reqwest::Client,
 }
 
 impl ExecutionEnv {
     pub fn new(
+        futures: FuturesPool,
         engine: Arc<Engine>,
         service_id: ServiceId,
         env_vars: HashMap<Vec<u8>, Vec<u8>>,
@@ -511,6 +523,7 @@ impl ExecutionEnv {
         allow_log: bool
     ) -> Self {
         Self {
+            futures,
             engine,
             instance: None,
             memory: None,
@@ -521,7 +534,7 @@ impl ExecutionEnv {
             sql,
             allow_fetch,
             allow_log,
-            // fetch_client: reqwest::blocking::Client::new(),
+            fetch_client: reqwest::Client::new(),
         }
     }
 
@@ -732,6 +745,13 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });*/
     unimplemented!("refactoring to async")
+}
+
+fn api_test_future(ctx: FunctionEnvMut<ExecutionEnv>) {
+    println!("testing future");
+    let sleep = tokio::time::sleep(std::time::Duration::from_secs(10));
+    let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
+    println!("future index: {future_index:?}");
 }
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
