@@ -25,6 +25,7 @@ mod error;
 mod http;
 mod kafka;
 mod queue;
+mod registry;
 mod sql;
 mod storage;
 

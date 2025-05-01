@@ -9,5 +9,6 @@ pub mod error;
 mod http;
 mod kafka;
 mod queue;
+mod registry;
 pub mod sql;
 pub mod storage;
