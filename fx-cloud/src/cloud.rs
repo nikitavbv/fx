@@ -339,9 +339,9 @@ impl Engine {
     fn run_service(&self, ctx: ExecutionContext, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             ctx,
-            invoked: false,
             function_name: function_name.to_owned(),
             argument: argument.to_owned(),
+            rpc_future_index: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -387,20 +387,35 @@ impl Engine {
 
 struct FunctionRuntimeFuture {
     ctx: ExecutionContext,
-    invoked: bool,
     function_name: String,
     argument: Vec<u8>,
+    rpc_future_index: Arc<Mutex<Option<i64>>>,
 }
 
 impl Future for FunctionRuntimeFuture {
     type Output = Result<Vec<u8>, FxCloudError>;
     fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        if !self.invoked {
-            self.invoked = true;
-            let argument = self.argument.clone();
-            let function_name = self.function_name.clone();
-            let ctx = &mut self.ctx;
+        let rpc_future_index = self.rpc_future_index.clone();
+        let mut rpc_future_index = rpc_future_index.lock().unwrap();
 
+        let argument = self.argument.clone();
+        let function_name = self.function_name.clone();
+        let ctx = &mut self.ctx;
+
+        let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
+
+        if let Some(rpc_future_index) = rpc_future_index.as_ref() {
+            // TODO: measure points
+            let poll_is_ready = function_poll.call(&mut ctx.store, &[Value::I64(*rpc_future_index)]).unwrap()[0].unwrap_i64();
+            let result = if poll_is_ready == 1 {
+                let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+                std::task::Poll::Ready(Ok(response))
+            } else {
+                std::task::Poll::Pending
+            };
+
+            result
+        } else {
             ctx.function_env.as_mut(&mut ctx.store).futures_waker = Some(cx.waker().clone());
 
             let points_before = u64::MAX;
@@ -420,8 +435,6 @@ impl Future for FunctionRuntimeFuture {
                    ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
                 })?;
 
-            let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
-
             // TODO: errors like this should be reported to some data stream
             let future_index = function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
                 .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
@@ -432,6 +445,7 @@ impl Future for FunctionRuntimeFuture {
                 let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
                 std::task::Poll::Ready(Ok(response))
             } else {
+                *rpc_future_index = Some(future_index);
                 std::task::Poll::Pending
             };
 
@@ -441,7 +455,6 @@ impl Future for FunctionRuntimeFuture {
                 MeteringPoints::Exhausted => panic!("didn't expect that"),
             };
 
-
             if !ctx.is_system {
                 /*self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
                     function_id: ctx.service_id.id.clone(),
@@ -449,8 +462,6 @@ impl Future for FunctionRuntimeFuture {
             }
 
             result
-        } else {
-            unimplemented!("not expected to happen for now")
         }
     }
 }
@@ -807,7 +818,7 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
     println!("testing future");
-    let sleep = tokio::time::sleep(std::time::Duration::from_secs(10));
+    let sleep = tokio::time::sleep(std::time::Duration::from_secs(3));
     let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
     println!("future index: {future_index:?}");
     future_index.0 as i64
@@ -820,8 +831,8 @@ fn api_future_poll(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) -> i64 {
     println!("polling future: {index}, result: {result:?}");
 
     match result {
-        task::Poll::Ready(_) => 0,
-        task::Poll::Pending => 1,
+        task::Poll::Pending => 0,
+        task::Poll::Ready(_) => 1,
     }
 }
 

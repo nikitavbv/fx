@@ -1,5 +1,5 @@
 use {
-    std::fs,
+    std::{fs, time::Instant},
     fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError},
 };
 
@@ -29,6 +29,7 @@ async fn main() {
     test_invoke_function_non_existent(&fx).await;
     test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
+    test_async_handler_simple(&fx).await;
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
@@ -73,4 +74,13 @@ async fn test_invoke_function_no_module_code(fx: &FxCloud) {
     println!("> test_invoke_function_no_module_code");
     let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-no-module-code".to_owned()), "simple", ()).await;
     assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
+}
+
+async fn test_async_handler_simple(fx: &FxCloud) {
+    println!("> test_async_handler_simple");
+    let started_at = Instant::now();
+    let result = fx.invoke_service::<(), i64>(&ServiceId::new("test-app".to_owned()), "async_simple", ()).await.unwrap();
+    let total_time = (Instant::now() - started_at).as_secs();
+    assert_eq!(42, result);
+    assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
 }

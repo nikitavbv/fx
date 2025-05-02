@@ -8,7 +8,7 @@ pub use {
 use {
     std::{sync::atomic::{AtomicBool, Ordering}, panic},
     lazy_static::lazy_static,
-    crate::{sys::read_memory, logging::FxLoggingLayer},
+    crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
 mod fx_futures;
@@ -185,8 +185,7 @@ impl Queue {
 }
 
 pub async fn sleep() {
-    let index = unsafe { sys::sleep() };
-    unsafe { sys::future_poll(index) };
+    FxHostFuture::new(PoolIndex(unsafe { sys::sleep() } as u64)).await;
 }
 
 pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> T {

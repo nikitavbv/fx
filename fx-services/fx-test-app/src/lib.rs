@@ -1,5 +1,5 @@
 use {
-    fx::{rpc, FxCtx, SqlQuery},
+    fx::{rpc, FxCtx, SqlQuery, sleep},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
 };
 
@@ -53,4 +53,10 @@ pub async fn sqlx(ctx: &FxCtx, _arg: ()) -> u64 {
         .unwrap();
 
     res
+}
+
+#[rpc]
+pub async fn async_simple(ctx: &FxCtx, _arg: ()) -> u64 {
+    sleep().await;
+    42
 }

@@ -23,7 +23,14 @@ impl FuturesPool {
     }
 
     pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
-        self.inner.lock().unwrap().poll(index, context)
+        let mut pool = self.inner.lock().unwrap();
+        match pool.poll(index, context) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(result) => {
+                pool.remove(index);
+                Poll::Ready(result)
+            }
+        }
     }
 }
 
@@ -49,5 +56,9 @@ impl FuturesPoolInner {
 
     pub fn poll(&mut self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
         self.pool.get_mut(&index.0).unwrap().poll_unpin(context)
+    }
+
+    pub fn remove(&mut self, index: &HostPoolIndex) {
+        let _ = self.pool.remove(&index.0).unwrap();
     }
 }
