@@ -44,7 +44,7 @@ impl Queue {
                     let engine = core.cloud_engine.clone();
                     let msg: AsyncRpcMessage = rmp_serde::from_slice(&msg.body).unwrap();
                     let result = tokio::runtime::Handle::current().block_on(async move {
-                        engine.clone().invoke_service_raw(engine, &msg.function_id, &msg.rpc_function_name, msg.argument).await
+                        engine.clone().invoke_service_raw(engine, msg.function_id, msg.rpc_function_name, msg.argument).unwrap().await
                     });
                     if let Err(err) = result {
                         error!("async rpc call failed: {err:?}");
@@ -60,7 +60,7 @@ impl Queue {
                     let engine = core.cloud_engine.clone();
                     let body = msg.body.clone();
                     let result = tokio::runtime::Handle::current().block_on(async move {
-                        engine.clone().invoke_service_raw(engine, &subscription.service_id, &subscription.rpc_function_name, body).await
+                        engine.clone().invoke_service_raw(engine, subscription.service_id.clone(), subscription.rpc_function_name.clone(), body).unwrap().await
                     });
                     if let Err(err) = result {
                         error!("failed to invoke queue subscription: {err:?}");

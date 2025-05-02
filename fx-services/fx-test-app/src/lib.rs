@@ -57,7 +57,20 @@ pub async fn sqlx(ctx: &FxCtx, _arg: ()) -> u64 {
 }
 
 #[rpc]
-pub async fn async_simple(_ctx: &FxCtx, _arg: ()) -> u64 {
+pub async fn async_simple(_ctx: &FxCtx, arg: u64) -> u64 {
     sleep(Duration::from_secs(3)).await;
-    42
+    arg
+}
+
+#[rpc]
+pub async fn rpc_responder(ctx: &FxCtx, arg: u64) -> u64 {
+    ctx.init_logger();
+    sleep(Duration::from_secs(1)).await;
+    arg * 2
+}
+
+#[rpc]
+pub fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
+    ctx.init_logger();
+    ctx.rpc("other-app", "rpc_responder", arg).await
 }

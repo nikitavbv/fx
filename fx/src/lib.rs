@@ -6,7 +6,7 @@ pub use {
 };
 
 use {
-    std::{sync::atomic::{AtomicBool, Ordering}, panic, time::Duration},
+    std::{sync::{atomic::{AtomicBool, Ordering}, Once}, panic, time::Duration},
     lazy_static::lazy_static,
     crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
@@ -51,7 +51,7 @@ impl FxCtx {
         Queue::new(name.into())
     }
 
-    pub fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> R {
+    pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> R {
         let service_id = service_id.into();
         let service_id = service_id.as_bytes();
         let function = function.into();
@@ -59,9 +59,7 @@ impl FxCtx {
         let arg = rmp_serde::to_vec(&arg).unwrap();
         let arg = arg.as_slice();
 
-        let ptr_and_len = sys::PtrWithLen::new();
-
-        unsafe {
+        let future_index = unsafe {
             sys::rpc(
                 service_id.as_ptr() as i64,
                 service_id.len() as i64,
@@ -69,11 +67,11 @@ impl FxCtx {
                 function.len() as i64,
                 arg.as_ptr() as i64,
                 arg.len() as i64,
-                ptr_and_len.ptr_to_self()
-            );
-        }
+            )
+        };
 
-        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await;
+        rmp_serde::from_slice(&response).unwrap()
     }
 
     pub fn rpc_async<T: serde::ser::Serialize>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) {
@@ -205,6 +203,11 @@ pub fn panic_hook(info: &panic::PanicHookInfo) {
         .map(|v| v.to_owned().to_owned())
         .or(info.payload().downcast_ref::<String>().map(|v| v.to_owned()));
     tracing::error!("fx module panic: {info:?}, payload: {payload:?}");
+}
+
+pub fn set_panic_hook() {
+    static SET_HOOK: Once = Once::new();
+    SET_HOOK.call_once(|| { std::panic::set_hook(Box::new(panic_hook)); });
 }
 
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {

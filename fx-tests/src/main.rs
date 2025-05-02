@@ -7,7 +7,8 @@ use {
 #[tokio::main]
 async fn main() {
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
-        .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
+        .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+        .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
     let database_cron = SqlDatabase::in_memory();
@@ -22,6 +23,9 @@ async fn main() {
             Service::new(ServiceId::new("test-app".to_owned()))
                 .with_sql_database("app".to_owned(), database_app)
         )
+        .with_service(
+            Service::new(ServiceId::new("other-app".to_owned()))
+        )
         .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())));
 
     test_simple(&fx).await;
@@ -32,6 +36,7 @@ async fn main() {
     test_invoke_function_no_module_code(&fx).await;
     test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
+    test_async_rpc(&fx).await;
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
@@ -81,7 +86,7 @@ async fn test_invoke_function_no_module_code(fx: &FxCloud) {
 async fn test_async_handler_simple(fx: &FxCloud) {
     println!("> test_async_handler_simple");
     let started_at = Instant::now();
-    let result = fx.invoke_service::<(), i64>(&ServiceId::new("test-app".to_owned()), "async_simple", ()).await.unwrap();
+    let result = fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "async_simple", 42).await.unwrap();
     let total_time = (Instant::now() - started_at).as_secs();
     assert_eq!(42, result);
     assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
@@ -92,13 +97,19 @@ async fn test_async_concurrent(fx: &FxCloud) {
     let started_at = Instant::now();
     let result = join!(
         async {
-            fx.invoke_service::<(), i64>(&ServiceId::new("test-app".to_owned()), "async_simple", ()).await.unwrap()
+            fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "async_simple", 42).await.unwrap()
         },
         async {
-            fx.invoke_service::<(), i64>(&ServiceId::new("test-app".to_owned()), "async_simple", ()).await.unwrap()
+            fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "async_simple", 43).await.unwrap()
         }
     );
     let total_time = (Instant::now() - started_at).as_secs();
-    assert_eq!((42, 42), result);
+    assert_eq!((42, 43), result);
     assert!(total_time <= 4); // async_simple is expected to sleep for 3 seconds, two requests are served concurrently
+}
+
+async fn test_async_rpc(fx: &FxCloud) {
+    println!("> test_async_rpc");
+    let result = fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap();
+    assert_eq!(84, result);
 }

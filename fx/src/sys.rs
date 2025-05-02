@@ -3,6 +3,7 @@ use {
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         write_rpc_response_raw,
+        set_panic_hook,
     },
 };
 
@@ -15,6 +16,7 @@ pub extern "C" fn _fx_malloc(size: i64) -> i64 {
 /* returns 0 if pending, 1 if ready */
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
+    set_panic_hook();
     match FUTURE_POOL.poll(PoolIndex(future_index as u64)) {
         Poll::Pending => 0,
         Poll::Ready(v) => {
@@ -34,8 +36,7 @@ unsafe extern "C" {
         function_name_len: i64,
         arg_ptr: i64,
         arg_len: i64,
-        output_ptr: i64,
-    );
+    ) -> i64;
     pub(crate) fn rpc_async(
         service_name_ptr: i64,
         service_name_len: i64,
@@ -52,7 +53,7 @@ unsafe extern "C" {
     pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn fetch(req_ptr: i64, req_len: i64, output_ptr: i64);
     pub(crate) fn sleep(millis: i64) -> i64;
-    pub(crate) fn future_poll(index: i64) -> i64; // 0 - pending, 1 - ready
+    pub(crate) fn future_poll(index: i64, output_ptr: i64) -> i64; // 0 - pending, 1 - ready
 }
 
 #[derive(Debug)]

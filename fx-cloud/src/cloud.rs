@@ -103,8 +103,8 @@ impl FxCloud {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
     }
 
-    pub async fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        self.engine.invoke_service_raw(self.engine.clone(), service, function_name, argument).await
+    pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+        self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
 
     pub fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
@@ -270,15 +270,15 @@ impl Engine {
 
     pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
-        let response = self.invoke_service_raw(engine, &service, function_name, argument).await?;
+        let response = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub async fn invoke_service_raw(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        if self.is_global_service(service)? {
-            self.invoke_global_service(engine, service, function_name, argument).await
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+        if self.is_global_service(&service)? {
+            unimplemented!() // self.invoke_global_service(engine, &service, &function_name, argument)
         } else {
-            self.invoke_thread_local_service(engine, service, function_name, argument).await
+            self.invoke_thread_local_service(engine, &service, &function_name, argument)
         }
     }
 
@@ -310,7 +310,7 @@ impl Engine {
         unimplemented!("no global services for now")
     }
 
-    async fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
+    fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         // let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
@@ -333,7 +333,7 @@ impl Engine {
             let service = services.get(&service_id).unwrap();
             self.create_execution_context(engine, &service)?
         };
-        self.run_service(ctx, function_name, argument).await
+        Ok(self.run_service(ctx, function_name, argument))
     }
 
     fn run_service(&self, ctx: ExecutionContext, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
@@ -385,7 +385,7 @@ impl Engine {
     }
 }
 
-struct FunctionRuntimeFuture {
+pub struct FunctionRuntimeFuture {
     ctx: ExecutionContext,
     function_name: String,
     argument: Vec<u8>,
@@ -634,31 +634,23 @@ fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionE
 }
 
 fn api_rpc(
-    mut ctx: FunctionEnvMut<ExecutionEnv>,
+    ctx: FunctionEnvMut<ExecutionEnv>,
     service_name_ptr: i64,
     service_name_len: i64,
     function_name_ptr: i64,
     function_name_len: i64,
     arg_ptr: i64,
     arg_len: i64,
-    output_ptr: i64,
-) {
+) -> i64 {
     let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
     let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let return_value = tokio::runtime::Handle::current().block_on(async move {
-        engine.clone().invoke_service_raw(engine, &service_id, &function_name, argument).await
-    }).unwrap();
+    let response_future = engine.clone().invoke_service_raw(engine.clone(), service_id, function_name, argument).unwrap();
+    let response_future = ctx.data().futures.push(response_future.map(|v| v.unwrap()).boxed());
 
-    let (data, mut store) = ctx.data_and_store_mut();
-
-    let len = return_value.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &return_value);
-
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+    response_future.0 as i64
 }
 
 fn api_rpc_async(
@@ -817,14 +809,13 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
-    println!("testing future");
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
     let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
     println!("future index: {future_index:?}");
     future_index.0 as i64
 }
 
-fn api_future_poll(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) -> i64 {
+fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
     use std::task;
     let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
 
@@ -832,7 +823,14 @@ fn api_future_poll(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) -> i64 {
 
     match result {
         task::Poll::Pending => 0,
-        task::Poll::Ready(_) => 1,
+        task::Poll::Ready(res) => {
+            let (data, mut store) = ctx.data_and_store_mut();
+            let len = res.len() as i64;
+            let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+            write_memory(&ctx, ptr, &res);
+            write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+            1
+        },
     }
 }
 

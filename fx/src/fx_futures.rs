@@ -5,7 +5,7 @@ use {
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
-    crate::sys::future_poll,
+    crate::{sys::future_poll, PtrWithLen},
 };
 
 lazy_static! {
@@ -93,21 +93,25 @@ impl FxFuture {
 
 pub struct FxHostFuture {
     index: PoolIndex,
+    response_ptr: PtrWithLen,
 }
 
 impl FxHostFuture {
     pub(crate) fn new(index: PoolIndex) -> Self {
-        Self { index }
+        Self {
+            index,
+            response_ptr: PtrWithLen::new(),
+        }
     }
 }
 
 impl Future for FxHostFuture {
     type Output = Vec<u8>;
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if unsafe { future_poll(self.index.0 as i64) } == 0 {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
             Poll::Pending
         } else {
-            Poll::Ready(vec![])
+            Poll::Ready(self.response_ptr.read_owned())
         }
     }
 }
