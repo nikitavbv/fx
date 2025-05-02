@@ -4,7 +4,7 @@ use {
     fx::{FxCtx, HttpRequest, HttpResponse, rpc},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
-    fx_utils::{handle_http_axum_router, block_on},
+    fx_utils::handle_http_axum_router,
     crate::{
         icons::{Settings, Code, Activity, Plus, Play, MoreHorizontal},
         components::{Button, ButtonVariant, Badge, BadgeVariant},
@@ -20,10 +20,10 @@ mod events;
 mod icons;
 
 #[rpc]
-pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
+pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
 
-    let database = block_on(async move { Database::new(ctx.sql("dashboard")).await });
+    let database = Database::new(ctx.sql("dashboard")).await;
     database.run_migrations();
 
     let app = Router::new()
@@ -32,7 +32,7 @@ pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         .layer(Extension(FxCloudClient::new()))
         .layer(Extension(database));
 
-    handle_http_axum_router(app, req)
+    handle_http_axum_router(app, req).await
 }
 
 #[derive(Clone)]

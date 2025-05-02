@@ -1,6 +1,6 @@
 use {
     fx::{rpc, FxCtx, SqlQuery},
-    fx_utils::{database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions}, block_on},
+    fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
 };
 
 #[rpc]
@@ -20,39 +20,37 @@ pub fn sql_simple(ctx: &FxCtx, _arg: ()) -> u64 {
 }
 
 #[rpc]
-pub fn sqlx(ctx: &FxCtx, _arg: ()) -> u64 {
+pub async fn sqlx(ctx: &FxCtx, _arg: ()) -> u64 {
     let database = ctx.sql("app");
 
-    block_on(async {
-        let connection = FxDatabaseConnectOptions::new(database)
-            .connect()
-            .await
-            .unwrap();
+    let connection = FxDatabaseConnectOptions::new(database)
+        .connect()
+        .await
+        .unwrap();
 
-        sqlx::query("create table test_sql_simple (v integer not null)")
-            .execute(&connection)
-            .await
-            .unwrap();
-        sqlx::query("insert into test_sql_simple (v) values (42)")
-            .execute(&connection)
-            .await
-            .unwrap();
-        sqlx::query("insert into test_sql_simple (v) values (10)")
-            .execute(&connection)
-            .await
-            .unwrap();
+    sqlx::query("create table test_sql_simple (v integer not null)")
+        .execute(&connection)
+        .await
+        .unwrap();
+    sqlx::query("insert into test_sql_simple (v) values (42)")
+        .execute(&connection)
+        .await
+        .unwrap();
+    sqlx::query("insert into test_sql_simple (v) values (10)")
+        .execute(&connection)
+        .await
+        .unwrap();
 
-        let res = sqlx::query("select sum(v) from test_sql_simple")
-            .fetch_one(&connection)
-            .await
-            .map(|row| row.get(0))
-            .unwrap();
+    let res = sqlx::query("select sum(v) from test_sql_simple")
+        .fetch_one(&connection)
+        .await
+        .map(|row| row.get(0))
+        .unwrap();
 
-        sqlx::query("drop table test_sql_simple")
-            .execute(&connection)
-            .await
-            .unwrap();
+    sqlx::query("drop table test_sql_simple")
+        .execute(&connection)
+        .await
+        .unwrap();
 
-        res
-    })
+    res
 }

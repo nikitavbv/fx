@@ -420,9 +420,20 @@ impl Future for FunctionRuntimeFuture {
                    ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
                 })?;
 
+            let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
+
             // TODO: errors like this should be reported to some data stream
-            function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
-                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?;
+            let future_index = function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
+                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
+                [0].unwrap_i64();
+
+            let poll_is_ready = function_poll.call(&mut ctx.store, &[Value::I64(future_index as i64)]).unwrap()[0].unwrap_i64();
+            let result = if poll_is_ready == 1 {
+                let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+                std::task::Poll::Ready(Ok(response))
+            } else {
+                std::task::Poll::Pending
+            };
 
             // TODO: record points used
             let _points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
@@ -430,7 +441,6 @@ impl Future for FunctionRuntimeFuture {
                 MeteringPoints::Exhausted => panic!("didn't expect that"),
             };
 
-            let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
 
             if !ctx.is_system {
                 /*self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
@@ -438,7 +448,7 @@ impl Future for FunctionRuntimeFuture {
                 });*/
             }
 
-            std::task::Poll::Ready(Ok(response))
+            result
         } else {
             unimplemented!("not expected to happen for now")
         }

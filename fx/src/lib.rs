@@ -1,7 +1,8 @@
 pub use {
     fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
-    crate::sys::PtrWithLen,
+    futures::FutureExt,
+    crate::{sys::PtrWithLen, fx_futures::FxFuture},
 };
 
 use {
@@ -10,7 +11,7 @@ use {
     crate::{sys::read_memory, logging::FxLoggingLayer},
 };
 
-mod futures;
+mod fx_futures;
 mod sys;
 mod logging;
 
@@ -193,7 +194,10 @@ pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> 
 }
 
 pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
-    let response = rmp_serde::to_vec(&response).unwrap();
+    write_rpc_response_raw(rmp_serde::to_vec(&response).unwrap());
+}
+
+pub fn write_rpc_response_raw(response: Vec<u8>) {
     unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
 }
 
@@ -202,4 +206,8 @@ pub fn panic_hook(info: &panic::PanicHookInfo) {
         .map(|v| v.to_owned().to_owned())
         .or(info.payload().downcast_ref::<String>().map(|v| v.to_owned()));
     tracing::error!("fx module panic: {info:?}, payload: {payload:?}");
+}
+
+pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {
+    rmp_serde::to_vec(&v).unwrap()
 }

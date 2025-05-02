@@ -21,7 +21,7 @@ still, note that this is a toy project with a lot of apis missing. it is also mi
 use { fx::{FxCtx, HttpRequest, HttpResponse, rpc}, tracing::info };
 
 #[rpc]
-pub fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
+pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
     info!("this function is compiled to wasm and is running within fx: {}", req.url);
     HttpResponse::new().body("hello fx!\n")

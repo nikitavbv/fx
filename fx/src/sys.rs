@@ -1,7 +1,27 @@
+use {
+    std::task::Poll,
+    crate::{
+        fx_futures::{FUTURE_POOL, PoolIndex},
+        write_rpc_response_raw,
+    },
+};
+
 // exports:
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_malloc(size: i64) -> i64 {
     unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) as i64 }
+}
+
+/* returns 0 if pending, 1 if ready */
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
+    match FUTURE_POOL.poll(PoolIndex(future_index as u64)) {
+        Poll::Pending => 0,
+        Poll::Ready(v) => {
+            write_rpc_response_raw(v);
+            1
+        }
+    }
 }
 
 // imports:
