@@ -1,6 +1,5 @@
 use {
     std::collections::HashMap,
-    tracing::info,
     fx::{FxCtx, HttpRequest, HttpResponse, rpc},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
@@ -28,7 +27,6 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
     let app = Router::new()
         .route("/", get(home))
-        .route("/future", get(future))
         .layer(Extension(FxCloudClient::new()))
         .layer(Extension(database));
 
@@ -101,13 +99,6 @@ async fn home(Extension(cloud): Extension<FxCloudClient>, Extension(database): E
             </div>
         </div>
     })
-}
-
-async fn future() -> &'static str {
-    info!("before sleep");
-    fx::sleep().await;
-    info!("after sleep");
-    "ok.\n"
 }
 
 #[component]

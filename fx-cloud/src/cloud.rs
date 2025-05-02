@@ -816,9 +816,9 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
     unimplemented!("refactoring to async")
 }
 
-fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
+fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
     println!("testing future");
-    let sleep = tokio::time::sleep(std::time::Duration::from_secs(3));
+    let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
     let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
     println!("future index: {future_index:?}");
     future_index.0 as i64

@@ -1,4 +1,5 @@
 use {
+    std::time::Duration,
     fx::{rpc, FxCtx, SqlQuery, sleep},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
 };
@@ -56,7 +57,7 @@ pub async fn sqlx(ctx: &FxCtx, _arg: ()) -> u64 {
 }
 
 #[rpc]
-pub async fn async_simple(ctx: &FxCtx, _arg: ()) -> u64 {
-    sleep().await;
+pub async fn async_simple(_ctx: &FxCtx, _arg: ()) -> u64 {
+    sleep(Duration::from_secs(3)).await;
     42
 }
