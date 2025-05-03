@@ -61,6 +61,7 @@ impl MemoizedCompiler {
     }
 }
 
+// TODO: Module supports .clone()
 impl Compiler for MemoizedCompiler {
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Module {
         let key = self.key(&bytes);

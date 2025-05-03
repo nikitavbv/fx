@@ -6,6 +6,7 @@ building something similar to [workerd](https://github.com/cloudflare/workerd) o
 
 - deploy functions written in Rust (see `fx` for sdk and `fx-services` for examples) compiled to wasm (`wasm32-unknown-unknown`).
 - functions can be triggered by http requests, messages from Kafka topics or by cron schedule.
+- functions are async and can handle requests concurrently.
 - KV storage.
 - sql databases powered by sqlite.
 - queues.
