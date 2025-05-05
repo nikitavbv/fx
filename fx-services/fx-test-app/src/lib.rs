@@ -76,13 +76,15 @@ pub async fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
 }
 
 #[rpc]
-pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> String {
+pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
     ctx.init_logger();
     let response = ctx.fetch(
         FetchRequest::get("https://fx.nikitavbv.com/api/mock/get")
     ).await;
 
-    tracing::info!("headers: {:?}", response.headers());
+    if !response.status.is_success() {
+        return Err(format!("mock endpoint returned unexpected status code: {:?}, request id: {:?}", response.status, response.headers().get("x-request-id")));
+    }
 
-    String::from_utf8(response.body).unwrap()
+    Ok(String::from_utf8(response.body).unwrap())
 }

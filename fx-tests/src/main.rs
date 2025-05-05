@@ -46,6 +46,7 @@ async fn main() {
     // TODO: test sql with sqlx
     // TODO: test sql with error
     // TODO: test a lot of async calls in a loop with random response times to verify that multiple concurrent requests are handled correctly
+    // TODO: test what happens if function responds with incorrect type
 
     println!("all tests passed");
 }
@@ -119,6 +120,7 @@ async fn test_async_rpc(fx: &FxCloud) {
 
 async fn test_fetch(fx: &FxCloud) {
     println!("> test_fetch");
-    let result = fx.invoke_service::<(), String>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap();
+    let result = fx.invoke_service::<(), Result<String, String>>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
+        .unwrap();
     assert_eq!("hello fx!", &result);
 }

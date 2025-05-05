@@ -816,8 +816,6 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
     use std::task;
     let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
 
-    println!("polling future: {index}, result: {result:?}");
-
     match result {
         task::Poll::Pending => 0,
         task::Poll::Ready(res) => {
