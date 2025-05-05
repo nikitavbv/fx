@@ -6,8 +6,11 @@ use {
 
 #[tokio::main]
 async fn main() {
+    let started_at = Instant::now();
+
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+        .with_key(b"test-app-global", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
         .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
@@ -24,9 +27,8 @@ async fn main() {
                 .allow_fetch()
                 .with_sql_database("app".to_owned(), database_app)
         )
-        .with_service(
-            Service::new(ServiceId::new("other-app".to_owned()))
-        )
+        .with_service(Service::new(ServiceId::new("test-app-global".to_owned())).global())
+        .with_service(Service::new(ServiceId::new("other-app".to_owned())))
         .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())));
 
     test_simple(&fx).await;
@@ -39,6 +41,7 @@ async fn main() {
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_fetch(&fx).await;
+    test_global(&fx).await;
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
@@ -48,7 +51,7 @@ async fn main() {
     // TODO: test a lot of async calls in a loop with random response times to verify that multiple concurrent requests are handled correctly
     // TODO: test what happens if function responds with incorrect type
 
-    println!("all tests passed");
+    println!("all tests passed in {:?}", Instant::now() - started_at);
 }
 
 async fn test_simple(fx: &FxCloud) {
@@ -123,4 +126,11 @@ async fn test_fetch(fx: &FxCloud) {
     let result = fx.invoke_service::<(), Result<String, String>>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
         .unwrap();
     assert_eq!("hello fx!", &result);
+}
+
+async fn test_global(fx: &FxCloud) {
+    println!("> test_global");
+    let result1 = fx.invoke_service::<(), u64>(&ServiceId::new("test-app-global".to_owned()), "global_counter_inc", ()).await.unwrap();
+    let result2 = fx.invoke_service::<(), u64>(&ServiceId::new("test-app-global".to_owned()), "global_counter_inc", ()).await.unwrap();
+    assert!(result2 > result1);
 }

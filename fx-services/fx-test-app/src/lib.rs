@@ -4,6 +4,8 @@ use {
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
 };
 
+static mut COUNTER: u64 = 0;
+
 #[rpc]
 pub async fn simple(_ctx: &FxCtx, arg: u32) -> u32 {
     arg + 42
@@ -87,4 +89,9 @@ pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
     }
 
     Ok(String::from_utf8(response.body).unwrap())
+}
+
+#[rpc]
+pub async fn global_counter_inc(_ctx: &FxCtx, _arg: ()) -> u64 {
+    unsafe { COUNTER += 1; COUNTER }
 }

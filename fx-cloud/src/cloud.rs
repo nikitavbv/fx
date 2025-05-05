@@ -276,7 +276,7 @@ impl Engine {
 
     pub fn invoke_service_raw(&self, engine: Arc<Engine>, service: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         if self.is_global_service(&service)? {
-            unimplemented!() // self.invoke_global_service(engine, &service, &function_name, argument)
+            self.invoke_global_service(engine, &service, &function_name, argument)
         } else {
             self.invoke_thread_local_service(engine, &service, &function_name, argument)
         }
