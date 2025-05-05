@@ -9,5 +9,5 @@ crate-type = ["cdylib"]
 [dependencies]
 axum = { version = "0.8.4", default-features = false }
 
-fx = { path = "../fx" }
-fx-utils = { path = "../fx-utils" }
+fx = { path = "../../fx" }
+fx-utils = { path = "../../fx-utils" }

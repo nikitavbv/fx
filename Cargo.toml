@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "fx",
-    "fx-app-mocks",
     "fx-cloud",
     "fx-cloud-dashboard",
     "fx-core",
@@ -11,6 +10,7 @@ members = [
     "fx-utils",
     "fx-services/fx-app-counter",
     "fx-services/fx-app-hello-world",
+    "fx-services/fx-app-mocks",
     "fx-services/fx-app-rpc-test-service",
     "fx-services/fx-test-app"
 ]
