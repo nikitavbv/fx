@@ -38,7 +38,7 @@ use {
     },
 };
 
-const QUEUE_SYSTEM_INVOCATIONS: &str = "system/invocations";
+pub const QUEUE_SYSTEM_INVOCATIONS: &str = "system/invocations";
 
 #[derive(Clone)]
 pub struct FxCloud {

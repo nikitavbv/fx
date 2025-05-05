@@ -1,7 +1,7 @@
 use {
-    std::{fs, time::Instant},
-    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError},
-    tokio::join,
+    std::{fs, time::{Instant, Duration}},
+    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS},
+    tokio::{join, time::sleep},
 };
 
 #[tokio::main]
@@ -11,6 +11,8 @@ async fn main() {
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
         .with_key(b"test-app-global", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+        .with_key(b"test-app-system", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+        .with_key(b"test-invocation-count", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
         .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
@@ -28,8 +30,13 @@ async fn main() {
                 .with_sql_database("app".to_owned(), database_app)
         )
         .with_service(Service::new(ServiceId::new("test-app-global".to_owned())).global())
+        .with_service(Service::new(ServiceId::new("test-app-system".to_owned())).global().system())
         .with_service(Service::new(ServiceId::new("other-app".to_owned())))
-        .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())));
+        .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())))
+        .with_service(Service::new(ServiceId::new("test-invocation-count".to_owned())))
+        .with_queue_subscription(QUEUE_SYSTEM_INVOCATIONS, ServiceId::new("test-app-system".to_owned()), "on_invoke").await;
+
+    fx.run_queue().await;
 
     test_simple(&fx).await;
     test_sql_simple(&fx).await;
@@ -42,6 +49,7 @@ async fn main() {
     test_async_rpc(&fx).await;
     test_fetch(&fx).await;
     test_global(&fx).await;
+    test_queue_system_invocations(&fx).await;
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
@@ -133,4 +141,24 @@ async fn test_global(fx: &FxCloud) {
     let result1 = fx.invoke_service::<(), u64>(&ServiceId::new("test-app-global".to_owned()), "global_counter_inc", ()).await.unwrap();
     let result2 = fx.invoke_service::<(), u64>(&ServiceId::new("test-app-global".to_owned()), "global_counter_inc", ()).await.unwrap();
     assert!(result2 > result1);
+}
+
+async fn test_queue_system_invocations(fx: &FxCloud) {
+    println!("> test_queue_system_invocations");
+    let before = fx.invoke_service::<String, u64>(&ServiceId::new("test-app-system".to_owned()), "get_invoke_count", "test-invocation-count".to_owned()).await.unwrap();
+    assert_eq!(0, before);
+
+    fx.invoke_service::<u32, u32>(&ServiceId::new("test-invocation-count".to_owned()), "simple", 10).await.unwrap();
+
+    let mut after = 0;
+    for retry in 0..20 {
+        after = fx.invoke_service::<String, u64>(&ServiceId::new("test-app-system".to_owned()), "get_invoke_count", "test-invocation-count".to_owned()).await.unwrap();
+        if after == 1 {
+            break;
+        } else {
+            // queues are processed async, so may have to wait a bit
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+    assert_eq!(1, after);
 }

@@ -1,4 +1,4 @@
-pub use crate::cloud::{FxCloud, Service, ServiceId};
+pub use crate::cloud::{FxCloud, Service, ServiceId, QUEUE_SYSTEM_INVOCATIONS};
 
 mod cloud;
 mod compatibility;

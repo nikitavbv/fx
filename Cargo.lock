@@ -1279,7 +1279,9 @@ name = "fx-test-app"
 version = "0.1.0"
 dependencies = [
  "fx",
+ "fx-cloud-common",
  "fx-utils",
+ "lazy_static",
  "sqlx",
  "tracing",
 ]

@@ -1,10 +1,15 @@
 use {
-    std::time::Duration,
+    std::{time::Duration, collections::HashMap, sync::Mutex},
     fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
+    fx_cloud_common::FunctionInvokeEvent,
+    lazy_static::lazy_static,
 };
 
-static mut COUNTER: u64 = 0;
+lazy_static! {
+    static ref COUNTER: Mutex<u64> = Mutex::new(0);
+    static ref INVOCATION_COUNT: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+}
 
 #[rpc]
 pub async fn simple(_ctx: &FxCtx, arg: u32) -> u32 {
@@ -93,5 +98,19 @@ pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
 
 #[rpc]
 pub async fn global_counter_inc(_ctx: &FxCtx, _arg: ()) -> u64 {
-    unsafe { COUNTER += 1; COUNTER }
+    let mut counter = COUNTER.lock().unwrap();
+    *counter += 1;
+    *counter
+}
+
+#[rpc]
+pub async fn on_invoke(_ctx: &FxCtx, event: FunctionInvokeEvent) {
+    let mut invocation_count = INVOCATION_COUNT.lock().unwrap();
+    let count = invocation_count.get(&event.function_id).unwrap_or(&0) + 1;
+    invocation_count.insert(event.function_id, count);
+}
+
+#[rpc]
+pub async fn get_invoke_count(_ctx: &FxCtx, function_id: String) -> u64 {
+    *INVOCATION_COUNT.lock().unwrap().get(&function_id).unwrap_or(&0)
 }
