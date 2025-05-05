@@ -237,7 +237,7 @@ impl Service {
 pub(crate) struct Engine {
     compiler: RwLock<BoxedCompiler>,
 
-    execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>>,
+    execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<ExecutionContext>>>>,
     global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
@@ -311,32 +311,24 @@ impl Engine {
     }
 
     fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
-        // let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
+        let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
 
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
-        /*let ctx = {
+        let ctx = {
             let mut ctxs = ctxs.lock().unwrap();
             if !ctxs.contains_key(&service_id) {
                 let services = self.services.read().unwrap();
                 let service = services.get(&service_id).unwrap();
-                ctxs.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service)?)));
+                ctxs.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
             }
             let ctx = ctxs.get(&service_id);
             let ctx = ctx.unwrap().clone();
             ctx
         };
-        let mut ctx = ctx.lock().unwrap();
-        let ctx = ctx.deref_mut();*/
-
-        let mut ctx = {
-            let services = self.services.read().unwrap();
-            let service = services.get(&service_id).unwrap();
-            self.create_execution_context(engine.clone(), &service)?
-        };
         Ok(self.run_service(engine, ctx, function_name, argument))
     }
 
-    fn run_service(&self, engine: Arc<Engine>, ctx: ExecutionContext, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+    fn run_service(&self, engine: Arc<Engine>, ctx: Arc<ExecutionContext>, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             engine,
             ctx,
@@ -388,7 +380,7 @@ impl Engine {
 
 pub struct FunctionRuntimeFuture {
     engine: Arc<Engine>,
-    ctx: ExecutionContext,
+    ctx: Arc<ExecutionContext>,
     function_name: String,
     argument: Vec<u8>,
     rpc_future_index: Arc<Mutex<Option<i64>>>,
@@ -413,21 +405,24 @@ impl FunctionRuntimeFuture {
 
 impl Future for FunctionRuntimeFuture {
     type Output = Result<Vec<u8>, FxCloudError>;
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let rpc_future_index = self.rpc_future_index.clone();
         let mut rpc_future_index = rpc_future_index.lock().unwrap();
 
         let argument = self.argument.clone();
         let function_name = self.function_name.clone();
-        let ctx = &mut self.ctx;
+        let ctx = &self.ctx;
+        let mut store_lock = ctx.store.lock().unwrap();
+        let store = store_lock.deref_mut();
 
         let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
 
         if let Some(rpc_future_index) = rpc_future_index.as_ref() {
             // TODO: measure points
-            let poll_is_ready = function_poll.call(&mut ctx.store, &[Value::I64(*rpc_future_index)]).unwrap()[0].unwrap_i64();
+            let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index)]).unwrap()[0].unwrap_i64();
             let result = if poll_is_ready == 1 {
-                let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+                let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
+                drop(store_lock);
                 self.record_function_invocation();
                 std::task::Poll::Ready(Ok(response))
             } else {
@@ -436,18 +431,18 @@ impl Future for FunctionRuntimeFuture {
 
             result
         } else {
-            ctx.function_env.as_mut(&mut ctx.store).futures_waker = Some(cx.waker().clone());
+            ctx.function_env.as_mut(store).futures_waker = Some(cx.waker().clone());
 
             let points_before = u64::MAX;
-            set_remaining_points(&mut ctx.store, &ctx.instance, points_before);
+            set_remaining_points(store, &ctx.instance, points_before);
 
             let memory = ctx.instance.exports.get_memory("memory").unwrap();
-            ctx.function_env.as_mut(&mut ctx.store).instance = Some(ctx.instance.clone());
-            ctx.function_env.as_mut(&mut ctx.store).memory = Some(memory.clone());
+            ctx.function_env.as_mut(store).instance = Some(ctx.instance.clone());
+            ctx.function_env.as_mut(store).memory = Some(memory.clone());
 
             let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
-            let target_addr = client_malloc.call(&mut ctx.store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
-            memory.view(&mut ctx.store).write(target_addr, &argument).unwrap();
+            let target_addr = client_malloc.call(store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
+            memory.view(store).write(target_addr, &argument).unwrap();
 
             let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}"))
                 .map_err(|err| match err {
@@ -456,13 +451,13 @@ impl Future for FunctionRuntimeFuture {
                 })?;
 
             // TODO: errors like this should be reported to some data stream
-            let future_index = function.call(&mut ctx.store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
+            let future_index = function.call(store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
                 .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
                 [0].unwrap_i64();
 
-            let poll_is_ready = function_poll.call(&mut ctx.store, &[Value::I64(future_index as i64)]).unwrap()[0].unwrap_i64();
+            let poll_is_ready = function_poll.call(store, &[Value::I64(future_index as i64)]).unwrap()[0].unwrap_i64();
             let result = if poll_is_ready == 1 {
-                let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+                let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
                 std::task::Poll::Ready(Ok(response))
             } else {
                 *rpc_future_index = Some(future_index);
@@ -470,11 +465,12 @@ impl Future for FunctionRuntimeFuture {
             };
 
             // TODO: record points used
-            let _points_used = points_before - match get_remaining_points(&mut ctx.store, &ctx.instance) {
+            let _points_used = points_before - match get_remaining_points(store, &ctx.instance) {
                 MeteringPoints::Remaining(v) => v,
                 MeteringPoints::Exhausted => panic!("didn't expect that"),
             };
 
+            drop(store_lock);
             if result.is_ready() {
                 self.record_function_invocation();
             }
@@ -484,23 +480,14 @@ impl Future for FunctionRuntimeFuture {
     }
 }
 
+#[derive(Clone)]
 struct ExecutionContext {
     instance: Instance,
-    store: Store,
+    store: Arc<Mutex<Store>>,
     function_env: FunctionEnv<ExecutionEnv>,
-
-    futures: FuturesPool,
-
     service_id: ServiceId,
     is_system: bool,
 }
-
-struct FutureContext {
-    ctx: *mut std::task::Context<'static>,
-}
-
-// will always be used in single thread
-unsafe impl Send for FutureContext {}
 
 impl ExecutionContext {
     pub fn new(
@@ -561,11 +548,8 @@ impl ExecutionContext {
 
         Ok(Self {
             instance,
-            store,
+            store: Arc::new(Mutex::new(store)),
             function_env,
-
-            futures,
-
             service_id,
             is_system,
         })
