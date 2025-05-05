@@ -19,7 +19,7 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await;
         return HttpResponse::new().body(format!("rpc demo returned a response: {response:?}\n"));
     } else if req.url == "/test-fetch" {
-        let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned()));
+        let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned())).await;
         return HttpResponse::new().body(String::from_utf8(res.body).unwrap());
     } else if req.url == "/test-sql" {
         let database = ctx.sql("test-db");
