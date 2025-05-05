@@ -120,12 +120,5 @@ async fn test_async_rpc(fx: &FxCloud) {
 async fn test_fetch(fx: &FxCloud) {
     println!("> test_fetch");
     let result = fx.invoke_service::<(), String>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap();
-    let result: serde_json::Value = match serde_json::from_str(&result) {
-        Ok(v) => v,
-        Err(err) => {
-            panic!("failed to parse response: {err:?}. response is: {result}");
-        }
-    };
-    let host_header = result.get("headers").unwrap().get("Host").unwrap().as_str().unwrap();
-    assert_eq!("httpbin.org", host_header);
+    assert_eq!("hello fx!", &result);
 }

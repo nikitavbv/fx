@@ -79,7 +79,7 @@ pub async fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
 pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> String {
     ctx.init_logger();
     let response = ctx.fetch(
-        FetchRequest::get("https://httpbin.org/get")
+        FetchRequest::get("https://fx.nikitavbv.com/api/mock/get")
     ).await;
     String::from_utf8(response.body).unwrap()
 }
