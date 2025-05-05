@@ -61,7 +61,10 @@ pub fn kv_from_config(config: &ConfigKv) -> BoxedStorage {
 
     for kv in config.keys.as_ref().unwrap_or(&Vec::new()) {
         let key = kv.key.clone();
-        let value = fs::read(kv.file.as_ref().unwrap()).unwrap();
+        let value = match fs::read(kv.file.as_ref().unwrap()) {
+            Ok(v) => v,
+            Err(err) => panic!("failed to read value from file: {}, reason: {err:?}", kv.file.as_ref().unwrap()),
+        };
         storage = storage.with_key(key.as_bytes(), &value);
     }
 

@@ -17,7 +17,7 @@ async fn main() {
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
         .with_memoized_compiler(storage_compiler)
-        .with_queue()
+        .with_queue().await
         .with_cron(database_cron)
         .with_service(
             Service::new(ServiceId::new("test-app".to_owned()))

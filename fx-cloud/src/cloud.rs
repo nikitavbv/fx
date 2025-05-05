@@ -77,14 +77,14 @@ impl FxCloud {
         self
     }
 
-    pub fn with_queue(self) -> Self {
+    pub async fn with_queue(self) -> Self {
         let engine = self.engine.clone();
-        *self.engine.queue.write().unwrap() = Some(Queue::new(engine));
+        *self.engine.queue.write().await = Some(Queue::new(engine));
         self
     }
 
-    pub fn with_queue_subscription(self, queue_id: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
-        self.engine.queue.read().unwrap().as_ref().unwrap().subscribe(queue_id.into(), function_id, rpc_function_name.into());
+    pub async fn with_queue_subscription(self, queue_id: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
+        self.engine.queue.read().await.as_ref().unwrap().subscribe(queue_id.into(), function_id, rpc_function_name.into()).await;
         self
     }
 
@@ -107,15 +107,15 @@ impl FxCloud {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
 
-    pub fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
-        self.engine.invoke_service_async(function_id, rpc_function_name, argument);
+    pub async fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
+        self.engine.invoke_service_async(function_id, rpc_function_name, argument).await;
     }
 
-    pub async fn run_http(&self, port: u16, service_id: &ServiceId) {
+    pub async fn run_http(&self, port: u16, service_id: ServiceId) {
         let addr: SocketAddr = ([0, 0, 0, 0], port).into();
         let listener = TcpListener::bind(addr).await.unwrap();
 
-        let http_handler = HttpHandler::new(self.clone(), service_id.clone());
+        let http_handler = HttpHandler::new(self.clone(), service_id);
 
         println!("running on {addr:?}");
         loop {
@@ -124,7 +124,7 @@ impl FxCloud {
 
             let http_handler = http_handler.clone();
             tokio::task::spawn(async move {
-                if let Err(err) =  http1::Builder::new()
+                if let Err(err) = http1::Builder::new()
                    .timer(TokioTimer::new())
                    .serve_connection(io, http_handler)
                    .await {
@@ -138,8 +138,8 @@ impl FxCloud {
         }
     }
 
-    pub fn run_queue(&self) {
-        self.engine.queue.read().unwrap().as_ref().unwrap().clone().run();
+    pub async fn run_queue(&self) {
+        self.engine.queue.read().await.as_ref().unwrap().clone().run();
     }
 
     pub fn run_cron(&self) {
@@ -242,7 +242,7 @@ pub(crate) struct Engine {
 
     services: RwLock<HashMap<ServiceId, Service>>,
 
-    queue: RwLock<Option<Queue>>,
+    queue: tokio::sync::RwLock<Option<Queue>>,
 
     cron: RwLock<Option<CronRunner>>,
 
@@ -260,7 +260,7 @@ impl Engine {
 
             services: RwLock::new(HashMap::new()),
 
-            queue: RwLock::new(None),
+            queue: tokio::sync::RwLock::new(None),
 
             cron: RwLock::new(None),
 
@@ -282,12 +282,12 @@ impl Engine {
         }
     }
 
-    pub fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
+    pub async fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
         self.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
             function_id,
             rpc_function_name,
             argument: rmp_serde::to_vec(&argument).unwrap(),
-        });
+        }).await;
     }
 
     async fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
@@ -331,13 +331,14 @@ impl Engine {
         let mut ctx = {
             let services = self.services.read().unwrap();
             let service = services.get(&service_id).unwrap();
-            self.create_execution_context(engine, &service)?
+            self.create_execution_context(engine.clone(), &service)?
         };
-        Ok(self.run_service(ctx, function_name, argument))
+        Ok(self.run_service(engine, ctx, function_name, argument))
     }
 
-    fn run_service(&self, ctx: ExecutionContext, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+    fn run_service(&self, engine: Arc<Engine>, ctx: ExecutionContext, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
+            engine,
             ctx,
             function_name: function_name.to_owned(),
             argument: argument.to_owned(),
@@ -371,25 +372,43 @@ impl Engine {
             .is_global)
     }
 
-    fn push_to_queue<T: serde::ser::Serialize>(&self, queue_id: impl Into<String>, message: T) {
-        self.push_to_queue_raw(queue_id, rmp_serde::to_vec(&message).unwrap());
+    async fn push_to_queue<T: serde::ser::Serialize>(&self, queue_id: impl Into<String>, message: T) {
+        self.push_to_queue_raw(queue_id, rmp_serde::to_vec(&message).unwrap()).await;
     }
 
-    fn push_to_queue_raw(&self, queue_id: impl Into<String>, message: Vec<u8>) {
-        let queue = self.queue.read().unwrap();
+    async fn push_to_queue_raw(&self, queue_id: impl Into<String>, message: Vec<u8>) {
+        let queue = self.queue.read().await;
         let queue = match queue.as_ref() {
             Some(v) => v,
             None => return,
         };
-        queue.push(queue_id.into(), message);
+        queue.push(queue_id.into(), message).await;
     }
 }
 
 pub struct FunctionRuntimeFuture {
+    engine: Arc<Engine>,
     ctx: ExecutionContext,
     function_name: String,
     argument: Vec<u8>,
     rpc_future_index: Arc<Mutex<Option<i64>>>,
+}
+
+impl FunctionRuntimeFuture {
+    fn record_function_invocation(&self) {
+        if self.ctx.is_system {
+            // invocations are not recorded for system functions to avoid loops
+            return;
+        }
+
+        let engine = self.engine.clone();
+        let message = FunctionInvokeEvent {
+            function_id: self.ctx.service_id.id.clone(),
+        };
+        tokio::runtime::Handle::current().spawn(async move {
+            engine.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, message).await;
+        });
+    }
 }
 
 impl Future for FunctionRuntimeFuture {
@@ -409,6 +428,7 @@ impl Future for FunctionRuntimeFuture {
             let poll_is_ready = function_poll.call(&mut ctx.store, &[Value::I64(*rpc_future_index)]).unwrap()[0].unwrap_i64();
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(&mut ctx.store).rpc_response.as_ref().unwrap().clone();
+                self.record_function_invocation();
                 std::task::Poll::Ready(Ok(response))
             } else {
                 std::task::Poll::Pending
@@ -455,10 +475,8 @@ impl Future for FunctionRuntimeFuture {
                 MeteringPoints::Exhausted => panic!("didn't expect that"),
             };
 
-            if !ctx.is_system {
-                /*self.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, FunctionInvokeEvent {
-                    function_id: ctx.service_id.id.clone(),
-                });*/
+            if result.is_ready() {
+                self.record_function_invocation();
             }
 
             result

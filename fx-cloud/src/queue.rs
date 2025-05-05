@@ -1,7 +1,7 @@
 use {
-    std::{sync::{Arc, RwLock}, collections::{HashMap, HashSet}, thread},
-    tracing::error,
-    crossbeam::channel::{self, Sender, Receiver},
+    std::{sync::Arc, collections::{HashMap, HashSet}},
+    tracing::{error, info},
+    tokio::sync::{RwLock, Mutex, mpsc::{self, Sender, Receiver}},
     serde::{Serialize, Deserialize},
     crate::{ServiceId, cloud::Engine},
 };
@@ -22,12 +22,12 @@ impl Queue {
         }
     }
 
-    pub fn push(&self, queue_id: String, msg: Vec<u8>) {
-        self.inner.tx.send(Message::new(queue_id, msg)).unwrap();
+    pub async fn push(&self, queue_id: String, msg: Vec<u8>) {
+        self.inner.tx.send(Message::new(queue_id, msg)).await.unwrap();
     }
 
-    pub fn subscribe(&self, queue_id: String, function_id: ServiceId, rpc_function_name: String) {
-        let mut subscriptions = self.inner.subscriptions.write().unwrap();
+    pub async fn subscribe(&self, queue_id: String, function_id: ServiceId, rpc_function_name: String) {
+        let mut subscriptions = self.inner.subscriptions.write().await;
         if !subscriptions.contains_key(&queue_id) {
             subscriptions.insert(queue_id.clone(), HashSet::new());
         }
@@ -36,22 +36,24 @@ impl Queue {
 
     pub fn run(&self) {
         let core = self.inner.clone();
-        thread::spawn(move || {
+
+        let join_handle = tokio::task::spawn_blocking(async move || {
+            let mut rx = core.rx.lock().await;
+
             loop {
-                let msg = core.rx.recv().unwrap();
+                let msg = rx.recv().await.unwrap();
+                info!("here {}", msg.queue_id);
 
                 if msg.queue_id == QUEUE_RPC {
                     let engine = core.cloud_engine.clone();
                     let msg: AsyncRpcMessage = rmp_serde::from_slice(&msg.body).unwrap();
-                    let result = tokio::runtime::Handle::current().block_on(async move {
-                        engine.clone().invoke_service_raw(engine, msg.function_id, msg.rpc_function_name, msg.argument).unwrap().await
-                    });
+                    let result = engine.clone().invoke_service_raw(engine, msg.function_id, msg.rpc_function_name, msg.argument).unwrap().await;
                     if let Err(err) = result {
                         error!("async rpc call failed: {err:?}");
                     }
                 }
 
-                let subscriptions = core.subscriptions.read().unwrap();
+                let subscriptions = core.subscriptions.read().await;
                 let subscriptions = match subscriptions.get(&msg.queue_id) {
                     Some(v) => v,
                     None => continue,
@@ -59,15 +61,14 @@ impl Queue {
                 for subscription in subscriptions {
                     let engine = core.cloud_engine.clone();
                     let body = msg.body.clone();
-                    let result = tokio::runtime::Handle::current().block_on(async move {
-                        engine.clone().invoke_service_raw(engine, subscription.service_id.clone(), subscription.rpc_function_name.clone(), body).unwrap().await
-                    });
+                    let result = engine.clone().invoke_service_raw(engine, subscription.service_id.clone(), subscription.rpc_function_name.clone(), body).unwrap().await;
                     if let Err(err) = result {
                         error!("failed to invoke queue subscription: {err:?}");
                     }
                 }
             }
         });
+        tokio::spawn(async { join_handle.await.unwrap().await; });
     }
 }
 
@@ -77,17 +78,17 @@ struct QueueCore {
     subscriptions: RwLock<HashMap<String, HashSet<Subscription>>>,
 
     tx: Sender<Message>,
-    rx: Receiver<Message>,
+    rx: Mutex<Receiver<Message>>,
 }
 
 impl QueueCore {
     pub fn new(cloud_engine: Arc<Engine>) -> Self {
-        let (tx, rx) = channel::bounded(QUEUE_CORE_SIZE_LIMIT as usize);
+        let (tx, rx) = mpsc::channel(QUEUE_CORE_SIZE_LIMIT as usize);
         Self {
             cloud_engine,
             subscriptions: RwLock::new(HashMap::new()),
             tx,
-            rx,
+            rx: Mutex::new(rx),
         }
     }
 }

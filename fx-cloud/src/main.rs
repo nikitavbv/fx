@@ -68,7 +68,7 @@ async fn run_demo() -> anyhow::Result<()> {
     let fx_cloud = FxCloud::new()
         .with_code_storage(kv_registry.get("code".to_owned()))
         .with_memoized_compiler(kv_registry.get("compiler".to_owned()))
-        .with_queue()
+        .with_queue().await
         .with_cron(SqlDatabase::in_memory())
         .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
         .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
@@ -81,12 +81,12 @@ async fn run_demo() -> anyhow::Result<()> {
         )
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
         .with_service(Service::new(ServiceId::new("counter".to_owned())).global())
-        .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke")
+        .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke").await
         .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron");
 
-    fx_cloud.run_queue();
-    fx_cloud.run_cron();
-    fx_cloud.run_http(8080, &ServiceId::new("dashboard".to_owned())).await;
+    // fx_cloud.run_cron();
+    fx_cloud.run_queue().await;
+    fx_cloud.run_http(8080, ServiceId::new("dashboard".to_owned())).await;
 
     Ok(())
 }
@@ -103,7 +103,7 @@ async fn run_function(function_path: &str) -> anyhow::Result<()> {
                 .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
         );
 
-    fx_cloud.run_http(8080, &ServiceId::new("http".to_owned())).await;
+    fx_cloud.run_http(8080, ServiceId::new("http".to_owned())).await;
 
     Ok(())
 }
