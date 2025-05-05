@@ -30,22 +30,26 @@ impl HttpResponse {
         }
     }
 
-    pub fn status(mut self, status: StatusCode) -> Self {
+    pub fn with_status(mut self, status: StatusCode) -> Self {
         self.status = status;
         self
     }
 
-    pub fn header<K: IntoHeaderName>(mut self, header_name: K, header_value: impl Into<HeaderValue>) -> Self {
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    pub fn with_header<K: IntoHeaderName>(mut self, header_name: K, header_value: impl Into<HeaderValue>) -> Self {
         self.headers.insert(header_name, header_value.into());
         self
     }
 
-    pub fn headers(mut self, headers: HeaderMap) -> Self {
+    pub fn with_headers(mut self, headers: HeaderMap) -> Self {
         self.headers = headers;
         self
     }
 
-    pub fn body(mut self, body: impl HttpResponseBody) -> Self {
+    pub fn with_body(mut self, body: impl HttpResponseBody) -> Self {
         self.body = body.into_bytes();
         self
     }

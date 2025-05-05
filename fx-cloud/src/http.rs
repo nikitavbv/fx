@@ -60,9 +60,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 }
 
 fn response_service_not_found() -> HttpResponse {
-    HttpResponse::new().status(StatusCode::NOT_FOUND).body("fx error: service not found.\n")
+    HttpResponse::new().with_status(StatusCode::NOT_FOUND).with_body("fx error: service not found.\n")
 }
 
 fn response_internal_error() -> HttpResponse {
-    HttpResponse::new().status(StatusCode::INTERNAL_SERVER_ERROR).body("fx: internal runtime error.\n")
+    HttpResponse::new().with_status(StatusCode::INTERNAL_SERVER_ERROR).with_body("fx: internal runtime error.\n")
 }

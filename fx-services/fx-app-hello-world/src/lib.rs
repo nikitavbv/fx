@@ -17,19 +17,19 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
     if req.url == "/test-rpc" {
         let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await;
-        return HttpResponse::new().body(format!("rpc demo returned a response: {response:?}\n"));
+        return HttpResponse::new().with_body(format!("rpc demo returned a response: {response:?}\n"));
     } else if req.url == "/test-fetch" {
         let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned())).await;
-        return HttpResponse::new().body(String::from_utf8(res.body).unwrap());
+        return HttpResponse::new().with_body(String::from_utf8(res.body).unwrap());
     } else if req.url == "/test-sql" {
         let database = ctx.sql("test-db");
         database.exec(SqlQuery::new("create table if not exists hello_table (v integer not null)"));
         database.exec(SqlQuery::new("insert into hello_table (v) values (?)").bind(42));
         let result = database.exec(SqlQuery::new("select sum(v) as total from hello_table"));
-        return HttpResponse::new().body(format!("hello sql! x={:?}", result.rows[0].columns[0]));
+        return HttpResponse::new().with_body(format!("hello sql! x={:?}", result.rows[0].columns[0]));
     }
 
-    HttpResponse::new().body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))
+    HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))
 }
 
 #[rpc]

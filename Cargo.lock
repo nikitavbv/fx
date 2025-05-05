@@ -1281,6 +1281,7 @@ dependencies = [
  "fx",
  "fx-utils",
  "sqlx",
+ "tracing",
 ]
 
 [[package]]

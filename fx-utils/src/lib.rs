@@ -13,8 +13,8 @@ pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> 
     let fx_response = service.call(Request::builder().uri(req.url).body(Body::empty()).unwrap());
     let fx_response = fx_response.await.unwrap();
     let response = HttpResponse::new()
-        .status(fx_response.status())
-        .headers(fx_response.headers().clone());
+        .with_status(fx_response.status())
+        .with_headers(fx_response.headers().clone());
 
     let body = fx_response.into_body();
     let mut stream = body.into_data_stream();
@@ -26,5 +26,5 @@ pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> 
         response_body.append(&mut chunk.to_vec());
     }
 
-    response.body(response_body)
+    response.with_body(response_body)
 }

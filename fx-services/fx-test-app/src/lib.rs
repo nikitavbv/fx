@@ -81,5 +81,8 @@ pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> String {
     let response = ctx.fetch(
         FetchRequest::get("https://fx.nikitavbv.com/api/mock/get")
     ).await;
+
+    tracing::info!("headers: {:?}", response.headers());
+
     String::from_utf8(response.body).unwrap()
 }
