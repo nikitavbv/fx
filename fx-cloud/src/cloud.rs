@@ -238,7 +238,7 @@ pub(crate) struct Engine {
     compiler: RwLock<BoxedCompiler>,
 
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<ExecutionContext>>>>,
-    global_execution_contexts: RwLock<HashMap<ServiceId, Arc<Mutex<ExecutionContext>>>>,
+    global_execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
 
@@ -290,24 +290,22 @@ impl Engine {
         }).await;
     }
 
-    async fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<Vec<u8>, FxCloudError> {
-        /*if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
+    fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+        if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
             // need to create execution context first
             let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
             if !global_execution_contexts.contains_key(service_id) {
                 let services = self.services.read().unwrap();
                 let service = services.get(&service_id).unwrap();
-                global_execution_contexts.insert(service_id.clone(), Arc::new(Mutex::new(self.create_execution_context(engine, &service)?)));
+                global_execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
             }
         }
 
         let ctxs = self.global_execution_contexts.read().unwrap();
-        let ctx = ctxs.get(&service_id).unwrap();
-        let mut ctx = ctx.lock().unwrap();
-        let ctx = ctx.deref_mut();
+        let ctx = ctxs.get(&service_id).unwrap().clone();
+        drop(ctxs);
 
-        self.run_service(ctx, function_name, argument)*/
-        unimplemented!("no global services for now")
+        Ok(self.run_service(engine, ctx, function_name, argument))
     }
 
     fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
