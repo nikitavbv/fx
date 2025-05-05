@@ -21,6 +21,7 @@ async fn main() {
         .with_cron(database_cron)
         .with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
+                .allow_fetch()
                 .with_sql_database("app".to_owned(), database_app)
         )
         .with_service(
@@ -37,6 +38,7 @@ async fn main() {
     test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
+    test_fetch(&fx).await;
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
@@ -112,4 +114,10 @@ async fn test_async_rpc(fx: &FxCloud) {
     println!("> test_async_rpc");
     let result = fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap();
     assert_eq!(84, result);
+}
+
+async fn test_fetch(fx: &FxCloud) {
+    println!("> test_fetch");
+    let result = fx.invoke_service::<(), String>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap();
+    assert_eq!("", result); // TODO: implement reading body
 }

@@ -1,16 +1,16 @@
 use {
     std::time::Duration,
-    fx::{rpc, FxCtx, SqlQuery, sleep},
+    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
 };
 
 #[rpc]
-pub fn simple(_ctx: &FxCtx, arg: u32) -> u32 {
+pub async fn simple(_ctx: &FxCtx, arg: u32) -> u32 {
     arg + 42
 }
 
 #[rpc]
-pub fn sql_simple(ctx: &FxCtx, _arg: ()) -> u64 {
+pub async fn sql_simple(ctx: &FxCtx, _arg: ()) -> u64 {
     let database = ctx.sql("app");
     database.exec(SqlQuery::new("create table test_sql_simple (v integer not null)"));
     database.exec(SqlQuery::new("insert into test_sql_simple (v) values (42)"));
@@ -70,7 +70,16 @@ pub async fn rpc_responder(ctx: &FxCtx, arg: u64) -> u64 {
 }
 
 #[rpc]
-pub fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
+pub async fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
     ctx.init_logger();
     ctx.rpc("other-app", "rpc_responder", arg).await
+}
+
+#[rpc]
+pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> String {
+    ctx.init_logger();
+    let response = ctx.fetch(
+        FetchRequest::get("https://httpbin.org/get")
+    ).await;
+    String::from_utf8(response.body).unwrap()
 }

@@ -94,12 +94,12 @@ impl FxCtx {
         }
     }
 
-    pub fn fetch(&self, req: FetchRequest) -> FetchResponse {
+    pub async fn fetch(&self, req: FetchRequest) -> FetchResponse {
         let req = rmp_serde::to_vec(&req).unwrap();
-        let ptr_and_len = sys::PtrWithLen::new();
-        unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64, ptr_and_len.ptr_to_self()); }
+        let future_index = unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64) };
 
-        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await;
+        rmp_serde::from_slice(&response).unwrap()
     }
 }
 

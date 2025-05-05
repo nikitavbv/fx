@@ -23,7 +23,7 @@ use {
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
     futures::FutureExt,
-    fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue},
+    fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, FetchResponse},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -770,13 +770,13 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     println!("service: {:?}", msg);
 }
 
-fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
+fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
     if !ctx.data().allow_fetch {
         // TODO: handle this properly
         panic!("service {:?} is not allowed to call fetch", ctx.data().service_id.id);
     }
 
-    /*let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
+    let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
 
     let mut request = ctx.data().fetch_client.request(
         match req.method {
@@ -791,27 +791,22 @@ fn api_fetch(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64,
         request = request.body(body);
     }
 
-    let response = request.send().unwrap();
-    let res = FetchResponse {
-        status: response.status().as_u16(),
-        body: response.bytes().unwrap().to_vec(),
-    };
+    let request_future = request.send();
+    let future_index = ctx.data().futures.push(request_future.map(|response| {
+        let response = response.unwrap();
+        let res = FetchResponse {
+            status: response.status().as_u16(),
+            body: vec![],
+        };
+        rmp_serde::to_vec(&res).unwrap()
+    }).boxed());
 
-    let (data, mut store) = ctx.data_and_store_mut();
-
-    let res = rmp_serde::to_vec(&res).unwrap();
-    let len = res.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &res);
-
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });*/
-    unimplemented!("refactoring to async")
+    future_index.0 as i64
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
     let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
-    println!("future index: {future_index:?}");
     future_index.0 as i64
 }
 

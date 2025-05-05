@@ -76,7 +76,7 @@ pub struct FetchRequest {
 }
 
 impl FetchRequest {
-    pub fn get(endpoint: String) -> Self { Self::with_method(HttpMethod::GET, endpoint) }
+    pub fn get(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::GET, endpoint.into()) }
     pub fn post(endpoint: String) -> Self { Self::with_method(HttpMethod::POST, endpoint) }
     fn with_method(method: HttpMethod, endpoint: String) -> Self {
         Self {
