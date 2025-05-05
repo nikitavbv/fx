@@ -796,7 +796,7 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
             let response = response.unwrap();
 
             rmp_serde::to_vec(&HttpResponse {
-                status: response.status().as_u16(),
+                status: response.status(),
                 headers: response.headers().clone(),
                 body: response.bytes().await.unwrap().to_vec(),
             }).unwrap()

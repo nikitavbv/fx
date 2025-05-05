@@ -13,8 +13,8 @@ pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> 
     let fx_response = service.call(Request::builder().uri(req.url).body(Body::empty()).unwrap());
     let fx_response = fx_response.await.unwrap();
     let response = HttpResponse::new()
-        .status(fx_response.status().as_u16())
-        .headers(fx_response.headers().into_iter().map(|(k, v)| (k.as_str().to_owned(), v.to_str().unwrap().to_owned())).collect());
+        .status(fx_response.status())
+        .headers(fx_response.headers().clone());
 
     let body = fx_response.into_body();
     let mut stream = body.into_data_stream();

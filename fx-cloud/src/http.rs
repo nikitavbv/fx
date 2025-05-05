@@ -52,7 +52,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             };
 
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
-            *response.status_mut() = StatusCode::from_u16(fx_response.status).unwrap();
+            *response.status_mut() = fx_response.status;
             *response.headers_mut() = fx_response.headers;
             Ok(response)
         })
@@ -60,9 +60,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 }
 
 fn response_service_not_found() -> HttpResponse {
-    HttpResponse::new().status(404).body("fx error: service not found.\n")
+    HttpResponse::new().status(StatusCode::NOT_FOUND).body("fx error: service not found.\n")
 }
 
 fn response_internal_error() -> HttpResponse {
-    HttpResponse::new().status(503).body("fx: internal runtime error.\n")
+    HttpResponse::new().status(StatusCode::INTERNAL_SERVER_ERROR).body("fx: internal runtime error.\n")
 }

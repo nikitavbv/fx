@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
-    http::{HeaderMap, header::{IntoHeaderName, HeaderName, HeaderValue}},
+    http::{HeaderMap, header::{IntoHeaderName, HeaderName, HeaderValue}, StatusCode},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -14,7 +14,8 @@ pub struct HttpRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
-    pub status: u16,
+    #[serde(with = "http_serde::status_code")]
+    pub status: StatusCode,
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,
     pub body: Vec<u8>,
@@ -23,13 +24,13 @@ pub struct HttpResponse {
 impl HttpResponse {
     pub fn new() -> Self {
         Self {
-            status: 200,
+            status: StatusCode::OK,
             headers: HeaderMap::new(),
             body: vec![],
         }
     }
 
-    pub fn status(mut self, status: u16) -> Self {
+    pub fn status(mut self, status: StatusCode) -> Self {
         self.status = status;
         self
     }
@@ -39,11 +40,8 @@ impl HttpResponse {
         self
     }
 
-    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers = HeaderMap::new();
-        for (k, v) in headers {
-            self.headers.insert::<HeaderName>(k.try_into().unwrap(), v.try_into().unwrap());
-        }
+    pub fn headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = headers;
         self
     }
 
