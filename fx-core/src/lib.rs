@@ -2,11 +2,14 @@ use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
+    http::HeaderMap,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {
     pub url: String,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: HeaderMap,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

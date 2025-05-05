@@ -1,7 +1,6 @@
 use {
     std::{convert::Infallible, pin::Pin},
     tracing::error,
-    tokio::sync::oneshot,
     hyper::{Response, body::Bytes, StatusCode, header::HeaderName},
     http_body_util::Full,
     fx_core::{HttpResponse, HttpRequest},
@@ -32,7 +31,10 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let engine = self.fx.engine.clone();
         let service_id = self.service_id.clone();
         Box::pin(async move {
-            let request = HttpRequest { url: req.uri().to_string() };
+            let request = HttpRequest {
+                url: req.uri().to_string(),
+                headers: req.headers().clone(),
+            };
             let fx_response: HttpResponse = match engine.clone().invoke_service(engine, &service_id, "http", request).await {
                 Ok(v) => v,
                 Err(err) => match err {
