@@ -45,6 +45,7 @@ async fn main() {
     // TODO: test sql with all types
     // TODO: test sql with sqlx
     // TODO: test sql with error
+    // TODO: test a lot of async calls in a loop with random response times to verify that multiple concurrent requests are handled correctly
 
     println!("all tests passed");
 }
@@ -118,6 +119,9 @@ async fn test_async_rpc(fx: &FxCloud) {
 
 async fn test_fetch(fx: &FxCloud) {
     println!("> test_fetch");
-    let result = fx.invoke_service::<(), String>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap();
-    assert_eq!("", result); // TODO: implement reading body
+    let result: serde_json::Value = serde_json::from_str(&
+        fx.invoke_service::<(), String>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
+    ).unwrap();
+    let host_header = result.get("headers").unwrap().get("Host").unwrap().as_str().unwrap();
+    assert_eq!("httpbin.org", host_header);
 }

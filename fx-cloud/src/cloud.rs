@@ -791,17 +791,18 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         request = request.body(body);
     }
 
-    let request_future = request.send();
-    let future_index = ctx.data().futures.push(request_future.map(|response| {
-        let response = response.unwrap();
-        let res = FetchResponse {
-            status: response.status().as_u16(),
-            body: vec![],
-        };
-        rmp_serde::to_vec(&res).unwrap()
-    }).boxed());
+    let request_future = request.send()
+        .then(|response| async {
+            let response = response.unwrap();
 
-    future_index.0 as i64
+            rmp_serde::to_vec(&FetchResponse {
+                status: response.status().as_u16(),
+                body: response.bytes().await.unwrap().to_vec(),
+            }).unwrap()
+        })
+        .boxed();
+
+    ctx.data().futures.push(request_future).0 as i64
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {

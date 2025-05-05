@@ -1277,6 +1277,7 @@ name = "fx-tests"
 version = "0.1.0"
 dependencies = [
  "fx-cloud",
+ "serde_json",
  "tokio",
 ]
 
