@@ -23,7 +23,7 @@ use {
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
     futures::FutureExt,
-    fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, FetchResponse},
+    fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -795,8 +795,9 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         .then(|response| async {
             let response = response.unwrap();
 
-            rmp_serde::to_vec(&FetchResponse {
+            rmp_serde::to_vec(&HttpResponse {
                 status: response.status().as_u16(),
+                headers: response.headers().clone(),
                 body: response.bytes().await.unwrap().to_vec(),
             }).unwrap()
         })

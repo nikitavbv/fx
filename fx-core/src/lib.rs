@@ -17,7 +17,7 @@ pub struct HttpResponse {
     pub status: u16,
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,
-    pub body: Option<Vec<u8>>,
+    pub body: Vec<u8>,
 }
 
 impl HttpResponse {
@@ -25,7 +25,7 @@ impl HttpResponse {
         Self {
             status: 200,
             headers: HeaderMap::new(),
-            body: None,
+            body: vec![],
         }
     }
 
@@ -48,7 +48,7 @@ impl HttpResponse {
     }
 
     pub fn body(mut self, body: impl HttpResponseBody) -> Self {
-        self.body = Some(body.into_bytes());
+        self.body = body.into_bytes();
         self
     }
 }
@@ -109,12 +109,6 @@ impl FetchRequest {
 pub enum HttpMethod {
     GET,
     POST,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FetchResponse {
-    pub status: u16,
-    pub body: Vec<u8>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

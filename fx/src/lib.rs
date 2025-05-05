@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse, FetchRequest, FetchResponse, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
+    fx_core::{HttpRequest, HttpResponse, FetchRequest, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
     futures::FutureExt,
     crate::{sys::PtrWithLen, fx_futures::FxFuture},
@@ -94,7 +94,7 @@ impl FxCtx {
         }
     }
 
-    pub async fn fetch(&self, req: FetchRequest) -> FetchResponse {
+    pub async fn fetch(&self, req: FetchRequest) -> HttpResponse {
         let req = rmp_serde::to_vec(&req).unwrap();
         let future_index = unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64) };
 

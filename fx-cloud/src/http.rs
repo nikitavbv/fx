@@ -1,7 +1,7 @@
 use {
     std::{convert::Infallible, pin::Pin},
     tracing::error,
-    hyper::{Response, body::Bytes, StatusCode, header::HeaderName},
+    hyper::{Response, body::Bytes, StatusCode},
     http_body_util::Full,
     fx_core::{HttpResponse, HttpRequest},
     crate::{FxCloud, ServiceId, error::FxCloudError},
@@ -51,7 +51,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            let mut response = Response::new(Full::new(Bytes::from(fx_response.body.unwrap_or(Vec::new()))));
+            let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = StatusCode::from_u16(fx_response.status).unwrap();
             *response.headers_mut() = fx_response.headers;
             Ok(response)
