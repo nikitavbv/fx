@@ -53,9 +53,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body.unwrap_or(Vec::new()))));
             *response.status_mut() = StatusCode::from_u16(fx_response.status).unwrap();
-            for (header_key, header_value) in fx_response.headers {
-                response.headers_mut().append(HeaderName::from_bytes(header_key.as_bytes()).unwrap(), header_value.try_into().unwrap());
-            }
+            *response.headers_mut() = fx_response.headers;
             Ok(response)
         })
     }

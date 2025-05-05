@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
-    http::HeaderMap,
+    http::{HeaderMap, header::{IntoHeaderName, HeaderName, HeaderValue}},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -15,7 +15,8 @@ pub struct HttpRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
     pub status: u16,
-    pub headers: HashMap<String, String>,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: HeaderMap,
     pub body: Option<Vec<u8>>,
 }
 
@@ -23,7 +24,7 @@ impl HttpResponse {
     pub fn new() -> Self {
         Self {
             status: 200,
-            headers: HashMap::new(),
+            headers: HeaderMap::new(),
             body: None,
         }
     }
@@ -33,13 +34,16 @@ impl HttpResponse {
         self
     }
 
-    pub fn header(mut self, header_name: impl Into<String>, header_value: impl Into<String>) -> Self {
-        self.headers.insert(header_name.into(), header_value.into());
+    pub fn header<K: IntoHeaderName>(mut self, header_name: K, header_value: impl Into<HeaderValue>) -> Self {
+        self.headers.insert(header_name, header_value.into());
         self
     }
 
     pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
-        self.headers = headers;
+        self.headers = HeaderMap::new();
+        for (k, v) in headers {
+            self.headers.insert::<HeaderName>(k.try_into().unwrap(), v.try_into().unwrap());
+        }
         self
     }
 
