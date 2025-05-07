@@ -114,3 +114,9 @@ pub async fn on_invoke(_ctx: &FxCtx, event: FunctionInvokeEvent) {
 pub async fn get_invoke_count(_ctx: &FxCtx, function_id: String) -> u64 {
     *INVOCATION_COUNT.lock().unwrap().get(&function_id).unwrap_or(&0)
 }
+
+#[rpc]
+pub async fn test_panic(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    panic!("test panic");
+}
