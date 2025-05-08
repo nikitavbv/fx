@@ -44,6 +44,7 @@ async fn main() {
     test_invoke_function_non_existent(&fx).await;
     test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
+    test_invoke_function_panic(&fx).await;
     test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
@@ -96,6 +97,11 @@ async fn test_invoke_function_no_module_code(fx: &FxCloud) {
     println!("> test_invoke_function_no_module_code");
     let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-no-module-code".to_owned()), "simple", ()).await;
     assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
+}
+
+async fn test_invoke_function_panic(fx: &FxCloud) {
+    println!("> test_invoke_function_panic");
+    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "test_panic", ()).await;
 }
 
 async fn test_async_handler_simple(fx: &FxCloud) {
@@ -151,7 +157,7 @@ async fn test_queue_system_invocations(fx: &FxCloud) {
     fx.invoke_service::<u32, u32>(&ServiceId::new("test-invocation-count".to_owned()), "simple", 10).await.unwrap();
 
     let mut after = 0;
-    for retry in 0..20 {
+    for _retry in 0..20 {
         after = fx.invoke_service::<String, u64>(&ServiceId::new("test-app-system".to_owned()), "get_invoke_count", "test-invocation-count".to_owned()).await.unwrap();
         if after == 1 {
             break;
