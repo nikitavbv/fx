@@ -1,10 +1,13 @@
 use {
+    std::time::Duration,
+    tracing::error,
     rdkafka::{
         client::ClientContext,
         consumer::{ConsumerContext, StreamConsumer, Consumer, CommitMode},
         ClientConfig,
         Message,
     },
+    tokio::time::sleep,
     crate::{FxCloud, ServiceId},
 };
 
@@ -25,8 +28,27 @@ impl FxCloud {
         loop {
             let msg = consumer.recv().await.unwrap();
             let payload = msg.payload().unwrap();
-            self.invoke_service_raw(service_id, function_name, payload.to_vec());
-            consumer.commit_message(&msg, CommitMode::Async).unwrap();
+            match self.invoke_service_raw(service_id, function_name, payload.to_vec()) {
+                Ok(v) => {
+                    match v.await {
+                        Ok(_v) => {
+                            consumer.commit_message(&msg, CommitMode::Async).unwrap();
+                        },
+                        Err(err) => {
+                            // TODO: these errors should be reported and counted
+                            error!("failed to handle kafka message, error when running function: {err:?}");
+                            sleep(Duration::from_secs(1)).await;
+                            continue;
+                        }
+                    };
+                },
+                Err(err) => {
+                    // TODO: these errors should be reported and counted
+                    error!("failed to handle kafka message, error when invoking function: {err:?}");
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+            }
         }
     }
 }

@@ -64,16 +64,17 @@ impl SqlDatabase {
         let mut stmt = connection.prepare(&query.query).unwrap();
         let result_columns = stmt.column_count();
 
-        let mut rows = stmt.query(params_from_iter(query.params.into_iter())).unwrap();
+        let mut rows = stmt.query(params_from_iter(query.params.into_iter()))
+            .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
 
         let mut result_rows = Vec::new();
 
-        while let Some(row) = rows.next().unwrap() {
+        while let Some(row) = rows.next().map_err(|err| SqlError::RowRead { reason: err.to_string() } )? {
             let mut row_columns = Vec::new();
             for column in 0..result_columns {
                 let column = match row.get_ref(column) {
                     Ok(v) => v,
-                    Err(err) => return Err(SqlError::FailedToGetColumn { reason: err.to_string() }),
+                    Err(err) => return Err(SqlError::ColumnGet { reason: err.to_string() }),
                 };
 
                 row_columns.push(match column {
@@ -82,7 +83,7 @@ impl SqlDatabase {
                     ValueRef::Real(v) => Value::Real(v),
                     ValueRef::Text(v) => Value::Text(
                         String::from_utf8(v.to_owned())
-                            .map_err(|err| SqlError::FailedToDecodeField { reason: err.to_string() })?,
+                            .map_err(|err| SqlError::FieldDecode { reason: err.to_string() })?,
                     ),
                     ValueRef::Blob(v) => Value::Blob(v.to_owned()),
                 });
@@ -149,10 +150,16 @@ impl TryFrom<&Value> for String {
 #[derive(Error, Debug)]
 pub enum SqlError {
     #[error("failed to decode field")]
-    FailedToDecodeField { reason: String },
+    FieldDecode { reason: String },
 
     #[error("failed to get column")]
-    FailedToGetColumn { reason: String },
+    ColumnGet { reason: String },
+
+    #[error("failed to read row")]
+    RowRead { reason: String },
+
+    #[error("failed to run query")]
+    QueryRun { reason: String },
 }
 
 #[derive(Error, Debug)]

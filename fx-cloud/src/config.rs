@@ -5,6 +5,7 @@ use {
     crate::{
         storage::{BoxedStorage, SqliteStorage, WithKey},
         sql::SqlDatabase,
+        error::FxCloudError,
     },
 };
 
@@ -44,7 +45,7 @@ impl Config {
     }
 }
 
-pub fn kv_from_config(config: &ConfigKv) -> BoxedStorage {
+pub fn kv_from_config(config: &ConfigKv) -> Result<BoxedStorage, FxCloudError> {
     let params: Value = serde_yml::to_value(&config.params).unwrap();
 
     let mut storage = match config.driver.as_str() {
@@ -65,10 +66,10 @@ pub fn kv_from_config(config: &ConfigKv) -> BoxedStorage {
             Ok(v) => v,
             Err(err) => panic!("failed to read value from file: {}, reason: {err:?}", kv.file.as_ref().unwrap()),
         };
-        storage = storage.with_key(key.as_bytes(), &value);
+        storage = storage.with_key(key.as_bytes(), &value)?;
     }
 
-    storage
+    Ok(storage)
 }
 
 pub fn sql_from_config(_config: &ConfigSql) -> SqlDatabase {

@@ -40,10 +40,8 @@ async fn main() {
         if let Err(err) = run_function(args[1].as_str()).await {
             error!("failed to run function: {err:?}");
         }
-    } else {
-        if let Err(err) = run_demo().await {
-            error!("failed to start fx cloud instance: {err:?}");
-        }
+    } else if let Err(err) = run_demo().await {
+        error!("failed to start fx cloud instance: {err:?}");
     }
 }
 
@@ -57,7 +55,10 @@ async fn run_demo() -> anyhow::Result<()> {
 
     let kv_registry = KVRegistry::new();
     for kv_config in config.kv {
-        kv_registry.register(kv_config.id.clone(), kv_from_config(&kv_config));
+        kv_registry.register(
+            kv_config.id.clone(),
+            kv_from_config(&kv_config).map_err(|err| anyhow!("failed to create kv storage: {err:?}"))?
+        );
     }
 
     let sql_registry = SqlRegistry::new();
@@ -96,7 +97,7 @@ async fn run_function(function_path: &str) -> anyhow::Result<()> {
         .map_err(|err| anyhow!("failed to create storage: {err:?}"))?;
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"http/service.wasm", &fs::read(function_path)?)
+            .with_key(b"http/service.wasm", &fs::read(function_path)?)?
         )
         .with_service(
             Service::new(ServiceId::new("http".to_owned()))

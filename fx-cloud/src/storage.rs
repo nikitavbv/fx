@@ -123,13 +123,13 @@ impl KVStorage for BoxedStorage {
     }
 }
 
-pub trait WithKey {
-    fn with_key(self, key: &[u8], value: &[u8]) -> Self;
+pub trait WithKey: Sized {
+    fn with_key(self, key: &[u8], value: &[u8]) -> Result<Self, FxCloudError>;
 }
 
 impl<S: KVStorage> WithKey for S {
-    fn with_key(self, key: &[u8], value: &[u8]) -> Self {
-        self.set(key, value);
-        self
+    fn with_key(self, key: &[u8], value: &[u8]) -> Result<Self, FxCloudError> {
+        self.set(key, value)?;
+        Ok(self)
     }
 }

@@ -9,11 +9,11 @@ async fn main() {
     let started_at = Instant::now();
 
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
-        .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-        .with_key(b"test-app-global", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-        .with_key(b"test-app-system", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-        .with_key(b"test-invocation-count", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-        .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap());
+        .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
+        .with_key(b"test-app-global", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
+        .with_key(b"test-app-system", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
+        .with_key(b"test-invocation-count", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
+        .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap();
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
     let database_cron = SqlDatabase::in_memory();

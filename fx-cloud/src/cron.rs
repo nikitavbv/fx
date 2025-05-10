@@ -28,13 +28,13 @@ impl CronRunner {
     pub fn run(&self) {
         let cloud_engine = self.cloud_engine.clone();
         let cron = self.cron.clone();
-        spawn(move || {
+
+        let join_handle = tokio::task::spawn_blocking(async move || {
             loop {
                 let tasks_to_run = cron.get_tasks_to_run();
 
                 for task in tasks_to_run {
-                    unimplemented!("not implemented");
-                    // cloud_engine.invoke_service_async(ServiceId::new(task.function_id), task.rpc_function_name, CronRequest {});
+                    cloud_engine.invoke_service_async(ServiceId::new(task.function_id), task.rpc_function_name, CronRequest {}).await;
                     let next = cron_utils::Schedule::from_str(&task.cron_expression).unwrap().after(&Utc::now()).next().unwrap();
                     cron.update_task_next_run_at(task.id, next);
                 }
@@ -42,6 +42,7 @@ impl CronRunner {
                 sleep(Duration::from_secs(1));
             }
         });
+        tokio::spawn(async { join_handle.await.unwrap().await; });
     }
 }
 
