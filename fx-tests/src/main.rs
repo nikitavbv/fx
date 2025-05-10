@@ -102,6 +102,10 @@ async fn test_invoke_function_no_module_code(fx: &FxCloud) {
 async fn test_invoke_function_panic(fx: &FxCloud) {
     println!("> test_invoke_function_panic");
     let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "test_panic", ()).await;
+    match result.err().unwrap() {
+        FxCloudError::ServiceInternalError { reason: _ } => {},
+        other => panic!("expected service internal error, got: {other:?}"),
+    }
 }
 
 async fn test_async_handler_simple(fx: &FxCloud) {

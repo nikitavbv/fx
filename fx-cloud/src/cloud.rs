@@ -453,7 +453,9 @@ impl Future for FunctionRuntimeFuture {
                 .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
                 [0].unwrap_i64();
 
-            let poll_is_ready = function_poll.call(store, &[Value::I64(future_index as i64)]).unwrap()[0].unwrap_i64();
+            let poll_is_ready = function_poll.call(store, &[Value::I64(future_index as i64)])
+                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
+                [0].unwrap_i64();
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
                 std::task::Poll::Ready(Ok(response))
