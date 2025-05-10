@@ -51,6 +51,7 @@ async fn main() {
     test_fetch(&fx).await;
     test_global(&fx).await;
     test_queue_system_invocations(&fx).await;
+    // TODO: sql transactions
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name

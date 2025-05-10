@@ -23,7 +23,7 @@ use {
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
     futures::FutureExt,
-    fx_core::{LogMessage, DatabaseSqlQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse},
+    fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -534,6 +534,7 @@ impl ExecutionContext {
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
+                "sql_batch" => Function::new_typed_with_env(&mut store, &function_env, api_sql_batch),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
@@ -771,6 +772,29 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
     write_memory(&ctx, ptr, &result);
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+}
+
+fn api_sql_batch(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64) {
+    let request: DatabaseSqlBatchQuery = decode_memory(&ctx, query_addr, query_len);
+
+    let queries = request.queries.into_iter()
+        .map(|request_query| {
+            let mut query = sql::Query::new(request_query.stmt);
+            for param in request_query.params {
+                query = query.with_param(match param {
+                    SqlValue::Null => sql::Value::Null,
+                    SqlValue::Integer(v) => sql::Value::Integer(v),
+                    SqlValue::Real(v) => sql::Value::Real(v),
+                    SqlValue::Text(v) => sql::Value::Text(v),
+                    SqlValue::Blob(v) => sql::Value::Blob(v),
+                });
+            }
+            query
+        })
+        .collect::<Vec<_>>();
+
+    // TODO: report errors to calling service
+    ctx.data().sql.get(&request.database).as_ref().unwrap().batch(queries).unwrap();
 }
 
 fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len: i64, argument_addr: i64, argument_len: i64) {

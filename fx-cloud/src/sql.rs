@@ -93,6 +93,22 @@ impl SqlDatabase {
 
         Ok(QueryResult { rows: result_rows })
     }
+
+    // run sql transaction
+    pub fn batch(&self, statements: Vec<Query>) -> Result<(), SqlError> {
+        let mut connection = self.connection.lock().unwrap();
+        let txn = connection.transaction().unwrap();
+
+        for query in statements {
+            let mut stmt = txn.prepare(&query.query).unwrap();
+            let _rows = stmt.query(params_from_iter(query.params.into_iter()))
+                .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
+        }
+
+        txn.commit().unwrap();
+
+        Ok(())
+    }
 }
 
 impl ToSql for Value {

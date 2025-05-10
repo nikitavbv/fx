@@ -120,6 +120,12 @@ pub struct DatabaseSqlQuery {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DatabaseSqlBatchQuery {
+    pub database: String,
+    pub queries: Vec<SqlQuery>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SqlQuery {
     pub stmt: String,
     pub params: Vec<SqlValue>,

@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse, FetchRequest, SqlQuery, DatabaseSqlQuery, SqlResult, SqlValue, CronRequest},
+    fx_core::{HttpRequest, HttpResponse, FetchRequest, SqlQuery, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
     futures::FutureExt,
     crate::{sys::PtrWithLen, fx_futures::FxFuture},
@@ -158,6 +158,15 @@ impl SqlDatabase {
         }
 
         rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+    }
+
+    pub fn batch(&self, queries: Vec<SqlQuery>) {
+        let queries = DatabaseSqlBatchQuery {
+            database: self.name.clone(),
+            queries,
+        };
+        let queries = rmp_serde::to_vec(&queries).unwrap();
+        unsafe { sys::sql_batch(queries.as_ptr() as i64, queries.len() as i64); }
     }
 }
 
