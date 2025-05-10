@@ -1,5 +1,5 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock}, collections::HashMap, ops::DerefMut},
+    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}}, collections::HashMap, ops::DerefMut},
     tracing::error,
     tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
@@ -294,7 +294,8 @@ impl Engine {
         if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
             // need to create execution context first
             let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
-            if !global_execution_contexts.contains_key(service_id) {
+            let ctx = global_execution_contexts.get(&service_id);
+            if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
                 let services = self.services.read().unwrap();
                 let service = services.get(&service_id).unwrap();
                 global_execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
@@ -314,7 +315,8 @@ impl Engine {
         // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
         let ctx = {
             let mut ctxs = ctxs.lock().unwrap();
-            if !ctxs.contains_key(&service_id) {
+            let ctx = ctxs.get(&service_id);
+            if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
                 let services = self.services.read().unwrap();
                 let service = services.get(&service_id).unwrap();
                 ctxs.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
@@ -450,12 +452,24 @@ impl Future for FunctionRuntimeFuture {
 
             // TODO: errors like this should be reported to some data stream
             let future_index = function.call(store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
-                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
-                [0].unwrap_i64();
+                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
+            let future_index = match future_index {
+                Ok(v) => v[0].unwrap_i64(),
+                Err(err) => {
+                    ctx.needs_recreate.store(true, Ordering::SeqCst);
+                    return std::task::Poll::Ready(Err(err));
+                }
+            };
 
             let poll_is_ready = function_poll.call(store, &[Value::I64(future_index as i64)])
-                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") })?
-                [0].unwrap_i64();
+                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
+            let poll_is_ready = match poll_is_ready {
+                Ok(v) => v[0].unwrap_i64(),
+                Err(err) => {
+                    ctx.needs_recreate.store(true, Ordering::SeqCst);
+                    return std::task::Poll::Ready(Err(err));
+                }
+            };
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
                 std::task::Poll::Ready(Ok(response))
@@ -487,6 +501,7 @@ struct ExecutionContext {
     function_env: FunctionEnv<ExecutionEnv>,
     service_id: ServiceId,
     is_system: bool,
+    needs_recreate: Arc<AtomicBool>,
 }
 
 impl ExecutionContext {
@@ -552,6 +567,7 @@ impl ExecutionContext {
             function_env,
             service_id,
             is_system,
+            needs_recreate: Arc::new(AtomicBool::new(false)),
         })
     }
 }
