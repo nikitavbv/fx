@@ -61,7 +61,8 @@ impl SqlDatabase {
 
     pub fn exec(&self, query: Query) -> Result<QueryResult, SqlError> {
         let connection = self.connection.lock().unwrap();
-        let mut stmt = connection.prepare(&query.query).unwrap();
+        let mut stmt = connection.prepare(&query.query)
+            .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
         let result_columns = stmt.column_count();
 
         let mut rows = stmt.query(params_from_iter(query.params.into_iter()))
@@ -96,16 +97,19 @@ impl SqlDatabase {
 
     // run sql transaction
     pub fn batch(&self, statements: Vec<Query>) -> Result<(), SqlError> {
-        let mut connection = self.connection.lock().unwrap();
-        let txn = connection.transaction().unwrap();
+        let mut connection = self.connection.lock()
+            .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
+        let txn = connection.transaction()
+            .map_err(|err| SqlError::TransactionStart { reason: err.to_string() })?;
 
         for query in statements {
-            let mut stmt = txn.prepare(&query.query).unwrap();
+            let mut stmt = txn.prepare(&query.query)
+                .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
             let _rows = stmt.query(params_from_iter(query.params.into_iter()))
                 .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
         }
 
-        txn.commit().unwrap();
+        txn.commit().map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
 
         Ok(())
     }
@@ -176,6 +180,12 @@ pub enum SqlError {
 
     #[error("failed to run query")]
     QueryRun { reason: String },
+
+    #[error("failed to start transaction")]
+    TransactionStart { reason: String },
+
+    #[error("failed to acquire database connection")]
+    ConnectionAcquire { reason: String },
 }
 
 #[derive(Error, Debug)]
