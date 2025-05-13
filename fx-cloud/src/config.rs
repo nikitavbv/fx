@@ -4,7 +4,7 @@ use {
     serde::Deserialize,
     crate::{
         storage::{BoxedStorage, SqliteStorage, WithKey},
-        sql::SqlDatabase,
+        sql::{SqlDatabase, SqlError},
         error::FxCloudError,
     },
 };
@@ -72,6 +72,6 @@ pub fn kv_from_config(config: &ConfigKv) -> Result<BoxedStorage, FxCloudError> {
     Ok(storage)
 }
 
-pub fn sql_from_config(_config: &ConfigSql) -> SqlDatabase {
+pub fn sql_from_config(_config: &ConfigSql) -> Result<SqlDatabase, SqlError> {
     SqlDatabase::in_memory()
 }

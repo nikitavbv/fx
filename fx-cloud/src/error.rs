@@ -22,4 +22,7 @@ pub enum FxCloudError {
 
     #[error("storage does not contain code for this module")]
     ModuleCodeNotFound,
+
+    #[error("configuration error")]
+    ConfigurationError { reason: String },
 }

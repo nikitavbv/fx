@@ -3,6 +3,7 @@ use {
     crate::{
         storage::BoxedStorage,
         sql::SqlDatabase,
+        error::FxCloudError,
     },
 };
 
@@ -17,12 +18,21 @@ impl KVRegistry {
         }
     }
 
-    pub fn register(&self, id: String, storage: BoxedStorage) {
-        self.registry.write().unwrap().insert(id, storage);
+    pub fn register(&self, id: String, storage: BoxedStorage) -> Result<(), FxCloudError> {
+        self.registry.write()
+            .map_err(|err| FxCloudError::ConfigurationError {
+                reason: format!("failed to acquire kv registry lock: {err:?}"),
+            })?
+            .insert(id, storage);
+        Ok(())
     }
 
-    pub fn get(&self, id: String) -> BoxedStorage {
-        self.registry.read().unwrap().get(&id).unwrap().clone()
+    pub fn get(&self, id: String) -> Result<BoxedStorage, FxCloudError> {
+        Ok(self.registry.read()
+            .map_err(|err| FxCloudError::ConfigurationError {
+                reason: format!("failed to acquire kv registry lock: {err:?}"),
+            })?
+            .get(&id).unwrap().clone())
     }
 }
 

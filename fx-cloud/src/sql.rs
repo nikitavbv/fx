@@ -47,12 +47,20 @@ pub struct SqlDatabase {
 
 impl SqlDatabase {
     #[allow(dead_code)]
-    pub fn new(path: impl AsRef<std::path::Path>) -> Self {
-        Self::from_connection(Connection::open(path).unwrap())
+    pub fn new(path: impl AsRef<std::path::Path>) -> Result<Self, SqlError> {
+        Ok(Self::from_connection(
+            Connection::open(path)
+                .map_err(|err| SqlError::ConnectionOpen {
+                    reason: err.to_string(),
+                })?
+        ))
     }
 
-    pub fn in_memory() -> Self {
-        Self::from_connection(Connection::open_in_memory().unwrap())
+    pub fn in_memory() -> Result<Self, SqlError> {
+        Ok(Self::from_connection(
+            Connection::open_in_memory()
+                .map_err(|err| SqlError::ConnectionOpen { reason: err.to_string() })?
+        ))
     }
 
     fn from_connection(connection: Connection) -> Self {
@@ -60,7 +68,8 @@ impl SqlDatabase {
     }
 
     pub fn exec(&self, query: Query) -> Result<QueryResult, SqlError> {
-        let connection = self.connection.lock().unwrap();
+        let connection = self.connection.lock()
+            .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
         let mut stmt = connection.prepare(&query.query)
             .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
         let result_columns = stmt.column_count();
@@ -186,6 +195,9 @@ pub enum SqlError {
 
     #[error("failed to acquire database connection")]
     ConnectionAcquire { reason: String },
+
+    #[error("failed to open database connection")]
+    ConnectionOpen { reason: String },
 }
 
 #[derive(Error, Debug)]

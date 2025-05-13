@@ -63,14 +63,27 @@ async fn run_demo() -> anyhow::Result<()> {
 
     let sql_registry = SqlRegistry::new();
     for sql_config in config.sql {
-        sql_registry.register(sql_config.id.clone(), sql_from_config(&sql_config));
+        sql_registry.register(
+            sql_config.id.clone(),
+            sql_from_config(&sql_config)
+                .map_err(|err| anyhow!("failed to create storage from config: {err:?}"))?,
+        );
     }
 
     let fx_cloud = FxCloud::new()
-        .with_code_storage(kv_registry.get("code".to_owned()))
-        .with_memoized_compiler(kv_registry.get("compiler".to_owned()))
+        .with_code_storage(
+            kv_registry.get("code".to_owned())
+                .map_err(|err| anyhow!("failed to get code storage from registry: {err:?}"))?,
+        )
+        .with_memoized_compiler(
+            kv_registry.get("compiler".to_owned())
+                .map_err(|err| anyhow!("failed to get compiler storage from registry: {err:?}"))?,
+        )
         .with_queue().await
-        .with_cron(SqlDatabase::in_memory())
+        .with_cron(
+            SqlDatabase::in_memory()
+                .map_err(|err| anyhow!("failed to open database for cron: {err:?}"))?,
+        )
         .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
         .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
         .with_service(
@@ -78,7 +91,11 @@ async fn run_demo() -> anyhow::Result<()> {
                 .allow_fetch()
                 .with_env_var("demo/instance", "A")
                 .with_storage(BoxedStorage::new(NamespacedStorage::new("data/demo/".as_bytes().to_vec(), SqliteStorage::in_memory()?)))
-                .with_sql_database("test-db".to_owned(), SqlDatabase::in_memory())
+                .with_sql_database(
+                    "test-db".to_owned(),
+                    SqlDatabase::in_memory()
+                        .map_err(|err| anyhow!("failed to open database for demo service: {err:?}"))?,
+                )
         )
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
         .with_service(Service::new(ServiceId::new("counter".to_owned())).global())

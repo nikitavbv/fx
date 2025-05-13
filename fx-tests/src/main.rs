@@ -16,8 +16,8 @@ async fn main() {
         .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap();
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
-    let database_cron = SqlDatabase::in_memory();
-    let database_app = SqlDatabase::in_memory();
+    let database_cron = SqlDatabase::in_memory().unwrap();
+    let database_app = SqlDatabase::in_memory().unwrap();
 
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
