@@ -4,7 +4,7 @@ use {
     chrono::{DateTime, Utc},
     cron as cron_utils,
     fx_core::CronRequest,
-    crate::{sql::{SqlDatabase, Query, Value}, ServiceId, cloud::Engine},
+    crate::{sql::{SqlDatabase, Query, Value}, ServiceId, cloud::Engine, error::FxCloudError},
 };
 
 #[derive(Clone)]
@@ -14,15 +14,16 @@ pub struct CronRunner {
 }
 
 impl CronRunner {
-    pub fn new(cloud_engine: Arc<Engine>, database: SqlDatabase) -> Self {
-        Self {
+    pub fn new(cloud_engine: Arc<Engine>, database: SqlDatabase) -> Result<Self, FxCloudError> {
+        Ok(Self {
             cloud_engine,
-            cron: Arc::new(CronCore::new(database)),
-        }
+            cron: Arc::new(CronCore::new(database)?),
+        })
     }
 
-    pub fn schedule(&self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: String) {
-        self.cron.schedule(cron_expression.into(), function_id.into(), rpc_function_name);
+    pub fn schedule(&self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: String) -> Result<(), FxCloudError> {
+        self.cron.schedule(cron_expression.into(), function_id.into(), rpc_function_name)?;
+        Ok(())
     }
 
     pub fn run(&self) {
@@ -59,21 +60,23 @@ struct CronCore {
 }
 
 impl CronCore {
-    pub fn new(database: SqlDatabase) -> Self {
-        database.exec(Query::new("create table if not exists cron_tasks (task_id integer primary key, cron_expression text not null, function_id text not null, rpc_function_name text not null, next_run_at datetime)".to_owned()));
-        Self {
+    pub fn new(database: SqlDatabase) -> Result<Self, FxCloudError> {
+        database.exec(Query::new("create table if not exists cron_tasks (task_id integer primary key, cron_expression text not null, function_id text not null, rpc_function_name text not null, next_run_at datetime)".to_owned()))
+            .map_err(|err| FxCloudError::CronError { reason: format!("failed to create state table: {err:?}") })?;
+        Ok(Self {
             database,
-        }
+        })
     }
 
-    fn schedule(&self, cron_expression: String, function_id: String, rpc_function_name: String) {
+    fn schedule(&self, cron_expression: String, function_id: String, rpc_function_name: String) -> Result<(), FxCloudError> {
         self.database.exec(
             Query::new("insert into cron_tasks (cron_expression, function_id, rpc_function_name, next_run_at) values (?, ?, ?, ?)".to_owned())
                 .with_param(Value::Text(cron_expression))
                 .with_param(Value::Text(function_id))
                 .with_param(Value::Text(rpc_function_name))
                 .with_param(Value::Null)
-        );
+        ).map_err(|err| FxCloudError::CronError { reason: format!("failed to schedule cron task: {err:?}") })?;
+        Ok(())
     }
 
     fn get_tasks_to_run(&self) -> Vec<Task> {

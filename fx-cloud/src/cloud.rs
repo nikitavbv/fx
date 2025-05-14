@@ -88,9 +88,9 @@ impl FxCloud {
         self
     }
 
-    pub fn with_cron(self, sql: SqlDatabase) -> Self {
-        *self.engine.cron.write().unwrap() = Some(CronRunner::new(self.engine.clone(), sql));
-        self
+    pub fn with_cron(self, sql: SqlDatabase) -> Result<Self, FxCloudError> {
+        *self.engine.cron.write().unwrap() = Some(CronRunner::new(self.engine.clone(), sql)?);
+        Ok(self)
     }
 
     pub fn with_cron_task(self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
@@ -687,11 +687,11 @@ fn api_rpc_async(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    engine.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
+    tokio::task::spawn(async move { engine.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
         function_id: service_id,
         rpc_function_name: function_name,
         argument,
-    });
+    }).await });
 }
 
 fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
@@ -800,7 +800,8 @@ fn api_sql_batch(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: 
 fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len: i64, argument_addr: i64, argument_len: i64) {
     let queue = String::from_utf8(read_memory_owned(&ctx, queue_addr, queue_len)).unwrap();
     let argument = read_memory_owned(&ctx, argument_addr, argument_len);
-    ctx.data().engine.push_to_queue_raw(queue, argument);
+    let engine = ctx.data().engine.clone();
+    tokio::task::spawn(async move { engine.push_to_queue_raw(queue, argument).await });
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {

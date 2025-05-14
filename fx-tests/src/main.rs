@@ -23,7 +23,7 @@ async fn main() {
         .with_code_storage(storage_code)
         .with_memoized_compiler(storage_compiler)
         .with_queue().await
-        .with_cron(database_cron)
+        .with_cron(database_cron).unwrap()
         .with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()

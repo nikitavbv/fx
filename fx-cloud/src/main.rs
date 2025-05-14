@@ -83,7 +83,7 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_cron(
             SqlDatabase::in_memory()
                 .map_err(|err| anyhow!("failed to open database for cron: {err:?}"))?,
-        )
+        ).map_err(|err| anyhow!("failed to setup cron: {err:?}"))?
         .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
         .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
         .with_service(
