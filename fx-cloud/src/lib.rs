@@ -13,3 +13,4 @@ mod queue;
 mod registry;
 pub mod sql;
 pub mod storage;
+mod streams;

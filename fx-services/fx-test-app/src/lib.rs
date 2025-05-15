@@ -1,6 +1,6 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
-    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest},
+    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest, FxStream},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
     fx_cloud_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
@@ -119,4 +119,17 @@ pub async fn get_invoke_count(_ctx: &FxCtx, function_id: String) -> u64 {
 pub async fn test_panic(ctx: &FxCtx, _arg: ()) {
     ctx.init_logger();
     panic!("test panic");
+}
+
+#[rpc]
+pub async fn test_stream_simple(ctx: &FxCtx, _arg: ()) -> FxStream {
+    ctx.init_logger();
+
+    let stream = async_stream::stream! {
+        for i in 0..5 {
+            yield vec![i];
+            sleep(Duration::from_secs(1)).await;
+        }
+    };
+    FxStream::wrap(stream)
 }

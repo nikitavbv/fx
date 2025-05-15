@@ -30,6 +30,7 @@ mod queue;
 mod registry;
 mod sql;
 mod storage;
+mod streams;
 
 #[tokio::main]
 async fn main() {

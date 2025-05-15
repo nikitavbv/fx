@@ -1,7 +1,5 @@
 use {
-    std::sync::{Mutex, Arc},
-    std::task::{Context, Poll, Waker},
-    std::collections::HashMap,
+    std::{sync::{Mutex, Arc}, task::{Context, Poll, Waker}, collections::HashMap},
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,

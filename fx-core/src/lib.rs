@@ -1,9 +1,13 @@
+pub use stream::FxStream;
+
 use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
     http::{HeaderMap, header::{IntoHeaderName, HeaderName, HeaderValue}, StatusCode},
 };
+
+mod stream;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {

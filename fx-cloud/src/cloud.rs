@@ -35,6 +35,7 @@ use {
         cron::CronRunner,
         compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
         futures::FuturesPool,
+        streams::StreamsPool,
     },
 };
 
@@ -517,6 +518,7 @@ impl ExecutionContext {
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
         let futures = FuturesPool::new();
+        let streams = StreamsPool::new();
 
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
@@ -524,7 +526,7 @@ impl ExecutionContext {
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = engine.compiler.read().unwrap().compile(&store, module_code);
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(futures.clone(), engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(futures, streams, engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
 
         let mut import_object = imports! {
             "fx" => {
@@ -578,6 +580,7 @@ fn ops_cost_function(_: &Operator) -> u64 { 1 }
 pub(crate) struct ExecutionEnv {
     futures: FuturesPool,
     futures_waker: Option<std::task::Waker>,
+    streams: StreamsPool,
 
     engine: Arc<Engine>,
     instance: Option<Instance>,
@@ -599,6 +602,7 @@ pub(crate) struct ExecutionEnv {
 impl ExecutionEnv {
     pub fn new(
         futures: FuturesPool,
+        streams: StreamsPool,
         engine: Arc<Engine>,
         service_id: ServiceId,
         env_vars: HashMap<Vec<u8>, Vec<u8>>,
@@ -610,6 +614,7 @@ impl ExecutionEnv {
         Self {
             futures,
             futures_waker: None,
+            streams,
             engine,
             instance: None,
             memory: None,

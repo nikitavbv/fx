@@ -2,7 +2,7 @@ pub use {
     fx_core::{HttpRequest, HttpResponse, FetchRequest, SqlQuery, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
     futures::FutureExt,
-    crate::{sys::PtrWithLen, fx_futures::FxFuture},
+    crate::{sys::PtrWithLen, fx_futures::FxFuture, fx_streams::FxStream},
 };
 
 use {
@@ -12,6 +12,7 @@ use {
 };
 
 mod fx_futures;
+mod fx_streams;
 mod sys;
 mod logging;
 

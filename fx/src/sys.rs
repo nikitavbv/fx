@@ -2,6 +2,7 @@ use {
     std::task::Poll,
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
+        fx_streams::{STREAM_POOL, StreamPoolIndex},
         write_rpc_response_raw,
         set_panic_hook,
     },
@@ -23,6 +24,20 @@ pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
             write_rpc_response_raw(v);
             1
         }
+    }
+}
+
+/* returns 0 if pending, 1 if ready (some), 2 if ready (none) */
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_stream_next(stream_index: i64) -> i64 {
+    set_panic_hook();
+    match STREAM_POOL.next(StreamPoolIndex(stream_index as u64)) {
+        Poll::Pending => 0,
+        Poll::Ready(Some(v)) => {
+            write_rpc_response_raw(v);
+            1
+        },
+        Poll::Ready(None) => 2,
     }
 }
 
