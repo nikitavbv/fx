@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, Mutex}, task::{Context, Poll, Waker}, collections::HashMap},
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
-    serde::Serialize,
+    serde::{Serialize, Deserialize},
 };
 
 lazy_static! {
@@ -70,20 +70,18 @@ impl PoolInner {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct FxStream {
-    index: StreamPoolIndex,
+    // TODO: rethink how streams should work.
+    // index: StreamPoolIndex,
 }
 
 impl FxStream {
     pub fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Self {
         let inner = inner.boxed();
         let index = STREAM_POOL.push(inner);
-        Self { index }
-    }
-
-    pub fn stream_index(&self) -> u64 {
-        self.index.0
+        unimplemented!()
+        // Self { index }
     }
 }
 
