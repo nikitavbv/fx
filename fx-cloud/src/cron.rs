@@ -37,7 +37,9 @@ impl CronRunner {
                 for task in tasks_to_run {
                     cloud_engine.invoke_service_async(ServiceId::new(task.function_id), task.rpc_function_name, CronRequest {}).await;
                     let next = cron_utils::Schedule::from_str(&task.cron_expression).unwrap().after(&Utc::now()).next().unwrap();
-                    cron.update_task_next_run_at(task.id, next);
+                    if let Err(err) = cron.update_task_next_run_at(task.id, next) {
+                        error!("failed to update task next run time: {err:?}");
+                    }
                 }
 
                 sleep(Duration::from_secs(1));
@@ -100,11 +102,12 @@ impl CronCore {
             .collect()
     }
 
-    fn update_task_next_run_at(&self, task_id: i64, run_at: DateTime<Utc>) {
+    fn update_task_next_run_at(&self, task_id: i64, run_at: DateTime<Utc>) -> Result<(), FxCloudError> {
         self.database.exec(
             Query::new("update cron_tasks set next_run_at = ? where task_id = ?".to_owned())
                 .with_param(Value::Text(run_at.format("%F %T%.f").to_string()))
                 .with_param(Value::Integer(task_id))
-        );
+        ).map_err(|err| FxCloudError::CronError { reason: format!("failed to update next run time: {err:?}") })?;
+        Ok(())
     }
 }

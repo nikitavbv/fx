@@ -94,9 +94,9 @@ impl FxCloud {
         Ok(self)
     }
 
-    pub fn with_cron_task(self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
-        self.engine.cron.read().unwrap().as_ref().unwrap().schedule(cron_expression, function_id, rpc_function_name.into());
-        self
+    pub fn with_cron_task(self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Result<Self, FxCloudError> {
+        self.engine.cron.read().unwrap().as_ref().unwrap().schedule(cron_expression, function_id, rpc_function_name.into())?;
+        Ok(self)
     }
 
     #[allow(dead_code)]

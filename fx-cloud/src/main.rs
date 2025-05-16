@@ -59,7 +59,7 @@ async fn run_demo() -> anyhow::Result<()> {
         kv_registry.register(
             kv_config.id.clone(),
             kv_from_config(&kv_config).map_err(|err| anyhow!("failed to create kv storage: {err:?}"))?
-        );
+        ).map_err(|err| anyhow!("failed to register kv: {err:?}"))?;
     }
 
     let sql_registry = SqlRegistry::new();
@@ -101,7 +101,7 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
         .with_service(Service::new(ServiceId::new("counter".to_owned())).global())
         .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke").await
-        .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron");
+        .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron")?;
 
     // fx_cloud.run_cron();
     fx_cloud.run_queue().await;
