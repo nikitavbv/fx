@@ -180,7 +180,22 @@ async fn test_stream_simple(fx: &FxCloud) {
     println!("> test_stream_simple");
     let stream: FxStream = fx.invoke_service::<(), FxStream>(&ServiceId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
     let mut stream = fx.read_stream(&stream);
+    let started_at = Instant::now();
+    let mut n = 0;
     while let Some(v) = stream.next().await {
-        println!("read something: {v:?}");
+        if n != v[0] || v.len() > 1 {
+            panic!("recieved unexpected data in stream: {v:?}");
+        }
+
+        let millis_passed = (Instant::now() - started_at).as_millis();
+        if !(millis_passed >= (n as u128) * 1000 && millis_passed < (n as u128 + 1) * 1000) {
+            panic!("unexpected amount of time passed: {millis_passed}");
+        }
+
+        n += 1;
+    }
+
+    if n != 5 {
+        panic!("unexpected number of items read from stream: {n}");
     }
 }
