@@ -2,6 +2,7 @@ use {
     std::{fs, time::{Instant, Duration}},
     fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS, FxStream},
     tokio::{join, time::sleep},
+    futures::StreamExt,
 };
 
 #[tokio::main]
@@ -178,5 +179,8 @@ async fn test_queue_system_invocations(fx: &FxCloud) {
 async fn test_stream_simple(fx: &FxCloud) {
     println!("> test_stream_simple");
     let stream: FxStream = fx.invoke_service::<(), FxStream>(&ServiceId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
-    println!("stream: {}", stream.index);
+    let mut stream = fx.read_stream(&stream);
+    while let Some(v) = stream.next().await {
+        println!("read something: {v:?}");
+    }
 }

@@ -249,6 +249,8 @@ pub(crate) struct Engine {
 
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
+
+    pub(crate) streams_pool: StreamsPool,
 }
 
 impl Engine {
@@ -266,6 +268,8 @@ impl Engine {
             cron: RwLock::new(None),
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
+
+            streams_pool: StreamsPool::new(),
         }
     }
 
@@ -505,9 +509,9 @@ impl Future for FunctionRuntimeFuture {
 
 #[derive(Clone)]
 pub(crate) struct ExecutionContext {
-    instance: Instance,
-    store: Arc<Mutex<Store>>,
-    function_env: FunctionEnv<ExecutionEnv>,
+    pub(crate) instance: Instance,
+    pub(crate) store: Arc<Mutex<Store>>,
+    pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     service_id: ServiceId,
     is_system: bool,
     needs_recreate: Arc<AtomicBool>,
@@ -526,7 +530,6 @@ impl ExecutionContext {
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
         let futures = FuturesPool::new();
-        let streams = StreamsPool::new();
 
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
@@ -534,7 +537,7 @@ impl ExecutionContext {
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = engine.compiler.read().unwrap().compile(&store, module_code);
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(futures, streams, engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
+        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(futures, engine.streams_pool.clone(), engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
 
         let mut import_object = imports! {
             "fx" => {
@@ -596,7 +599,7 @@ pub(crate) struct ExecutionEnv {
     engine: Arc<Engine>,
     instance: Option<Instance>,
     memory: Option<Memory>,
-    rpc_response: Option<Vec<u8>>,
+    pub(crate) rpc_response: Option<Vec<u8>>,
 
     service_id: ServiceId,
     env_vars: HashMap<Vec<u8>, Vec<u8>>,
