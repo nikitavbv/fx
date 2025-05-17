@@ -1,5 +1,5 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}}, collections::HashMap, ops::DerefMut},
+    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}}, collections::HashMap, ops::DerefMut, task::{self, Poll}, cell::RefCell},
     tracing::error,
     tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
@@ -416,6 +416,14 @@ impl Future for FunctionRuntimeFuture {
         let mut store_lock = ctx.store.lock().unwrap();
         let store = store_lock.deref_mut();
 
+        {
+            let function_env = ctx.function_env.as_ref(store);
+            if function_env.execution_context.read().unwrap().is_none() {
+                let mut f_env_execution_context = function_env.execution_context.write().unwrap();
+                *f_env_execution_context = Some(ctx.clone());
+            }
+        }
+
         let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
 
         if let Some(rpc_future_index) = rpc_future_index.as_ref() {
@@ -496,7 +504,7 @@ impl Future for FunctionRuntimeFuture {
 }
 
 #[derive(Clone)]
-struct ExecutionContext {
+pub(crate) struct ExecutionContext {
     instance: Instance,
     store: Arc<Mutex<Store>>,
     function_env: FunctionEnv<ExecutionEnv>,
@@ -542,6 +550,7 @@ impl ExecutionContext {
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
+                "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
             },
             "fx_cloud" => {
                 "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
@@ -578,6 +587,8 @@ impl ExecutionContext {
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub(crate) struct ExecutionEnv {
+    execution_context: RwLock<Option<Arc<ExecutionContext>>>,
+
     futures: FuturesPool,
     futures_waker: Option<std::task::Waker>,
     streams: StreamsPool,
@@ -612,6 +623,7 @@ impl ExecutionEnv {
         allow_log: bool
     ) -> Self {
         Self {
+            execution_context: RwLock::new(None),
             futures,
             futures_waker: None,
             streams,
@@ -861,12 +873,11 @@ fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
 }
 
 fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
-    use std::task;
     let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
 
     match result {
-        task::Poll::Pending => 0,
-        task::Poll::Ready(res) => {
+        Poll::Pending => 0,
+        Poll::Ready(res) => {
             let (data, mut store) = ctx.data_and_store_mut();
             let len = res.len() as i64;
             let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
@@ -875,6 +886,13 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
             1
         },
     }
+}
+
+fn api_stream_export(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
+    let execution_context = ctx.data().execution_context.read().unwrap().clone().unwrap();
+    let index = ctx.data().streams.push_function_stream(execution_context);
+    println!("exported stream: {index:?}");
+    index.0 as i64
 }
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {

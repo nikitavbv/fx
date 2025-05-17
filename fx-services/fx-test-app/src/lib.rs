@@ -1,6 +1,6 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
-    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest, FxStream},
+    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest, FxStream, FxStreamExport},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
     fx_cloud_common::FunctionInvokeEvent,
     lazy_static::lazy_static,

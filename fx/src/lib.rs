@@ -2,7 +2,7 @@ pub use {
     fx_core::{HttpRequest, HttpResponse, FetchRequest, SqlQuery, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlValue, CronRequest},
     fx_macro::rpc,
     futures::FutureExt,
-    crate::{sys::PtrWithLen, fx_futures::FxFuture, fx_streams::FxStream},
+    crate::{sys::PtrWithLen, fx_futures::FxFuture, fx_streams::{FxStream, FxStreamExport}},
 };
 
 use {

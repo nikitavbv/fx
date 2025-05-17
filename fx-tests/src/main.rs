@@ -1,6 +1,6 @@
 use {
     std::{fs, time::{Instant, Duration}},
-    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS},
+    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS, FxStream},
     tokio::{join, time::sleep},
 };
 
@@ -51,6 +51,7 @@ async fn main() {
     test_fetch(&fx).await;
     test_global(&fx).await;
     test_queue_system_invocations(&fx).await;
+    test_stream_simple(&fx).await;
     // TODO: sql transactions
     // TODO: test what happens if you invoke function with wrong argument
     // TODO: test what happens if function panics
@@ -172,4 +173,10 @@ async fn test_queue_system_invocations(fx: &FxCloud) {
         }
     }
     assert_eq!(1, after);
+}
+
+async fn test_stream_simple(fx: &FxCloud) {
+    println!("> test_stream_simple");
+    let stream: FxStream = fx.invoke_service::<(), FxStream>(&ServiceId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
+    println!("stream: {}", stream.index);
 }

@@ -2,7 +2,7 @@ use {
     std::task::Poll,
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
-        fx_streams::{STREAM_POOL, StreamPoolIndex},
+        fx_streams::STREAM_POOL,
         write_rpc_response_raw,
         set_panic_hook,
     },
@@ -31,7 +31,7 @@ pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_stream_next(stream_index: i64) -> i64 {
     set_panic_hook();
-    match STREAM_POOL.next(StreamPoolIndex(stream_index as u64)) {
+    match STREAM_POOL.next(stream_index) {
         Poll::Pending => 0,
         Poll::Ready(Some(v)) => {
             write_rpc_response_raw(v);
@@ -70,6 +70,7 @@ unsafe extern "C" {
     pub(crate) fn fetch(req_ptr: i64, req_len: i64) -> i64;
     pub(crate) fn sleep(millis: i64) -> i64;
     pub(crate) fn future_poll(index: i64, output_ptr: i64) -> i64; // 0 - pending, 1 - ready
+    pub(crate) fn stream_export() -> i64;
 }
 
 #[derive(Debug)]

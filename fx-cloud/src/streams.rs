@@ -1,6 +1,7 @@
 use {
     std::{sync::{Arc, Mutex}, collections::HashMap},
     futures::stream::BoxStream,
+    crate::cloud::ExecutionContext,
 };
 
 #[derive(Clone)]
@@ -11,6 +12,11 @@ pub struct StreamsPool {
 #[derive(Debug)]
 pub struct HostPoolIndex(pub u64);
 
+pub enum FxStream {
+    HostStream(BoxStream<'static, Vec<u8>>),
+    FunctionStream(Arc<ExecutionContext>),
+}
+
 impl StreamsPool {
     pub fn new() -> Self {
         Self {
@@ -18,15 +24,21 @@ impl StreamsPool {
         }
     }
 
+    // push stream owned by host
     pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> HostPoolIndex {
-        self.inner.lock().unwrap().push(stream)
+        self.inner.lock().unwrap().push(FxStream::HostStream(stream))
+    }
+
+    // push stream owned by function
+    pub fn push_function_stream(&self, execution_context: Arc<ExecutionContext>) -> HostPoolIndex {
+        self.inner.lock().unwrap().push(FxStream::FunctionStream(execution_context))
     }
 
     // TODO: poll
 }
 
 pub struct StreamsPoolInner {
-    pool: HashMap<u64, BoxStream<'static, Vec<u8>>>,
+    pool: HashMap<u64, FxStream>,
     counter: u64,
 }
 
@@ -38,7 +50,7 @@ impl StreamsPoolInner {
         }
     }
 
-    pub fn push(&mut self, stream: BoxStream<'static, Vec<u8>>) -> HostPoolIndex {
+    pub fn push(&mut self, stream: FxStream) -> HostPoolIndex {
         let counter = self.counter;
         self.counter += 1;
         self.pool.insert(counter, stream);
