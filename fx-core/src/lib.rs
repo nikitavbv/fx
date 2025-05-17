@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
-    http::{HeaderMap, header::{IntoHeaderName, HeaderName, HeaderValue}, StatusCode},
+    http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -227,4 +227,10 @@ pub struct CronRequest {}
 pub struct FxStream {
     // index in host and local pool
     pub index: i64,
+}
+
+#[derive(Error, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub enum FxExecutionError {
+    #[error("failed to read rpc request: {reason}")]
+    RpcRequestRead { reason: String }
 }

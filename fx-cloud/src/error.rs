@@ -1,4 +1,7 @@
-use thiserror::Error;
+use {
+    thiserror::Error,
+    fx_core::FxExecutionError,
+};
 
 #[derive(Error, Debug, Eq, PartialEq)]
 pub enum FxCloudError {
@@ -10,6 +13,9 @@ pub enum FxCloudError {
 
     #[error("internal service error: {reason}")]
     ServiceInternalError { reason: String },
+
+    #[error("service executino error: {error:?}")]
+    ServiceExecutionError { error: FxExecutionError },
 
     #[error("compilation error: {reason}")]
     CompilationError { reason: String },

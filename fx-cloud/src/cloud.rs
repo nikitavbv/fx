@@ -23,7 +23,7 @@ use {
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
     futures::FutureExt,
-    fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse},
+    fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse, FxExecutionError},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -463,9 +463,18 @@ impl Future for FunctionRuntimeFuture {
                    ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
                 })?;
 
+            ctx.function_env.as_mut(store).execution_error = None;
+
             // TODO: errors like this should be reported to some data stream
             let future_index = function.call(store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
                 .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
+
+            if let Some(execution_error) = ctx.function_env.as_ref(store).execution_error.as_ref() {
+                let execution_error: FxExecutionError = rmp_serde::from_slice(execution_error.as_slice()).unwrap();
+                ctx.needs_recreate.store(true, Ordering::SeqCst);
+                return Poll::Ready(Err(FxCloudError::ServiceExecutionError { error: execution_error }));
+            }
+
             let future_index = match future_index {
                 Ok(v) => v[0].unwrap_i64(),
                 Err(err) => {
@@ -544,6 +553,7 @@ impl ExecutionContext {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
                 "rpc_async" => Function::new_typed_with_env(&mut store, &function_env, api_rpc_async),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
+                "send_error" => Function::new_typed_with_env(&mut store, &function_env, api_send_error),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
@@ -599,6 +609,7 @@ pub(crate) struct ExecutionEnv {
     engine: Arc<Engine>,
     instance: Option<Instance>,
     memory: Option<Memory>,
+    execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
     service_id: ServiceId,
@@ -633,6 +644,7 @@ impl ExecutionEnv {
             engine,
             instance: None,
             memory: None,
+            execution_error: None,
             rpc_response: None,
             service_id,
             env_vars,
@@ -716,6 +728,10 @@ fn api_rpc_async(
 
 fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
     ctx.data_mut().rpc_response = Some(read_memory_owned(&ctx, addr, len));
+}
+
+fn api_send_error(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
+    ctx.data_mut().execution_error = Some(read_memory_owned(&ctx, addr, len));
 }
 
 fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) -> i64 {

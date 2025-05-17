@@ -7,3 +7,4 @@ edition = "2024"
 tokio = { version = "1.44.2", features = ["full"] }
 futures = "0.3.31"
 fx-cloud = { path = "../fx-cloud" }
+fx-core = { path = "../fx-core" }

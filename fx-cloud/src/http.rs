@@ -41,6 +41,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     FxCloudError::ServiceNotFound => response_service_not_found(),
                     FxCloudError::StorageInternalError { reason: _ }
                     | FxCloudError::ServiceInternalError { reason: _ }
+                    | FxCloudError::ServiceExecutionError { error: _ }
                     | FxCloudError::CompilationError { reason: _ }
                     | FxCloudError::RpcHandlerNotDefined
                     | FxCloudError::RpcHandlerIncompatibleType

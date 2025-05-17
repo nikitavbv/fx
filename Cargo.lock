@@ -1148,6 +1148,7 @@ dependencies = [
  "once_cell",
  "rmp-serde",
  "serde",
+ "thiserror 2.0.12",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1275,6 +1276,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "fx-cloud",
+ "fx-core",
  "tokio",
 ]
 

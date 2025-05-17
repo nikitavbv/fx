@@ -22,8 +22,13 @@ pub fn rpc(_attr: TokenStream, item: TokenStream) -> TokenStream {
         pub extern "C" fn #wrapper_name(addr: i64, len: i64) -> i64 {
             use fx::FutureExt;
             fx::set_panic_hook();
-            let request = fx::read_rpc_request(addr, len);
-            let response = fx::FxFuture::wrap(#fn_name(&fx::CTX, request).map(|v| fx::to_vec(&v)));
+            let response = match fx::read_rpc_request(addr, len) {
+                Ok(request) => fx::FxFuture::wrap(#fn_name(&fx::CTX, request).map(|v| fx::to_vec(&v))),
+                Err(err) => {
+                    fx::write_error(fx::FxExecutionError::RpcRequestRead { reason: err.to_string() });
+                    fx::FxFuture::wrap(async move { vec![] })
+                },
+            };
 
             response.future_index() as i64
         }

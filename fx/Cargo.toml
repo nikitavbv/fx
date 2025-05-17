@@ -11,6 +11,7 @@ rmp-serde = "=1.3.0"
 serde = "1.0.219"
 futures = "0.3.31"
 once_cell = "1.21.3"
+thiserror = "2.0.12"
 
 fx-core = { path = "../fx-core" }
 fx-macro = { path = "../fx-macro" }

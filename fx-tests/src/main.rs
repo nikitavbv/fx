@@ -3,6 +3,7 @@ use {
     fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS, FxStream},
     tokio::{join, time::sleep},
     futures::StreamExt,
+    fx_core::FxExecutionError,
 };
 
 #[tokio::main]
@@ -46,6 +47,7 @@ async fn main() {
     test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
     test_invoke_function_panic(&fx).await;
+    test_invoke_function_wrong_argument(&fx).await;
     test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
@@ -54,8 +56,6 @@ async fn main() {
     test_queue_system_invocations(&fx).await;
     test_stream_simple(&fx).await;
     // TODO: sql transactions
-    // TODO: test what happens if you invoke function with wrong argument
-    // TODO: test what happens if function panics
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
     // TODO: test sql with sqlx
@@ -108,6 +108,17 @@ async fn test_invoke_function_panic(fx: &FxCloud) {
     match result.err().unwrap() {
         FxCloudError::ServiceInternalError { reason: _ } => {},
         other => panic!("expected service internal error, got: {other:?}"),
+    }
+}
+
+async fn test_invoke_function_wrong_argument(fx: &FxCloud) {
+    println!("> test_invoke_function_wrong_argument");
+    let result = fx.invoke_service::<String, u32>(&ServiceId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
+    match result {
+        FxCloudError::ServiceExecutionError { error } => match error {
+            FxExecutionError::RpcRequestRead { reason: _ } => assert!(true),
+        },
+        other => panic!("unexpected fx error: {other:?}"),
     }
 }
 

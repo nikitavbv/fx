@@ -1,8 +1,24 @@
 pub use {
-    fx_core::{HttpRequest, HttpResponse, FetchRequest, SqlQuery, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlValue, CronRequest},
+    fx_core::{
+        HttpRequest,
+        HttpResponse,
+        FetchRequest,
+        SqlQuery,
+        DatabaseSqlQuery,
+        DatabaseSqlBatchQuery,
+        SqlResult,
+        SqlValue,
+        CronRequest,
+        FxExecutionError,
+    },
     fx_macro::rpc,
     futures::FutureExt,
-    crate::{sys::PtrWithLen, fx_futures::FxFuture, fx_streams::{FxStream, FxStreamExport}},
+    crate::{
+        sys::PtrWithLen,
+        fx_futures::FxFuture,
+        fx_streams::{FxStream, FxStreamExport},
+        error::FxError,
+    },
 };
 
 use {
@@ -11,6 +27,7 @@ use {
     crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
+mod error;
 mod fx_futures;
 mod fx_streams;
 mod sys;
@@ -196,8 +213,9 @@ pub async fn sleep(duration: Duration) {
     FxHostFuture::new(PoolIndex(unsafe { sys::sleep(duration.as_millis() as i64) } as u64)).await;
 }
 
-pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> T {
-    rmp_serde::from_slice(read_memory(addr, len)).unwrap()
+pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> Result<T, FxError> {
+    rmp_serde::from_slice(read_memory(addr, len))
+        .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize: {err:?}") })
 }
 
 pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
@@ -206,6 +224,11 @@ pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
 
 pub fn write_rpc_response_raw(response: Vec<u8>) {
     unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
+}
+
+pub fn write_error(error: FxExecutionError) {
+    let error = rmp_serde::to_vec(&error).unwrap();
+    unsafe { sys::send_error(error.as_ptr() as i64, error.len() as i64); }
 }
 
 pub fn panic_hook(info: &panic::PanicHookInfo) {
