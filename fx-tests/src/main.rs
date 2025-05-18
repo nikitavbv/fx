@@ -57,6 +57,7 @@ async fn main() {
     test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
+    test_rpc_panic(&fx).await;
     test_fetch(&fx).await;
     test_global(&fx).await;
     test_queue_system_invocations(&fx).await;
@@ -162,6 +163,12 @@ async fn test_async_rpc(fx: &FxCloud) {
     println!("> test_async_rpc");
     let result = fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap();
     assert_eq!(84, result);
+}
+
+async fn test_rpc_panic(fx: &FxCloud) {
+    println!("> test_rpc_panic");
+    let result = fx.invoke_service::<(), i64>(&ServiceId::new("test-app"), "call_rpc_panic", ()).await.unwrap();
+    assert_eq!(42, result);
 }
 
 async fn test_fetch(fx: &FxCloud) {

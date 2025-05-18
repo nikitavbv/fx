@@ -83,6 +83,28 @@ pub async fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
 }
 
 #[rpc]
+pub async fn rpc_responder_panic(ctx: &FxCtx, _arg: ()) -> u64 {
+    ctx.init_logger();
+    panic!("test panic");
+}
+
+#[rpc]
+pub async fn rpc_responder_panic_async(ctx: &FxCtx, _arg: ()) -> u64 {
+    ctx.init_logger();
+    sleep(Duration::from_secs(1)).await;
+    panic!("test panic");
+}
+
+#[rpc]
+pub async fn call_rpc_panic(ctx: &FxCtx, _arg: ()) -> i64 {
+    ctx.init_logger();
+    let res0 = ctx.rpc::<(), u64>("other-app", "rpc_responder_panic", ()).await;
+    let res1 = ctx.rpc::<(), u64>("other-app", "rpc_responder_panic_async", ()).await;
+
+    42 + res0 as i64 + res1 as i64
+}
+
+#[rpc]
 pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
     ctx.init_logger();
     let response = ctx.fetch(
