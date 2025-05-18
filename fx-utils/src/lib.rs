@@ -10,7 +10,7 @@ pub mod database;
 pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
-    let fx_response = service.call(Request::builder().uri(req.url).body(Body::empty()).unwrap());
+    let fx_response = service.call(Request::builder().uri(req.url).method(req.method).body(Body::empty()).unwrap());
     let fx_response = fx_response.await.unwrap();
     let response = HttpResponse::new()
         .with_status(fx_response.status())

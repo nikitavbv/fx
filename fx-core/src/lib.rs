@@ -7,6 +7,8 @@ use {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {
+    #[serde(with = "http_serde::method")]
+    pub method: HttpMethod,
     pub url: String,
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,

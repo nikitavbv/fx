@@ -34,6 +34,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let service_id = self.service_id.clone();
         Box::pin(async move {
             let request = HttpRequest {
+                method: req.method().to_owned(),
                 url: req.uri().to_string(),
                 headers: req.headers().clone(),
             };
