@@ -169,3 +169,13 @@ pub async fn test_kv_wrong_binding_name(ctx: &FxCtx, _arg: ()) {
     let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
     assert_eq!(KvError::BindingDoesNotExist, err);
 }
+
+#[rpc]
+pub async fn test_kv_disk(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    let kv = ctx.kv("test-kv-disk");
+
+    kv.set("test-key", "hello disk!".as_bytes()).unwrap();
+    let res = String::from_utf8(kv.get("test-key").unwrap().unwrap()).unwrap();
+    assert_eq!("hello disk!", res);
+}

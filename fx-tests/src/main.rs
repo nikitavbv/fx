@@ -30,6 +30,7 @@ async fn main() {
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()
                 .with_storage("test-kv".to_owned(), BoxedStorage::new(SqliteStorage::in_memory().unwrap()))
+                .with_storage("test-kv-disk".to_owned(), BoxedStorage::new(SqliteStorage::new("data/test-kv-disk").unwrap()))
                 .with_sql_database("app".to_owned(), database_app)
         )
         .with_service(Service::new(ServiceId::new("test-app-global".to_owned())).global())
@@ -60,6 +61,7 @@ async fn main() {
     test_time(&fx).await;
     test_kv_simple(&fx).await;
     test_kv_wrong_binding_name(&fx).await;
+    test_kv_disk(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -247,4 +249,9 @@ async fn test_kv_simple(fx: &FxCloud) {
 async fn test_kv_wrong_binding_name(fx: &FxCloud) {
     println!("> test_kv_wrong_binding_name");
     fx.invoke_service::<(), ()>(&ServiceId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
+}
+
+async fn test_kv_disk(fx: &FxCloud) {
+    println!("> test_kv_disk");
+    fx.invoke_service::<(), ()>(&ServiceId::new("test-app"), "test_kv_disk", ()).await.unwrap();
 }
