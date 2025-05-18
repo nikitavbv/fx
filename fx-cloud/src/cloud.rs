@@ -1,5 +1,12 @@
 use {
-    std::{net::SocketAddr, sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}}, collections::HashMap, ops::DerefMut, task::{self, Poll}, cell::RefCell},
+    std::{
+        net::SocketAddr,
+        sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}},
+        collections::HashMap,
+        ops::DerefMut,
+        task::{self, Poll},
+        time::{SystemTime, UNIX_EPOCH},
+    },
     tracing::error,
     tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
@@ -564,6 +571,7 @@ impl ExecutionContext {
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
+                "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
             },
@@ -902,6 +910,10 @@ fn api_random(mut ctx: FunctionEnvMut<ExecutionEnv>, len: i64, output_ptr: i64) 
     let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
     write_memory(&ctx, ptr, &random_data);
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+}
+
+fn api_time(_ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
 fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {

@@ -22,7 +22,7 @@ pub use {
 };
 
 use {
-    std::{sync::{atomic::{AtomicBool, Ordering}, Once}, panic, time::Duration},
+    std::{sync::{atomic::{AtomicBool, Ordering}, Once}, panic, time::Duration, ops::Sub},
     lazy_static::lazy_static,
     crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
@@ -124,6 +124,12 @@ impl FxCtx {
         let ptr_and_len = sys::PtrWithLen::new();
         unsafe { sys::random(len as i64, ptr_and_len.ptr_to_self()) };
         ptr_and_len.read_owned()
+    }
+
+    pub fn now(&self) -> FxInstant {
+        FxInstant {
+            millis_since_unix: unsafe { sys::time() },
+        }
     }
 }
 
@@ -251,4 +257,15 @@ pub fn set_panic_hook() {
 
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {
     rmp_serde::to_vec(&v).unwrap()
+}
+
+pub struct FxInstant {
+    millis_since_unix: i64,
+}
+
+impl Sub<FxInstant> for FxInstant {
+    type Output = Duration;
+    fn sub(self, rhs: FxInstant) -> Self::Output {
+        Duration::from_millis((self.millis_since_unix - rhs.millis_since_unix) as u64)
+    }
 }

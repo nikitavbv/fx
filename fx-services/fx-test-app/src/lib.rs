@@ -139,3 +139,11 @@ pub async fn test_random(ctx: &FxCtx, len: u64) -> Vec<u8> {
     ctx.init_logger();
     ctx.random(len)
 }
+
+#[rpc]
+pub async fn test_time(ctx: &FxCtx, _arg: ()) -> u64 {
+    ctx.init_logger();
+    let started_at = ctx.now();
+    sleep(Duration::from_secs(1)).await;
+    (ctx.now() - started_at).as_millis() as u64
+}

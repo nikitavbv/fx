@@ -56,6 +56,7 @@ async fn main() {
     test_queue_system_invocations(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
+    test_time(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -220,4 +221,10 @@ async fn test_random(fx: &FxCloud) {
     assert_eq!(32, random_bytes_0.len());
     assert_eq!(32, random_bytes_1.len());
     assert!(random_bytes_0 != random_bytes_1);
+}
+
+async fn test_time(fx: &FxCloud) {
+    println!("> test_time");
+    let millis = fx.invoke_service::<(), u64>(&ServiceId::new("test-app".to_owned()), "test_time", ()).await.unwrap();
+    assert!(millis >= 950 && millis <= 1050);
 }
