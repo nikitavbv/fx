@@ -1,6 +1,6 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
-    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest, FxStream, FxStreamExport},
+    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest, FxStream, FxStreamExport, KvError},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
     fx_cloud_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
@@ -152,12 +152,20 @@ pub async fn test_time(ctx: &FxCtx, _arg: ()) -> u64 {
 pub async fn test_kv_set(ctx: &FxCtx, value: String) {
     ctx.init_logger();
     let kv = ctx.kv("test-kv");
-    kv.set("test-key", value.as_bytes());
+    kv.set("test-key", value.as_bytes()).unwrap();
 }
 
 #[rpc]
 pub async fn test_kv_get(ctx: &FxCtx, _arg: ()) -> Option<String> {
     ctx.init_logger();
     let kv = ctx.kv("test-kv");
-    kv.get("test-key").map(|v| String::from_utf8(v).unwrap())
+    kv.get("test-key").unwrap().map(|v| String::from_utf8(v).unwrap())
+}
+
+#[rpc]
+pub async fn test_kv_wrong_binding_name(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    let kv = ctx.kv("test-kv-wrong");
+    let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
+    assert_eq!(KvError::BindingDoesNotExist, err);
 }

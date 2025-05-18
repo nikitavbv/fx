@@ -178,10 +178,9 @@ impl Into<String> for ServiceId {
 
 pub struct Service {
     id: ServiceId,
-    env_vars: HashMap<Vec<u8>, Vec<u8>>,
     is_system: bool,
     is_global: bool,
-    storage: BoxedStorage,
+    storage: HashMap<String, BoxedStorage>,
     sql: HashMap<String, SqlDatabase>,
     allow_fetch: bool,
     allow_log: bool,
@@ -191,19 +190,13 @@ impl Service {
     pub fn new(id: ServiceId) -> Self {
         Self {
             id,
-            env_vars: HashMap::new(),
             is_system: false,
             is_global: false,
-            storage: BoxedStorage::new(EmptyStorage),
+            storage: HashMap::new(),
             sql: HashMap::new(),
             allow_fetch: false,
             allow_log: true,
         }
-    }
-
-    pub fn with_env_var(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.env_vars.insert(key.into().into_bytes(), value.into().into_bytes());
-        self
     }
 
     // system functions do not use common even infrastructure to avoid recursive event generation
@@ -218,18 +211,14 @@ impl Service {
         self
     }
 
-    pub fn with_storage(mut self, storage: BoxedStorage) -> Self {
-        self.storage = storage;
+    pub fn with_storage(mut self, binding_name: String, storage: BoxedStorage) -> Self {
+        self.storage.insert(binding_name, storage);
         self
     }
 
     pub fn with_sql_database(mut self, name: String, database: SqlDatabase) -> Self {
         self.sql.insert(name, database);
         self
-    }
-
-    pub fn get_storage(&self) -> BoxedStorage {
-        self.storage.clone()
     }
 
     pub fn allow_fetch(mut self) -> Self {
@@ -367,10 +356,9 @@ impl Engine {
             engine,
             service.id.clone(),
             service.is_system,
-            service.get_storage(),
+            service.storage.clone(),
             service.sql.clone(),
             module_code,
-            service.env_vars.clone(),
             service.allow_fetch,
             service.allow_log,
         )
@@ -544,10 +532,9 @@ impl ExecutionContext {
         engine: Arc<Engine>,
         service_id: ServiceId,
         is_system: bool,
-        storage: BoxedStorage,
+        storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         module_code: Vec<u8>,
-        env_vars: HashMap<Vec<u8>, Vec<u8>>,
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
@@ -559,7 +546,10 @@ impl ExecutionContext {
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = engine.compiler.read().unwrap().compile(&store, module_code);
-        let function_env = FunctionEnv::new(&mut store, ExecutionEnv::new(futures, engine.streams_pool.clone(), engine, service_id.clone(), env_vars, storage, sql, allow_fetch, allow_log));
+        let function_env = FunctionEnv::new(
+            &mut store,
+            ExecutionEnv::new(futures, engine.streams_pool.clone(), engine, service_id.clone(), storage, sql, allow_fetch, allow_log)
+        );
 
         let mut import_object = imports! {
             "fx" => {
@@ -628,9 +618,8 @@ pub(crate) struct ExecutionEnv {
     pub(crate) rpc_response: Option<Vec<u8>>,
 
     service_id: ServiceId,
-    env_vars: HashMap<Vec<u8>, Vec<u8>>,
 
-    storage: BoxedStorage,
+    storage: HashMap<String, BoxedStorage>,
     sql: HashMap<String, SqlDatabase>,
 
     allow_fetch: bool,
@@ -645,8 +634,7 @@ impl ExecutionEnv {
         streams: StreamsPool,
         engine: Arc<Engine>,
         service_id: ServiceId,
-        env_vars: HashMap<Vec<u8>, Vec<u8>>,
-        storage: BoxedStorage,
+        storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         allow_fetch: bool,
         allow_log: bool
@@ -662,7 +650,6 @@ impl ExecutionEnv {
             execution_error: None,
             rpc_response: None,
             service_id,
-            env_vars,
             storage,
             sql,
             allow_fetch,
@@ -749,19 +736,18 @@ fn api_send_error(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
     ctx.data_mut().execution_error = Some(read_memory_owned(&ctx, addr, len));
 }
 
-fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, output_ptr: i64) -> i64 {
-    let key = read_memory_owned(&ctx, k_addr, k_len);
-    let value = {
-        let ctx = ctx.data();
-        if let Some(value) = ctx.env_vars.get(&key) {
-            Some(value.clone())
-        } else {
-            ctx.storage.get(&key).unwrap()
-        }
-    };
-    let value = match value {
+fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, binding_len: i64, k_addr: i64, k_len: i64, output_ptr: i64) -> i64 {
+    let binding = String::from_utf8(read_memory_owned(&ctx, binding_addr, binding_len)).unwrap();
+    let storage = match ctx.data().storage.get(&binding) {
         Some(v) => v,
         None => return 1,
+    };
+
+    let key = read_memory_owned(&ctx, k_addr, k_len);
+    let value = storage.get(&key).unwrap();
+    let value = match value {
+        Some(v) => v,
+        None => return 2,
     };
 
     let (data, mut store) = ctx.data_and_store_mut();
@@ -775,11 +761,19 @@ fn api_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, ou
     0
 }
 
-fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) {
+fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, binding_len: i64, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) -> i64 {
+    let binding = String::from_utf8(read_memory_owned(&ctx, binding_addr, binding_len)).unwrap();
+    let storage = match ctx.data().storage.get(&binding) {
+        Some(v) => v,
+        None => return 1,
+    };
+
     let key = read_memory_owned(&ctx, k_addr, k_len);
     let value = read_memory_owned(&ctx, v_addr, v_len);
     // TODO: report errors to calling service
-    ctx.data().storage.set(&key, &value).unwrap();
+    storage.set(&key, &value).unwrap();
+
+    0
 }
 
 fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {

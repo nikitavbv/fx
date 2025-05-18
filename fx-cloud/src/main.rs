@@ -73,6 +73,10 @@ async fn run_demo() -> anyhow::Result<()> {
         );
     }
 
+    let demo_storage = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
+        .with_key("demo/instance".as_bytes(), "A".as_bytes())
+        .unwrap();
+
     let fx_cloud = FxCloud::new()
         .with_code_storage(
             kv_registry.get("code".to_owned())
@@ -92,8 +96,7 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_service(
             Service::new(ServiceId::new("hello-service".to_owned()))
                 .allow_fetch()
-                .with_env_var("demo/instance", "A")
-                .with_storage(BoxedStorage::new(NamespacedStorage::new("data/demo/".as_bytes().to_vec(), SqliteStorage::in_memory()?)))
+                .with_storage("demo".to_owned(), demo_storage)
                 .with_sql_database(
                     "test-db".to_owned(),
                     SqlDatabase::in_memory()
@@ -120,11 +123,11 @@ async fn run_function(function_path: &str) -> anyhow::Result<()> {
         .map_err(|err| anyhow!("failed to create storage: {err:?}"))?;
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"http/service.wasm", &fs::read(function_path)?)?
+            .with_key(b"http", &fs::read(function_path)?)?
         )
         .with_service(
             Service::new(ServiceId::new("http".to_owned()))
-                .with_storage(BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
+                .with_storage("data".to_owned(), BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
         );
 
     fx_cloud.run_http(8080, ServiceId::new("http".to_owned())).await;

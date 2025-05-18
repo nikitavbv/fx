@@ -29,7 +29,7 @@ async fn main() {
         .with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()
-                .with_storage(BoxedStorage::new(SqliteStorage::in_memory().unwrap()))
+                .with_storage("test-kv".to_owned(), BoxedStorage::new(SqliteStorage::in_memory().unwrap()))
                 .with_sql_database("app".to_owned(), database_app)
         )
         .with_service(Service::new(ServiceId::new("test-app-global".to_owned())).global())
@@ -59,6 +59,7 @@ async fn main() {
     test_random(&fx).await;
     test_time(&fx).await;
     test_kv_simple(&fx).await;
+    test_kv_wrong_binding_name(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -241,4 +242,9 @@ async fn test_kv_simple(fx: &FxCloud) {
 
     let result = fx.invoke_service::<(), Option<String>>(&ServiceId::new("test-app"), "test_kv_get", ()).await.unwrap().unwrap();
     assert_eq!("Hello World!", result);
+}
+
+async fn test_kv_wrong_binding_name(fx: &FxCloud) {
+    println!("> test_kv_wrong_binding_name");
+    fx.invoke_service::<(), ()>(&ServiceId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
 }

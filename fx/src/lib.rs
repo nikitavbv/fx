@@ -24,6 +24,7 @@ pub use {
 use {
     std::{sync::{atomic::{AtomicBool, Ordering}, Once}, panic, time::Duration, ops::Sub},
     lazy_static::lazy_static,
+    thiserror::Error,
     crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
@@ -134,36 +135,46 @@ impl FxCtx {
 }
 
 pub struct KvStore {
-    namespace: String,
+    binding: String,
 }
 
 impl KvStore {
-    pub(crate) fn new(namespace: impl Into<String>) -> Self {
+    pub(crate) fn new(binding: impl Into<String>) -> Self {
         Self {
-            namespace: namespace.into(),
+            binding: binding.into(),
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<Vec<u8>> {
-        let key = self.namespaced(key);
+    pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, KvError> {
         let key = key.as_bytes();
         let ptr_and_len = sys::PtrWithLen::new();
-        if unsafe { sys::kv_get(key.as_ptr() as i64, key.len() as i64, ptr_and_len.ptr_to_self()) } == 0 {
-            Some(ptr_and_len.read_owned())
-        } else {
-            None
+        let result = unsafe { sys::kv_get(self.binding.as_ptr() as i64, self.binding.len() as i64, key.as_ptr() as i64, key.len() as i64, ptr_and_len.ptr_to_self()) };
+        match result {
+            0 => Ok(Some(ptr_and_len.read_owned())),
+            1 => Err(KvError::BindingDoesNotExist),
+            2 => Ok(None),
+            _ => Err(KvError::UnknownError),
         }
     }
 
-    pub fn set(&self, key: &str, value: &[u8]) {
-        let key = self.namespaced(key);
+    pub fn set(&self, key: &str, value: &[u8]) -> Result<(), KvError> {
         let key = key.as_bytes();
-        unsafe { sys::kv_set(key.as_ptr() as i64, key.len() as i64, value.as_ptr() as i64, value.len() as i64) };
+        let result = unsafe { sys::kv_set(self.binding.as_ptr() as i64, self.binding.len() as i64, key.as_ptr() as i64, key.len() as i64, value.as_ptr() as i64, value.len() as i64) };
+        match result {
+            0 => Ok(()),
+            1 => Err(KvError::BindingDoesNotExist),
+            _ => Err(KvError::UnknownError),
+        }
     }
+}
 
-    fn namespaced(&self, key: &str) -> String {
-        format!("{}/{}", self.namespace, key)
-    }
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum KvError {
+    #[error("binding does not exist")]
+    BindingDoesNotExist,
+
+    #[error("unknown error")]
+    UnknownError,
 }
 
 #[derive(Clone, Debug)]
