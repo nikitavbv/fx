@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
-    http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode},
+    http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode, Method as HttpMethod},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -79,25 +79,28 @@ pub struct LogMessage {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FetchRequest {
     pub endpoint: String,
+    #[serde(with = "http_serde::method")]
     pub method: HttpMethod,
-    pub headers: HashMap<String, String>,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: HeaderMap,
     pub body: Option<Vec<u8>>,
 }
 
 impl FetchRequest {
     pub fn get(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::GET, endpoint.into()) }
-    pub fn post(endpoint: String) -> Self { Self::with_method(HttpMethod::POST, endpoint) }
+    pub fn post(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::POST, endpoint.into()) }
+    pub fn put(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::PUT, endpoint.into()) }
     fn with_method(method: HttpMethod, endpoint: String) -> Self {
         Self {
             endpoint,
             method,
-            headers: HashMap::new(),
+            headers: HeaderMap::new(),
             body: None,
         }
     }
 
-    pub fn with_header(mut self, header_name: String, header_value: String) -> Self {
-        self.headers.insert(header_name.to_owned(), header_value.to_owned());
+    pub fn with_header<K: IntoHeaderName>(mut self, header_name: K, header_value: impl Into<HeaderValue>) -> Self {
+        self.headers.insert(header_name, header_value.into());
         self
     }
 
@@ -105,12 +108,12 @@ impl FetchRequest {
         self.body = Some(body);
         self
     }
-}
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum HttpMethod {
-    GET,
-    POST,
+    pub fn with_json(self, json: &serde_json::Value) -> Self {
+        self
+            .with_header("content-type", HeaderValue::from_static("application/json"))
+            .with_body(serde_json::to_vec(json).unwrap())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

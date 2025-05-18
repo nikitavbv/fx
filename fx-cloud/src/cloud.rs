@@ -867,15 +867,9 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
 
     let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
 
-    let mut request = ctx.data().fetch_client.request(
-        match req.method {
-            fx_core::HttpMethod::GET => reqwest::Method::GET,
-            fx_core::HttpMethod::POST => reqwest::Method::POST,
-        }, req.endpoint
-    );
-    for (header_name, header_value) in req.headers {
-        request = request.header(header_name, header_value);
-    }
+    let mut request = ctx.data().fetch_client
+        .request(req.method, req.endpoint)
+        .headers(req.headers);
     if let Some(body) = req.body {
         request = request.body(body);
     }
