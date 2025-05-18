@@ -74,6 +74,7 @@ pub struct FsStorage {
 
 impl FsStorage {
     pub fn new(path: PathBuf) -> Self {
+        fs::create_dir_all(&path).unwrap();
         Self { path }
     }
 }
