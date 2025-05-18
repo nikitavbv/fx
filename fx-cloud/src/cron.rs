@@ -1,7 +1,8 @@
 use {
-    std::{thread::{spawn, sleep}, sync::Arc, time::Duration, str::FromStr},
+    std::{sync::Arc, time::Duration, str::FromStr},
     tracing::error,
     chrono::{DateTime, Utc},
+    tokio::time::sleep,
     cron as cron_utils,
     fx_core::CronRequest,
     crate::{sql::{SqlDatabase, Query, Value}, ServiceId, cloud::Engine, error::FxCloudError},
@@ -42,7 +43,7 @@ impl CronRunner {
                     }
                 }
 
-                sleep(Duration::from_secs(1));
+                sleep(Duration::from_secs(1)).await;
             }
         });
         tokio::spawn(async { join_handle.await.unwrap().await; });

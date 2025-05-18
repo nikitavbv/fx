@@ -152,6 +152,7 @@ impl FxCloud {
         self.engine.queue.read().await.as_ref().unwrap().clone().run();
     }
 
+    #[allow(dead_code)]
     pub fn run_cron(&self) {
         self.engine.cron.read().unwrap().as_ref().unwrap().clone().run();
     }

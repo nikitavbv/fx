@@ -32,7 +32,7 @@ impl SqliteStorage {
     }
 
     fn from_connection(connection: Connection) -> Result<Self, FxCloudError> {
-        connection.execute("create table kv (key blob primary key, value blob)", ())
+        connection.execute("create table if not exists kv (key blob primary key, value blob)", ())
             .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create kv table: {err:?}") })?;
         Ok(Self { connection: Arc::new(Mutex::new(connection)) })
     }
