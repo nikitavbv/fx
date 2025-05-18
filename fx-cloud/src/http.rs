@@ -29,13 +29,15 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
         let engine = self.fx.engine.clone();
+        engine.metrics.http_requests_in_flight.inc();
+
         let service_id = self.service_id.clone();
         Box::pin(async move {
             let request = HttpRequest {
                 url: req.uri().to_string(),
                 headers: req.headers().clone(),
             };
-            let fx_response: HttpResponse = match engine.clone().invoke_service(engine, &service_id, "http", request).await {
+            let fx_response: HttpResponse = match engine.invoke_service(engine.clone(), &service_id, "http", request).await {
                 Ok(v) => v,
                 Err(err) => match err {
                     FxCloudError::ServiceNotFound => response_service_not_found(),
@@ -57,6 +59,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = fx_response.status;
             *response.headers_mut() = fx_response.headers;
+            engine.metrics.http_requests_in_flight.dec();
+            engine.metrics.http_requests_total.inc();
             Ok(response)
         })
     }

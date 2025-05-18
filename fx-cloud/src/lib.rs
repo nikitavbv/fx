@@ -12,6 +12,7 @@ pub mod error;
 mod futures;
 mod http;
 mod kafka;
+mod metrics;
 mod queue;
 mod registry;
 pub mod sql;

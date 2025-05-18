@@ -8,6 +8,7 @@ use {
     tracing::{Level, info, error},
     tracing_subscriber::FmtSubscriber,
     anyhow::anyhow,
+    tokio::join,
     crate::{
         cloud::{FxCloud, Service, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
@@ -26,6 +27,7 @@ mod error;
 mod http;
 mod kafka;
 mod futures;
+mod metrics;
 mod queue;
 mod registry;
 mod sql;
@@ -104,8 +106,11 @@ async fn run_demo() -> anyhow::Result<()> {
         .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron")?;
 
     // fx_cloud.run_cron();
-    fx_cloud.run_queue().await;
-    fx_cloud.run_http(8080, ServiceId::new("dashboard".to_owned())).await;
+    join!(
+        fx_cloud.run_queue(),
+        fx_cloud.run_http(8080, ServiceId::new("dashboard".to_owned())),
+        fx_cloud.run_metrics_server(8081),
+    );
 
     Ok(())
 }

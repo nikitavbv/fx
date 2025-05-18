@@ -44,6 +44,7 @@ use {
         compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
         futures::FuturesPool,
         streams::StreamsPool,
+        metrics::Metrics,
     },
 };
 
@@ -244,6 +245,8 @@ impl Service {
 }
 
 pub(crate) struct Engine {
+    pub(crate) metrics: Metrics,
+
     compiler: RwLock<BoxedCompiler>,
 
     execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<ExecutionContext>>>>,
@@ -264,6 +267,8 @@ pub(crate) struct Engine {
 impl Engine {
     pub fn new() -> Self {
         Self {
+            metrics: Metrics::new(),
+
             compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
             execution_contexts: ThreadLocal::new(),

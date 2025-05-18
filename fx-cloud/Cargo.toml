@@ -28,6 +28,7 @@ sha2 = "0.10.8"
 serde_yml = "0.0.12"
 futures = "0.3.31"
 rand = "0.9.1"
+prometheus = "0.14.0"
 
 fx-core = { path = "../fx-core" }
 fx-cloud-common = { path = "../fx-cloud-common" }
