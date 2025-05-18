@@ -1,5 +1,5 @@
 use {
-    std::{sync::{Arc, Mutex}, path::PathBuf, fs},
+    std::{sync::{Arc, Mutex}, path::PathBuf, fs, io},
     rusqlite::Connection,
     crate::error::FxCloudError,
 };
@@ -80,7 +80,16 @@ impl FsStorage {
 
 impl KVStorage for FsStorage {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
-        Ok(Some(fs::read(self.path.join(&String::from_utf8(key.to_vec()).unwrap())).unwrap()))
+        match fs::read(self.path.join(&String::from_utf8(key.to_vec()).unwrap())) {
+            Ok(v) => Ok(Some(v)),
+            Err(err) => {
+                if err.kind() == io::ErrorKind::NotFound {
+                    return Ok(None)
+                } else {
+                    return Err(FxCloudError::StorageInternalError { reason: format!("failed to read file: {err:?}") })
+                }
+            }
+        }
     }
 
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
