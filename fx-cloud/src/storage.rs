@@ -1,5 +1,5 @@
 use {
-    std::sync::{Arc, Mutex},
+    std::{sync::{Arc, Mutex}, path::PathBuf, fs},
     rusqlite::Connection,
     crate::error::FxCloudError,
 };
@@ -64,6 +64,29 @@ impl KVStorage for SqliteStorage {
             Some(Err(err)) => Err(FxCloudError::StorageInternalError { reason: format!("failed to decode sqlite result: {err:?}") }),
             None => Ok(None)
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct FsStorage {
+    path: PathBuf,
+}
+
+impl FsStorage {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+impl KVStorage for FsStorage {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
+        Ok(Some(fs::read(self.path.join(&String::from_utf8(key.to_vec()).unwrap())).unwrap()))
+    }
+
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
+        let path = self.path.join(&String::from_utf8(key.to_vec()).unwrap());
+        fs::write(path, value).unwrap();
+        Ok(())
     }
 }
 
