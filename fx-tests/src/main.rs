@@ -29,6 +29,7 @@ async fn main() {
         .with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()
+                .with_storage(BoxedStorage::new(SqliteStorage::in_memory().unwrap()))
                 .with_sql_database("app".to_owned(), database_app)
         )
         .with_service(Service::new(ServiceId::new("test-app-global".to_owned())).global())
@@ -57,6 +58,7 @@ async fn main() {
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
+    test_kv_simple(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -227,4 +229,16 @@ async fn test_time(fx: &FxCloud) {
     println!("> test_time");
     let millis = fx.invoke_service::<(), u64>(&ServiceId::new("test-app".to_owned()), "test_time", ()).await.unwrap();
     assert!(millis >= 950 && millis <= 1050);
+}
+
+async fn test_kv_simple(fx: &FxCloud) {
+    println!("> test_kv_simple");
+
+    let result = fx.invoke_service::<(), Option<String>>(&ServiceId::new("test-app"), "test_kv_get", ()).await.unwrap();
+    assert!(result.is_none());
+
+    fx.invoke_service::<String, ()>(&ServiceId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
+
+    let result = fx.invoke_service::<(), Option<String>>(&ServiceId::new("test-app"), "test_kv_get", ()).await.unwrap().unwrap();
+    assert_eq!("Hello World!", result);
 }

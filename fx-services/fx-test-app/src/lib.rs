@@ -147,3 +147,17 @@ pub async fn test_time(ctx: &FxCtx, _arg: ()) -> u64 {
     sleep(Duration::from_secs(1)).await;
     (ctx.now() - started_at).as_millis() as u64
 }
+
+#[rpc]
+pub async fn test_kv_set(ctx: &FxCtx, value: String) {
+    ctx.init_logger();
+    let kv = ctx.kv("test-kv");
+    kv.set("test-key", value.as_bytes());
+}
+
+#[rpc]
+pub async fn test_kv_get(ctx: &FxCtx, _arg: ()) -> Option<String> {
+    ctx.init_logger();
+    let kv = ctx.kv("test-kv");
+    kv.get("test-key").map(|v| String::from_utf8(v).unwrap())
+}

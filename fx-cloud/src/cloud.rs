@@ -163,9 +163,9 @@ pub struct ServiceId {
 }
 
 impl ServiceId {
-    pub fn new(id: String) -> Self {
+    pub fn new(id: impl Into<String>) -> Self {
         Self {
-            id,
+            id: id.into(),
         }
     }
 }
