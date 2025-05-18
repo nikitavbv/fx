@@ -119,6 +119,12 @@ impl FxCtx {
         let response = FxHostFuture::new(PoolIndex(future_index as u64)).await;
         rmp_serde::from_slice(&response).unwrap()
     }
+
+    pub fn random(&self, len: u64) -> Vec<u8> {
+        let ptr_and_len = sys::PtrWithLen::new();
+        unsafe { sys::random(len as i64, ptr_and_len.ptr_to_self()) };
+        ptr_and_len.read_owned()
+    }
 }
 
 pub struct KvStore {

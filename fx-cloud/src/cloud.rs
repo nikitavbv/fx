@@ -23,6 +23,7 @@ use {
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
     futures::FutureExt,
+    rand::TryRngCore,
     fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse, FxExecutionError},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
@@ -562,6 +563,7 @@ impl ExecutionContext {
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
+                "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
             },
@@ -889,6 +891,17 @@ fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
     let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
     future_index.0 as i64
+}
+
+fn api_random(mut ctx: FunctionEnvMut<ExecutionEnv>, len: i64, output_ptr: i64) {
+    let mut random_data = vec![0; len as usize];
+    rand::rngs::OsRng.try_fill_bytes(&mut random_data).unwrap();
+
+    let (data, mut store) = ctx.data_and_store_mut();
+    let len = random_data.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &random_data);
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {

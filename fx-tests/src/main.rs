@@ -55,6 +55,7 @@ async fn main() {
     test_global(&fx).await;
     test_queue_system_invocations(&fx).await;
     test_stream_simple(&fx).await;
+    test_random(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -209,4 +210,14 @@ async fn test_stream_simple(fx: &FxCloud) {
     if n != 5 {
         panic!("unexpected number of items read from stream: {n}");
     }
+}
+
+async fn test_random(fx: &FxCloud) {
+    println!("> test_random");
+    let random_bytes_0: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&ServiceId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
+    let random_bytes_1: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&ServiceId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
+
+    assert_eq!(32, random_bytes_0.len());
+    assert_eq!(32, random_bytes_1.len());
+    assert!(random_bytes_0 != random_bytes_1);
 }

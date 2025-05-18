@@ -133,3 +133,9 @@ pub async fn test_stream_simple(ctx: &FxCtx, _arg: ()) -> FxStream {
     };
     FxStream::wrap(stream)
 }
+
+#[rpc]
+pub async fn test_random(ctx: &FxCtx, len: u64) -> Vec<u8> {
+    ctx.init_logger();
+    ctx.random(len)
+}

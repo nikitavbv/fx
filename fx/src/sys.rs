@@ -70,6 +70,7 @@ unsafe extern "C" {
     pub(crate) fn log(ptr: i64, len: i64);
     pub(crate) fn fetch(req_ptr: i64, req_len: i64) -> i64;
     pub(crate) fn sleep(millis: i64) -> i64;
+    pub(crate) fn random(len: i64, output_ptr: i64);
     pub(crate) fn future_poll(index: i64, output_ptr: i64) -> i64; // 0 - pending, 1 - ready
     pub(crate) fn stream_export() -> i64;
 }
