@@ -79,7 +79,7 @@ pub async fn rpc_responder(ctx: &FxCtx, arg: u64) -> u64 {
 #[rpc]
 pub async fn call_rpc(ctx: &FxCtx, arg: u64) -> u64 {
     ctx.init_logger();
-    ctx.rpc("other-app", "rpc_responder", arg).await
+    ctx.rpc("other-app", "rpc_responder", arg).await.unwrap()
 }
 
 #[rpc]
@@ -98,8 +98,14 @@ pub async fn rpc_responder_panic_async(ctx: &FxCtx, _arg: ()) -> u64 {
 #[rpc]
 pub async fn call_rpc_panic(ctx: &FxCtx, _arg: ()) -> i64 {
     ctx.init_logger();
-    let res0 = ctx.rpc::<(), u64>("other-app", "rpc_responder_panic", ()).await;
-    let res1 = ctx.rpc::<(), u64>("other-app", "rpc_responder_panic_async", ()).await;
+    let res0 = match ctx.rpc::<(), u64>("other-app", "rpc_responder_panic", ()).await {
+        Ok(_) => panic!("didn't expect test rpc call not to fail"),
+        Err(_) => 0,
+    };
+    let res1 = match ctx.rpc::<(), u64>("other-app", "rpc_responder_panic_async", ()).await {
+        Ok(_) => panic!("didn't expect test rpc call not to fail"),
+        Err(_) => 0,
+    };
 
     42 + res0 as i64 + res1 as i64
 }
@@ -109,7 +115,7 @@ pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
     ctx.init_logger();
     let response = ctx.fetch(
         FetchRequest::get("https://fx.nikitavbv.com/api/mock/get")
-    ).await;
+    ).await.unwrap();
 
     if !response.status.is_success() {
         return Err(format!("mock endpoint returned unexpected status code: {:?}, request id: {:?}", response.status, response.headers().get("x-request-id")));

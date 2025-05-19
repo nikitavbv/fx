@@ -31,7 +31,7 @@ use {
     serde::{Serialize, Deserialize},
     futures::FutureExt,
     rand::TryRngCore,
-    fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse, FxExecutionError},
+    fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse, FxExecutionError, FxFutureError},
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -434,7 +434,9 @@ impl Future for FunctionRuntimeFuture {
 
         if let Some(rpc_future_index) = rpc_future_index.as_ref() {
             // TODO: measure points
-            let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index)]).unwrap()[0].unwrap_i64();
+            let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index)])
+                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
+                .unwrap_i64();
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
                 drop(store_lock);
@@ -702,7 +704,10 @@ fn api_rpc(
 
     let engine = ctx.data().engine.clone();
     let response_future = engine.clone().invoke_service_raw(engine.clone(), service_id, function_name, argument).unwrap();
-    let response_future = ctx.data().futures.push(response_future.map(|v| v.unwrap()).boxed());
+    let response_future = response_future.map(|v| v.map_err(|err| FxFutureError::RpcError {
+        reason: err.to_string(),
+    }));
+    let response_future = ctx.data().futures.push(response_future.boxed());
 
     response_future.0 as i64
 }
@@ -878,11 +883,11 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         .then(|response| async {
             let response = response.unwrap();
 
-            rmp_serde::to_vec(&HttpResponse {
+            Ok(rmp_serde::to_vec(&HttpResponse {
                 status: response.status(),
                 headers: response.headers().clone(),
                 body: response.bytes().await.unwrap().to_vec(),
-            }).unwrap()
+            }).unwrap())
         })
         .boxed();
 
@@ -891,7 +896,7 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
-    let future_index = ctx.data().futures.push(sleep.map(|v| rmp_serde::to_vec(&v).unwrap()).boxed());
+    let future_index = ctx.data().futures.push(sleep.map(|v| Ok(rmp_serde::to_vec(&v).unwrap())).boxed());
     future_index.0 as i64
 }
 
@@ -917,6 +922,7 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
         Poll::Pending => 0,
         Poll::Ready(res) => {
             let (data, mut store) = ctx.data_and_store_mut();
+            let res = rmp_serde::to_vec(&res).unwrap();
             let len = res.len() as i64;
             let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
             write_memory(&ctx, ptr, &res);

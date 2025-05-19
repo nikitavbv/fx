@@ -239,3 +239,9 @@ pub enum FxExecutionError {
     #[error("failed to read rpc request: {reason}")]
     RpcRequestRead { reason: String }
 }
+
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum FxFutureError {
+    #[error("rpc call failed: {reason}")]
+    RpcError { reason: String },
+}

@@ -11,15 +11,15 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     info!("hello from wasm service!");
 
     let kv = ctx.kv("demo");
-    let counter: i64 = ctx.rpc("counter", "incr", ()).await;
+    let counter: i64 = ctx.rpc("counter", "incr", ()).await.unwrap();
 
     let instance = kv.get("instance").unwrap().map(|v| String::from_utf8(v).unwrap());
 
     if req.url == "/test-rpc" {
-        let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await;
+        let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await.unwrap();
         return HttpResponse::new().with_body(format!("rpc demo returned a response: {response:?}\n"));
     } else if req.url == "/test-fetch" {
-        let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned())).await;
+        let res = ctx.fetch(FetchRequest::get("http://httpbin.org/get".to_owned())).await.unwrap();
         return HttpResponse::new().with_body(String::from_utf8(res.body).unwrap());
     } else if req.url == "/test-sql" {
         let database = ctx.sql("test-db");

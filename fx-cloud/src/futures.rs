@@ -1,6 +1,7 @@
 use {
     std::{sync::{Arc, Mutex}, task::{Poll, Context}, collections::HashMap},
     futures::{future::BoxFuture, FutureExt},
+    fx_core::FxFutureError,
 };
 
 #[derive(Clone)]
@@ -18,11 +19,11 @@ impl FuturesPool {
         }
     }
 
-    pub fn push(&self, future: BoxFuture<'static, Vec<u8>>) -> HostPoolIndex {
+    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FxFutureError>>) -> HostPoolIndex {
         self.inner.lock().unwrap().push(future)
     }
 
-    pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
+    pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
         let mut pool = self.inner.lock().unwrap();
         match pool.poll(index, context) {
             Poll::Pending => Poll::Pending,
@@ -35,7 +36,7 @@ impl FuturesPool {
 }
 
 struct FuturesPoolInner {
-    pool: HashMap<u64, BoxFuture<'static, Vec<u8>>>,
+    pool: HashMap<u64, BoxFuture<'static, Result<Vec<u8>, FxFutureError>>>,
     counter: u64,
 }
 
@@ -47,14 +48,14 @@ impl FuturesPoolInner {
         }
     }
 
-    pub fn push(&mut self, future: BoxFuture<'static, Vec<u8>>) -> HostPoolIndex {
+    pub fn push(&mut self, future: BoxFuture<'static, Result<Vec<u8>, FxFutureError>>) -> HostPoolIndex {
         let counter = self.counter;
         self.counter += 1;
         self.pool.insert(counter, future);
         HostPoolIndex(counter)
     }
 
-    pub fn poll(&mut self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
+    pub fn poll(&mut self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
         self.pool.get_mut(&index.0).unwrap().poll_unpin(context)
     }
 

@@ -10,6 +10,7 @@ pub use {
         SqlValue,
         CronRequest,
         FxExecutionError,
+        FxFutureError,
     },
     fx_macro::rpc,
     futures::FutureExt,
@@ -70,7 +71,7 @@ impl FxCtx {
         Queue::new(name.into())
     }
 
-    pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> R {
+    pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
         let service_id = service_id.into();
         let service_id = service_id.as_bytes();
         let function = function.into();
@@ -89,8 +90,8 @@ impl FxCtx {
             )
         };
 
-        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await;
-        rmp_serde::from_slice(&response).unwrap()
+        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
+        Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
     pub fn rpc_async<T: serde::ser::Serialize>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) {
@@ -113,12 +114,12 @@ impl FxCtx {
         }
     }
 
-    pub async fn fetch(&self, req: FetchRequest) -> HttpResponse {
+    pub async fn fetch(&self, req: FetchRequest) -> Result<HttpResponse, FxFutureError> {
         let req = rmp_serde::to_vec(&req).unwrap();
         let future_index = unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64) };
 
-        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await;
-        rmp_serde::from_slice(&response).unwrap()
+        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
+        Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
     pub fn random(&self, len: u64) -> Vec<u8> {
