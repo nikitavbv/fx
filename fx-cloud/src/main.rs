@@ -73,9 +73,8 @@ async fn run_demo() -> anyhow::Result<()> {
         );
     }
 
-    let demo_storage = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
-        .with_key("demo/instance".as_bytes(), "A".as_bytes())
-        .unwrap();
+    let demo_storage = BoxedStorage::new(SqliteStorage::in_memory()?)
+        .with_key("demo/instance".as_bytes(), "A".as_bytes())?;
 
     let fx_cloud = FxCloud::new()
         .with_code_storage(

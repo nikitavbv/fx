@@ -32,6 +32,9 @@ pub enum FxCloudError {
     #[error("configuration error")]
     ConfigurationError { reason: String },
 
-    #[error("cron error")]
+    #[error("cron error: {reason}")]
     CronError { reason: String },
+
+    #[error("streaming error: {reason}")]
+    StreamingError { reason: String }
 }

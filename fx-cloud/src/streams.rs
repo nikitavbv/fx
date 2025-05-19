@@ -1,7 +1,10 @@
 use {
     std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll}, ops::DerefMut},
     futures::{stream::BoxStream, StreamExt},
-    crate::cloud::{ExecutionContext, FxCloud},
+    crate::{
+        cloud::{ExecutionContext, FxCloud},
+        error::FxCloudError,
+    },
 };
 
 #[derive(Clone)]
@@ -79,12 +82,11 @@ pub struct FxReadableStream {
 }
 
 impl futures::Stream for FxReadableStream {
-    type Item = Vec<u8>;
-
+    type Item = Result<Vec<u8>, FxCloudError>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         let index = self.index;
         let ctx = match &mut self.stream {
-            FxStream::HostStream(stream) => return stream.poll_next_unpin(cx),
+            FxStream::HostStream(stream) => return stream.poll_next_unpin(cx).map(|v| v.map(|v| Ok(v))),
             FxStream::FunctionStream(execution_context) => execution_context,
         };
         let mut store_lock = ctx.store.lock().unwrap();
@@ -97,10 +99,12 @@ impl futures::Stream for FxReadableStream {
             0 => Poll::Pending,
             1 => {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
-                Poll::Ready(Some(response))
+                Poll::Ready(Some(Ok(response)))
             },
             2 => Poll::Ready(None),
-            other => panic!("unexpected value: {other}"),
+            other => Poll::Ready(Some(Err(FxCloudError::StreamingError {
+                reason: format!("unexpected repsonse code from _fx_stream_next: {other:?}"),
+            }))),
         }
     }
 }

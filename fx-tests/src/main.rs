@@ -212,6 +212,7 @@ async fn test_stream_simple(fx: &FxCloud) {
     let started_at = Instant::now();
     let mut n = 0;
     while let Some(v) = stream.next().await {
+        let v = v.unwrap();
         if n != v[0] || v.len() > 1 {
             panic!("recieved unexpected data in stream: {v:?}");
         }
