@@ -12,6 +12,7 @@ pub struct HttpRequest {
     pub url: String,
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,
+    pub body: FxStream,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -228,7 +229,7 @@ pub struct CronRequest {}
 // created on host side (i.e., body of `fetch`). when stream is polled, host should run poll_next function in that ExecutionContext or poll_next a local Stream (depending on where stream lives).
 // One more positive aspect of this implementation is that it allows passthrough of streams (for example, from fetch to HttpResponse) - poll_next on host will poll Stream on host side without
 // invoking function and copying data there.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct FxStream {
     // index in host and local pool
     pub index: i64,

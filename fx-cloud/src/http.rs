@@ -2,8 +2,9 @@ use {
     std::{convert::Infallible, pin::Pin},
     tracing::error,
     hyper::{Response, body::Bytes, StatusCode},
-    http_body_util::Full,
-    fx_core::{HttpResponse, HttpRequest},
+    http_body_util::{Full, BodyStream},
+    futures::{StreamExt, stream::BoxStream},
+    fx_core::{HttpResponse, HttpRequest, FxStream},
     crate::{FxCloud, ServiceId, error::FxCloudError},
 };
 
@@ -33,10 +34,17 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
         let service_id = self.service_id.clone();
         Box::pin(async move {
+            let method = req.method().to_owned();
+            let url = req.uri().to_string();
+            let headers = req.headers().clone();
+            let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
+            let body = FxStream { index: engine.streams_pool.push(body).0 as i64 };
+
             let request = HttpRequest {
-                method: req.method().to_owned(),
-                url: req.uri().to_string(),
-                headers: req.headers().clone(),
+                method,
+                url,
+                headers,
+                body,
             };
             let fx_response: HttpResponse = match engine.invoke_service(engine.clone(), &service_id, "http", request).await {
                 Ok(v) => v,
