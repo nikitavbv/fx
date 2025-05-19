@@ -572,6 +572,7 @@ impl ExecutionContext {
                 "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
+                "stream_poll_next" => Function::new_typed_with_env(&mut store, &function_env, api_stream_poll_next),
             },
             "fx_cloud" => {
                 "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
@@ -937,6 +938,23 @@ fn api_stream_export(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
     let index = ctx.data().streams.push_function_stream(execution_context);
     println!("exported stream: {index:?}");
     index.0 as i64
+}
+
+fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
+    let result = ctx.data().streams.poll_next(&crate::streams::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
+
+    match result {
+        Poll::Pending => 0,
+        Poll::Ready(Some(res)) => {
+            let (data, mut store) = ctx.data_and_store_mut();
+            let len = res.len() as i64;
+            let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+            write_memory(&ctx, ptr, &res);
+            write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+            1
+        },
+        Poll::Ready(None) => 2,
+    }
 }
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {

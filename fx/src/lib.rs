@@ -17,7 +17,7 @@ pub use {
     crate::{
         sys::PtrWithLen,
         fx_futures::FxFuture,
-        fx_streams::{FxStream, FxStreamExport},
+        fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
     },
 };

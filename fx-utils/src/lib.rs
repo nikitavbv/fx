@@ -1,5 +1,5 @@
 use {
-    fx::{HttpRequest, HttpResponse},
+    fx::{HttpRequest, HttpResponse, FxStreamImport},
     axum::{http::Request, body::Body},
     tower::Service,
     futures::StreamExt,
@@ -10,10 +10,13 @@ pub mod database;
 pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
+    let body = req.body.import()
+        .map(|v| Ok::<Vec<u8>, std::convert::Infallible>(v));
+
     let fx_response = service.call(Request::builder()
         .uri(req.url)
         .method(req.method)
-        .body(Body::empty())
+        .body(Body::from_stream(body))
         .unwrap()
     );
     let fx_response = fx_response.await.unwrap();

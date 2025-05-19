@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, Mutex}, task::{Context, Poll, Waker}, collections::HashMap},
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
-    crate::sys,
+    crate::sys::{self, stream_poll_next, PtrWithLen},
 };
 
 pub use fx_core::FxStream;
@@ -74,5 +74,32 @@ impl FxStreamExport for FxStream {
         let index = unsafe { sys::stream_export() };
         STREAM_POOL.push(index, inner);
         Self { index }
+    }
+}
+
+pub trait FxStreamImport {
+    fn import(self) -> FxImportedStream;
+}
+
+impl FxStreamImport for FxStream {
+    fn import(self) -> FxImportedStream {
+        FxImportedStream { index: self.index }
+    }
+}
+
+pub struct FxImportedStream {
+    index: i64,
+}
+
+impl Stream for FxImportedStream {
+    type Item = Vec<u8>;
+    fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let response_ptr = PtrWithLen::new();
+        match unsafe { stream_poll_next(self.index, response_ptr.ptr_to_self()) } {
+            0 => Poll::Pending,
+            1 => Poll::Ready(Some(response_ptr.read_owned())),
+            2 => Poll::Ready(None),
+            other => panic!("unexpected value: {other:?}"),
+        }
     }
 }
