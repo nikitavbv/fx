@@ -46,7 +46,7 @@ jobs:
           ghcr.io/nikitavbv/fx/fx:0.1.${{ github.run_number }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: release-build
         path: target/release/fx-cloud
