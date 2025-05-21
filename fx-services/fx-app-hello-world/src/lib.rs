@@ -38,6 +38,12 @@ pub fn on_cron(ctx: &FxCtx, _req: CronRequest) {
     info!("hello from cron!");
 }
 
+#[rpc]
+pub fn from_cli(ctx: &FxCtx, _req: ()) {
+    ctx.init_logger();
+    info!("hello from cli!");
+}
+
 #[derive(Serialize)]
 struct RpcRequest {
     number: i64,

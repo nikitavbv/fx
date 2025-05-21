@@ -4,14 +4,15 @@
 #![warn(clippy::panic)]
 
 use {
-    std::fs,
+    std::{fs, path::PathBuf},
     tracing::{Level, info, error},
     tracing_subscriber::FmtSubscriber,
     anyhow::anyhow,
     tokio::join,
+    clap::{Parser, Subcommand, CommandFactory},
     crate::{
         cloud::{FxCloud, Service, ServiceId},
-        storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage},
+        storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage},
         sql::SqlDatabase,
         config::{Config, kv_from_config, sql_from_config},
         registry::{KVRegistry, SqlRegistry},
@@ -34,17 +35,53 @@ mod sql;
 mod storage;
 mod streams;
 
-#[tokio::main]
+const FILE_EXTENSION_WASM: &str = ".wasm";
+
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    #[command(subcommand)]
+    command: Command,
+
+    #[arg(long)]
+    functions_dir: Option<String>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    Run {
+        function: String,
+        rpc_method_name: String,
+    },
+    Http {
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     FmtSubscriber::builder().with_max_level(Level::INFO).init();
-    info!("starting fx...");
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        if let Err(err) = run_function(args[1].as_str()).await {
-            error!("failed to run function: {err:?}");
+    let args = Args::parse();
+
+    let functions_dir = args.functions_dir.map(|v| PathBuf::from(v)).unwrap_or(std::env::current_dir().unwrap());
+    let code_storage = SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir));
+
+    let fx_cloud = FxCloud::new()
+        .with_code_storage(BoxedStorage::new(code_storage));
+
+    match args.command {
+        Command::Run { function, rpc_method_name } => {
+            let function = if function.ends_with(FILE_EXTENSION_WASM) {
+                &function[0..function.len() - FILE_EXTENSION_WASM.len()]
+            } else {
+                &function
+            };
+            fx_cloud
+                .with_service(Service::new(ServiceId::new(function)))
+                .invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await.unwrap();
+        },
+        Command::Http {} => {
+            println!("http server not implemented yet");
         }
-    } else if let Err(err) = run_demo().await {
-        error!("failed to start fx cloud instance: {err:?}");
     }
 }
 
@@ -103,7 +140,7 @@ async fn run_demo() -> anyhow::Result<()> {
                 )
         )
         .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
-        .with_service(Service::new(ServiceId::new("counter".to_owned())).global())
+        .with_service(Service::new(ServiceId::new("counter".to_owned())))
         .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke").await
         .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron")?;
 
@@ -113,23 +150,6 @@ async fn run_demo() -> anyhow::Result<()> {
         fx_cloud.run_http(8080, ServiceId::new("dashboard".to_owned())),
         fx_cloud.run_metrics_server(8081),
     );
-
-    Ok(())
-}
-
-async fn run_function(function_path: &str) -> anyhow::Result<()> {
-    let storage = SqliteStorage::in_memory()
-        .map_err(|err| anyhow!("failed to create storage: {err:?}"))?;
-    let fx_cloud = FxCloud::new()
-        .with_code_storage(BoxedStorage::new(NamespacedStorage::new(b"services/", storage.clone()))
-            .with_key(b"http", &fs::read(function_path)?)?
-        )
-        .with_service(
-            Service::new(ServiceId::new("http".to_owned()))
-                .with_storage("data".to_owned(), BoxedStorage::new(NamespacedStorage::new(b"data/", storage)))
-        );
-
-    fx_cloud.run_http(8080, ServiceId::new("http".to_owned())).await;
 
     Ok(())
 }

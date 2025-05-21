@@ -126,6 +126,32 @@ impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.namespaced_key(key)) }
 }
 
+pub struct SuffixStorage<T> {
+    suffix: Vec<u8>,
+    inner: T,
+}
+
+impl<T> SuffixStorage<T> {
+    pub fn new(suffix: impl Into<Vec<u8>>, inner: T) -> Self {
+        Self {
+            suffix: suffix.into(),
+            inner,
+        }
+    }
+
+    fn suffixed_key(&self, key: &[u8]) -> Vec<u8> {
+        let mut suffixed_key = Vec::with_capacity(key.len() + self.suffix.len());
+        suffixed_key.extend_from_slice(key);
+        suffixed_key.extend_from_slice(&self.suffix);
+        suffixed_key
+    }
+}
+
+impl<T: KVStorage> KVStorage for SuffixStorage<T> {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.suffixed_key(key), value) }
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.suffixed_key(key)) }
+}
+
 pub struct EmptyStorage;
 
 impl KVStorage for EmptyStorage {
