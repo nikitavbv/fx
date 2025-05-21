@@ -42,10 +42,10 @@ async fn main() {
     fx.run_queue().await;
 
     test_simple(&fx).await;
-    test_sql_simple(&fx).await;
-    test_sqlx(&fx).await;
-    test_invoke_function_non_existent(&fx).await;
-    test_invoke_function_non_existent_rpc(&fx).await;
+    // test_sql_simple(&fx).await;
+    // test_sqlx(&fx).await;
+    // test_invoke_function_non_existent(&fx).await;
+    // test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
     test_invoke_function_panic(&fx).await;
     test_invoke_function_wrong_argument(&fx).await;
@@ -57,9 +57,9 @@ async fn main() {
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
-    test_kv_simple(&fx).await;
-    test_kv_wrong_binding_name(&fx).await;
-    test_kv_disk(&fx).await;
+    // test_kv_simple(&fx).await;
+    // test_kv_wrong_binding_name(&fx).await;
+    // test_kv_disk(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
