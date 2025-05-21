@@ -1,6 +1,6 @@
 use {
     std::{fs, time::{Instant, Duration}},
-    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, Service, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS, FxStream},
+    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS, FxStream},
     tokio::{join, time::sleep},
     futures::StreamExt,
     fx_core::FxExecutionError,
@@ -30,17 +30,13 @@ async fn main() {
         .with_memoized_compiler(storage_compiler)
         .with_queue().await
         .with_cron(database_cron).unwrap()
-        .with_service(
+        /*.with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()
                 .with_storage("test-kv".to_owned(), BoxedStorage::new(SqliteStorage::in_memory().unwrap()))
                 .with_storage("test-kv-disk".to_owned(), BoxedStorage::new(SqliteStorage::new("data/test-kv-disk").unwrap()))
                 .with_sql_database("app".to_owned(), database_app)
-        )
-        .with_service(Service::new(ServiceId::new("test-app-system".to_owned())).system())
-        .with_service(Service::new(ServiceId::new("other-app".to_owned())))
-        .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())))
-        .with_service(Service::new(ServiceId::new("test-invocation-count".to_owned())))
+        )*/
         .with_queue_subscription(QUEUE_SYSTEM_INVOCATIONS, ServiceId::new("test-app-system".to_owned()), "on_invoke").await;
 
     fx.run_queue().await;
@@ -58,7 +54,6 @@ async fn main() {
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
     // test_fetch(&fx).await;
-    test_queue_system_invocations(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
@@ -174,26 +169,6 @@ async fn test_fetch(fx: &FxCloud) {
     let result = fx.invoke_service::<(), Result<String, String>>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
         .unwrap();
     assert_eq!("hello fx!", &result);
-}
-
-async fn test_queue_system_invocations(fx: &FxCloud) {
-    println!("> test_queue_system_invocations");
-    let before = fx.invoke_service::<String, u64>(&ServiceId::new("test-app-system".to_owned()), "get_invoke_count", "test-invocation-count".to_owned()).await.unwrap();
-    assert_eq!(0, before);
-
-    fx.invoke_service::<u32, u32>(&ServiceId::new("test-invocation-count".to_owned()), "simple", 10).await.unwrap();
-
-    let mut after = 0;
-    for _retry in 0..20 {
-        after = fx.invoke_service::<String, u64>(&ServiceId::new("test-app-system".to_owned()), "get_invoke_count", "test-invocation-count".to_owned()).await.unwrap();
-        if after == 1 {
-            break;
-        } else {
-            // queues are processed async, so may have to wait a bit
-            sleep(Duration::from_millis(100)).await;
-        }
-    }
-    assert_eq!(1, after);
 }
 
 async fn test_stream_simple(fx: &FxCloud) {

@@ -44,6 +44,7 @@ use {
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
+        config::ConfigProvider,
     },
 };
 
@@ -61,18 +62,18 @@ impl FxCloud {
         }
     }
 
-    pub fn with_service(self, service: Service) -> Self {
-        {
-            let mut services = self.engine.services.write().unwrap();
-            services.insert(service.id.clone(), service);
-        }
-        self
-    }
-
     pub fn with_code_storage(self, new_storage: BoxedStorage) -> Self {
         {
             let mut storage = self.engine.module_code_storage.write().unwrap();
             *storage = new_storage;
+        }
+        self
+    }
+
+    pub fn with_config_provider(self, new_config_provider: ConfigProvider) -> Self {
+        {
+            let mut config_provider = self.engine.config_provider.write().unwrap();
+            *config_provider = new_config_provider;
         }
         self
     }
@@ -176,52 +177,9 @@ impl Into<String> for ServiceId {
     }
 }
 
-pub struct Service {
-    id: ServiceId,
-    is_system: bool,
-    storage: HashMap<String, BoxedStorage>,
-    sql: HashMap<String, SqlDatabase>,
-    allow_fetch: bool,
-    allow_log: bool,
-}
-
-impl Service {
-    pub fn new(id: ServiceId) -> Self {
-        Self {
-            id,
-            is_system: false,
-            storage: HashMap::new(),
-            sql: HashMap::new(),
-            allow_fetch: false,
-            allow_log: true,
-        }
-    }
-
-    // system functions do not use common even infrastructure to avoid recursive event generation
-    pub fn system(mut self) -> Self {
-        self.is_system = true;
-        self
-    }
-
-    pub fn with_storage(mut self, binding_name: String, storage: BoxedStorage) -> Self {
-        self.storage.insert(binding_name, storage);
-        self
-    }
-
-    pub fn with_sql_database(mut self, name: String, database: SqlDatabase) -> Self {
-        self.sql.insert(name, database);
-        self
-    }
-
-    pub fn allow_fetch(mut self) -> Self {
-        self.allow_fetch = true;
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn disallow_log(mut self) -> Self {
-        self.allow_log = false;
-        self
+impl Into<String> for &ServiceId {
+    fn into(self) -> String {
+        self.id.clone()
     }
 }
 
@@ -231,8 +189,7 @@ pub(crate) struct Engine {
     compiler: RwLock<BoxedCompiler>,
 
     execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
-
-    services: RwLock<HashMap<ServiceId, Service>>,
+    config_provider: RwLock<ConfigProvider>,
 
     queue: tokio::sync::RwLock<Option<Queue>>,
 
@@ -252,8 +209,7 @@ impl Engine {
             compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
             execution_contexts: RwLock::new(HashMap::new()),
-
-            services: RwLock::new(HashMap::new()),
+            config_provider: RwLock::new(ConfigProvider::new(BoxedStorage::new(EmptyStorage))),
 
             queue: tokio::sync::RwLock::new(None),
 
@@ -286,12 +242,7 @@ impl Engine {
             let mut execution_contexts = self.execution_contexts.write().unwrap();
             let ctx = execution_contexts.get(&service_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                let services = self.services.read().unwrap();
-                let service = match services.get(&service_id) {
-                    Some(v) => v,
-                    None => return Err(FxCloudError::ServiceNotFound),
-                };
-                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
+                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id)?));
             }
         }
 
@@ -320,8 +271,8 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, service: &Service) -> Result<ExecutionContext, FxCloudError> {
-        let module_code = self.module_code_storage.read().unwrap().get(service.id.id.as_bytes())?;
+    fn create_execution_context(&self, engine: Arc<Engine>, service_id: &ServiceId) -> Result<ExecutionContext, FxCloudError> {
+        let module_code = self.module_code_storage.read().unwrap().get(service_id.id.as_bytes())?;
         let module_code = match module_code {
             Some(v) => v,
             None => return Err(FxCloudError::ModuleCodeNotFound),
@@ -329,13 +280,12 @@ impl Engine {
 
         ExecutionContext::new(
             engine,
-            service.id.clone(),
-            service.is_system,
-            service.storage.clone(),
-            service.sql.clone(),
+            service_id.clone(),
+            HashMap::new(),
+            HashMap::new(),
             module_code,
-            service.allow_fetch,
-            service.allow_log,
+            true, // TODO: permissions
+            true, // TODO: permissions
         )
     }
 
@@ -363,18 +313,13 @@ pub struct FunctionRuntimeFuture {
 
 impl FunctionRuntimeFuture {
     fn record_function_invocation(&self) {
-        if self.ctx.is_system {
-            // invocations are not recorded for system functions to avoid loops
-            return;
-        }
-
-        let engine = self.engine.clone();
+        /*let engine = self.engine.clone();
         let message = FunctionInvokeEvent {
             function_id: self.ctx.service_id.id.clone(),
         };
         tokio::runtime::Handle::current().spawn(async move {
             engine.push_to_queue(QUEUE_SYSTEM_INVOCATIONS, message).await;
-        });
+        });*/
     }
 }
 
@@ -494,7 +439,6 @@ pub(crate) struct ExecutionContext {
     pub(crate) store: Arc<Mutex<Store>>,
     pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     service_id: ServiceId,
-    is_system: bool,
     needs_recreate: Arc<AtomicBool>,
 }
 
@@ -502,7 +446,6 @@ impl ExecutionContext {
     pub fn new(
         engine: Arc<Engine>,
         service_id: ServiceId,
-        is_system: bool,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         module_code: Vec<u8>,
@@ -543,7 +486,6 @@ impl ExecutionContext {
                 "stream_poll_next" => Function::new_typed_with_env(&mut store, &function_env, api_stream_poll_next),
             },
             "fx_cloud" => {
-                "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
             }
         };
 
@@ -568,7 +510,6 @@ impl ExecutionContext {
             store: Arc::new(Mutex::new(store)),
             function_env,
             service_id,
-            is_system,
             needs_recreate: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -923,24 +864,6 @@ fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, outpu
         },
         Poll::Ready(None) => 2,
     }
-}
-
-fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
-    // TODO: permissions check
-    let functions: Vec<_> = ctx.data().engine.services.read().unwrap()
-        .iter()
-        .map(|(function_id, _function)| fx_cloud_common::Function {
-            id: function_id.id.clone(),
-        })
-        .collect();
-
-    let (data, mut store) = ctx.data_and_store_mut();
-    let res = rmp_serde::to_vec(&functions).unwrap();
-    let len = res.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &res);
-
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 #[repr(C)]

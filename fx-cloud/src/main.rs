@@ -11,10 +11,10 @@ use {
     tokio::join,
     clap::{Parser, Subcommand, CommandFactory},
     crate::{
-        cloud::{FxCloud, Service, ServiceId},
+        cloud::{FxCloud, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage},
         sql::SqlDatabase,
-        config::{Config, kv_from_config, sql_from_config},
+        config::{Config, kv_from_config, sql_from_config, ConfigProvider},
         registry::{KVRegistry, SqlRegistry},
     },
 };
@@ -36,6 +36,7 @@ mod storage;
 mod streams;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
+const FILE_EXTENSION_CONFIG: &str = ".fx.yaml";
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -63,10 +64,13 @@ async fn main() {
     let args = Args::parse();
 
     let functions_dir = args.functions_dir.map(|v| PathBuf::from(v)).unwrap_or(std::env::current_dir().unwrap());
-    let code_storage = SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir));
+    let code_storage = SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir.clone()));
+    let config_storage = SuffixStorage::new(FILE_EXTENSION_CONFIG, FsStorage::new(functions_dir));
+    let config_provider = ConfigProvider::new(BoxedStorage::new(config_storage));
 
     let fx_cloud = FxCloud::new()
-        .with_code_storage(BoxedStorage::new(code_storage));
+        .with_code_storage(BoxedStorage::new(code_storage))
+        .with_config_provider(config_provider);
 
     match args.command {
         Command::Run { function, rpc_method_name } => {
@@ -76,7 +80,6 @@ async fn main() {
                 &function
             };
             fx_cloud
-                .with_service(Service::new(ServiceId::new(function)))
                 .invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await.unwrap();
         },
         Command::Http {} => {
@@ -127,21 +130,6 @@ async fn run_demo() -> anyhow::Result<()> {
             SqlDatabase::in_memory()
                 .map_err(|err| anyhow!("failed to open database for cron: {err:?}"))?,
         ).map_err(|err| anyhow!("failed to setup cron: {err:?}"))?
-        .with_service(Service::new(ServiceId::new("dashboard".to_owned())).with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
-        .with_service(Service::new(ServiceId::new("dashboard-events-consumer".to_owned())).system().with_sql_database("dashboard".to_owned(), sql_registry.get("dashboard".to_owned())))
-        .with_service(
-            Service::new(ServiceId::new("hello-service".to_owned()))
-                .allow_fetch()
-                .with_storage("demo".to_owned(), demo_storage)
-                .with_sql_database(
-                    "test-db".to_owned(),
-                    SqlDatabase::in_memory()
-                        .map_err(|err| anyhow!("failed to open database for demo service: {err:?}"))?,
-                )
-        )
-        .with_service(Service::new(ServiceId::new("rpc-test-service".to_owned())))
-        .with_service(Service::new(ServiceId::new("counter".to_owned())))
-        .with_queue_subscription("system/invocations", ServiceId::new("dashboard-events-consumer".to_owned()), "on_invoke").await
         .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron")?;
 
     // fx_cloud.run_cron();

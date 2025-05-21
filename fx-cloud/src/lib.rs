@@ -1,6 +1,6 @@
 pub use {
     fx_core::FxStream,
-    crate::cloud::{FxCloud, Service, ServiceId, QUEUE_SYSTEM_INVOCATIONS},
+    crate::cloud::{FxCloud, ServiceId, QUEUE_SYSTEM_INVOCATIONS},
 };
 
 mod cloud;

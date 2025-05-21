@@ -3,9 +3,10 @@ use {
     serde_yml::Value,
     serde::Deserialize,
     crate::{
-        storage::{BoxedStorage, SqliteStorage, WithKey},
+        storage::{BoxedStorage, SqliteStorage, WithKey, KVStorage},
         sql::{SqlDatabase, SqlError},
         error::FxCloudError,
+        cloud::ServiceId,
     },
 };
 
@@ -74,4 +75,36 @@ pub fn kv_from_config(config: &ConfigKv) -> Result<BoxedStorage, FxCloudError> {
 
 pub fn sql_from_config(_config: &ConfigSql) -> Result<SqlDatabase, SqlError> {
     SqlDatabase::in_memory()
+}
+
+pub struct FunctionConfig {
+}
+
+impl Default for FunctionConfig {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
+pub struct ConfigProvider {
+    storage: BoxedStorage,
+}
+
+impl ConfigProvider {
+    pub fn new(storage: BoxedStorage) -> Self {
+        Self {
+            storage,
+        }
+    }
+
+    pub fn config_for_function(&self, id: &ServiceId) -> FunctionConfig {
+        self.storage.get(<&ServiceId as Into<String>>::into(id).as_bytes())
+            .unwrap()
+            .map(|v| parse_config(v))
+            .unwrap_or(FunctionConfig::default())
+    }
+}
+
+fn parse_config(config: Vec<u8>) -> FunctionConfig {
+    FunctionConfig {}
 }
