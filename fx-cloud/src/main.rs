@@ -4,11 +4,13 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf},
+    std::{fs, path::PathBuf, net::SocketAddr},
     tracing::{Level, info, error},
     tracing_subscriber::FmtSubscriber,
     anyhow::anyhow,
-    tokio::join,
+    tokio::{join, net::TcpListener},
+    hyper::server::conn::http1,
+    hyper_util::rt::{TokioIo, TokioTimer},
     clap::{Parser, Subcommand, CommandFactory},
     crate::{
         cloud::{FxCloud, ServiceId},
@@ -16,6 +18,7 @@ use {
         sql::SqlDatabase,
         config::{Config, kv_from_config, sql_from_config, ConfigProvider},
         registry::{KVRegistry, SqlRegistry},
+        http::HttpHandler,
     },
 };
 
@@ -55,6 +58,10 @@ enum Command {
         rpc_method_name: String,
     },
     Http {
+        function: String,
+
+        #[arg(long)]
+        port: Option<u16>,
     }
 }
 
@@ -79,11 +86,31 @@ async fn main() {
             } else {
                 &function
             };
-            fx_cloud
-                .invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await.unwrap();
+            fx_cloud.invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await.unwrap();
         },
-        Command::Http {} => {
-            println!("http server not implemented yet");
+        Command::Http { function, port } => {
+            let addr: SocketAddr = ([0, 0, 0, 0], port.unwrap_or(8080)).into();
+            let listener = TcpListener::bind(addr).await.unwrap();
+            let http_handler = HttpHandler::new(fx_cloud, ServiceId::new(function));
+            info!("running http server on {addr:?}");
+            loop {
+                let (tcp, _) = listener.accept().await.unwrap();
+                let io = TokioIo::new(tcp);
+
+                let http_handler = http_handler.clone();
+                tokio::task::spawn(async move {
+                    if let Err(err) = http1::Builder::new()
+                        .timer(TokioTimer::new())
+                        .serve_connection(io, http_handler)
+                        .await {
+                            if err.is_timeout() {
+                                // ignore timeouts, because those can be caused by client
+                            } else {
+                                error!("error while handling http request: {err:?}");
+                            }
+                        }
+                });
+            }
         }
     }
 }
@@ -131,13 +158,6 @@ async fn run_demo() -> anyhow::Result<()> {
                 .map_err(|err| anyhow!("failed to open database for cron: {err:?}"))?,
         ).map_err(|err| anyhow!("failed to setup cron: {err:?}"))?
         .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron")?;
-
-    // fx_cloud.run_cron();
-    join!(
-        fx_cloud.run_queue(),
-        fx_cloud.run_http(8080, ServiceId::new("dashboard".to_owned())),
-        fx_cloud.run_metrics_server(8081),
-    );
 
     Ok(())
 }

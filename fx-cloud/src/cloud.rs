@@ -121,33 +121,6 @@ impl FxCloud {
         self.engine.invoke_service_async(function_id, rpc_function_name, argument).await;
     }
 
-    pub async fn run_http(&self, port: u16, service_id: ServiceId) {
-        let addr: SocketAddr = ([0, 0, 0, 0], port).into();
-        let listener = TcpListener::bind(addr).await.unwrap();
-
-        let http_handler = HttpHandler::new(self.clone(), service_id);
-
-        println!("running on {addr:?}");
-        loop {
-            let (tcp, _) = listener.accept().await.unwrap();
-            let io = TokioIo::new(tcp);
-
-            let http_handler = http_handler.clone();
-            tokio::task::spawn(async move {
-                if let Err(err) = http1::Builder::new()
-                   .timer(TokioTimer::new())
-                   .serve_connection(io, http_handler)
-                   .await {
-                        if err.is_timeout() {
-                            // ignore timeouts, because those can be caused by client
-                        } else {
-                            error!("error while handling http request: {err:?}");
-                        }
-                   }
-            });
-        }
-    }
-
     pub async fn run_queue(&self) {
         self.engine.queue.read().await.as_ref().unwrap().clone().run();
     }

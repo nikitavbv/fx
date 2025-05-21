@@ -10,10 +10,12 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 
     info!("hello from wasm service!");
 
-    let kv = ctx.kv("demo");
-    let counter: i64 = ctx.rpc("counter", "incr", ()).await.unwrap();
+    // let kv = ctx.kv("demo");
+    //let counter: i64 = ctx.rpc("counter", "incr", ()).await.unwrap();
+    let counter = 42;
 
-    let instance = kv.get("instance").unwrap().map(|v| String::from_utf8(v).unwrap());
+    // let instance = kv.get("instance").unwrap().map(|v| String::from_utf8(v).unwrap());
+    let instance = "demo";
 
     if req.url == "/test-rpc" {
         let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await.unwrap();
