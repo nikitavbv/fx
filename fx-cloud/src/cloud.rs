@@ -11,7 +11,6 @@ use {
     tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
     hyper::server::conn::http1,
-    thread_local::ThreadLocal,
     wasmer::{
         wasmparser::Operator,
         Cranelift,
@@ -180,7 +179,6 @@ impl Into<String> for ServiceId {
 pub struct Service {
     id: ServiceId,
     is_system: bool,
-    is_global: bool,
     storage: HashMap<String, BoxedStorage>,
     sql: HashMap<String, SqlDatabase>,
     allow_fetch: bool,
@@ -192,7 +190,6 @@ impl Service {
         Self {
             id,
             is_system: false,
-            is_global: false,
             storage: HashMap::new(),
             sql: HashMap::new(),
             allow_fetch: false,
@@ -203,12 +200,6 @@ impl Service {
     // system functions do not use common even infrastructure to avoid recursive event generation
     pub fn system(mut self) -> Self {
         self.is_system = true;
-        self
-    }
-
-    // global service is a service that only has single instance. stateful actor.
-    pub fn global(mut self) -> Self {
-        self.is_global = true;
         self
     }
 
@@ -239,8 +230,7 @@ pub(crate) struct Engine {
 
     compiler: RwLock<BoxedCompiler>,
 
-    execution_contexts: ThreadLocal<Mutex<HashMap<ServiceId, Arc<ExecutionContext>>>>,
-    global_execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
+    execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
 
     services: RwLock<HashMap<ServiceId, Service>>,
 
@@ -261,8 +251,7 @@ impl Engine {
 
             compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
-            execution_contexts: ThreadLocal::new(),
-            global_execution_contexts: RwLock::new(HashMap::new()),
+            execution_contexts: RwLock::new(HashMap::new()),
 
             services: RwLock::new(HashMap::new()),
 
@@ -282,12 +271,35 @@ impl Engine {
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
-        if self.is_global_service(&service)? {
-            self.invoke_global_service(engine, &service, &function_name, argument)
-        } else {
-            self.invoke_thread_local_service(engine, &service, &function_name, argument)
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+        let need_to_create_context = {
+            let execution_contexts = self.execution_contexts.read().unwrap();
+            if let Some(context) = execution_contexts.get(&service_id) {
+                context.needs_recreate.load(Ordering::SeqCst)
+            } else {
+                true
+            }
+        };
+
+        if need_to_create_context {
+            // need to create execution context first
+            let mut execution_contexts = self.execution_contexts.write().unwrap();
+            let ctx = execution_contexts.get(&service_id);
+            if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
+                let services = self.services.read().unwrap();
+                let service = match services.get(&service_id) {
+                    Some(v) => v,
+                    None => return Err(FxCloudError::ServiceNotFound),
+                };
+                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
+            }
         }
+
+        let ctxs = self.execution_contexts.read().unwrap();
+        let ctx = ctxs.get(&service_id).unwrap().clone();
+        drop(ctxs);
+
+        Ok(self.run_service(engine, ctx, &function_name, argument))
     }
 
     pub async fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
@@ -296,44 +308,6 @@ impl Engine {
             rpc_function_name,
             argument: rmp_serde::to_vec(&argument).unwrap(),
         }).await;
-    }
-
-    fn invoke_global_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
-        if !self.global_execution_contexts.read().unwrap().contains_key(service_id) {
-            // need to create execution context first
-            let mut global_execution_contexts = self.global_execution_contexts.write().unwrap();
-            let ctx = global_execution_contexts.get(&service_id);
-            if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                let services = self.services.read().unwrap();
-                let service = services.get(&service_id).unwrap();
-                global_execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
-            }
-        }
-
-        let ctxs = self.global_execution_contexts.read().unwrap();
-        let ctx = ctxs.get(&service_id).unwrap().clone();
-        drop(ctxs);
-
-        Ok(self.run_service(engine, ctx, function_name, argument))
-    }
-
-    fn invoke_thread_local_service(&self, engine: Arc<Engine>, service_id: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
-        let ctxs = self.execution_contexts.get_or(|| Mutex::new(HashMap::new()));
-
-        // this lock is cheap, because map is per-thread, so we expect this lock to always be unlocked
-        let ctx = {
-            let mut ctxs = ctxs.lock().unwrap();
-            let ctx = ctxs.get(&service_id);
-            if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                let services = self.services.read().unwrap();
-                let service = services.get(&service_id).unwrap();
-                ctxs.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service)?));
-            }
-            let ctx = ctxs.get(&service_id);
-            let ctx = ctx.unwrap().clone();
-            ctx
-        };
-        Ok(self.run_service(engine, ctx, function_name, argument))
     }
 
     fn run_service(&self, engine: Arc<Engine>, ctx: Arc<ExecutionContext>, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
@@ -363,12 +337,6 @@ impl Engine {
             service.allow_fetch,
             service.allow_log,
         )
-    }
-
-    fn is_global_service(&self, service_id: &ServiceId) -> Result<bool, FxCloudError> {
-        Ok(self.services.read().unwrap().get(service_id).as_ref()
-            .ok_or(FxCloudError::ServiceNotFound)?
-            .is_global)
     }
 
     async fn push_to_queue<T: serde::ser::Serialize>(&self, queue_id: impl Into<String>, message: T) {

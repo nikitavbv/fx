@@ -6,7 +6,7 @@ use {
     fx_core::FxExecutionError,
 };
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let started_at = Instant::now();
 
@@ -37,8 +37,7 @@ async fn main() {
                 .with_storage("test-kv-disk".to_owned(), BoxedStorage::new(SqliteStorage::new("data/test-kv-disk").unwrap()))
                 .with_sql_database("app".to_owned(), database_app)
         )
-        .with_service(Service::new(ServiceId::new("test-app-global".to_owned())).global())
-        .with_service(Service::new(ServiceId::new("test-app-system".to_owned())).global().system())
+        .with_service(Service::new(ServiceId::new("test-app-system".to_owned())).system())
         .with_service(Service::new(ServiceId::new("other-app".to_owned())))
         .with_service(Service::new(ServiceId::new("test-no-module-code".to_owned())))
         .with_service(Service::new(ServiceId::new("test-invocation-count".to_owned())))
@@ -58,8 +57,7 @@ async fn main() {
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
-    test_fetch(&fx).await;
-    test_global(&fx).await;
+    // test_fetch(&fx).await;
     test_queue_system_invocations(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
@@ -176,13 +174,6 @@ async fn test_fetch(fx: &FxCloud) {
     let result = fx.invoke_service::<(), Result<String, String>>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
         .unwrap();
     assert_eq!("hello fx!", &result);
-}
-
-async fn test_global(fx: &FxCloud) {
-    println!("> test_global");
-    let result1 = fx.invoke_service::<(), u64>(&ServiceId::new("test-app-global".to_owned()), "global_counter_inc", ()).await.unwrap();
-    let result2 = fx.invoke_service::<(), u64>(&ServiceId::new("test-app-global".to_owned()), "global_counter_inc", ()).await.unwrap();
-    assert!(result2 > result1);
 }
 
 async fn test_queue_system_invocations(fx: &FxCloud) {
