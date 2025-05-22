@@ -459,6 +459,7 @@ impl ExecutionContext {
                 "stream_poll_next" => Function::new_typed_with_env(&mut store, &function_env, api_stream_poll_next),
             },
             "fx_cloud" => {
+                "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
             }
         };
 
@@ -837,6 +838,24 @@ fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, outpu
         },
         Poll::Ready(None) => 2,
     }
+}
+
+fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
+    // TODO: permissions check
+    let functions: Vec<_> = ctx.data().engine.execution_contexts.read().unwrap()
+        .iter()
+        .map(|(function_id, _function)| fx_cloud_common::Function {
+            id: function_id.id.clone(),
+        })
+        .collect();
+
+    let (data, mut store) = ctx.data_and_store_mut();
+    let res = rmp_serde::to_vec(&functions).unwrap();
+    let len = res.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &res);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 #[repr(C)]
