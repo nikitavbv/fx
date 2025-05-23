@@ -44,7 +44,7 @@ use {
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
-        definition::DefinitionProvider,
+        definition::{DefinitionProvider, FunctionDefinition},
     },
 };
 
@@ -215,7 +215,8 @@ impl Engine {
             let mut execution_contexts = self.execution_contexts.write().unwrap();
             let ctx = execution_contexts.get(&service_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id)?));
+                let definition = self.definition_provider.read().unwrap().definition_for_function(&service_id);
+                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id, definition)?));
             }
         }
 
@@ -244,18 +245,23 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, service_id: &ServiceId) -> Result<ExecutionContext, FxCloudError> {
+    fn create_execution_context(&self, engine: Arc<Engine>, service_id: &ServiceId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
         let module_code = self.module_code_storage.read().unwrap().get(service_id.id.as_bytes())?;
         let module_code = match module_code {
             Some(v) => v,
             None => return Err(FxCloudError::ModuleCodeNotFound),
         };
 
+        let mut sql = HashMap::new();
+        for sql_definition in definition.sql {
+            sql.insert(sql_definition.id, SqlDatabase::new(sql_definition.path).unwrap());
+        }
+
         ExecutionContext::new(
             engine,
             service_id.clone(),
             HashMap::new(),
-            HashMap::new(),
+            sql,
             module_code,
             true, // TODO: permissions
             true, // TODO: permissions
