@@ -6,8 +6,8 @@ pub use {
 mod cloud;
 mod compatibility;
 mod compiler;
-mod config;
 mod cron;
+mod definition;
 pub mod error;
 mod futures;
 mod http;

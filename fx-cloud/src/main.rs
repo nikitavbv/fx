@@ -16,7 +16,7 @@ use {
         cloud::{FxCloud, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage},
         sql::SqlDatabase,
-        config::{Config, kv_from_config, sql_from_config, ConfigProvider},
+        definition::DefinitionProvider,
         registry::{KVRegistry, SqlRegistry},
         http::HttpHandler,
     },
@@ -25,8 +25,8 @@ use {
 mod cloud;
 mod compatibility;
 mod compiler;
-mod config;
 mod cron;
+mod definition;
 mod error;
 mod http;
 mod kafka;
@@ -39,7 +39,7 @@ mod storage;
 mod streams;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
-const FILE_EXTENSION_CONFIG: &str = ".fx.yaml";
+const FILE_EXTENSION_DEFINITION: &str = ".fx.yaml";
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -72,12 +72,12 @@ async fn main() {
 
     let functions_dir = args.functions_dir.map(|v| PathBuf::from(v)).unwrap_or(std::env::current_dir().unwrap());
     let code_storage = SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir.clone()));
-    let config_storage = SuffixStorage::new(FILE_EXTENSION_CONFIG, FsStorage::new(functions_dir));
-    let config_provider = ConfigProvider::new(BoxedStorage::new(config_storage));
+    let definition_storage = SuffixStorage::new(FILE_EXTENSION_DEFINITION, FsStorage::new(functions_dir));
+    let definition_provider = DefinitionProvider::new(BoxedStorage::new(definition_storage));
 
     let fx_cloud = FxCloud::new()
         .with_code_storage(BoxedStorage::new(code_storage))
-        .with_config_provider(config_provider);
+        .with_definition_provider(definition_provider);
 
     match args.command {
         Command::Run { function, rpc_method_name } => {
@@ -113,51 +113,4 @@ async fn main() {
             }
         }
     }
-}
-
-async fn run_demo() -> anyhow::Result<()> {
-    let config = fs::read("./fx.yaml")
-        .map_err(|err| anyhow!("failed to read config file: {err:?}"))?;
-    let config = String::from_utf8(config)
-        .map_err(|err| anyhow!("failed to parse config file: {err:?}"))?;
-    let config = Config::load(&config);
-    info!("loaded config: {config:?}");
-
-    let kv_registry = KVRegistry::new();
-    for kv_config in config.kv {
-        kv_registry.register(
-            kv_config.id.clone(),
-            kv_from_config(&kv_config).map_err(|err| anyhow!("failed to create kv storage: {err:?}"))?
-        ).map_err(|err| anyhow!("failed to register kv: {err:?}"))?;
-    }
-
-    let sql_registry = SqlRegistry::new();
-    for sql_config in config.sql {
-        sql_registry.register(
-            sql_config.id.clone(),
-            sql_from_config(&sql_config)
-                .map_err(|err| anyhow!("failed to create storage from config: {err:?}"))?,
-        );
-    }
-
-    let demo_storage = BoxedStorage::new(SqliteStorage::in_memory()?)
-        .with_key("demo/instance".as_bytes(), "A".as_bytes())?;
-
-    let fx_cloud = FxCloud::new()
-        .with_code_storage(
-            kv_registry.get("code".to_owned())
-                .map_err(|err| anyhow!("failed to get code storage from registry: {err:?}"))?,
-        )
-        .with_memoized_compiler(
-            kv_registry.get("compiler".to_owned())
-                .map_err(|err| anyhow!("failed to get compiler storage from registry: {err:?}"))?,
-        )
-        .with_queue().await
-        .with_cron(
-            SqlDatabase::in_memory()
-                .map_err(|err| anyhow!("failed to open database for cron: {err:?}"))?,
-        ).map_err(|err| anyhow!("failed to setup cron: {err:?}"))?
-        .with_cron_task("*/10 * * * * * *", ServiceId::new("hello-service".to_owned()), "on_cron")?;
-
-    Ok(())
 }

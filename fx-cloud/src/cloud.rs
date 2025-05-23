@@ -44,7 +44,7 @@ use {
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
-        config::ConfigProvider,
+        definition::DefinitionProvider,
     },
 };
 
@@ -70,10 +70,10 @@ impl FxCloud {
         self
     }
 
-    pub fn with_config_provider(self, new_config_provider: ConfigProvider) -> Self {
+    pub fn with_definition_provider(self, new_definition_provider: DefinitionProvider) -> Self {
         {
-            let mut config_provider = self.engine.config_provider.write().unwrap();
-            *config_provider = new_config_provider;
+            let mut definition_provider = self.engine.definition_provider.write().unwrap();
+            *definition_provider = new_definition_provider;
         }
         self
     }
@@ -162,7 +162,7 @@ pub(crate) struct Engine {
     compiler: RwLock<BoxedCompiler>,
 
     execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
-    config_provider: RwLock<ConfigProvider>,
+    definition_provider: RwLock<DefinitionProvider>,
 
     queue: tokio::sync::RwLock<Option<Queue>>,
 
@@ -182,7 +182,7 @@ impl Engine {
             compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
             execution_contexts: RwLock::new(HashMap::new()),
-            config_provider: RwLock::new(ConfigProvider::new(BoxedStorage::new(EmptyStorage))),
+            definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
 
             queue: tokio::sync::RwLock::new(None),
 
