@@ -563,10 +563,12 @@ fn api_rpc(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let response_future = engine.clone().invoke_service_raw(engine.clone(), service_id, function_name, argument).unwrap();
-    let response_future = response_future.map(|v| v.map_err(|err| FxFutureError::RpcError {
-        reason: err.to_string(),
-    }));
+    let response_future = match engine.clone().invoke_service_raw(engine.clone(), service_id, function_name, argument) {
+        Ok(response_future) => response_future.map(|v| v.map_err(|err| FxFutureError::RpcError {
+            reason: err.to_string(),
+        })).boxed(),
+        Err(err) => std::future::ready(Err(FxFutureError::RpcError { reason: err.to_string() })).boxed(),
+    };
     let response_future = ctx.data().futures.push(response_future.boxed());
 
     response_future.0 as i64

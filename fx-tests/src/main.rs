@@ -54,8 +54,8 @@ async fn main() {
     test_simple(&fx).await;
     test_sql_simple(&fx).await;
     // test_sqlx(&fx).await;
-    // test_invoke_function_non_existent(&fx).await;
-    // test_invoke_function_non_existent_rpc(&fx).await;
+    test_invoke_function_non_existent(&fx).await;
+    test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
     test_invoke_function_panic(&fx).await;
     test_invoke_function_wrong_argument(&fx).await;
@@ -102,7 +102,7 @@ async fn test_sqlx(fx: &FxCloud) {
 async fn test_invoke_function_non_existent(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent");
     let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-non-existent".to_owned()), "simple", ()).await;
-    assert_eq!(Err(FxCloudError::ServiceNotFound), result);
+    assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
 }
 
 async fn test_invoke_function_non_existent_rpc(fx: &FxCloud) {
