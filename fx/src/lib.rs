@@ -11,6 +11,7 @@ pub use {
         CronRequest,
         FxExecutionError,
         FxFutureError,
+        FxSqlError,
     },
     fx_macro::rpc,
     futures::FutureExt,
@@ -188,7 +189,7 @@ impl SqlDatabase {
         Self { name }
     }
 
-    pub fn exec(&self, query: SqlQuery) -> SqlResult {
+    pub fn exec(&self, query: SqlQuery) -> Result<SqlResult, FxSqlError> {
         let query = DatabaseSqlQuery {
             database: self.name.clone(),
             query,

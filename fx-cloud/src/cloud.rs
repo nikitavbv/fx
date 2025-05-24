@@ -30,7 +30,19 @@ use {
     serde::{Serialize, Deserialize},
     futures::FutureExt,
     rand::TryRngCore,
-    fx_core::{LogMessage, DatabaseSqlQuery, DatabaseSqlBatchQuery, SqlResult, SqlResultRow, SqlValue, FetchRequest, HttpResponse, FxExecutionError, FxFutureError},
+    fx_core::{
+        LogMessage,
+        DatabaseSqlQuery,
+        DatabaseSqlBatchQuery,
+        SqlResult,
+        SqlResultRow,
+        SqlValue,
+        FetchRequest,
+        HttpResponse,
+        FxExecutionError,
+        FxFutureError,
+        FxSqlError,
+    },
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
@@ -43,7 +55,7 @@ use {
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
-        definition::{DefinitionProvider, FunctionDefinition},
+        definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition},
     },
 };
 
@@ -220,7 +232,13 @@ impl Engine {
 
         let mut sql = HashMap::new();
         for sql_definition in definition.sql {
-            sql.insert(sql_definition.id, SqlDatabase::new(sql_definition.path).unwrap());
+            sql.insert(
+                sql_definition.id,
+                match sql_definition.storage {
+                    SqlStorageDefinition::InMemory => SqlDatabase::in_memory().unwrap(), // TODO: function crashes, all data is lost
+                    SqlStorageDefinition::Path(path) => SqlDatabase::new(path).unwrap(),
+                },
+            );
         }
 
         ExecutionContext::new(
@@ -617,23 +635,27 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
     }
 
     // TODO: report errors to calling service
-    let result = ctx.data().sql.get(&request.database).as_ref().unwrap().exec(query).unwrap();
-    let result = SqlResult {
-        rows: result.rows.into_iter()
-            .map(|row| SqlResultRow {
-                columns: row.columns.into_iter()
-                    .map(|value| match value {
-                        sql::Value::Null => SqlValue::Null,
-                        sql::Value::Integer(v) => SqlValue::Integer(v),
-                        sql::Value::Real(v) => SqlValue::Real(v),
-                        sql::Value::Text(v) => SqlValue::Text(v),
-                        sql::Value::Blob(v) => SqlValue::Blob(v),
+    let result = ctx.data().sql.get(&request.database)
+        .as_ref()
+        .ok_or(FxSqlError::BindingNotExists)
+        .map(|v| {
+            let result = v.exec(query).unwrap();
+            SqlResult {
+                rows: result.rows.into_iter()
+                    .map(|row| SqlResultRow {
+                        columns: row.columns.into_iter()
+                            .map(|value| match value {
+                                sql::Value::Null => SqlValue::Null,
+                                sql::Value::Integer(v) => SqlValue::Integer(v),
+                                sql::Value::Real(v) => SqlValue::Real(v),
+                                sql::Value::Text(v) => SqlValue::Text(v),
+                                sql::Value::Blob(v) => SqlValue::Blob(v),
+                            })
+                            .collect(),
                     })
                     .collect(),
-            })
-            .collect(),
-    };
-
+            }
+        });
     let result = rmp_serde::to_vec(&result).unwrap();
 
     let (data, mut store) = ctx.data_and_store_mut();

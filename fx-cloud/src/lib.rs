@@ -7,7 +7,7 @@ mod cloud;
 mod compatibility;
 mod compiler;
 mod cron;
-mod definition;
+pub mod definition;
 pub mod error;
 mod futures;
 mod http;

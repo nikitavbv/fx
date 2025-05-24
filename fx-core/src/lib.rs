@@ -186,6 +186,12 @@ pub enum SqlValue {
     Blob(Vec<u8>),
 }
 
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum FxSqlError {
+    #[error("requested database binding does not exist")]
+    BindingNotExists,
+}
+
 #[derive(Error, Debug)]
 pub enum SqlMappingError {
     #[error("this column cannot be converted to this type")]

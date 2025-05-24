@@ -31,7 +31,7 @@ impl<'a> Executor<'a> for &'a FxDatabaseConnection {
         let arguments = query.take_arguments().unwrap();
         // TODO: handle arguments
 
-        let result = self.database.exec(fx_query);
+        let result = self.database.exec(fx_query).unwrap();
         let rows = result.rows.into_iter()
             .map(|row| FxDatabaseRow::new(row.columns))
             .collect();
@@ -46,7 +46,7 @@ impl<'a> Executor<'a> for &'a FxDatabaseConnection {
         let arguments = query.take_arguments().unwrap();
         // TODO: handle arguments
 
-        let result = self.database.exec(fx_query);
+        let result = self.database.exec(fx_query).unwrap();
         let row = result.rows.get(0).unwrap();
         let row = FxDatabaseRow::new(row.columns.clone());
 

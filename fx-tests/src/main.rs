@@ -1,6 +1,14 @@
 use {
     std::{fs, time::{Instant, Duration}},
-    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, ServiceId, error::FxCloudError, FxStream},
+    fx_cloud::{
+        FxCloud,
+        storage::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
+        sql::SqlDatabase,
+        ServiceId,
+        error::FxCloudError,
+        FxStream,
+        definition::{DefinitionProvider, FunctionDefinition, SqlDefinition},
+    },
     tokio::{join, time::sleep},
     futures::StreamExt,
     fx_core::FxExecutionError,
@@ -16,10 +24,15 @@ async fn main() {
 
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
-        .with_key(b"test-app-global", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
         .with_key(b"test-app-system", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
-        .with_key(b"test-invocation-count", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
         .with_key(b"other-app", &fs::read("./target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap();
+
+    let definitions = DefinitionProvider::new(BoxedStorage::new(EmptyStorage))
+        .with_definition(
+            ServiceId::new("test-app"),
+            FunctionDefinition::new().with_sql(SqlDefinition::new("app"))
+        );
+
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
     let database_cron = SqlDatabase::in_memory().unwrap();
@@ -27,6 +40,7 @@ async fn main() {
 
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
+        .with_definition_provider(definitions)
         .with_memoized_compiler(storage_compiler)
         .with_cron(database_cron).unwrap();
         /*.with_service(
@@ -38,7 +52,7 @@ async fn main() {
         )*/
 
     test_simple(&fx).await;
-    // test_sql_simple(&fx).await;
+    test_sql_simple(&fx).await;
     // test_sqlx(&fx).await;
     // test_invoke_function_non_existent(&fx).await;
     // test_invoke_function_non_existent_rpc(&fx).await;
