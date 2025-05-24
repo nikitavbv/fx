@@ -35,7 +35,7 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 }
 
 #[rpc]
-pub fn on_cron(ctx: &FxCtx, _req: CronRequest) {
+pub fn hello_cron(ctx: &FxCtx, _req: ()) {
     ctx.init_logger();
     info!("hello from cron!");
 }

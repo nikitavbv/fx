@@ -1,114 +1,141 @@
 use {
     std::{sync::Arc, time::Duration, str::FromStr},
     tracing::error,
-    chrono::{DateTime, Utc},
+    chrono::{DateTime, Utc, NaiveDateTime},
     tokio::time::sleep,
     cron as cron_utils,
     fx_core::CronRequest,
     crate::{sql::{SqlDatabase, Query, Value}, ServiceId, cloud::Engine, error::FxCloudError},
 };
 
+const DATE_TIME_FORMAT: &str = "%F %T%.f";
+
+#[derive(Clone)]
+pub struct CronTaskDefinition {
+    id: String,
+    schedule: cron_utils::Schedule,
+    function_id: String,
+    method_name: String,
+}
+
+impl CronTaskDefinition {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            schedule: cron_utils::Schedule::from_str("* * * * * *").unwrap(),
+            function_id: "cron".to_owned(),
+            method_name: "on_cron".to_owned(),
+        }
+    }
+
+    pub fn with_schedule(mut self, schedule: String) -> Self {
+        self.schedule = cron_utils::Schedule::from_str(schedule.as_str()).unwrap();
+        self
+    }
+
+    pub fn with_function_id(mut self, function_id: String) -> Self {
+        self.function_id = function_id;
+        self
+    }
+
+    pub fn with_method_name(mut self, method_name: String) -> Self {
+        self.method_name = method_name;
+        self
+    }
+}
+
 #[derive(Clone)]
 pub struct CronRunner {
     cloud_engine: Arc<Engine>,
-    cron: Arc<CronCore>,
+    tasks: Vec<CronTaskDefinition>,
+    database: CronDatabase,
 }
 
 impl CronRunner {
-    pub fn new(cloud_engine: Arc<Engine>, database: SqlDatabase) -> Result<Self, FxCloudError> {
-        Ok(Self {
+    pub fn new(cloud_engine: Arc<Engine>, database: SqlDatabase) -> Self {
+        Self {
             cloud_engine,
-            cron: Arc::new(CronCore::new(database)?),
-        })
+            tasks: Vec::new(),
+            database: CronDatabase::new(database),
+        }
     }
 
-    pub fn schedule(&self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: String) -> Result<(), FxCloudError> {
-        self.cron.schedule(cron_expression.into(), function_id.into(), rpc_function_name)?;
-        Ok(())
+    pub fn with_task(mut self, task: CronTaskDefinition) -> Self {
+        self.tasks.push(task);
+        self
     }
 
-    pub fn run(&self) {
-        let cloud_engine = self.cloud_engine.clone();
-        let cron = self.cron.clone();
+    pub async fn run(self) {
+        let engine = self.cloud_engine;
+        let tasks = self.tasks;
+        let database = self.database;
 
-        let join_handle = tokio::task::spawn_blocking(async move || {
-            loop {
-                let tasks_to_run = cron.get_tasks_to_run();
-
-                for task in tasks_to_run {
-                    cloud_engine.invoke_service::<CronRequest, ()>(cloud_engine.clone(), &ServiceId::new(task.function_id), &task.rpc_function_name, CronRequest {}).await;
-                    let next = cron_utils::Schedule::from_str(&task.cron_expression).unwrap().after(&Utc::now()).next().unwrap();
-                    if let Err(err) = cron.update_task_next_run_at(task.id, next) {
-                        error!("failed to update task next run time: {err:?}");
-                    }
+        loop {
+            for task in &tasks {
+                let now = Utc::now();
+                match database.get_prev_run_time(&task.id.as_str()) {
+                    None => {
+                        // first time, let's run
+                    },
+                    Some(v) => if task.schedule.after(&v).next().unwrap() <= now {
+                        // time to run
+                    } else {
+                        // too early to run again
+                        continue;
+                    },
                 }
 
-                sleep(Duration::from_secs(1)).await;
+                engine.invoke_service::<(), ()>(engine.clone(), &ServiceId::new(task.function_id.clone()), &task.method_name, ()).await.unwrap();
+
+                database.update_run_time(&task.id, now);
             }
-        });
-        tokio::spawn(async { join_handle.await.unwrap().await; });
+
+            sleep(Duration::from_secs(1)).await;
+        }
     }
 }
 
-#[derive(Debug)]
-struct Task {
-    id: i64,
-    cron_expression: String,
-    function_id: String,
-    rpc_function_name: String,
+#[derive(Clone)]
+struct CronDatabase {
+    database: Arc<SqlDatabase>,
 }
 
-struct CronCore {
-    database: SqlDatabase,
-}
+impl CronDatabase {
+    fn new(database: SqlDatabase) -> Self {
+        database.exec(Query::new("create table if not exists cron_tasks (task_id text primary key, last_run_at datetime)".to_owned()))
+            .map_err(|err| FxCloudError::CronError { reason: format!("failed to create state table: {err:?}") })
+            .unwrap();
 
-impl CronCore {
-    pub fn new(database: SqlDatabase) -> Result<Self, FxCloudError> {
-        database.exec(Query::new("create table if not exists cron_tasks (task_id integer primary key, cron_expression text not null, function_id text not null, rpc_function_name text not null, next_run_at datetime)".to_owned()))
-            .map_err(|err| FxCloudError::CronError { reason: format!("failed to create state table: {err:?}") })?;
-        Ok(Self {
-            database,
-        })
+        Self {
+            database: Arc::new(database),
+        }
     }
 
-    fn schedule(&self, cron_expression: String, function_id: String, rpc_function_name: String) -> Result<(), FxCloudError> {
-        self.database.exec(
-            Query::new("insert into cron_tasks (cron_expression, function_id, rpc_function_name, next_run_at) values (?, ?, ?, ?)".to_owned())
-                .with_param(Value::Text(cron_expression))
-                .with_param(Value::Text(function_id))
-                .with_param(Value::Text(rpc_function_name))
-                .with_param(Value::Null)
-        ).map_err(|err| FxCloudError::CronError { reason: format!("failed to schedule cron task: {err:?}") })?;
-        Ok(())
-    }
+    fn get_prev_run_time(&self, task_id: &str) -> Option<DateTime<Utc>> {
+        let result = self.database.exec(
+            Query::new("select last_run_at from cron_tasks where task_id = ?".to_owned())
+                .with_param(Value::Text(task_id.to_owned()))
+        ).unwrap();
 
-    fn get_tasks_to_run(&self) -> Vec<Task> {
-        let res = self.database.exec(Query::new("select task_id, cron_expression, function_id, rpc_function_name from cron_tasks where next_run_at is null or next_run_at <= CURRENT_TIMESTAMP".to_owned()));
-        let res = match res {
+        let datetime = match result.rows.get(0)?.columns.get(0).unwrap() {
+            Value::Text(text) => text,
+            other => panic!("unexpected type for last_run_at: {other:?}"),
+        };
+        let datetime = match NaiveDateTime::parse_from_str(datetime, DATE_TIME_FORMAT) {
             Ok(v) => v,
             Err(err) => {
-                error!("failed to load tasks to run from database: {err:?}");
-                return Vec::new();
+                panic!("failed to parse {datetime:?}: {err:?}");
             }
         };
 
-        res.rows
-            .into_iter()
-            .map(|v| Task {
-                id: v.columns.get(0).unwrap().try_into().unwrap(),
-                cron_expression: v.columns.get(1).unwrap().try_into().unwrap(),
-                function_id: v.columns.get(2).unwrap().try_into().unwrap(),
-                rpc_function_name: v.columns.get(3).unwrap().try_into().unwrap(),
-            })
-            .collect()
+        Some(datetime.and_utc())
     }
 
-    fn update_task_next_run_at(&self, task_id: i64, run_at: DateTime<Utc>) -> Result<(), FxCloudError> {
+    fn update_run_time(&self, task_id: &str, run_at: DateTime<Utc>) {
         self.database.exec(
-            Query::new("update cron_tasks set next_run_at = ? where task_id = ?".to_owned())
-                .with_param(Value::Text(run_at.format("%F %T%.f").to_string()))
-                .with_param(Value::Integer(task_id))
-        ).map_err(|err| FxCloudError::CronError { reason: format!("failed to update next run time: {err:?}") })?;
-        Ok(())
+            Query::new("insert or replace into cron_tasks (task_id, last_run_at) values (?, ?)".to_owned())
+                .with_param(Value::Text(task_id.to_owned()))
+                .with_param(Value::Text(run_at.format(DATE_TIME_FORMAT).to_string()))
+        ).unwrap();
     }
 }

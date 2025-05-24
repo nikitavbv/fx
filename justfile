@@ -21,3 +21,7 @@ app-hello-world:
 
 app-rpc-test-service:
     cargo build --target wasm32-unknown-unknown -p fx-app-rpc-test-service --release
+
+local-cron: app-hello-world
+    cp target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm local/functions/hello-world.wasm
+    cargo run -p fx-cloud --release -- --functions-dir local/functions cron local/cron.yaml

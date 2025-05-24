@@ -1,0 +1,7 @@
+state_path: "local/data/cron.sqlite"
+
+tasks:
+- id: cron-hello-world
+  schedule: "0 */2 * * * *"
+  function: "hello-world"
+  rpc_method_name: "hello_cron"

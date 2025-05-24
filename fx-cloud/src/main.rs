@@ -4,11 +4,11 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf, net::SocketAddr},
+    std::{fs, path::PathBuf, net::SocketAddr, time::Duration},
     tracing::{Level, info, error},
     tracing_subscriber::FmtSubscriber,
     anyhow::anyhow,
-    tokio::{join, net::TcpListener},
+    tokio::{join, net::TcpListener, time::sleep},
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
     clap::{Parser, Subcommand, CommandFactory},
@@ -16,9 +16,10 @@ use {
         cloud::{FxCloud, ServiceId},
         storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage},
         sql::SqlDatabase,
-        definition::DefinitionProvider,
+        definition::{DefinitionProvider, load_cron_task_from_config},
         registry::{KVRegistry, SqlRegistry},
         http::HttpHandler,
+        cron::{CronRunner, CronTaskDefinition},
     },
 };
 
@@ -61,7 +62,10 @@ enum Command {
 
         #[arg(long)]
         port: Option<u16>,
-    }
+    },
+    Cron {
+        schedule_file: String,
+    },
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -110,6 +114,26 @@ async fn main() {
                         }
                 });
             }
+        },
+        Command::Cron { schedule_file } => {
+            let config = load_cron_task_from_config(fs::read(schedule_file).unwrap());
+            let database = SqlDatabase::new(config.state_path).unwrap();
+            let cron_runner = {
+                let mut cron_runner = CronRunner::new(fx_cloud.engine.clone(), database);
+
+                for task in config.tasks {
+                    cron_runner = cron_runner.with_task(
+                        CronTaskDefinition::new(task.id)
+                            .with_schedule(task.schedule)
+                            .with_function_id(task.function)
+                            .with_method_name(task.rpc_method_name)
+                    );
+                }
+
+                cron_runner
+            };
+
+            cron_runner.run().await;
         }
     }
 }

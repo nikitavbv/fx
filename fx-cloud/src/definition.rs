@@ -130,3 +130,21 @@ struct SqlConfig {
     id: String,
     path: String,
 }
+
+#[derive(Deserialize)]
+pub struct CronConfig {
+    pub state_path: String,
+    pub tasks: Vec<CronTaskConfig>,
+}
+
+#[derive(Deserialize)]
+pub struct CronTaskConfig {
+    pub id: String,
+    pub schedule: String,
+    pub function: String,
+    pub rpc_method_name: String,
+}
+
+pub fn load_cron_task_from_config(config: Vec<u8>) -> CronConfig {
+    serde_yml::from_slice(&config).unwrap()
+}

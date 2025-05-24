@@ -41,8 +41,7 @@ async fn main() {
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
-        .with_memoized_compiler(storage_compiler)
-        .with_cron(database_cron).unwrap();
+        .with_memoized_compiler(storage_compiler);
         /*.with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()

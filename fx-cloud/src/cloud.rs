@@ -50,7 +50,6 @@ use {
         http::HttpHandler,
         compatibility,
         sql::{self, SqlDatabase},
-        cron::CronRunner,
         compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
         futures::FuturesPool,
         streams::StreamsPool,
@@ -96,16 +95,6 @@ impl FxCloud {
         self
     }
 
-    pub fn with_cron(self, sql: SqlDatabase) -> Result<Self, FxCloudError> {
-        *self.engine.cron.write().unwrap() = Some(CronRunner::new(self.engine.clone(), sql)?);
-        Ok(self)
-    }
-
-    pub fn with_cron_task(self, cron_expression: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Result<Self, FxCloudError> {
-        self.engine.cron.read().unwrap().as_ref().unwrap().schedule(cron_expression, function_id, rpc_function_name.into())?;
-        Ok(self)
-    }
-
     #[allow(dead_code)]
     pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
@@ -113,11 +102,6 @@ impl FxCloud {
 
     pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
-    }
-
-    #[allow(dead_code)]
-    pub fn run_cron(&self) {
-        self.engine.cron.read().unwrap().as_ref().unwrap().clone().run();
     }
 }
 
@@ -154,8 +138,6 @@ pub(crate) struct Engine {
     execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
-    cron: RwLock<Option<CronRunner>>,
-
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
 
@@ -171,8 +153,6 @@ impl Engine {
 
             execution_contexts: RwLock::new(HashMap::new()),
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
-
-            cron: RwLock::new(None),
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
 
