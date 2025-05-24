@@ -12,6 +12,7 @@ use {
 
 #[derive(Clone)]
 pub struct FunctionDefinition {
+    pub kv: Vec<KvDefinition>,
     pub sql: Vec<SqlDefinition>,
 }
 
@@ -29,9 +30,16 @@ impl FunctionDefinition {
 impl Default for FunctionDefinition {
     fn default() -> Self {
         Self {
+            kv: Vec::new(),
             sql: Vec::new(),
         }
     }
+}
+
+#[derive(Clone)]
+pub struct KvDefinition {
+    pub id: String,
+    pub path: String,
 }
 
 #[derive(Clone)]
@@ -88,6 +96,13 @@ impl DefinitionProvider {
 fn definition_from_config(config: Vec<u8>) -> FunctionDefinition {
     let config: FunctionConfig = serde_yml::from_slice(&config).unwrap();
     FunctionDefinition {
+        kv: config.kv.unwrap_or(Vec::new())
+            .into_iter()
+            .map(|v| KvDefinition {
+                id: v.id,
+                path: v.path,
+            })
+            .collect(),
         sql: config.sql.unwrap_or(Vec::new())
             .into_iter()
             .map(|v| SqlDefinition {
@@ -100,7 +115,14 @@ fn definition_from_config(config: Vec<u8>) -> FunctionDefinition {
 
 #[derive(Deserialize)]
 struct FunctionConfig {
+    kv: Option<Vec<KvConfig>>,
     sql: Option<Vec<SqlConfig>>,
+}
+
+#[derive(Deserialize)]
+struct KvConfig {
+    id: String,
+    path: String,
 }
 
 #[derive(Deserialize)]

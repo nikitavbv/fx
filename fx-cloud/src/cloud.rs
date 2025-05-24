@@ -45,7 +45,7 @@ use {
     },
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
-        storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage},
+        storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxCloudError,
         http::HttpHandler,
         compatibility,
@@ -230,6 +230,14 @@ impl Engine {
             None => return Err(FxCloudError::ModuleCodeNotFound),
         };
 
+        let mut kv = HashMap::new();
+        for kv_definition in definition.kv {
+            kv.insert(
+                kv_definition.id,
+                BoxedStorage::new(FsStorage::new(kv_definition.path.into())),
+            );
+        }
+
         let mut sql = HashMap::new();
         for sql_definition in definition.sql {
             sql.insert(
@@ -244,7 +252,7 @@ impl Engine {
         ExecutionContext::new(
             engine,
             service_id.clone(),
-            HashMap::new(),
+            kv,
             sql,
             module_code,
             true, // TODO: permissions
