@@ -1,6 +1,6 @@
 pub use {
     fx_core::FxStream,
-    crate::cloud::{FxCloud, ServiceId, QUEUE_SYSTEM_INVOCATIONS},
+    crate::cloud::{FxCloud, ServiceId},
 };
 
 mod cloud;
@@ -13,7 +13,6 @@ mod futures;
 mod http;
 mod kafka;
 mod metrics;
-mod queue;
 mod registry;
 pub mod sql;
 pub mod storage;

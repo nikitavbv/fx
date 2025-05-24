@@ -38,7 +38,6 @@ use {
         http::HttpHandler,
         compatibility,
         sql::{self, SqlDatabase},
-        queue::{Queue, AsyncRpcMessage, QUEUE_RPC},
         cron::CronRunner,
         compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
         futures::FuturesPool,
@@ -47,8 +46,6 @@ use {
         definition::{DefinitionProvider, FunctionDefinition},
     },
 };
-
-pub const QUEUE_SYSTEM_INVOCATIONS: &str = "system/invocations";
 
 #[derive(Clone)]
 pub struct FxCloud {
@@ -87,17 +84,6 @@ impl FxCloud {
         self
     }
 
-    pub async fn with_queue(self) -> Self {
-        let engine = self.engine.clone();
-        *self.engine.queue.write().await = Some(Queue::new(engine));
-        self
-    }
-
-    pub async fn with_queue_subscription(self, queue_id: impl Into<String>, function_id: ServiceId, rpc_function_name: impl Into<String>) -> Self {
-        self.engine.queue.read().await.as_ref().unwrap().subscribe(queue_id.into(), function_id, rpc_function_name.into()).await;
-        self
-    }
-
     pub fn with_cron(self, sql: SqlDatabase) -> Result<Self, FxCloudError> {
         *self.engine.cron.write().unwrap() = Some(CronRunner::new(self.engine.clone(), sql)?);
         Ok(self)
@@ -115,14 +101,6 @@ impl FxCloud {
 
     pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
-    }
-
-    pub async fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
-        self.engine.invoke_service_async(function_id, rpc_function_name, argument).await;
-    }
-
-    pub async fn run_queue(&self) {
-        self.engine.queue.read().await.as_ref().unwrap().clone().run();
     }
 
     #[allow(dead_code)]
@@ -164,8 +142,6 @@ pub(crate) struct Engine {
     execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
-    queue: tokio::sync::RwLock<Option<Queue>>,
-
     cron: RwLock<Option<CronRunner>>,
 
     // internal storage where .wasm is loaded from:
@@ -183,8 +159,6 @@ impl Engine {
 
             execution_contexts: RwLock::new(HashMap::new()),
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
-
-            queue: tokio::sync::RwLock::new(None),
 
             cron: RwLock::new(None),
 
@@ -227,14 +201,6 @@ impl Engine {
         Ok(self.run_service(engine, ctx, &function_name, argument))
     }
 
-    pub async fn invoke_service_async<T: serde::ser::Serialize>(&self, function_id: ServiceId, rpc_function_name: String, argument: T) {
-        self.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
-            function_id,
-            rpc_function_name,
-            argument: rmp_serde::to_vec(&argument).unwrap(),
-        }).await;
-    }
-
     fn run_service(&self, engine: Arc<Engine>, ctx: Arc<ExecutionContext>, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             engine,
@@ -266,19 +232,6 @@ impl Engine {
             true, // TODO: permissions
             true, // TODO: permissions
         )
-    }
-
-    async fn push_to_queue<T: serde::ser::Serialize>(&self, queue_id: impl Into<String>, message: T) {
-        self.push_to_queue_raw(queue_id, rmp_serde::to_vec(&message).unwrap()).await;
-    }
-
-    async fn push_to_queue_raw(&self, queue_id: impl Into<String>, message: Vec<u8>) {
-        let queue = self.queue.read().await;
-        let queue = match queue.as_ref() {
-            Some(v) => v,
-            None => return,
-        };
-        queue.push(queue_id.into(), message).await;
     }
 }
 
@@ -447,7 +400,6 @@ impl ExecutionContext {
         let mut import_object = imports! {
             "fx" => {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
-                "rpc_async" => Function::new_typed_with_env(&mut store, &function_env, api_rpc_async),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, api_send_error),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
@@ -602,28 +554,6 @@ fn api_rpc(
     response_future.0 as i64
 }
 
-fn api_rpc_async(
-    ctx: FunctionEnvMut<ExecutionEnv>,
-    service_name_ptr: i64,
-    service_name_len: i64,
-    function_name_ptr: i64,
-    function_name_len: i64,
-    arg_ptr: i64,
-    arg_len: i64
-) {
-    // TODO: permissions check
-    let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
-    let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
-    let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
-
-    let engine = ctx.data().engine.clone();
-    tokio::task::spawn(async move { engine.push_to_queue(QUEUE_RPC, AsyncRpcMessage {
-        function_id: service_id,
-        rpc_function_name: function_name,
-        argument,
-    }).await });
-}
-
 fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
     ctx.data_mut().rpc_response = Some(read_memory_owned(&ctx, addr, len));
 }
@@ -742,7 +672,8 @@ fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len:
     let queue = String::from_utf8(read_memory_owned(&ctx, queue_addr, queue_len)).unwrap();
     let argument = read_memory_owned(&ctx, argument_addr, argument_len);
     let engine = ctx.data().engine.clone();
-    tokio::task::spawn(async move { engine.push_to_queue_raw(queue, argument).await });
+    // TODO: queues need to come back in a different form
+    // tokio::task::spawn(async move { engine.push_to_queue_raw(queue, argument).await });
 }
 
 fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {

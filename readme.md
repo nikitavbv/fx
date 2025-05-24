@@ -10,7 +10,6 @@ building something similar to [workerd](https://github.com/cloudflare/workerd) f
 - function input and output can be a stream.
 - KV storage.
 - sql databases powered by sqlite.
-- queues.
 - functions can call other functions via RPC (callee is run in the same thread, so no networking is involved resulting in very low latency).
 - `log`, `fetch`, `random`, `time` apis.
 

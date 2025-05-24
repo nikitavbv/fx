@@ -32,7 +32,6 @@ mod http;
 mod kafka;
 mod futures;
 mod metrics;
-mod queue;
 mod registry;
 mod sql;
 mod storage;

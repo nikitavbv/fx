@@ -1,6 +1,6 @@
 use {
     std::{fs, time::{Instant, Duration}},
-    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, ServiceId, error::FxCloudError, QUEUE_SYSTEM_INVOCATIONS, FxStream},
+    fx_cloud::{FxCloud, storage::{SqliteStorage, BoxedStorage, WithKey}, sql::SqlDatabase, ServiceId, error::FxCloudError, FxStream},
     tokio::{join, time::sleep},
     futures::StreamExt,
     fx_core::FxExecutionError,
@@ -28,8 +28,7 @@ async fn main() {
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
         .with_memoized_compiler(storage_compiler)
-        .with_queue().await
-        .with_cron(database_cron).unwrap()
+        .with_cron(database_cron).unwrap();
         /*.with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()
@@ -37,9 +36,6 @@ async fn main() {
                 .with_storage("test-kv-disk".to_owned(), BoxedStorage::new(SqliteStorage::new("data/test-kv-disk").unwrap()))
                 .with_sql_database("app".to_owned(), database_app)
         )*/
-        .with_queue_subscription(QUEUE_SYSTEM_INVOCATIONS, ServiceId::new("test-app-system".to_owned()), "on_invoke").await;
-
-    fx.run_queue().await;
 
     test_simple(&fx).await;
     // test_sql_simple(&fx).await;
