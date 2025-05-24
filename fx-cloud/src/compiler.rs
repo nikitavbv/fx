@@ -2,11 +2,21 @@ use {
     std::sync::Arc,
     wasmer::{Module, Store},
     sha2::{Sha256, Digest},
+    thiserror::Error,
     crate::storage::{KVStorage, BoxedStorage},
 };
 
 pub trait Compiler {
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Module;
+    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError>;
+}
+
+#[derive(Error, Debug)]
+pub enum CompilerError {
+    #[error("failed to compile: {reason}")]
+    FailedToCompile { reason: String },
+
+    #[error("failed to deserialize: {reason}")]
+    FailedToDeserialize { reason: String },
 }
 
 pub struct BoxedCompiler {
@@ -22,7 +32,7 @@ impl BoxedCompiler {
 }
 
 impl Compiler for BoxedCompiler {
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Module {
+    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
         self.inner.compile(store, bytes)
     }
 }
@@ -36,8 +46,8 @@ impl SimpleCompiler {
 }
 
 impl Compiler for SimpleCompiler {
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Module {
-        Module::new(&store, &bytes).unwrap()
+    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
+        Module::new(&store, &bytes).map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
     }
 }
 
@@ -63,18 +73,18 @@ impl MemoizedCompiler {
 
 // TODO: Module supports .clone()
 impl Compiler for MemoizedCompiler {
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Module {
+    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
         let key = self.key(&bytes);
         match self.storage.get(&key).unwrap() {
             Some(v) => {
                 let module = unsafe { Module::deserialize(store, v) };
-                module.unwrap()
+                module.map_err(|err| CompilerError::FailedToDeserialize { reason: err.to_string() })
             },
             None => {
-                let module = self.compiler.compile(store, bytes);
+                let module = self.compiler.compile(store, bytes)?;
                 let serialized = module.serialize().unwrap();
                 self.storage.set(&key, &serialized.to_vec()).unwrap();
-                module
+                Ok(module)
             }
         }
     }

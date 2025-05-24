@@ -409,7 +409,8 @@ impl ExecutionContext {
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
-        let module = engine.compiler.read().unwrap().compile(&store, module_code);
+        let module = engine.compiler.read().unwrap().compile(&store, module_code)
+            .map_err(|err| FxCloudError::CompilationError { reason: err.to_string() })?;
         let function_env = FunctionEnv::new(
             &mut store,
             ExecutionEnv::new(futures, engine.streams_pool.clone(), engine, service_id.clone(), storage, sql, allow_fetch, allow_log)
