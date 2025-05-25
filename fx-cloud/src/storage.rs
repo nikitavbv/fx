@@ -1,12 +1,23 @@
 use {
-    std::{sync::{Arc, Mutex}, path::PathBuf, fs, io},
+    std::{sync::{Arc, Mutex}, path::{self, PathBuf}, fs, io, future},
     rusqlite::Connection,
+    futures::{stream::{self, BoxStream}, StreamExt},
+    tokio::sync::mpsc,
+    notify::Watcher,
     crate::error::FxCloudError,
 };
 
 pub trait KVStorage {
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError>;
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError>;
+
+    fn watch(&self) -> BoxStream<KeyUpdate> {
+        stream::empty().boxed()
+    }
+}
+
+pub struct KeyUpdate {
+    pub key: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -70,12 +81,16 @@ impl KVStorage for SqliteStorage {
 #[derive(Clone)]
 pub struct FsStorage {
     path: PathBuf,
+    watchers: Arc<Mutex<Vec<Box<dyn notify::Watcher + Send>>>>,
 }
 
 impl FsStorage {
     pub fn new(path: PathBuf) -> Self {
         fs::create_dir_all(&path).unwrap();
-        Self { path }
+        Self {
+            path,
+            watchers: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 }
 
@@ -97,6 +112,35 @@ impl KVStorage for FsStorage {
         let path = self.path.join(&String::from_utf8(key.to_vec()).unwrap());
         fs::write(path, value).unwrap();
         Ok(())
+    }
+
+    fn watch(&self) -> BoxStream<KeyUpdate> {
+        let base_path = path::absolute(PathBuf::from(self.path.clone())).unwrap();
+        println!("running watch on {:?}", base_path);
+        let (tx, mut rx) = mpsc::channel(1024);
+        let event_fn = {
+            let base_path = base_path.clone();
+
+            move |res: notify::Result<notify::Event>| {
+                let res = res.unwrap();
+                for changed_path in res.paths {
+                    let relative = pathdiff::diff_paths(changed_path, &base_path).unwrap();
+                    tx.blocking_send(KeyUpdate {
+                        key: relative.to_str().unwrap().as_bytes().to_vec(),
+                    }).unwrap();
+                }
+            }
+        };
+        let mut watcher = notify::recommended_watcher(event_fn).unwrap();
+        watcher.watch(&base_path, notify::RecursiveMode::Recursive).unwrap();
+        self.watchers.lock().unwrap().push(Box::new(watcher));
+
+        async_stream::stream! {
+            while let Some(item) = rx.recv().await {
+                yield item;
+            }
+            println!("stopping here");
+        }.boxed()
     }
 }
 
@@ -150,6 +194,28 @@ impl<T> SuffixStorage<T> {
 impl<T: KVStorage> KVStorage for SuffixStorage<T> {
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.suffixed_key(key), value) }
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.suffixed_key(key)) }
+
+    fn watch(&self) -> BoxStream<KeyUpdate> {
+        let suffix = self.suffix.clone();
+        let suffix_len = suffix.len();
+
+        self.inner
+            .watch()
+            .filter(move |v| future::ready(v.key.ends_with(&suffix)))
+            .map(move |v| KeyUpdate {
+                key: v.key[0..v.key.len() - suffix_len].to_vec(),
+            })
+            .boxed()
+    }
+}
+
+impl<T: Clone> Clone for SuffixStorage<T> {
+    fn clone(&self) -> Self {
+        Self {
+            suffix: self.suffix.clone(),
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 pub struct EmptyStorage;
@@ -179,6 +245,10 @@ impl KVStorage for BoxedStorage {
 
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
         self.inner.set(key, value)
+    }
+
+    fn watch(&self) -> BoxStream<KeyUpdate> {
+        self.inner.watch()
     }
 }
 

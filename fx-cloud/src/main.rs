@@ -4,7 +4,7 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf, net::SocketAddr, time::Duration},
+    std::{fs, path::PathBuf, net::SocketAddr, time::Duration, sync::Arc},
     tracing::{Level, info, error},
     tracing_subscriber::FmtSubscriber,
     anyhow::anyhow,
@@ -12,9 +12,10 @@ use {
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
     clap::{Parser, Subcommand, CommandFactory},
+    ::futures::StreamExt,
     crate::{
-        cloud::{FxCloud, ServiceId},
-        storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage},
+        cloud::{FxCloud, ServiceId, Engine},
+        storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config},
         registry::{KVRegistry, SqlRegistry},
@@ -74,15 +75,23 @@ async fn main() {
     let args = Args::parse();
 
     let functions_dir = args.functions_dir.map(|v| PathBuf::from(v)).unwrap_or(std::env::current_dir().unwrap());
-    let code_storage = SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir.clone()));
-    let definition_storage = SuffixStorage::new(FILE_EXTENSION_DEFINITION, FsStorage::new(functions_dir));
-    let definition_provider = DefinitionProvider::new(BoxedStorage::new(definition_storage));
+    let code_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir.clone())));
+    let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, FsStorage::new(functions_dir)));
+    let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
     let fx_cloud = FxCloud::new()
-        .with_code_storage(BoxedStorage::new(code_storage))
+        .with_code_storage(code_storage.clone())
         .with_definition_provider(definition_provider);
 
-    match args.command {
+    tokio::join!(
+        reload_on_key_changes(fx_cloud.engine.clone(), code_storage),
+        reload_on_key_changes(fx_cloud.engine.clone(), definition_storage),
+        run_command(fx_cloud, args.command),
+    );
+}
+
+async fn run_command(fx_cloud: FxCloud, command: Command) {
+    match command {
         Command::Run { function, rpc_method_name } => {
             let function = if function.ends_with(FILE_EXTENSION_WASM) {
                 &function[0..function.len() - FILE_EXTENSION_WASM.len()]
@@ -135,5 +144,12 @@ async fn main() {
 
             cron_runner.run().await;
         }
+    }
+}
+
+async fn reload_on_key_changes(engine: Arc<Engine>, storage: BoxedStorage) {
+    let mut watcher = storage.watch();
+    while let Some(key) = watcher.next().await {
+        engine.reload(&ServiceId::new(String::from_utf8(key.key).unwrap()))
     }
 }

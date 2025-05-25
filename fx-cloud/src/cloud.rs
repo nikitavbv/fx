@@ -103,6 +103,10 @@ impl FxCloud {
     pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
+
+    pub fn reload(&self, function_id: &ServiceId) {
+        self.engine.reload(function_id)
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize)]
@@ -187,6 +191,13 @@ impl Engine {
         }
 
         Ok(self.run_service(engine, service_id.clone(), &function_name, argument))
+    }
+
+    pub fn reload(&self, function_id: &ServiceId) {
+        if let Some(execution_context) = self.execution_contexts.read().unwrap().get(function_id) {
+            println!("reloading {}", function_id.id);
+            execution_context.needs_recreate.store(true, Ordering::SeqCst);
+        }
     }
 
     fn run_service(&self, engine: Arc<Engine>, function_id: ServiceId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {

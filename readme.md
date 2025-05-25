@@ -12,6 +12,7 @@ building something similar to [workerd](https://github.com/cloudflare/workerd) f
 - sql databases powered by sqlite.
 - functions can call other functions via RPC (callee is run in the same thread, so no networking is involved resulting in very low latency).
 - `log`, `fetch`, `random`, `time` apis.
+- livereload functions.
 
 still, note that this is a toy project with a lot of apis missing. it is also missing handling for various edge cases/errors. do not expect it to handle any significant rps as well at this moment.
 
