@@ -44,6 +44,7 @@ use {
         FxSqlError,
     },
     fx_cloud_common::FunctionInvokeEvent,
+    dashmap::DashMap,
     crate::{
         storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxCloudError,
@@ -135,7 +136,7 @@ pub(crate) struct Engine {
 
     compiler: RwLock<BoxedCompiler>,
 
-    execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
+    execution_contexts: DashMap<ServiceId, ExecutionContext>,
     definition_provider: RwLock<DefinitionProvider>,
 
     // internal storage where .wasm is loaded from:
@@ -151,7 +152,7 @@ impl Engine {
 
             compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
 
-            execution_contexts: RwLock::new(HashMap::new()),
+            execution_contexts: DashMap::new(),
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
@@ -168,8 +169,7 @@ impl Engine {
 
     pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         let need_to_create_context = {
-            let execution_contexts = self.execution_contexts.read().unwrap();
-            if let Some(context) = execution_contexts.get(&service_id) {
+            if let Some(context) = self.execution_contexts.get(&service_id) {
                 context.needs_recreate.load(Ordering::SeqCst)
             } else {
                 true
@@ -178,11 +178,10 @@ impl Engine {
 
         if need_to_create_context {
             // need to create execution context first
-            let mut execution_contexts = self.execution_contexts.write().unwrap();
-            let ctx = execution_contexts.get(&service_id);
+            let ctx = self.execution_contexts.get(&service_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
                 let definition = self.definition_provider.read().unwrap().definition_for_function(&service_id);
-                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id, definition)?));
+                self.execution_contexts.insert(service_id.clone(), self.create_execution_context(engine.clone(), &service_id, definition)?);
             }
         }
 
@@ -237,8 +236,7 @@ impl Engine {
     }
 
     pub(crate) fn stream_poll_next(&self, function_id: &ServiceId, index: i64) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
-        let ctxs = self.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(function_id).unwrap();
+        let ctx = self.execution_contexts.get(function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
         let store = store_lock.deref_mut();
 
@@ -287,18 +285,9 @@ impl Future for FunctionRuntimeFuture {
 
         let argument = self.argument.clone();
         let function_name = self.function_name.clone();
-        let ctxs = self.engine.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(&self.function_id).unwrap();
+        let ctx = self.engine.execution_contexts.get(&self.function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
         let store = store_lock.deref_mut();
-
-        {
-            let function_env = ctx.function_env.as_ref(store);
-            if function_env.execution_context.read().unwrap().is_none() {
-                let mut f_env_execution_context = function_env.execution_context.write().unwrap();
-                *f_env_execution_context = Some(ctx.clone());
-            }
-        }
 
         let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
 
@@ -475,8 +464,6 @@ impl ExecutionContext {
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub(crate) struct ExecutionEnv {
-    execution_context: RwLock<Option<Arc<ExecutionContext>>>,
-
     futures: FuturesPool,
     futures_waker: Option<std::task::Waker>,
     streams: StreamsPool,
@@ -510,7 +497,6 @@ impl ExecutionEnv {
         allow_log: bool
     ) -> Self {
         Self {
-            execution_context: RwLock::new(None),
             futures,
             futures_waker: None,
             streams,
@@ -565,8 +551,8 @@ fn api_rpc(
     arg_ptr: i64,
     arg_len: i64,
 ) -> i64 {
-    let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
     let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
+    let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
@@ -811,10 +797,10 @@ fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, outpu
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
     // TODO: permissions check
-    let functions: Vec<_> = ctx.data().engine.execution_contexts.read().unwrap()
+    let functions: Vec<_> = ctx.data().engine.execution_contexts
         .iter()
-        .map(|(function_id, _function)| fx_cloud_common::Function {
-            id: function_id.id.clone(),
+        .map(|function| fx_cloud_common::Function {
+            id: function.service_id.id.clone(),
         })
         .collect();
 

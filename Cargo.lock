@@ -1292,6 +1292,7 @@ dependencies = [
  "clap",
  "cron",
  "crossbeam",
+ "dashmap",
  "futures",
  "fx-cloud-common",
  "fx-core",
