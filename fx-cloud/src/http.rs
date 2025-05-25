@@ -35,7 +35,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let service_id = self.service_id.clone();
         Box::pin(async move {
             let method = req.method().to_owned();
-            let url = req.uri().to_string();
+            let url = req.uri().clone();
             let headers = req.headers().clone();
             let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
             let body = FxStream { index: engine.streams_pool.push(body).0 as i64 };

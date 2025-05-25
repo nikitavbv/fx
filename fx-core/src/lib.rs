@@ -2,14 +2,15 @@ use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
-    http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode, Method as HttpMethod},
+    http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode, Method as HttpMethod, Uri},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {
     #[serde(with = "http_serde::method")]
     pub method: HttpMethod,
-    pub url: String,
+    #[serde(with = "http_serde::uri")]
+    pub url: Uri,
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,
     pub body: Option<FxStream>,
@@ -22,7 +23,7 @@ impl HttpRequest {
     pub fn new() -> Self {
         Self {
             method: HttpMethod::GET,
-            url: "/".to_owned(),
+            url: "/".parse().unwrap(),
             headers: HeaderMap::new(),
             body: None,
         }
@@ -34,7 +35,7 @@ impl HttpRequest {
     }
 
     pub fn with_url(mut self, url: impl Into<String>) -> Self {
-        self.url = url.into();
+        self.url = url.into().parse().unwrap();
         self
     }
 }

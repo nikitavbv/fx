@@ -738,7 +738,7 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
     let req: HttpRequest = decode_memory(&ctx, req_addr, req_len);
 
     let mut request = ctx.data().fetch_client
-        .request(req.method, req.url)
+        .request(req.method, req.url.to_string())
         .headers(req.headers);
     if let Some(body) = req.body {
         request = request.body(reqwest::Body::wrap_stream(ctx.data().streams.read(ctx.data().engine.clone(), &body)));
