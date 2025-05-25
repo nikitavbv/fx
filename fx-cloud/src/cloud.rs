@@ -287,8 +287,10 @@ impl Future for FunctionRuntimeFuture {
 
         let argument = self.argument.clone();
         let function_name = self.function_name.clone();
-        let ctxs = self.engine.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(&self.function_id).unwrap();
+        let ctx = {
+            let ctxs = self.engine.execution_contexts.read().unwrap();
+            ctxs.get(&self.function_id).unwrap().clone()
+        };
         let mut store_lock = ctx.store.lock().unwrap();
         let store = store_lock.deref_mut();
 
