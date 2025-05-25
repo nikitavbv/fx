@@ -145,6 +145,7 @@ pub(crate) struct Engine {
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
 
+    pub(crate) futures_pool: FuturesPool,
     pub(crate) streams_pool: StreamsPool,
 }
 
@@ -160,6 +161,7 @@ impl Engine {
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
 
+            futures_pool: FuturesPool::new(),
             streams_pool: StreamsPool::new(),
         }
     }
@@ -421,8 +423,6 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
-        let futures = FuturesPool::new();
-
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
@@ -432,7 +432,7 @@ impl ExecutionContext {
             .map_err(|err| FxCloudError::CompilationError { reason: err.to_string() })?;
         let function_env = FunctionEnv::new(
             &mut store,
-            ExecutionEnv::new(futures, engine.streams_pool.clone(), engine, service_id.clone(), storage, sql, allow_fetch, allow_log)
+            ExecutionEnv::new(engine, service_id.clone(), storage, sql, allow_fetch, allow_log)
         );
 
         let mut import_object = imports! {
@@ -490,9 +490,7 @@ fn ops_cost_function(_: &Operator) -> u64 { 1 }
 pub(crate) struct ExecutionEnv {
     execution_context: RwLock<Option<Arc<ExecutionContext>>>,
 
-    futures: FuturesPool,
     futures_waker: Option<std::task::Waker>,
-    streams: StreamsPool,
 
     engine: Arc<Engine>,
     instance: Option<Instance>,
@@ -513,8 +511,6 @@ pub(crate) struct ExecutionEnv {
 
 impl ExecutionEnv {
     pub fn new(
-        futures: FuturesPool,
-        streams: StreamsPool,
         engine: Arc<Engine>,
         service_id: ServiceId,
         storage: HashMap<String, BoxedStorage>,
@@ -524,9 +520,7 @@ impl ExecutionEnv {
     ) -> Self {
         Self {
             execution_context: RwLock::new(None),
-            futures,
             futures_waker: None,
-            streams,
             engine,
             instance: None,
             memory: None,
@@ -589,7 +583,7 @@ fn api_rpc(
         })).boxed(),
         Err(err) => std::future::ready(Err(FxFutureError::RpcError { reason: err.to_string() })).boxed(),
     };
-    let response_future = ctx.data().futures.push(response_future.boxed());
+    let response_future = ctx.data().engine.futures_pool.push(response_future.boxed());
 
     response_future.0 as i64
 }
@@ -741,7 +735,7 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         .request(req.method, req.url.to_string())
         .headers(req.headers);
     if let Some(body) = req.body {
-        request = request.body(reqwest::Body::wrap_stream(ctx.data().streams.read(ctx.data().engine.clone(), &body)));
+        request = request.body(reqwest::Body::wrap_stream(ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body)));
     }
 
     let request_future = request.send()
@@ -756,12 +750,12 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         })
         .boxed();
 
-    ctx.data().futures.push(request_future).0 as i64
+    ctx.data().engine.futures_pool.push(request_future).0 as i64
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
-    let future_index = ctx.data().futures.push(sleep.map(|v| Ok(rmp_serde::to_vec(&v).unwrap())).boxed());
+    let future_index = ctx.data().engine.futures_pool.push(sleep.map(|v| Ok(rmp_serde::to_vec(&v).unwrap())).boxed());
     future_index.0 as i64
 }
 
@@ -781,7 +775,7 @@ fn api_time(_ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
 }
 
 fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
-    let result = ctx.data().futures.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
+    let result = ctx.data().engine.futures_pool.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
 
     match result {
         Poll::Pending => 0,
@@ -798,11 +792,11 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
 }
 
 fn api_stream_export(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
-    ctx.data().streams.push_function_stream(ctx.data().service_id.clone()).0 as i64
+    ctx.data().engine.streams_pool.push_function_stream(ctx.data().service_id.clone()).0 as i64
 }
 
 fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
-    let result = ctx.data().streams.poll_next(
+    let result = ctx.data().engine.streams_pool.poll_next(
         ctx.data().engine.clone(),
         &crate::streams::HostPoolIndex(index as u64),
         &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap())

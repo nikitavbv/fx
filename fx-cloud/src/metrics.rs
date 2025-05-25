@@ -23,6 +23,7 @@ pub struct Metrics {
     pub(crate) http_requests_total: IntCounter,
     pub(crate) http_requests_in_flight: IntGauge,
     pub(crate) arena_streams_size: IntGauge,
+    pub(crate) arena_futures_size: IntGauge,
 }
 
 impl Metrics {
@@ -32,12 +33,15 @@ impl Metrics {
         let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total htpt requests processed", registry).unwrap();
         let http_requests_in_flight = register_int_gauge_with_registry!("http_requests_in_flight", "http requests being processed", registry).unwrap();
         let arena_streams_size = register_int_gauge_with_registry!("arena_streams_size", "size of streams arena", registry).unwrap();
+        let arena_futures_size = register_int_gauge_with_registry!("arena_futures_size", "size of futures arena", registry).unwrap();
 
         Self {
             http_requests_total,
             http_requests_in_flight,
-            registry,
             arena_streams_size,
+            arena_futures_size,
+
+            registry,
         }
     }
 
@@ -81,6 +85,7 @@ async fn collect_metrics(engine: Arc<Engine>) {
     let metrics = engine.metrics.clone();
     loop {
         metrics.arena_streams_size.set(engine.streams_pool.len() as i64);
+        metrics.arena_futures_size.set(engine.futures_pool.len() as i64);
         sleep(Duration::from_secs(10)).await;
     }
 }
