@@ -37,7 +37,7 @@ use {
         SqlResult,
         SqlResultRow,
         SqlValue,
-        FetchRequest,
+        HttpRequest,
         HttpResponse,
         FxExecutionError,
         FxFutureError,
@@ -735,13 +735,13 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         panic!("service {:?} is not allowed to call fetch", ctx.data().service_id.id);
     }
 
-    let req: FetchRequest = decode_memory(&ctx, req_addr, req_len);
+    let req: HttpRequest = decode_memory(&ctx, req_addr, req_len);
 
     let mut request = ctx.data().fetch_client
-        .request(req.method, req.endpoint)
+        .request(req.method, req.url)
         .headers(req.headers);
     if let Some(body) = req.body {
-        request = request.body(body);
+        request = request.body(reqwest::Body::wrap_stream(ctx.data().streams.read(ctx.data().engine.clone(), &body)));
     }
 
     let request_future = request.send()

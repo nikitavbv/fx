@@ -2,7 +2,6 @@ pub use {
     fx_core::{
         HttpRequest,
         HttpResponse,
-        FetchRequest,
         SqlQuery,
         DatabaseSqlQuery,
         DatabaseSqlBatchQuery,
@@ -115,7 +114,7 @@ impl FxCtx {
         }
     }
 
-    pub async fn fetch(&self, req: FetchRequest) -> Result<HttpResponse, FxFutureError> {
+    pub async fn fetch(&self, req: HttpRequest) -> Result<HttpResponse, FxFutureError> {
         let req = rmp_serde::to_vec(&req).unwrap();
         let future_index = unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64) };
 

@@ -10,13 +10,13 @@ pub mod database;
 pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
-    let body = req.body.import()
-        .map(|v| Ok::<Vec<u8>, std::convert::Infallible>(v));
+    let body = req.body
+        .map(|body| body.import().map(|v| Ok::<Vec<u8>, std::convert::Infallible>(v)));
 
     let fx_response = service.call(Request::builder()
         .uri(req.url)
         .method(req.method)
-        .body(Body::from_stream(body))
+        .body(body.map(|v| Body::from_stream(v)).unwrap_or(Body::empty()))
         .unwrap()
     );
     let fx_response = fx_response.await.unwrap();

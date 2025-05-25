@@ -44,7 +44,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 method,
                 url,
                 headers,
-                body,
+                body: Some(body),
             };
             let fx_response: HttpResponse = match engine.invoke_service(engine.clone(), &service_id, "http", request).await {
                 Ok(v) => v,

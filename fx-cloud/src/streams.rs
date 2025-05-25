@@ -52,6 +52,14 @@ impl StreamsPool {
     pub fn remove(&self, index: &HostPoolIndex) -> FxStream {
         self.inner.lock().unwrap().remove(index)
     }
+
+    pub fn read(&self, engine: Arc<Engine>, stream: &fx_core::FxStream) -> FxReadableStream {
+        FxReadableStream {
+            engine,
+            stream: self.remove(&HostPoolIndex(stream.index as u64)),
+            index: stream.index,
+        }
+    }
 }
 
 pub struct StreamsPoolInner {
@@ -90,11 +98,7 @@ impl StreamsPoolInner {
 
 impl FxCloud {
     pub fn read_stream(&self, stream: &fx_core::FxStream) -> FxReadableStream {
-        FxReadableStream {
-            engine: self.engine.clone(),
-            index: stream.index,
-            stream: self.engine.streams_pool.remove(&HostPoolIndex(stream.index as u64)),
-        }
+        self.engine.streams_pool.read(self.engine.clone(), stream)
     }
 }
 

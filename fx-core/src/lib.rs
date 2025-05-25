@@ -12,7 +12,31 @@ pub struct HttpRequest {
     pub url: String,
     #[serde(with = "http_serde::header_map")]
     pub headers: HeaderMap,
-    pub body: FxStream,
+    pub body: Option<FxStream>,
+}
+
+impl HttpRequest {
+    pub fn get(endpoint: impl Into<String>) -> Self { Self::new().with_method(HttpMethod::GET).with_url(endpoint) }
+    pub fn post(endpoint: impl Into<String>) -> Self { Self::new().with_method(HttpMethod::POST).with_url(endpoint) }
+    pub fn put(endpoint: impl Into<String>) -> Self { Self::new().with_method(HttpMethod::PUT).with_url(endpoint) }
+    pub fn new() -> Self {
+        Self {
+            method: HttpMethod::GET,
+            url: "/".to_owned(),
+            headers: HeaderMap::new(),
+            body: None,
+        }
+    }
+
+    pub fn with_method(mut self, method: HttpMethod) -> Self {
+        self.method = method;
+        self
+    }
+
+    pub fn with_url(mut self, url: impl Into<String>) -> Self {
+        self.url = url.into();
+        self
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -77,46 +101,6 @@ impl HttpResponseBody for &str {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LogMessage {
     pub fields: HashMap<String, String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FetchRequest {
-    pub endpoint: String,
-    #[serde(with = "http_serde::method")]
-    pub method: HttpMethod,
-    #[serde(with = "http_serde::header_map")]
-    pub headers: HeaderMap,
-    pub body: Option<Vec<u8>>,
-}
-
-impl FetchRequest {
-    pub fn get(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::GET, endpoint.into()) }
-    pub fn post(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::POST, endpoint.into()) }
-    pub fn put(endpoint: impl Into<String>) -> Self { Self::with_method(HttpMethod::PUT, endpoint.into()) }
-    fn with_method(method: HttpMethod, endpoint: String) -> Self {
-        Self {
-            endpoint,
-            method,
-            headers: HeaderMap::new(),
-            body: None,
-        }
-    }
-
-    pub fn with_header<K: IntoHeaderName>(mut self, header_name: K, header_value: impl Into<HeaderValue>) -> Self {
-        self.headers.insert(header_name, header_value.into());
-        self
-    }
-
-    pub fn with_body(mut self, body: Vec<u8>) -> Self {
-        self.body = Some(body);
-        self
-    }
-
-    pub fn with_json(self, json: &serde_json::Value) -> Self {
-        self
-            .with_header("content-type", HeaderValue::from_static("application/json"))
-            .with_body(serde_json::to_vec(json).unwrap())
-    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -1,6 +1,6 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
-    fx::{rpc, FxCtx, SqlQuery, sleep, FetchRequest, FxStream, FxStreamExport, KvError},
+    fx::{rpc, FxCtx, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError},
     fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
     fx_cloud_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
@@ -115,7 +115,7 @@ pub async fn call_rpc_panic(ctx: &FxCtx, _arg: ()) -> i64 {
 pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
     ctx.init_logger();
     let response = ctx.fetch(
-        FetchRequest::get("https://fx.nikitavbv.com/api/mock/get")
+        HttpRequest::get("https://fx.nikitavbv.com/api/mock/get")
     ).await.unwrap();
 
     if !response.status.is_success() {
