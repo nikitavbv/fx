@@ -21,6 +21,7 @@ use {
         registry::{KVRegistry, SqlRegistry},
         http::HttpHandler,
         cron::{CronRunner, CronTaskDefinition},
+        metrics::run_metrics_server,
     },
 };
 
@@ -50,6 +51,9 @@ struct Args {
 
     #[arg(long)]
     functions_dir: Option<String>,
+
+    #[arg(long)]
+    metrics_port: Option<u16>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -86,6 +90,7 @@ async fn main() {
     tokio::join!(
         reload_on_key_changes(fx_cloud.engine.clone(), code_storage),
         reload_on_key_changes(fx_cloud.engine.clone(), definition_storage),
+        run_metrics_server(fx_cloud.engine.clone(), args.metrics_port.unwrap_or(8081)),
         run_command(fx_cloud, args.command),
     );
 }

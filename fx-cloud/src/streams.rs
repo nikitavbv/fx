@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll, Context}, ops::DerefMut},
     futures::{stream::BoxStream, StreamExt},
     crate::{
-        cloud::{ExecutionContext, FxCloud, ServiceId, Engine},
+        cloud::{FxCloud, ServiceId, Engine},
         error::FxCloudError,
     },
 };
@@ -60,6 +60,10 @@ impl StreamsPool {
             index: stream.index,
         }
     }
+
+    pub fn len(&self) -> u64 {
+        self.inner.lock().unwrap().len()
+    }
 }
 
 pub struct StreamsPoolInner {
@@ -93,6 +97,10 @@ impl StreamsPoolInner {
 
     pub fn remove(&mut self, index: &HostPoolIndex) -> FxStream {
         self.pool.remove(&index.0).unwrap()
+    }
+
+    pub fn len(&self) -> u64 {
+        self.pool.len() as u64
     }
 }
 
