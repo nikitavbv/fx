@@ -186,17 +186,13 @@ impl Engine {
             }
         }
 
-        let ctxs = self.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(&service_id).unwrap().clone();
-        drop(ctxs);
-
-        Ok(self.run_service(engine, ctx, &function_name, argument))
+        Ok(self.run_service(engine, service_id.clone(), &function_name, argument))
     }
 
-    fn run_service(&self, engine: Arc<Engine>, ctx: Arc<ExecutionContext>, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+    fn run_service(&self, engine: Arc<Engine>, function_id: ServiceId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             engine,
-            ctx,
+            function_id,
             function_name: function_name.to_owned(),
             argument: argument.to_owned(),
             rpc_future_index: Arc::new(Mutex::new(None)),
@@ -265,7 +261,7 @@ impl Engine {
 
 pub struct FunctionRuntimeFuture {
     engine: Arc<Engine>,
-    ctx: Arc<ExecutionContext>,
+    function_id: ServiceId,
     function_name: String,
     argument: Vec<u8>,
     rpc_future_index: Arc<Mutex<Option<i64>>>,
@@ -291,7 +287,8 @@ impl Future for FunctionRuntimeFuture {
 
         let argument = self.argument.clone();
         let function_name = self.function_name.clone();
-        let ctx = &self.ctx;
+        let ctxs = self.engine.execution_contexts.read().unwrap();
+        let ctx = ctxs.get(&self.function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
         let store = store_lock.deref_mut();
 
