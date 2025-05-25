@@ -123,12 +123,17 @@ impl KVStorage for FsStorage {
 
             move |res: notify::Result<notify::Event>| {
                 let res = res.unwrap();
-                println!("fs notify change kind: {:?}", res.kind);
-                for changed_path in res.paths {
-                    let relative = pathdiff::diff_paths(changed_path, &base_path).unwrap();
-                    tx.blocking_send(KeyUpdate {
-                        key: relative.to_str().unwrap().as_bytes().to_vec(),
-                    }).unwrap();
+                match res.kind {
+                    notify::EventKind::Access(_) => {},
+                    _other => {
+                        println!("fs notify change kind: {:?}", res.kind);
+                        for changed_path in res.paths {
+                            let relative = pathdiff::diff_paths(changed_path, &base_path).unwrap();
+                            tx.blocking_send(KeyUpdate {
+                                key: relative.to_str().unwrap().as_bytes().to_vec(),
+                            }).unwrap();
+                        }
+                    }
                 }
             }
         };
