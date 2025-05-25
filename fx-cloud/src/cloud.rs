@@ -239,6 +239,28 @@ impl Engine {
             true, // TODO: permissions
         )
     }
+
+    pub(crate) fn stream_poll_next(&self, function_id: &ServiceId, index: i64) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+        let ctxs = self.execution_contexts.read().unwrap();
+        let ctx = ctxs.get(function_id).unwrap();
+        let mut store_lock = ctx.store.lock().unwrap();
+        let store = store_lock.deref_mut();
+
+        let function_stream_next = ctx.instance.exports.get_function("_fx_stream_next").unwrap();
+        // TODO: measure points
+        let poll_next = function_stream_next.call(store, &[wasmer::Value::I64(index)]).unwrap()[0].unwrap_i64();
+        match poll_next {
+            0 => Poll::Pending,
+            1 => {
+                let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
+                Poll::Ready(Some(Ok(response)))
+            },
+            2 => Poll::Ready(None),
+            other => Poll::Ready(Some(Err(FxCloudError::StreamingError {
+                reason: format!("unexpected repsonse code from _fx_stream_next: {other:?}"),
+            }))),
+        }
+    }
 }
 
 pub struct FunctionRuntimeFuture {
@@ -371,7 +393,6 @@ impl Future for FunctionRuntimeFuture {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct ExecutionContext {
     pub(crate) instance: Instance,
     pub(crate) store: Arc<Mutex<Store>>,
@@ -767,14 +788,15 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
 }
 
 fn api_stream_export(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
-    let execution_context = ctx.data().execution_context.read().unwrap().clone().unwrap();
-    let index = ctx.data().streams.push_function_stream(execution_context);
-    println!("exported stream: {index:?}");
-    index.0 as i64
+    ctx.data().streams.push_function_stream(ctx.data().service_id.clone()).0 as i64
 }
 
 fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
-    let result = ctx.data().streams.poll_next(&crate::streams::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
+    let result = ctx.data().streams.poll_next(
+        ctx.data().engine.clone(),
+        &crate::streams::HostPoolIndex(index as u64),
+        &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap())
+    );
 
     match result {
         Poll::Pending => 0,
