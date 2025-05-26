@@ -77,7 +77,6 @@ async fn main() {
     // TODO: test a lot of async calls in a loop with random response times to verify that multiple concurrent requests are handled correctly
     // TODO: test what happens if function responds with incorrect type
     // TODO: test compiler error
-    // TODO: test stream ownership
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
 }
