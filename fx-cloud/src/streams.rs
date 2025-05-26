@@ -51,16 +51,16 @@ impl StreamsPool {
         }
     }
 
-    pub fn remove(&self, index: &HostPoolIndex) -> FxStream {
+    pub fn remove(&self, index: &HostPoolIndex) -> Option<FxStream> {
         self.inner.lock().unwrap().remove(index)
     }
 
-    pub fn read(&self, engine: Arc<Engine>, stream: &fx_core::FxStream) -> FxReadableStream {
-        FxReadableStream {
+    pub fn read(&self, engine: Arc<Engine>, stream: &fx_core::FxStream) -> Option<FxReadableStream> {
+        Some(FxReadableStream {
             engine,
-            stream: self.remove(&HostPoolIndex(stream.index as u64)),
+            stream: self.remove(&HostPoolIndex(stream.index as u64))?,
             index: stream.index,
-        }
+        })
     }
 
     pub fn len(&self) -> u64 {
@@ -97,8 +97,8 @@ impl StreamsPoolInner {
         ).map(|v| v.map(|v| v.unwrap()))
     }
 
-    pub fn remove(&mut self, index: &HostPoolIndex) -> FxStream {
-        self.pool.remove(&index.0).unwrap()
+    pub fn remove(&mut self, index: &HostPoolIndex) -> Option<FxStream> {
+        self.pool.remove(&index.0)
     }
 
     pub fn len(&self) -> u64 {
@@ -107,8 +107,9 @@ impl StreamsPoolInner {
 }
 
 impl FxCloud {
+    #[allow(dead_code)]
     pub fn read_stream(&self, stream: &fx_core::FxStream) -> FxReadableStream {
-        self.engine.streams_pool.read(self.engine.clone(), stream)
+        self.engine.streams_pool.read(self.engine.clone(), stream).unwrap()
     }
 }
 
@@ -123,6 +124,19 @@ impl futures::Stream for FxReadableStream {
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         let index = self.index;
         poll_next(self.engine.clone(), index, &mut self.stream, cx)
+    }
+}
+
+impl Drop for FxReadableStream {
+    fn drop(&mut self) {
+        match &self.stream {
+            FxStream::HostStream(_) => {
+                // nothing to do, memory on host will be free-d automatically
+            },
+            FxStream::FunctionStream(function_id) => {
+                self.engine.stream_drop(function_id, self.index);
+            }
+        }
     }
 }
 

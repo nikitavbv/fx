@@ -270,6 +270,16 @@ impl Engine {
             }))),
         }
     }
+
+    pub(crate) fn stream_drop(&self, function_id: &ServiceId, index: i64) {
+        let ctxs = self.execution_contexts.read().unwrap();
+        let ctx = ctxs.get(function_id).unwrap();
+        let mut store_lock = ctx.store.lock().unwrap();
+        let store = store_lock.deref_mut();
+
+        let function_stream_drop = ctx.instance.exports.get_function("_fx_stream_drop").unwrap();
+        function_stream_drop.call(store, &[wasmer::Value::I64(index)]).unwrap();
+    }
 }
 
 pub struct FunctionRuntimeFuture {
@@ -735,7 +745,8 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         .request(req.method, req.url.to_string())
         .headers(req.headers);
     if let Some(body) = req.body {
-        request = request.body(reqwest::Body::wrap_stream(ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body)));
+        let stream = ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body).unwrap();
+        request = request.body(reqwest::Body::wrap_stream(stream));
     }
 
     let request_future = request.send()

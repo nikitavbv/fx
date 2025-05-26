@@ -42,6 +42,10 @@ impl StreamPool {
             Poll::Pending => Poll::Pending,
         }
     }
+
+    pub fn remove(&self, index: u64) {
+        self.pool.lock().unwrap().remove(index as i64);
+    }
 }
 
 impl PoolInner {

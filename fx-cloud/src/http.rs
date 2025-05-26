@@ -38,7 +38,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let url = req.uri().clone();
             let headers = req.headers().clone();
             let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
-            let body = FxStream { index: engine.streams_pool.push(body).0 as i64 };
+            let body_stream_index = engine.streams_pool.push(body);
+            let body = FxStream { index: body_stream_index.0 as i64 };
 
             let request = HttpRequest {
                 method,
@@ -65,6 +66,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     },
                 }
             };
+            engine.streams_pool.remove(&body_stream_index);
 
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = fx_response.status;

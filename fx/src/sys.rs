@@ -41,6 +41,11 @@ pub extern "C" fn _fx_stream_next(stream_index: i64) -> i64 {
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_stream_drop(stream_index: i64) {
+    STREAM_POOL.remove(stream_index as u64);
+}
+
 // imports:
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
