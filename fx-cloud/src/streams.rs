@@ -1,11 +1,13 @@
 use {
-    std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll, Context}, ops::DerefMut},
+    std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll, Context}},
     futures::{stream::BoxStream, StreamExt},
     crate::{
         cloud::{FxCloud, ServiceId, Engine},
         error::FxCloudError,
     },
 };
+
+// streams can leak memory. Each stream must be closed by host or functions, because tracking ownership accross host/functions is very tricky.
 
 #[derive(Clone)]
 pub struct StreamsPool {
