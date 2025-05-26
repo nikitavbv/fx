@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, Mutex}, task::{Context, Poll, Waker}, collections::HashMap},
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
-    crate::sys::{self, stream_poll_next, stream_transfer_ownership, stream_drop, PtrWithLen},
+    crate::sys::{self, stream_poll_next, PtrWithLen},
 };
 
 pub use fx_core::FxStream;
@@ -83,7 +83,6 @@ pub trait FxStreamImport {
 
 impl FxStreamImport for FxStream {
     fn import(self) -> FxImportedStream {
-        unsafe { stream_transfer_ownership(self.index) }
         FxImportedStream { index: self.index }
     }
 }
@@ -102,11 +101,5 @@ impl Stream for FxImportedStream {
             2 => Poll::Ready(None),
             other => panic!("unexpected value: {other:?}"),
         }
-    }
-}
-
-impl Drop for FxImportedStream {
-    fn drop(&mut self) {
-        unsafe { stream_drop(self.index) }
     }
 }

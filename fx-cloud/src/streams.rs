@@ -12,25 +12,12 @@ pub struct StreamsPool {
     inner: Arc<Mutex<StreamsPoolInner>>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct HostPoolIndex(pub u64);
 
 pub enum FxStream {
-    HostStream {
-        stream: BoxStream<'static, Vec<u8>>,
-        ownership: HostStreamOwnership,
-    },
+    HostStream(BoxStream<'static, Vec<u8>>),
     FunctionStream(ServiceId),
-}
-
-pub enum HostStreamOwnership {
-    Host,
-    Function(ServiceId),
-}
-
-pub struct HostStreamGuard {
-    pool: StreamsPool,
-    index: HostPoolIndex,
 }
 
 impl StreamsPool {
@@ -41,12 +28,8 @@ impl StreamsPool {
     }
 
     // push stream owned by host
-    pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> (HostPoolIndex, HostStreamGuard) {
-        let index = self.inner.lock().unwrap().push(FxStream::HostStream {
-            stream,
-            ownership: HostStreamOwnership::Host,
-        });
-        (index.clone(), HostStreamGuard { pool: self.clone(), index })
+    pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> HostPoolIndex {
+        self.inner.lock().unwrap().push(FxStream::HostStream(stream))
     }
 
     // push stream owned by function
@@ -68,73 +51,6 @@ impl StreamsPool {
 
     pub fn remove(&self, index: &HostPoolIndex) -> FxStream {
         self.inner.lock().unwrap().remove(index)
-    }
-
-    pub fn transfer_ownership(&self, index: &HostPoolIndex, function_id: ServiceId) {
-        let mut inner = self.inner.lock().unwrap();
-        if let Some(stream) = inner.pool.get_mut(&index.0) {
-            match stream {
-                FxStream::HostStream { stream: _, ownership } => {
-                    *ownership = HostStreamOwnership::Function(function_id);
-                },
-                FxStream::FunctionStream(_) => panic!("this stream is already owned by a different function"),
-            }
-        }
-    }
-
-    pub fn drop_from_host(&self, index: &HostPoolIndex) {
-        let mut inner = self.inner.lock().unwrap();
-        let is_owned_by_host = if let Some(stream) = inner.pool.get(&index.0) {
-            match stream {
-                FxStream::HostStream { stream: _, ownership } => {
-                    match ownership {
-                        HostStreamOwnership::Function(_) => {
-                            // owned by function, do nothing
-                            false
-                        },
-                        HostStreamOwnership::Host => {
-                            // owned by host
-                            true
-                        }
-                    }
-                },
-                FxStream::FunctionStream(_) => {
-                    // do nothing from function stream
-                    false
-                }
-            }
-        } else {
-            false
-        };
-
-        if is_owned_by_host {
-            inner.pool.remove(&index.0);
-        }
-    }
-
-    pub fn drop_from_function(&self, index: &HostPoolIndex) {
-        let mut inner = self.inner.lock().unwrap();
-        let is_owned_by_function = if let Some(stream) = inner.pool.get(&index.0) {
-            match stream {
-                FxStream::HostStream { stream: _, ownership } => {
-                    match ownership {
-                        HostStreamOwnership::Function(_) => true,
-                        HostStreamOwnership::Host => {
-                            panic!("cannot drop stream: it is owned by host");
-                        }
-                    }
-                },
-                FxStream::FunctionStream(_) => {
-                    panic!("should not be dropping function stream");
-                }
-            }
-        } else {
-            false
-        };
-
-        if is_owned_by_function {
-            inner.pool.remove(&index.0);
-        }
     }
 
     pub fn read(&self, engine: Arc<Engine>, stream: &fx_core::FxStream) -> FxReadableStream {
@@ -208,15 +124,9 @@ impl futures::Stream for FxReadableStream {
     }
 }
 
-impl Drop for HostStreamGuard {
-    fn drop(&mut self) {
-        self.pool.drop_from_host(&self.index)
-    }
-}
-
 fn poll_next(engine: Arc<Engine>, index: i64, stream: &mut FxStream, cx: &mut task::Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
     let function_id = match stream {
-        FxStream::HostStream { stream, ownership: _ } => return stream.poll_next_unpin(cx).map(|v| v.map(|v| Ok(v))),
+        FxStream::HostStream(stream) => return stream.poll_next_unpin(cx).map(|v| v.map(|v| Ok(v))),
         FxStream::FunctionStream(function_id) => function_id,
     };
     engine.stream_poll_next(function_id, index)

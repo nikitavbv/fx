@@ -73,10 +73,8 @@ unsafe extern "C" {
     pub(crate) fn random(len: i64, output_ptr: i64);
     pub(crate) fn time() -> i64;
     pub(crate) fn future_poll(index: i64, output_ptr: i64) -> i64; // 0 - pending, 1 - ready
-    pub(crate) fn stream_transfer_ownership(index: i64);
     pub(crate) fn stream_export() -> i64;
     pub(crate) fn stream_poll_next(index: i64, output_ptr: i64) -> i64; // 0 pending, 1 - ready (some), 2 - ready (none)
-    pub(crate) fn stream_drop(index: i64);
 }
 
 #[derive(Debug)]
