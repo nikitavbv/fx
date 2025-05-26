@@ -451,8 +451,10 @@ impl ExecutionContext {
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
                 "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
+                "stream_transfer_ownership" => Function::new_typed_with_env(&mut store, &function_env, api_stream_transfer_ownership),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
                 "stream_poll_next" => Function::new_typed_with_env(&mut store, &function_env, api_stream_poll_next),
+                "stream_drop" => Function::new_typed_with_env(&mut store, &function_env, api_stream_drop),
             },
             "fx_cloud" => {
                 "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
@@ -791,6 +793,11 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
     }
 }
 
+fn api_stream_transfer_ownership(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
+    let data = ctx.data();
+    data.engine.streams_pool.transfer_ownership(&crate::streams::HostPoolIndex(index as u64), data.service_id.clone());
+}
+
 fn api_stream_export(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
     ctx.data().engine.streams_pool.push_function_stream(ctx.data().service_id.clone()).0 as i64
 }
@@ -814,6 +821,10 @@ fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, outpu
         },
         Poll::Ready(None) => 2,
     }
+}
+
+fn api_stream_drop(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
+    ctx.data().engine.streams_pool.drop_from_function(&crate::streams::HostPoolIndex(index as u64));
 }
 
 fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
