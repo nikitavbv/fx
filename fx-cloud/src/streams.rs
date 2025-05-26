@@ -8,6 +8,7 @@ use {
 };
 
 // streams can leak memory. Each stream must be closed by host or functions, because tracking ownership accross host/functions is very tricky.
+// automatic cleanup (i.e., implementing Drop trait) is up to high-level wrappers.
 
 #[derive(Clone)]
 pub struct StreamsPool {
