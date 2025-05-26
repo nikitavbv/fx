@@ -18,12 +18,15 @@ pub struct HostPoolIndex(pub u64);
 pub enum FxStream {
     HostStream {
         stream: BoxStream<'static, Vec<u8>>,
-        ownership: HostStreamOwnership,
+        ownership: StreamOwnership,
     },
-    FunctionStream(ServiceId),
+    FunctionStream {
+        function_id: ServiceId,
+        ownership: StreamOwnership,
+    }
 }
 
-pub enum HostStreamOwnership {
+pub enum StreamOwnership {
     Host,
     Function(ServiceId),
 }
@@ -44,14 +47,14 @@ impl StreamsPool {
     pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> (HostPoolIndex, HostStreamGuard) {
         let index = self.inner.lock().unwrap().push(FxStream::HostStream {
             stream,
-            ownership: HostStreamOwnership::Host,
+            ownership: StreamOwnership::Host,
         });
         (index.clone(), HostStreamGuard { pool: self.clone(), index })
     }
 
     // push stream owned by function
     pub fn push_function_stream(&self, function_id: ServiceId) -> HostPoolIndex {
-        self.inner.lock().unwrap().push(FxStream::FunctionStream(function_id))
+        self.inner.lock().unwrap().push(FxStream::FunctionStream { ownership: StreamOwnership::Function(function_id.clone()), function_id })
     }
 
     pub fn poll_next(&self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {
@@ -75,9 +78,9 @@ impl StreamsPool {
         if let Some(stream) = inner.pool.get_mut(&index.0) {
             match stream {
                 FxStream::HostStream { stream: _, ownership } => {
-                    *ownership = HostStreamOwnership::Function(function_id);
+                    *ownership = StreamOwnership::Function(function_id);
                 },
-                FxStream::FunctionStream(_) => panic!("this stream is already owned by a different function"),
+                FxStream::FunctionStream { function_id: _, ownership: _ } => panic!("this stream is already owned by a different function"),
             }
         }
     }
@@ -88,17 +91,17 @@ impl StreamsPool {
             match stream {
                 FxStream::HostStream { stream: _, ownership } => {
                     match ownership {
-                        HostStreamOwnership::Function(_) => {
+                        StreamOwnership::Function(_) => {
                             // owned by function, do nothing
                             false
                         },
-                        HostStreamOwnership::Host => {
+                        StreamOwnership::Host => {
                             // owned by host
                             true
                         }
                     }
                 },
-                FxStream::FunctionStream(_) => {
+                FxStream::FunctionStream { function_id: _, ownership: _ } => {
                     // do nothing from function stream
                     false
                 }
@@ -118,13 +121,13 @@ impl StreamsPool {
             match stream {
                 FxStream::HostStream { stream: _, ownership } => {
                     match ownership {
-                        HostStreamOwnership::Function(_) => true,
-                        HostStreamOwnership::Host => {
+                        StreamOwnership::Function(_) => true,
+                        StreamOwnership::Host => {
                             panic!("cannot drop stream: it is owned by host");
                         }
                     }
                 },
-                FxStream::FunctionStream(_) => {
+                FxStream::FunctionStream { function_id: _, ownership: _ } => {
                     panic!("should not be dropping function stream");
                 }
             }
@@ -217,7 +220,7 @@ impl Drop for HostStreamGuard {
 fn poll_next(engine: Arc<Engine>, index: i64, stream: &mut FxStream, cx: &mut task::Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
     let function_id = match stream {
         FxStream::HostStream { stream, ownership: _ } => return stream.poll_next_unpin(cx).map(|v| v.map(|v| Ok(v))),
-        FxStream::FunctionStream(function_id) => function_id,
+        FxStream::FunctionStream { function_id, ownership: _ } => function_id,
     };
     engine.stream_poll_next(function_id, index)
 }
