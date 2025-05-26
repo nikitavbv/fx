@@ -64,7 +64,7 @@ impl PoolInner {
     }
 
     pub fn remove(&mut self, index: i64) {
-        let _ = self.streams.remove(&index).unwrap();
+        let _ = self.streams.remove(&index);
     }
 }
 
