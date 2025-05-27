@@ -115,7 +115,7 @@ pub async fn call_rpc_panic(ctx: &FxCtx, _arg: ()) -> i64 {
 pub async fn test_fetch(ctx: &FxCtx, _arg: ()) -> Result<String, String> {
     ctx.init_logger();
     let response = fetch(
-        HttpRequest::get("https://fx.nikitavbv.com/api/mock/get")
+        HttpRequest::get("https://fx.nikitavbv.com/api/mock/get").unwrap()
     ).await.unwrap();
 
     if !response.status.is_success() {

@@ -17,9 +17,18 @@ pub struct HttpRequest {
 }
 
 impl HttpRequest {
-    pub fn get(endpoint: impl Into<String>) -> Self { Self::new().with_method(HttpMethod::GET).with_url(endpoint) }
-    pub fn post(endpoint: impl Into<String>) -> Self { Self::new().with_method(HttpMethod::POST).with_url(endpoint) }
-    pub fn put(endpoint: impl Into<String>) -> Self { Self::new().with_method(HttpMethod::PUT).with_url(endpoint) }
+    pub fn get(endpoint: impl Into<String>) -> Result<Self, HttpRequestError> {
+        Self::new().with_method(HttpMethod::GET).with_url(endpoint)
+    }
+
+    pub fn post(endpoint: impl Into<String>) -> Result<Self, HttpRequestError> {
+        Self::new().with_method(HttpMethod::POST).with_url(endpoint)
+    }
+
+    pub fn put(endpoint: impl Into<String>) -> Result<Self, HttpRequestError> {
+        Self::new().with_method(HttpMethod::PUT).with_url(endpoint)
+    }
+
     pub fn new() -> Self {
         Self {
             method: HttpMethod::GET,
@@ -34,9 +43,10 @@ impl HttpRequest {
         self
     }
 
-    pub fn with_url(mut self, url: impl Into<String>) -> Self {
-        self.url = url.into().parse().unwrap();
-        self
+    pub fn with_url(mut self, url: impl Into<String>) -> Result<Self, HttpRequestError> {
+        self.url = url.into().parse()
+            .map_err(|err| HttpRequestError::InvalidRequest { reason: format!("failed to parse url: {err:?}") })?;
+        Ok(self)
     }
 
     pub fn with_query_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
@@ -108,6 +118,14 @@ impl HttpResponse {
     pub fn with_body(mut self, body: impl HttpResponseBody) -> Self {
         self.body = body.into_bytes();
         self
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum HttpRequestError {
+    #[error("http request is invalid: {reason}")]
+    InvalidRequest {
+        reason: String,
     }
 }
 
