@@ -19,6 +19,7 @@ pub use {
         fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
+        http::FxHttpRequest,
     },
 };
 
@@ -32,6 +33,7 @@ use {
 mod error;
 mod fx_futures;
 mod fx_streams;
+mod http;
 mod sys;
 mod logging;
 
@@ -234,7 +236,7 @@ impl Queue {
 }
 
 pub async fn sleep(duration: Duration) {
-    FxHostFuture::new(PoolIndex(unsafe { sys::sleep(duration.as_millis() as i64) } as u64)).await;
+    FxHostFuture::new(PoolIndex(unsafe { sys::sleep(duration.as_millis() as i64) } as u64)).await.unwrap();
 }
 
 pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> Result<T, FxError> {

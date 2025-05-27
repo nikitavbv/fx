@@ -38,6 +38,28 @@ impl HttpRequest {
         self.url = url.into().parse().unwrap();
         self
     }
+
+    pub fn with_query_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut parts = self.url.clone().into_parts();
+        let path_and_query = if let Some(existing) = &parts.path_and_query {
+            let existing_str = existing.as_str();
+            if let Some(pos) = existing_str.find('?') {
+                format!("{}&{}={}", &existing_str[..], key.into(), value.into())
+            } else {
+                format!("{}?{}={}", existing_str, key.into(), value.into())
+            }
+        } else {
+            format!("/?{}={}", key.into(), value.into())
+        };
+        parts.path_and_query = Some(path_and_query.parse().unwrap());
+        self.url = Uri::from_parts(parts).unwrap();
+        self
+    }
+
+    pub fn with_body_stream(mut self, stream: FxStream) -> Self {
+        self.body = Some(stream);
+        self
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
