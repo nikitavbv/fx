@@ -1,10 +1,10 @@
 # todo
 
-- make it easy to run functions locally without deploying anywhere
 - add missing permissions checks
-- blackbox tests for services
 - handle errors everywhere
-- live reload for local development
-- log to queue
-- config support
 - rename "storage" to "kv"
+- rename "fx-core" to "fx-common"
+- split `fx-cloud` into `fx-core` (runtime) and `fx-runtime` (implementation of side-effects)
+- `fx-common` should contain types for rpc only, no logic. Actual logic (e.g, functions to construct http requests) should live in `fx`.
+- remove all `fx-services`, keep `fx-test-app` (rename it to `fx-demo-app`).
+- add back queues api
