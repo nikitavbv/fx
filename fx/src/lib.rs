@@ -19,7 +19,7 @@ pub use {
         fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
-        http::FxHttpRequest,
+        http::{FxHttpRequest, fetch},
     },
 };
 
@@ -114,14 +114,6 @@ impl FxCtx {
                 arg.len() as i64
             );
         }
-    }
-
-    pub async fn fetch(&self, req: HttpRequest) -> Result<HttpResponse, FxFutureError> {
-        let req = rmp_serde::to_vec(&req).unwrap();
-        let future_index = unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64) };
-
-        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
-        Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
     pub fn random(&self, len: u64) -> Vec<u8> {

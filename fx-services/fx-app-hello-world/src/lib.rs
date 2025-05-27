@@ -1,5 +1,5 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, rpc, SqlQuery, CronRequest},
+    fx::{FxCtx, HttpRequest, HttpResponse, rpc, SqlQuery, fetch},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
@@ -21,7 +21,7 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await.unwrap();
         return HttpResponse::new().with_body(format!("rpc demo returned a response: {response:?}\n"));
     } else if req.url == "/test-fetch" {
-        let res = ctx.fetch(HttpRequest::get("http://httpbin.org/get".to_owned())).await.unwrap();
+        let res = fetch(HttpRequest::get("http://httpbin.org/get".to_owned())).await.unwrap();
         return HttpResponse::new().with_body(String::from_utf8(res.body).unwrap());
     } else if req.url == "/test-sql" {
         let database = ctx.sql("test-db");
