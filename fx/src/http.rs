@@ -1,5 +1,5 @@
 use {
-    fx_core::{HttpRequest, HttpResponse, FxStream, FxFutureError},
+    fx_core::{HttpRequest, HttpResponse, FxStream, FxFutureError, HttpRequestError},
     crate::{
         fx_streams::FxStreamExport,
         fx_futures::{FxHostFuture, PoolIndex},
@@ -9,7 +9,7 @@ use {
 
 pub trait FxHttpRequest {
     fn with_body(self, body: Vec<u8>) -> Self;
-    fn with_json(self, body: &serde_json::Value) -> Self;
+    fn with_json(self, body: &serde_json::Value) -> Result<Self, HttpRequestError> where Self: Sized;
 }
 
 impl FxHttpRequest for HttpRequest {
@@ -17,8 +17,10 @@ impl FxHttpRequest for HttpRequest {
         self.with_body_stream(FxStream::wrap(futures::stream::once(async { body })))
     }
 
-    fn with_json(self, body: &serde_json::Value) -> Self {
-        self.with_body(serde_json::to_vec(body).unwrap())
+    fn with_json(self, body: &serde_json::Value) -> Result<Self, HttpRequestError> {
+        Ok(self
+            .with_header("content-type", "application/json")?
+            .with_body(serde_json::to_vec(body).unwrap()))
     }
 }
 

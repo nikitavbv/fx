@@ -72,6 +72,16 @@ impl HttpRequest {
         self
     }
 
+    pub fn with_header<K: IntoHeaderName, V: TryInto<HeaderValue>>(mut self, header: K, value: V) -> Result<Self, HttpRequestError> {
+        self.headers.append(
+            header,
+            value.try_into().map_err(|_err| HttpRequestError::InvalidRequest {
+                reason: "failed to convert into HeaderValue".to_owned(),
+            })?
+        );
+        Ok(self)
+    }
+
     pub fn with_body_stream(mut self, stream: FxStream) -> Self {
         self.body = Some(stream);
         self
