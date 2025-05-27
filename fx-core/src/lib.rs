@@ -40,16 +40,22 @@ impl HttpRequest {
     }
 
     pub fn with_query_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let key: String = key.into();
+        let key = urlencoding::encode(key.as_str());
+
+        let value: String = value.into();
+        let value = urlencoding::encode(value.as_str());
+
         let mut parts = self.url.clone().into_parts();
         let path_and_query = if let Some(existing) = &parts.path_and_query {
             let existing_str = existing.as_str();
-            if let Some(pos) = existing_str.find('?') {
-                format!("{}&{}={}", &existing_str[..], key.into(), value.into())
+            if existing_str.find('?').is_some() {
+                format!("{}&{}={}", &existing_str[..], key, value)
             } else {
-                format!("{}?{}={}", existing_str, key.into(), value.into())
+                format!("{}?{}={}", existing_str, key, value)
             }
         } else {
-            format!("/?{}={}", key.into(), value.into())
+            format!("/?{}={}", key, value)
         };
         parts.path_and_query = Some(path_and_query.parse().unwrap());
         self.url = Uri::from_parts(parts).unwrap();
