@@ -85,12 +85,11 @@ async fn main() {
         .with_code_storage(code_storage.clone())
         .with_definition_provider(definition_provider);
 
-    tokio::join!(
-        reload_on_key_changes(fx_cloud.engine.clone(), code_storage),
-        reload_on_key_changes(fx_cloud.engine.clone(), definition_storage),
-        run_metrics_server(fx_cloud.engine.clone(), args.metrics_port.unwrap_or(8081)),
-        run_command(fx_cloud, args.command),
-    );
+    tokio::spawn(run_metrics_server(fx_cloud.engine.clone(), args.metrics_port.unwrap_or(8081)));
+    tokio::spawn(reload_on_key_changes(fx_cloud.engine.clone(), code_storage));
+    tokio::spawn(reload_on_key_changes(fx_cloud.engine.clone(), definition_storage));
+
+    run_command(fx_cloud, args.command).await;
 }
 
 async fn run_command(fx_cloud: FxCloud, command: Command) {
