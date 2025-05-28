@@ -7,10 +7,7 @@ use {
         task::{self, Poll},
         time::{SystemTime, UNIX_EPOCH},
     },
-    tracing::error,
-    tokio::net::TcpListener,
     hyper_util::rt::tokio::{TokioIo, TokioTimer},
-    hyper::server::conn::http1,
     wasmer::{
         wasmparser::Operator,
         Cranelift,
@@ -187,7 +184,8 @@ impl Engine {
             let mut execution_contexts = self.execution_contexts.write().unwrap();
             let ctx = execution_contexts.get(&service_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                let definition = self.definition_provider.read().unwrap().definition_for_function(&service_id);
+                let definition = self.definition_provider.read().unwrap().definition_for_function(&service_id)
+                    .map_err(|err| FxCloudError::DefinitionError { reason: err.to_string() })?;
                 execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id, definition)?));
             }
         }

@@ -2,6 +2,7 @@ use {
     std::{collections::HashMap, fs},
     serde_yml::Value,
     serde::Deserialize,
+    thiserror::Error,
     crate::{
         storage::{BoxedStorage, SqliteStorage, WithKey, KVStorage},
         sql::{SqlDatabase, SqlError},
@@ -81,21 +82,23 @@ impl DefinitionProvider {
         self
     }
 
-    pub fn definition_for_function(&self, id: &ServiceId) -> FunctionDefinition {
+    pub fn definition_for_function(&self, id: &ServiceId) -> Result<FunctionDefinition, DefinitionError> {
         if let Some(definition) = self.definitions.get(id) {
-            return definition.clone();
+            return Ok(definition.clone());
         }
 
-        self.storage.get(<&ServiceId as Into<String>>::into(id).as_bytes())
+        Ok(self.storage.get(<&ServiceId as Into<String>>::into(id).as_bytes())
             .unwrap()
             .map(|v| definition_from_config(v))
-            .unwrap_or(FunctionDefinition::default())
+            .transpose()?
+            .unwrap_or(FunctionDefinition::default()))
     }
 }
 
-fn definition_from_config(config: Vec<u8>) -> FunctionDefinition {
-    let config: FunctionConfig = serde_yml::from_slice(&config).unwrap();
-    FunctionDefinition {
+fn definition_from_config(config: Vec<u8>) -> Result<FunctionDefinition, DefinitionError> {
+    let config: FunctionConfig = serde_yml::from_slice(&config)
+        .map_err(|err| DefinitionError::ParseError { reason: format!("failed to load yaml file: {err:?}") })?;
+    Ok(FunctionDefinition {
         kv: config.kv.unwrap_or(Vec::new())
             .into_iter()
             .map(|v| KvDefinition {
@@ -110,7 +113,7 @@ fn definition_from_config(config: Vec<u8>) -> FunctionDefinition {
                 storage: SqlStorageDefinition::Path(v.path),
             })
             .collect(),
-    }
+    })
 }
 
 #[derive(Deserialize)]
@@ -143,6 +146,12 @@ pub struct CronTaskConfig {
     pub schedule: String,
     pub function: String,
     pub rpc_method_name: String,
+}
+
+#[derive(Error, Debug)]
+pub enum DefinitionError {
+    #[error("failed to parse definition: {reason}")]
+    ParseError { reason: String },
 }
 
 pub fn load_cron_task_from_config(config: Vec<u8>) -> CronConfig {

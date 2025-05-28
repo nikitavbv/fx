@@ -58,6 +58,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     | FxCloudError::RpcHandlerNotDefined
                     | FxCloudError::RpcHandlerIncompatibleType
                     | FxCloudError::ModuleCodeNotFound
+                    | FxCloudError::DefinitionError { reason: _ }
                     | FxCloudError::ConfigurationError { reason: _ }
                     | FxCloudError::CronError { reason: _ }
                     | FxCloudError::StreamingError { reason: _ } => {
