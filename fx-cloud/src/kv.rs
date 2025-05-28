@@ -10,6 +10,7 @@ use {
 pub trait KVStorage {
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError>;
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError>;
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError>;
 
     fn watch(&self) -> BoxStream<KeyUpdate> {
         stream::empty().boxed()
@@ -76,6 +77,10 @@ impl KVStorage for SqliteStorage {
             None => Ok(None)
         }
     }
+
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+        unimplemented!()
+    }
 }
 
 #[derive(Clone)]
@@ -112,6 +117,10 @@ impl KVStorage for FsStorage {
         let path = self.path.join(&String::from_utf8(key.to_vec()).unwrap());
         fs::write(path, value).unwrap();
         Ok(())
+    }
+
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+        unimplemented!()
     }
 
     fn watch(&self) -> BoxStream<KeyUpdate> {
@@ -174,6 +183,7 @@ impl<T> NamespacedStorage<T> {
 impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.namespaced_key(key), value) }
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.namespaced_key(key)) }
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> { unimplemented!() }
 }
 
 pub struct SuffixStorage<T> {
@@ -200,6 +210,9 @@ impl<T> SuffixStorage<T> {
 impl<T: KVStorage> KVStorage for SuffixStorage<T> {
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.suffixed_key(key), value) }
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.suffixed_key(key)) }
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+        unimplemented!()
+    }
 
     fn watch(&self) -> BoxStream<KeyUpdate> {
         let suffix = self.suffix.clone();
@@ -229,6 +242,7 @@ pub struct EmptyStorage;
 impl KVStorage for EmptyStorage {
     fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { Ok(None) }
     fn set(&self, _key: &[u8], _value: &[u8]) -> Result<(), FxCloudError> { Ok(()) }
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> { Ok(Vec::new()) }
 }
 
 #[derive(Clone)]
@@ -251,6 +265,10 @@ impl KVStorage for BoxedStorage {
 
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
         self.inner.set(key, value)
+    }
+
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+        self.inner.list()
     }
 
     fn watch(&self) -> BoxStream<KeyUpdate> {
