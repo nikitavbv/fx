@@ -3,7 +3,7 @@ use {
     wasmer::{Module, Store},
     sha2::{Sha256, Digest},
     thiserror::Error,
-    crate::storage::{KVStorage, BoxedStorage},
+    crate::kv::{KVStorage, BoxedStorage},
 };
 
 pub trait Compiler {

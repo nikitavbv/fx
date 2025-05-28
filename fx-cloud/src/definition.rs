@@ -4,7 +4,7 @@ use {
     serde::Deserialize,
     thiserror::Error,
     crate::{
-        storage::{BoxedStorage, SqliteStorage, WithKey, KVStorage},
+        kv::{BoxedStorage, SqliteStorage, WithKey, KVStorage},
         sql::{SqlDatabase, SqlError},
         error::FxCloudError,
         cloud::ServiceId,

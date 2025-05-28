@@ -42,7 +42,7 @@ use {
     },
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
-        storage::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
+        kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxCloudError,
         http::HttpHandler,
         compatibility,

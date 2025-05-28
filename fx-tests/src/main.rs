@@ -2,7 +2,7 @@ use {
     std::{fs, time::{Instant, Duration}},
     fx_cloud::{
         FxCloud,
-        storage::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
+        kv::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
         sql::SqlDatabase,
         ServiceId,
         error::FxCloudError,

@@ -15,10 +15,9 @@ use {
     ::futures::StreamExt,
     crate::{
         cloud::{FxCloud, ServiceId, Engine},
-        storage::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
+        kv::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config},
-        registry::{KVRegistry, SqlRegistry},
         http::HttpHandler,
         cron::{CronRunner, CronTaskDefinition},
         metrics::run_metrics_server,
@@ -35,9 +34,8 @@ mod http;
 mod kafka;
 mod futures;
 mod metrics;
-mod registry;
 mod sql;
-mod storage;
+mod kv;
 mod streams;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";

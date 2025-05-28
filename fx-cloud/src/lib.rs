@@ -12,7 +12,6 @@ mod futures;
 mod http;
 mod kafka;
 mod metrics;
-mod registry;
 pub mod sql;
-pub mod storage;
+pub mod kv;
 mod streams;
