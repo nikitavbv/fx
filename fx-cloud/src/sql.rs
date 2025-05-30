@@ -2,6 +2,7 @@ use {
     std::sync::{Arc, Mutex},
     rusqlite::{Connection, params_from_iter, ToSql, types::{ToSqlOutput, ValueRef}},
     thiserror::Error,
+    fx_core::SqlMigrations,
 };
 
 #[derive(Debug)]
@@ -119,6 +120,25 @@ impl SqlDatabase {
         }
 
         txn.commit().map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
+
+        Ok(())
+    }
+
+    // run sql migrations
+    pub fn migrate(&self, migrations: SqlMigrations) -> Result<(), SqlError> {
+        let migrations: Vec<String> = migrations.migrations.into_iter().map(|v| v).collect();
+
+        let mut rusqlite_migrations = Vec::new();
+        for migration in &migrations {
+            rusqlite_migrations.push(rusqlite_migration::M::up(migration));
+        }
+
+        let migrations = rusqlite_migration::Migrations::new(rusqlite_migrations);
+
+        let mut connection = self.connection.lock()
+            .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
+
+        migrations.to_latest(&mut connection).unwrap();
 
         Ok(())
     }

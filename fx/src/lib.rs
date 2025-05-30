@@ -30,6 +30,8 @@ use {
     crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
+pub mod utils;
+
 mod error;
 mod fx_futures;
 mod fx_streams;

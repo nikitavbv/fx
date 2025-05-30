@@ -39,6 +39,7 @@ use {
         FxExecutionError,
         FxFutureError,
         FxSqlError,
+        SqlMigrations,
     },
     fx_cloud_common::FunctionInvokeEvent,
     crate::{
@@ -452,6 +453,7 @@ impl ExecutionContext {
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
                 "sql_batch" => Function::new_typed_with_env(&mut store, &function_env, api_sql_batch),
+                "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
@@ -712,6 +714,11 @@ fn api_sql_batch(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: 
 
     // TODO: report errors to calling service
     ctx.data().sql.get(&request.database).as_ref().unwrap().batch(queries).unwrap();
+}
+
+fn api_sql_migrate(ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, migration_len: i64) {
+    let migrations: SqlMigrations = decode_memory(&ctx, migration_addr, migration_len);
+    ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations).unwrap();
 }
 
 fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len: i64, argument_addr: i64, argument_len: i64) {

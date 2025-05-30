@@ -269,6 +269,12 @@ impl TryFrom<&SqlValue> for u64 {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct SqlMigrations {
+    pub database: String,
+    pub migrations: Vec<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CronRequest {}
 
