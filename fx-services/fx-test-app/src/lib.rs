@@ -1,7 +1,6 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     fx::{rpc, FxCtx, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch},
-    fx_utils::database::{sqlx::{self, ConnectOptions, Row}, FxDatabaseConnectOptions},
     fx_cloud_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
 };
@@ -25,42 +24,6 @@ pub async fn sql_simple(ctx: &FxCtx, _arg: ()) -> u64 {
     database.exec(SqlQuery::new("insert into test_sql_simple (v) values (10)")).unwrap();
     let res = database.exec(SqlQuery::new("select sum(v) from test_sql_simple")).unwrap().rows[0].columns.first().unwrap().try_into().unwrap();
     database.exec(SqlQuery::new("drop table test_sql_simple")).unwrap();
-    res
-}
-
-#[rpc]
-pub async fn sqlx(ctx: &FxCtx, _arg: ()) -> u64 {
-    let database = ctx.sql("app");
-
-    let connection = FxDatabaseConnectOptions::new(database)
-        .connect()
-        .await
-        .unwrap();
-
-    sqlx::query("create table test_sql_simple (v integer not null)")
-        .execute(&connection)
-        .await
-        .unwrap();
-    sqlx::query("insert into test_sql_simple (v) values (42)")
-        .execute(&connection)
-        .await
-        .unwrap();
-    sqlx::query("insert into test_sql_simple (v) values (10)")
-        .execute(&connection)
-        .await
-        .unwrap();
-
-    let res = sqlx::query("select sum(v) from test_sql_simple")
-        .fetch_one(&connection)
-        .await
-        .map(|row| row.get(0))
-        .unwrap();
-
-    sqlx::query("drop table test_sql_simple")
-        .execute(&connection)
-        .await
-        .unwrap();
-
     res
 }
 

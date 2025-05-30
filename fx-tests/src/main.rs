@@ -52,7 +52,6 @@ async fn main() {
 
     test_simple(&fx).await;
     test_sql_simple(&fx).await;
-    // test_sqlx(&fx).await;
     test_invoke_function_non_existent(&fx).await;
     test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
@@ -90,12 +89,6 @@ async fn test_simple(fx: &FxCloud) {
 async fn test_sql_simple(fx: &FxCloud) {
     println!("> test_sql_simple");
     let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap();
-    assert_eq!(52, result);
-}
-
-async fn test_sqlx(fx: &FxCloud) {
-    println!("> test_sqlx");
-    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sqlx", ()).await.unwrap();
     assert_eq!(52, result);
 }
 

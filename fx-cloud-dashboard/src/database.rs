@@ -1,26 +1,19 @@
 use {
-    fx::{SqlDatabase, SqlQuery},
-    fx_utils::database::{sqlx_core::connection::ConnectOptions, FxDatabaseConnection, FxDatabaseConnectOptions, sqlx::{self, prelude::*}},
+    fx::{SqlDatabase, SqlQuery, SqlValue},
 };
 
 #[derive(Clone)]
 pub struct Database {
     database: SqlDatabase,
-    connection: FxDatabaseConnection, // TODO: migrate away from sqlx
 }
 
 impl Database {
     pub async fn new(database: SqlDatabase) -> Self {
-        let connection = FxDatabaseConnectOptions::new(database.clone())
-            .connect()
-            .await
-            .unwrap();
-
-        Self { database, connection }
+        Self { database }
     }
 
     pub fn run_migrations(&self) {
-        self.database.exec(SqlQuery::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned()));
+        self.database.exec(SqlQuery::new("create table if not exists functions (function_id text primary key, total_invocations integer not null)".to_owned())).unwrap();
     }
 }
 
@@ -35,14 +28,18 @@ pub mod list_functions {
 
     impl Database {
         pub async fn list_functions(&self) -> Vec<Function> {
-            sqlx::query("select function_id, total_invocations from functions")
-                .fetch_all(&self.connection)
-                .await
-                .unwrap()
+            self.database.exec(SqlQuery::new("select function_id, total_invocations from functions")).unwrap()
+                .rows
                 .into_iter()
                 .map(|row| Function {
-                    function_id: row.get(0),
-                    total_invocations: row.get(1),
+                    function_id: match row.columns.get(0).unwrap() {
+                        SqlValue::Text(v) => v.to_owned(),
+                        _ => panic!("unexpected type"),
+                    },
+                    total_invocations: match row.columns.get(1).unwrap() {
+                        SqlValue::Integer(v) => *v as u64,
+                        _ => panic!("unexpected type"),
+                    },
                 })
                 .collect()
         }

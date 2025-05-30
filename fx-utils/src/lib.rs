@@ -5,8 +5,6 @@ use {
     futures::StreamExt,
 };
 
-pub mod database;
-
 pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
