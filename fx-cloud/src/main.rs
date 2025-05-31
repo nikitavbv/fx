@@ -4,8 +4,8 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf, net::SocketAddr, time::Duration, sync::Arc},
-    tracing::{Level, info, error},
+    std::{fs, path::PathBuf, net::SocketAddr, sync::Arc, process::exit},
+    tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
     anyhow::anyhow,
     tokio::{join, net::TcpListener, time::sleep},
@@ -104,11 +104,23 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
         },
         Command::Http { function, port } => {
             let addr: SocketAddr = ([0, 0, 0, 0], port.unwrap_or(8080)).into();
-            let listener = TcpListener::bind(addr).await.unwrap();
+            let listener = match TcpListener::bind(addr).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to bind tcp listener for http sever: {err:?}");
+                    exit(-1);
+                }
+            };
             let http_handler = HttpHandler::new(fx_cloud, ServiceId::new(function));
             info!("running http server on {addr:?}");
             loop {
-                let (tcp, _) = listener.accept().await.unwrap();
+                let (tcp, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!("failed to accept http connection: {err:?}");
+                        continue;
+                    }
+                };
                 let io = TokioIo::new(tcp);
 
                 let http_handler = http_handler.clone();
@@ -127,8 +139,21 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
             }
         },
         Command::Cron { schedule_file } => {
-            let config = load_cron_task_from_config(fs::read(schedule_file).unwrap());
-            let database = SqlDatabase::new(config.state_path).unwrap();
+            let config = match fs::read(schedule_file) {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to read cron config file: {err:?}");
+                    exit(-1);
+                }
+            };
+            let config = load_cron_task_from_config(config);
+            let database = match SqlDatabase::new(config.state_path) {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to open database for cron state: {err:?}");
+                    exit(-1);
+                }
+            };
             let cron_runner = {
                 let mut cron_runner = CronRunner::new(fx_cloud.engine.clone(), database);
 
@@ -152,6 +177,13 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
 async fn reload_on_key_changes(engine: Arc<Engine>, storage: BoxedStorage) {
     let mut watcher = storage.watch();
     while let Some(key) = watcher.next().await {
-        engine.reload(&ServiceId::new(String::from_utf8(key.key).unwrap()))
+        let function_id = match String::from_utf8(key.key) {
+            Ok(v) => v,
+            Err(err) => {
+                warn!("failed to decode function id as string: {err:?}");
+                continue;
+            }
+        };
+        engine.reload(&ServiceId::new(function_id))
     }
 }
