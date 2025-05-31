@@ -22,6 +22,11 @@ impl FunctionDefinition {
         Self::default()
     }
 
+    pub fn with_kv(mut self, kv: KvDefinition) -> Self {
+        self.kv.push(kv);
+        self
+    }
+
     pub fn with_sql(mut self, sql: SqlDefinition) -> Self {
         self.sql.push(sql);
         self
@@ -41,6 +46,15 @@ impl Default for FunctionDefinition {
 pub struct KvDefinition {
     pub id: String,
     pub path: String,
+}
+
+impl KvDefinition {
+    pub fn new(id: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            path: path.into(),
+        }
+    }
 }
 
 #[derive(Clone)]

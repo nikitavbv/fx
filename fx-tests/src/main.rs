@@ -7,7 +7,7 @@ use {
         ServiceId,
         error::FxCloudError,
         FxStream,
-        definition::{DefinitionProvider, FunctionDefinition, SqlDefinition},
+        definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition},
     },
     tokio::{join, time::sleep},
     futures::StreamExt,
@@ -30,12 +30,13 @@ async fn main() {
     let definitions = DefinitionProvider::new(BoxedStorage::new(EmptyStorage))
         .with_definition(
             ServiceId::new("test-app"),
-            FunctionDefinition::new().with_sql(SqlDefinition::new("app"))
+            FunctionDefinition::new()
+                .with_kv(KvDefinition::new("test-kv", "data/test-kv"))
+                .with_sql(SqlDefinition::new("app"))
         );
 
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
-    let database_cron = SqlDatabase::in_memory().unwrap();
     let database_app = SqlDatabase::in_memory().unwrap();
 
     let fx = FxCloud::new()
@@ -65,7 +66,7 @@ async fn main() {
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
-    // test_kv_simple(&fx).await;
+    test_kv_simple(&fx).await;
     // test_kv_wrong_binding_name(&fx).await;
     // test_kv_disk(&fx).await;
     // TODO: sql transactions
