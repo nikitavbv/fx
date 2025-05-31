@@ -34,6 +34,7 @@ clap = { version = "4.5.38", features = ["derive"] }
 notify = "8.0.0"
 async-stream = "0.3.6"
 pathdiff = "0.2.3"
+lapin = "2.5.3"
 
 fx-core = { path = "../fx-core" }
 fx-cloud-common = { path = "../fx-cloud-common" }
