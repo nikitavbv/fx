@@ -36,6 +36,7 @@ mod futures;
 mod metrics;
 mod sql;
 mod kv;
+mod logs;
 mod streams;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";

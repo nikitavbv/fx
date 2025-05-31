@@ -53,6 +53,7 @@ use {
         streams::StreamsPool,
         metrics::Metrics,
         definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition},
+        logs::{Logger, BoxLogger, StdoutLogger},
     },
 };
 
@@ -145,6 +146,8 @@ pub(crate) struct Engine {
 
     pub(crate) futures_pool: FuturesPool,
     pub(crate) streams_pool: StreamsPool,
+
+    logger: BoxLogger,
 }
 
 impl Engine {
@@ -161,6 +164,8 @@ impl Engine {
 
             futures_pool: FuturesPool::new(),
             streams_pool: StreamsPool::new(),
+
+            logger: BoxLogger::new(StdoutLogger::new()),
         }
     }
 
@@ -735,7 +740,12 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
         return;
     }
     let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
-    println!("service: {:?}", msg);
+
+    let ctx_data = ctx.data();
+    ctx_data.engine.logger.log(crate::logs::LogMessage::new(
+        crate::logs::LogSource::function(&ctx_data.service_id),
+        msg.fields,
+    ));
 }
 
 fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
