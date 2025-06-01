@@ -302,3 +302,9 @@ pub enum FxFutureError {
     #[error("rpc call failed: {reason}")]
     RpcError { reason: String },
 }
+
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum FxStreamError {
+    #[error("poll failed: {reason}")]
+    PollFailed { reason: String },
+}

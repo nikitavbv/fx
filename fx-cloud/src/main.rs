@@ -76,8 +76,15 @@ enum Command {
 async fn main() {
     FmtSubscriber::builder().with_max_level(Level::INFO).init();
     let args = Args::parse();
+    let current_dir = match std::env::current_dir() {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to detect workdir: {err:?}");
+            exit(-1);
+        }
+    };
 
-    let functions_dir = args.functions_dir.map(|v| PathBuf::from(v)).unwrap_or(std::env::current_dir().unwrap());
+    let functions_dir = args.functions_dir.map(PathBuf::from).unwrap_or(current_dir);
     let code_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir.clone())));
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, FsStorage::new(functions_dir)));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
@@ -101,7 +108,11 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
             } else {
                 &function
             };
-            fx_cloud.invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await.unwrap();
+            let result = fx_cloud.invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await;
+            if let Err(err) = result {
+                error!("failed to invoke function: {err:?}");
+                exit(-1);
+            }
         },
         Command::Http { function, port } => {
             let addr: SocketAddr = ([0, 0, 0, 0], port.unwrap_or(8080)).into();

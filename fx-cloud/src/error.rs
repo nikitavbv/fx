@@ -39,5 +39,8 @@ pub enum FxCloudError {
     CronError { reason: String },
 
     #[error("streaming error: {reason}")]
-    StreamingError { reason: String }
+    StreamingError { reason: String },
+
+    #[error("stream not found")]
+    StreamNotFound,
 }

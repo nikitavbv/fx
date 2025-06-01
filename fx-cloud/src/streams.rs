@@ -40,7 +40,7 @@ impl StreamsPool {
         self.inner.lock().unwrap().push(FxStream::FunctionStream(function_id))
     }
 
-    pub fn poll_next(&self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {
+    pub fn poll_next(&self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
         let mut pool = self.inner.lock().unwrap();
         match pool.poll_next(engine, index, context) {
             Poll::Pending => Poll::Pending,
@@ -89,13 +89,18 @@ impl StreamsPoolInner {
         HostPoolIndex(counter)
     }
 
-    pub fn poll_next(&mut self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Vec<u8>>> {
+    pub fn poll_next(&mut self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+        let stream = match self.pool.get_mut(&index.0) {
+            Some(v) => v,
+            None => return Poll::Ready(Some(Err(FxCloudError::StreamNotFound))),
+        };
+
         poll_next(
             engine,
             index.0 as i64,
-            self.pool.get_mut(&index.0).unwrap(),
+            stream,
             context
-        ).map(|v| v.map(|v| v.unwrap()))
+        )
     }
 
     pub fn remove(&mut self, index: &HostPoolIndex) -> Option<FxStream> {
@@ -109,8 +114,8 @@ impl StreamsPoolInner {
 
 impl FxCloud {
     #[allow(dead_code)]
-    pub fn read_stream(&self, stream: &fx_core::FxStream) -> FxReadableStream {
-        self.engine.streams_pool.read(self.engine.clone(), stream).unwrap()
+    pub fn read_stream(&self, stream: &fx_core::FxStream) -> Option<FxReadableStream> {
+        self.engine.streams_pool.read(self.engine.clone(), stream)
     }
 }
 

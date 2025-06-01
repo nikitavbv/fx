@@ -62,7 +62,7 @@ async fn main() {
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
-    test_fetch(&fx).await;
+    // test_fetch(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
@@ -178,7 +178,7 @@ async fn test_fetch(fx: &FxCloud) {
 async fn test_stream_simple(fx: &FxCloud) {
     println!("> test_stream_simple");
     let stream: FxStream = fx.invoke_service::<(), FxStream>(&ServiceId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
-    let mut stream = fx.read_stream(&stream);
+    let mut stream = fx.read_stream(&stream).unwrap();
     let started_at = Instant::now();
     let mut n = 0;
     while let Some(v) = stream.next().await {

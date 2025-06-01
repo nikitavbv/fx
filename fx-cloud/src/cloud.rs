@@ -842,6 +842,11 @@ fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, outpu
     match result {
         Poll::Pending => 0,
         Poll::Ready(Some(res)) => {
+            let res = res.map_err(|err| fx_core::FxStreamError::PollFailed {
+                reason: err.to_string(),
+            });
+            let res = rmp_serde::to_vec(&res).unwrap();
+
             let (data, mut store) = ctx.data_and_store_mut();
             let len = res.len() as i64;
             let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
