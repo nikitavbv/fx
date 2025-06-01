@@ -9,3 +9,5 @@
 - remove all `fx-services`, keep `fx-test-app` (rename it to `fx-demo-app`).
 - add back queues api
 - rename "ServiceId" to "FunctionId"
+- reload config files.
+- better syntax for sql queries.
