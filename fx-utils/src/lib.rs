@@ -5,14 +5,17 @@ use {
     futures::StreamExt,
 };
 
-pub async fn handle_http_axum_router(router: axum::Router, req: HttpRequest) -> HttpResponse {
+pub async fn handle_http_axum_router(router: axum::Router, src_req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
-    let body = req.body.map(|body| body.import());
+    let body = src_req.body.map(|body| body.import());
 
-    let fx_response = service.call(Request::builder()
-        .uri(req.url)
-        .method(req.method)
+    let mut request = Request::builder()
+        .uri(src_req.url)
+        .method(src_req.method);
+    request.headers_mut().replace(&mut src_req.headers.clone());
+
+    let fx_response = service.call(request
         .body(body.map(|v| Body::from_stream(v)).unwrap_or(Body::empty()))
         .unwrap()
     );
