@@ -70,15 +70,18 @@ impl PoolInner {
 }
 
 pub trait FxStreamExport {
-    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Self;
+    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_core::FxStreamError> where Self: Sized;
 }
 
 impl FxStreamExport for FxStream {
-    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Self {
+    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_core::FxStreamError> {
         let inner = inner.boxed();
-        let index = unsafe { sys::stream_export() };
+        let output_ptr = sys::PtrWithLen::new();
+        unsafe { sys::stream_export(output_ptr.ptr_to_self()) };
+        let index: Result<i64, fx_core::FxStreamError> = output_ptr.read_decode();
+        let index = index?;
         STREAM_POOL.push(index, inner);
-        Self { index }
+        Ok(Self { index })
     }
 }
 

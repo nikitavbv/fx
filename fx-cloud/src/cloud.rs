@@ -764,25 +764,38 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
 
     let req: HttpRequest = decode_memory(&ctx, req_addr, req_len);
 
-    let mut request = ctx.data().fetch_client
+    let request = ctx.data().fetch_client
         .request(req.method, req.url.to_string())
         .headers(req.headers);
-    if let Some(body) = req.body {
-        let stream = ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body).unwrap();
-        request = request.body(reqwest::Body::wrap_stream(stream));
-    }
 
-    let request_future = request.send()
-        .then(|response| async {
-            let response = response.unwrap();
+    let request = if let Some(body) = req.body {
+        let stream = ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body);
+        match stream {
+            Ok(Some(stream)) => Ok(request.body(reqwest::Body::wrap_stream(stream))),
+            Ok(None) => Err(FxFutureError::FetchError {
+                reason: "stream not found".to_owned(),
+            }),
+            Err(err) => Err(FxFutureError::FetchError {
+                reason: format!("failed to read stream: {err:?}"),
+            })
+        }
+    } else {
+        Ok(request)
+    };
 
-            Ok(rmp_serde::to_vec(&HttpResponse {
-                status: response.status(),
-                headers: response.headers().clone(),
-                body: response.bytes().await.unwrap().to_vec(),
-            }).unwrap())
-        })
-        .boxed();
+    let request_future = async move {
+        match request {
+            Ok(request) => {
+                let response = request.send().await.unwrap();
+                Ok(rmp_serde::to_vec(&HttpResponse {
+                    status: response.status(),
+                    headers: response.headers().clone(),
+                    body: response.bytes().await.unwrap().to_vec(),
+                }).unwrap())
+            },
+            Err(err) => Err(err),
+        }
+    }.boxed();
 
     ctx.data().engine.futures_pool.push(request_future).0 as i64
 }
@@ -825,8 +838,19 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
     }
 }
 
-fn api_stream_export(ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
-    ctx.data().engine.streams_pool.push_function_stream(ctx.data().service_id.clone()).0 as i64
+fn api_stream_export(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
+    let res = ctx.data().engine.streams_pool.push_function_stream(ctx.data().service_id.clone())
+        .map_err(|err| fx_core::FxStreamError::PushFailed {
+            reason: err.to_string(),
+        })
+        .map(|v| v.0 as i64);
+    let res = rmp_serde::to_vec(&res).unwrap();
+
+    let (data, mut store) = ctx.data_and_store_mut();
+    let len = res.len() as i64;
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &res);
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {

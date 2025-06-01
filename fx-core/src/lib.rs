@@ -134,9 +134,10 @@ impl HttpResponse {
 #[derive(Debug, Error)]
 pub enum HttpRequestError {
     #[error("http request is invalid: {reason}")]
-    InvalidRequest {
-        reason: String,
-    }
+    InvalidRequest { reason: String },
+
+    #[error("stream error")]
+    StreamError { reason: String },
 }
 
 pub trait HttpResponseBody {
@@ -304,10 +305,15 @@ pub enum FxExecutionError {
 pub enum FxFutureError {
     #[error("rpc call failed: {reason}")]
     RpcError { reason: String },
+    #[error("fetch call failed: {reason}")]
+    FetchError { reason: String },
 }
 
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum FxStreamError {
     #[error("poll failed: {reason}")]
     PollFailed { reason: String },
+
+    #[error("push failed: {reason}")]
+    PushFailed { reason: String },
 }

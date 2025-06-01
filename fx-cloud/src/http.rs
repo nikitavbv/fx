@@ -38,26 +38,35 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let url = req.uri().clone();
             let headers = req.headers().clone();
             let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
-            let body_stream_index = engine.streams_pool.push(body);
-            let body = FxStream { index: body_stream_index.0 as i64 };
+            let fx_response = match engine.streams_pool.push(body) {
+                Ok(body_stream_index) => {
+                    let body = FxStream { index: body_stream_index.0 as i64 };
 
-            let request = HttpRequest {
-                method,
-                url,
-                headers,
-                body: Some(body),
-            };
-            let fx_response: HttpResponse = match engine.invoke_service(engine.clone(), &service_id, "http", request).await {
-                Ok(v) => v,
-                Err(err) => match err {
-                    FxCloudError::ServiceNotFound => response_service_not_found(),
-                    other => {
-                        error!("internal error while serving request: {other:?}");
-                        response_internal_error()
-                    },
+                    let request = HttpRequest {
+                        method,
+                        url,
+                        headers,
+                        body: Some(body),
+                    };
+                    let fx_response: HttpResponse = match engine.invoke_service(engine.clone(), &service_id, "http", request).await {
+                        Ok(v) => v,
+                        Err(err) => match err {
+                            FxCloudError::ServiceNotFound => response_service_not_found(),
+                            other => {
+                                error!("internal error while serving request: {other:?}");
+                                response_internal_error()
+                            },
+                        }
+                    };
+                    engine.streams_pool.remove(&body_stream_index).unwrap();
+
+                    fx_response
+                },
+                Err(err) => {
+                    error!("failed to push stream: {err:?}");
+                    response_internal_error()
                 }
             };
-            engine.streams_pool.remove(&body_stream_index);
 
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = fx_response.status;

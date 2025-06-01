@@ -123,7 +123,7 @@ pub async fn test_stream_simple(ctx: &FxCtx, _arg: ()) -> FxStream {
             sleep(Duration::from_secs(1)).await;
         }
     };
-    FxStream::wrap(stream)
+    FxStream::wrap(stream).unwrap()
 }
 
 #[rpc]
