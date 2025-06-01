@@ -218,7 +218,7 @@ pub enum SqlError {
     #[error("failed to open database connection")]
     ConnectionOpen { reason: String },
 
-    #[error("sql migration failed")]
+    #[error("sql migration failed: {reason}")]
     MigrationFailed { reason: String },
 }
 
