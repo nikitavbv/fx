@@ -233,7 +233,10 @@ pub enum FxSqlError {
     BindingNotExists,
 
     #[error("migration failed: {reason}")]
-    MigrationFailed { reason: String }
+    MigrationFailed { reason: String },
+
+    #[error("query failed: {reason}")]
+    QueryFailed { reason: String },
 }
 
 #[derive(Error, Debug)]

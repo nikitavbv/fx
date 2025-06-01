@@ -665,27 +665,24 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
         });
     }
 
-    // TODO: report errors to calling service
     let result = ctx.data().sql.get(&request.database)
         .as_ref()
         .ok_or(FxSqlError::BindingNotExists)
-        .map(|v| {
-            let result = v.exec(query).unwrap();
-            SqlResult {
-                rows: result.rows.into_iter()
-                    .map(|row| SqlResultRow {
-                        columns: row.columns.into_iter()
-                            .map(|value| match value {
-                                sql::Value::Null => SqlValue::Null,
-                                sql::Value::Integer(v) => SqlValue::Integer(v),
-                                sql::Value::Real(v) => SqlValue::Real(v),
-                                sql::Value::Text(v) => SqlValue::Text(v),
-                                sql::Value::Blob(v) => SqlValue::Blob(v),
-                            })
-                            .collect(),
-                    })
-                    .collect(),
-            }
+        .and_then(|database| database.exec(query).map_err(|err| FxSqlError::QueryFailed { reason: err.to_string() }))
+        .map(|result| SqlResult {
+            rows: result.rows.into_iter()
+                .map(|row| SqlResultRow {
+                    columns: row.columns.into_iter()
+                        .map(|value| match value {
+                            sql::Value::Null => SqlValue::Null,
+                            sql::Value::Integer(v) => SqlValue::Integer(v),
+                            sql::Value::Real(v) => SqlValue::Real(v),
+                            sql::Value::Text(v) => SqlValue::Text(v),
+                            sql::Value::Blob(v) => SqlValue::Blob(v),
+                        })
+                        .collect(),
+                })
+                .collect(),
         });
     let result = rmp_serde::to_vec(&result).unwrap();
 
