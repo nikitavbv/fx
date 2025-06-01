@@ -138,9 +138,8 @@ impl SqlDatabase {
         let mut connection = self.connection.lock()
             .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
 
-        migrations.to_latest(&mut connection).unwrap();
-
-        Ok(())
+        migrations.to_latest(&mut connection)
+            .map_err(|err| SqlError::MigrationFailed { reason: err.to_string() })
     }
 }
 
@@ -218,6 +217,9 @@ pub enum SqlError {
 
     #[error("failed to open database connection")]
     ConnectionOpen { reason: String },
+
+    #[error("sql migration failed")]
+    MigrationFailed { reason: String },
 }
 
 #[derive(Error, Debug)]

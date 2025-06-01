@@ -1,5 +1,5 @@
 use {
-    fx_core::SqlMigrations,
+    fx_core::{SqlMigrations, FxSqlError},
     crate::{SqlDatabase, sys},
 };
 
@@ -19,7 +19,7 @@ impl Migrations {
         self
     }
 
-    pub fn run(&self, database: &SqlDatabase) {
+    pub fn run(&self, database: &SqlDatabase) -> Result<(), FxSqlError> {
         let migrations = SqlMigrations {
             database: database.name.clone(),
             migrations: self.migrations.iter()
@@ -27,7 +27,9 @@ impl Migrations {
                 .collect(),
         };
         let migrations = rmp_serde::to_vec(&migrations).unwrap();
-        unsafe { sys::sql_migrate(migrations.as_ptr() as i64, migrations.len() as i64); }
+        let response_ptr = sys::PtrWithLen::new();
+        unsafe { sys::sql_migrate(migrations.as_ptr() as i64, migrations.len() as i64, response_ptr.ptr_to_self()); }
+        response_ptr.read_decode()
     }
 }
 

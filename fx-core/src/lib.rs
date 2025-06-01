@@ -231,6 +231,9 @@ pub enum SqlValue {
 pub enum FxSqlError {
     #[error("requested database binding does not exist")]
     BindingNotExists,
+
+    #[error("migration failed: {reason}")]
+    MigrationFailed { reason: String }
 }
 
 #[derive(Error, Debug)]
