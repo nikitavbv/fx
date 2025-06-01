@@ -195,6 +195,21 @@ impl IntoQueryParam for String {
     }
 }
 
+impl IntoQueryParam for Vec<u8> {
+    fn into_query_param(self) -> SqlValue {
+        SqlValue::Blob(self)
+    }
+}
+
+impl<T: IntoQueryParam> IntoQueryParam for Option<T> {
+    fn into_query_param(self) -> SqlValue {
+        match self {
+            Some(v) => v.into_query_param(),
+            None => SqlValue::Null,
+        }
+    }
+}
+
 impl SqlQuery {
     pub fn new(stmt: impl Into<String>) -> Self {
         Self {
