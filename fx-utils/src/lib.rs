@@ -13,7 +13,11 @@ pub async fn handle_http_axum_router(router: axum::Router, src_req: HttpRequest)
     let mut request = Request::builder()
         .uri(src_req.url)
         .method(src_req.method);
-    request.headers_mut().replace(&mut src_req.headers.clone());
+    for (k, v) in src_req.headers {
+        if let Some(k) = k {
+            request = request.header(k, v);
+        }
+    }
 
     let fx_response = service.call(request
         .body(body.map(|v| Body::from_stream(v)).unwrap_or(Body::empty()))
