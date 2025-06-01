@@ -125,9 +125,7 @@ impl FxCtx {
     }
 
     pub fn now(&self) -> FxInstant {
-        FxInstant {
-            millis_since_unix: unsafe { sys::time() },
-        }
+        FxInstant::now()
     }
 }
 
@@ -269,6 +267,14 @@ pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {
 
 pub struct FxInstant {
     millis_since_unix: i64,
+}
+
+impl FxInstant {
+    pub fn now() -> Self {
+        Self {
+            millis_since_unix: unsafe { sys::time() },
+        }
+    }
 }
 
 impl Sub<FxInstant> for FxInstant {
