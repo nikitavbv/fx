@@ -1,8 +1,12 @@
 use {
     std::collections::HashMap,
+    tracing::info,
+    tokio::sync::mpsc,
+    serde::Serialize,
     crate::cloud::ServiceId,
 };
 
+#[derive(Serialize)]
 pub struct LogMessage {
     source: LogSource,
     fields: HashMap<String, String>,
@@ -17,6 +21,7 @@ impl LogMessage {
     }
 }
 
+#[derive(Serialize)]
 pub enum LogSource {
     Function {
         id: String,
@@ -67,5 +72,57 @@ impl Logger for StdoutLogger {
             LogSource::FxRuntime => "fx".to_owned(),
         };
         println!("{source} | {:?}", message.fields);
+    }
+}
+
+pub struct RabbitMqLogger {
+    tx: tokio::sync::mpsc::Sender<LogMessage>,
+    _connection_task: tokio::task::JoinHandle<()>,
+}
+
+impl RabbitMqLogger {
+    pub fn new(uri: String, exchange: String) -> Self {
+        let (tx, mut rx) = mpsc::channel(1024);
+        let connection_task = tokio::task::spawn(async move {
+            info!("publishing logs to rabbitmq exchange: {exchange}");
+            let connection = lapin::Connection::connect(
+                uri.as_str().into(),
+                lapin::ConnectionProperties::default().with_connection_name("fx-log".into())
+            ).await.unwrap();
+
+            let channel = connection.create_channel().await.unwrap();
+
+            loop {
+                let msg: LogMessage = match rx.recv().await {
+                    Some(v) => v,
+                    None => break,
+                };
+
+                let msg_encoded = rmp_serde::to_vec(&msg).unwrap();
+                let routing_key = match msg.source {
+                    LogSource::FxRuntime => "fx/runtime".to_owned(),
+                    LogSource::Function { id } => format!("fx/function/{id}")
+                };
+
+                channel.basic_publish(
+                    exchange.as_str(),
+                    &routing_key,
+                    lapin::options::BasicPublishOptions::default(),
+                    &msg_encoded,
+                    lapin::BasicProperties::default()
+                ).await.unwrap();
+            }
+        });
+
+        Self {
+            tx,
+            _connection_task: connection_task,
+        }
+    }
+}
+
+impl Logger for RabbitMqLogger {
+    fn log(&self, message: LogMessage) {
+        self.tx.blocking_send(message).unwrap();
     }
 }
