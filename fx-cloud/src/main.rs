@@ -11,16 +11,17 @@ use {
     tokio::{join, net::TcpListener, time::sleep},
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
-    clap::{Parser, Subcommand, CommandFactory},
+    clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
     ::futures::StreamExt,
     crate::{
         cloud::{FxCloud, ServiceId, Engine},
-        kv::{SqliteStorage, NamespacedStorage, WithKey, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
+        kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config},
         http::HttpHandler,
         cron::{CronRunner, CronTaskDefinition},
         metrics::run_metrics_server,
+        logs::{BoxLogger, StdoutLogger, RabbitMqLogger},
     },
 };
 
@@ -53,6 +54,34 @@ struct Args {
 
     #[arg(long)]
     metrics_port: Option<u16>,
+
+    #[arg(long)]
+    logger: Option<ArgsLogger>,
+
+    #[arg(long)]
+    logger_rabbitmq_uri: Option<String>,
+
+    #[arg(long)]
+    logger_rabbitmq_exchange: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ArgsLogger {
+    Stdout,
+    RabbitMq,
+}
+
+impl ValueEnum for ArgsLogger {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[Self::Stdout, Self::RabbitMq]
+    }
+
+    fn to_possible_value(&self) -> Option<PossibleValue> {
+        Some(match self {
+            Self::Stdout => PossibleValue::new("stdout").help("write logs to stdout"),
+            Self::RabbitMq => PossibleValue::new("rabbitmq").help("write logs to rabbitmq exchange"),
+        })
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -92,6 +121,15 @@ async fn main() {
     let fx_cloud = FxCloud::new()
         .with_code_storage(code_storage.clone())
         .with_definition_provider(definition_provider);
+
+    let fx_cloud = if let Some(logger) = args.logger {
+        fx_cloud.with_logger(match logger {
+            ArgsLogger::Stdout => BoxLogger::new(StdoutLogger::new()),
+            ArgsLogger::RabbitMq => BoxLogger::new(RabbitMqLogger::new(args.logger_rabbitmq_uri.unwrap(), args.logger_rabbitmq_exchange.unwrap())),
+        })
+    } else {
+        fx_cloud
+    };
 
     tokio::spawn(run_metrics_server(fx_cloud.engine.clone(), args.metrics_port.unwrap_or(8081)));
     tokio::spawn(reload_on_key_changes(fx_cloud.engine.clone(), code_storage));

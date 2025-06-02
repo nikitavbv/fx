@@ -94,6 +94,14 @@ impl FxCloud {
         self
     }
 
+    pub fn with_logger(self, new_logger: BoxLogger) -> Self {
+        {
+            let mut logger = self.engine.logger.write().unwrap();
+            *logger = new_logger;
+        }
+        self
+    }
+
     #[allow(dead_code)]
     pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
@@ -147,7 +155,7 @@ pub(crate) struct Engine {
     pub(crate) futures_pool: FuturesPool,
     pub(crate) streams_pool: StreamsPool,
 
-    logger: BoxLogger,
+    logger: RwLock<BoxLogger>,
 }
 
 impl Engine {
@@ -165,7 +173,7 @@ impl Engine {
             futures_pool: FuturesPool::new(),
             streams_pool: StreamsPool::new(),
 
-            logger: BoxLogger::new(StdoutLogger::new()),
+            logger: RwLock::new(BoxLogger::new(StdoutLogger::new())),
         }
     }
 
@@ -750,7 +758,7 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
 
     let ctx_data = ctx.data();
-    ctx_data.engine.logger.log(crate::logs::LogMessage::new(
+    ctx_data.engine.logger.read().unwrap().log(crate::logs::LogMessage::new(
         crate::logs::LogSource::function(&ctx_data.service_id),
         msg.fields,
     ));
