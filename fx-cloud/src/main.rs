@@ -125,7 +125,17 @@ async fn main() {
     let fx_cloud = if let Some(logger) = args.logger {
         fx_cloud.with_logger(match logger {
             ArgsLogger::Stdout => BoxLogger::new(StdoutLogger::new()),
-            ArgsLogger::RabbitMq => BoxLogger::new(RabbitMqLogger::new(args.logger_rabbitmq_uri.unwrap(), args.logger_rabbitmq_exchange.unwrap())),
+            ArgsLogger::RabbitMq => {
+                let exchange = match args.logger_rabbitmq_exchange {
+                    Some(v) => v,
+                    None => {
+                        error!("rabbitmq logger requires setting exchange param");
+                        exit(-1);
+                    }
+                };
+
+                BoxLogger::new(RabbitMqLogger::new(args.logger_rabbitmq_uri.unwrap(), exchange))
+            },
         })
     } else {
         fx_cloud
