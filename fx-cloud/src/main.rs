@@ -126,6 +126,14 @@ async fn main() {
         fx_cloud.with_logger(match logger {
             ArgsLogger::Stdout => BoxLogger::new(StdoutLogger::new()),
             ArgsLogger::RabbitMq => {
+                let uri = match args.logger_rabbitmq_uri {
+                    Some(v) => v,
+                    None => {
+                        error!("rabbitmq logger requires setting rabbitmq uri");
+                        exit(-1);
+                    }
+                };
+
                 let exchange = match args.logger_rabbitmq_exchange {
                     Some(v) => v,
                     None => {
@@ -134,7 +142,7 @@ async fn main() {
                     }
                 };
 
-                BoxLogger::new(RabbitMqLogger::new(args.logger_rabbitmq_uri.unwrap(), exchange))
+                BoxLogger::new(RabbitMqLogger::new(uri, exchange))
             },
         })
     } else {
