@@ -1,6 +1,6 @@
 use {
     std::collections::HashMap,
-    tracing::info,
+    tracing::{info, error},
     tokio::sync::mpsc,
     serde::Serialize,
     crate::cloud::ServiceId,
@@ -123,6 +123,8 @@ impl RabbitMqLogger {
 
 impl Logger for RabbitMqLogger {
     fn log(&self, message: LogMessage) {
-        self.tx.blocking_send(message).unwrap();
+        if let Err(err) = self.tx.blocking_send(message) {
+            error!("failed to write log to rabbitmq: {err:?}");
+        }
     }
 }
