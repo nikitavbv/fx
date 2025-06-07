@@ -45,3 +45,15 @@ pub mod list_functions {
         }
     }
 }
+
+pub mod function_invocations_incr {
+    use super::*;
+
+    impl Database {
+        pub fn function_invocations_incr(&self, function_id: String) {
+            self.database.exec(SqlQuery::new("insert into functions (function_id, total_invocations) values (?, 1) on conflict (function_id) do update set total_invocations = total_invocations + 1")
+                .bind(function_id)
+            ).unwrap();
+        }
+    }
+}

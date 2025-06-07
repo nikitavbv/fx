@@ -1,13 +1,11 @@
 use {
     std::{
-        net::SocketAddr,
         sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}},
         collections::HashMap,
         ops::DerefMut,
         task::{self, Poll},
         time::{SystemTime, UNIX_EPOCH},
     },
-    hyper_util::rt::tokio::{TokioIo, TokioTimer},
     wasmer::{
         wasmparser::Operator,
         Cranelift,
@@ -41,14 +39,12 @@ use {
         FxSqlError,
         SqlMigrations,
     },
-    fx_cloud_common::FunctionInvokeEvent,
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxCloudError,
-        http::HttpHandler,
         compatibility,
         sql::{self, SqlDatabase},
-        compiler::{Compiler, BoxedCompiler, SimpleCompiler, MemoizedCompiler},
+        compiler::{Compiler, BoxedCompiler, SimpleCompiler},
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
@@ -85,11 +81,11 @@ impl FxCloud {
         self
     }
 
-    pub fn with_memoized_compiler(self, compiled_code_storage: BoxedStorage) -> Self {
+    #[allow(dead_code)]
+    pub fn with_compiler(self, new_compiler: BoxedCompiler) -> Self {
         {
             let mut compiler = self.engine.compiler.write().unwrap();
-            let prev_compiler = std::mem::replace(&mut *compiler, BoxedCompiler::new(SimpleCompiler::new()));
-            *compiler = BoxedCompiler::new(MemoizedCompiler::new(compiled_code_storage, prev_compiler));
+            *compiler = new_compiler;
         }
         self
     }
@@ -111,6 +107,7 @@ impl FxCloud {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
 
+    #[allow(dead_code)]
     pub fn reload(&self, function_id: &ServiceId) {
         self.engine.reload(function_id)
     }
@@ -431,7 +428,6 @@ pub(crate) struct ExecutionContext {
     pub(crate) instance: Instance,
     pub(crate) store: Arc<Mutex<Store>>,
     pub(crate) function_env: FunctionEnv<ExecutionEnv>,
-    service_id: ServiceId,
     needs_recreate: Arc<AtomicBool>,
 }
 
@@ -502,7 +498,6 @@ impl ExecutionContext {
             instance,
             store: Arc::new(Mutex::new(store)),
             function_env,
-            service_id,
             needs_recreate: Arc::new(AtomicBool::new(false)),
         })
     }

@@ -5,7 +5,7 @@ pub use {
 
 mod cloud;
 mod compatibility;
-mod compiler;
+pub mod compiler;
 pub mod definition;
 pub mod error;
 mod futures;
@@ -14,5 +14,6 @@ mod kafka;
 pub mod kv;
 mod logs;
 mod metrics;
+mod queue;
 pub mod sql;
 mod streams;

@@ -8,6 +8,7 @@ use {
         error::FxCloudError,
         FxStream,
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition},
+        compiler::{MemoizedCompiler, SimpleCompiler, BoxedCompiler},
     },
     tokio::{join, time::sleep},
     futures::StreamExt,
@@ -42,7 +43,7 @@ async fn main() {
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
-        .with_memoized_compiler(storage_compiler);
+        .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(SimpleCompiler::new()))));
         /*.with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()
