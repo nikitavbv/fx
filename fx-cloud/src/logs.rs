@@ -104,13 +104,17 @@ impl RabbitMqLogger {
                     LogSource::Function { id } => format!("fx/function/{id}")
                 };
 
-                channel.basic_publish(
+                let result = channel.basic_publish(
                     exchange.as_str(),
                     &routing_key,
                     lapin::options::BasicPublishOptions::default(),
                     &msg_encoded,
                     lapin::BasicProperties::default()
-                ).await.unwrap();
+                ).await;
+
+                if let Err(err) = result {
+                    error!("failed to publish message to rabbitmq: {err:?}");
+                }
             }
         });
 
