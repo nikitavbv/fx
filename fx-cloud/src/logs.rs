@@ -98,7 +98,13 @@ impl RabbitMqLogger {
                     None => break,
                 };
 
-                let msg_encoded = rmp_serde::to_vec(&msg).unwrap();
+                let msg_encoded = match rmp_serde::to_vec(&msg) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!("failed to decode log message: {err:?}");
+                        continue;
+                    }
+                };
                 let routing_key = match msg.source {
                     LogSource::FxRuntime => "fx/runtime".to_owned(),
                     LogSource::Function { id } => format!("fx/function/{id}")
