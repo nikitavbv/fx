@@ -12,22 +12,24 @@ use {
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
     clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
-    ::futures::StreamExt,
+    ::futures::{FutureExt, StreamExt, future::join_all},
     crate::{
         cloud::{FxCloud, ServiceId, Engine},
         kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
-        definition::{DefinitionProvider, load_cron_task_from_config},
+        definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
         http::HttpHandler,
         cron::{CronRunner, CronTaskDefinition},
         metrics::run_metrics_server,
         logs::{BoxLogger, StdoutLogger, RabbitMqLogger},
+        consumer::RabbitMqConsumer,
     },
 };
 
 mod cloud;
 mod compatibility;
 mod compiler;
+mod consumer;
 mod cron;
 mod definition;
 mod error;
@@ -98,6 +100,12 @@ enum Command {
     },
     Cron {
         schedule_file: String,
+    },
+    RabbitMq {
+        consumer_file: String,
+
+        #[arg(long)]
+        amqp_addr: String,
     },
 }
 
@@ -238,7 +246,24 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
             };
 
             cron_runner.run().await;
-        }
+        },
+        Command::RabbitMq { consumer_file, amqp_addr } => {
+            let config = match fs::read(consumer_file) {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to read consumer config file: {err:?}");
+                    exit(-1);
+                }
+            };
+            let config = load_rabbitmq_consumer_task_from_config(config);
+            let consumers = config.consumers.into_iter()
+                .map(|v| async {
+                    RabbitMqConsumer::new(fx_cloud.engine.clone(), amqp_addr.clone(), v.id, v.queue, v.function, v.rpc_method_name).run().await
+                }.boxed())
+                .collect::<Vec<_>>();
+
+            join_all(consumers).await;
+        },
     }
 }
 

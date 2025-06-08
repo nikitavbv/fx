@@ -171,3 +171,20 @@ pub enum DefinitionError {
 pub fn load_cron_task_from_config(config: Vec<u8>) -> CronConfig {
     serde_yml::from_slice(&config).unwrap()
 }
+
+#[derive(Deserialize)]
+pub struct RabbitMqConsumerConfig {
+    pub consumers: Vec<RabbitMqConsumerTaskConfig>,
+}
+
+#[derive(Deserialize)]
+pub struct RabbitMqConsumerTaskConfig {
+    pub id: String,
+    pub queue: String,
+    pub function: String,
+    pub rpc_method_name: String,
+}
+
+pub fn load_rabbitmq_consumer_task_from_config(config: Vec<u8>) -> RabbitMqConsumerConfig {
+    serde_yml::from_slice(&config).unwrap()
+}
