@@ -189,6 +189,12 @@ impl IntoQueryParam for i64 {
     }
 }
 
+impl IntoQueryParam for &str {
+    fn into_query_param(self) -> SqlValue {
+        SqlValue::Text(self.to_owned())
+    }
+}
+
 impl IntoQueryParam for String {
     fn into_query_param(self) -> SqlValue {
         SqlValue::Text(self)
