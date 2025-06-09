@@ -101,6 +101,7 @@ enum Command {
     Cron {
         schedule_file: String,
     },
+    #[command(name = "rabbitmq")]
     RabbitMq {
         consumer_file: String,
 
