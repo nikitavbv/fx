@@ -338,3 +338,8 @@ pub enum FxStreamError {
     #[error("push failed: {reason}")]
     PushFailed { reason: String },
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct QueueMessage {
+    pub data: Vec<u8>,
+}

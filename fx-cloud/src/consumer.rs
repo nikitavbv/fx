@@ -1,8 +1,11 @@
 use {
     std::sync::Arc,
-    lapin::{Connection, ConnectionProperties, options::BasicConsumeOptions, types::FieldTable},
+    tracing::error,
+    lapin::{Connection, ConnectionProperties, options::{BasicConsumeOptions, BasicNackOptions, BasicAckOptions}, types::FieldTable},
     futures::StreamExt,
-    crate::cloud::Engine,
+    tokio::time::{sleep, Duration},
+    fx_core::QueueMessage,
+    crate::cloud::{Engine, ServiceId},
 };
 
 pub struct RabbitMqConsumer {
@@ -10,7 +13,7 @@ pub struct RabbitMqConsumer {
     amqp_addr: String,
     id: String,
     queue: String,
-    function_id: String,
+    function_id: ServiceId,
     rpc_method_name: String,
 }
 
@@ -21,7 +24,7 @@ impl RabbitMqConsumer {
             amqp_addr,
             id,
             queue,
-            function_id,
+            function_id: ServiceId::new(function_id),
             rpc_method_name,
         }
     }
@@ -36,7 +39,17 @@ impl RabbitMqConsumer {
 
         while let Some(msg) = consumer.next().await {
             let msg = msg.unwrap();
-            // TODO: handle message
+            let message = QueueMessage {
+                data: msg.data.clone(),
+            };
+            let result = self.engine.invoke_service::<QueueMessage, ()>(self.engine.clone(), &self.function_id, &self.rpc_method_name, message).await;
+            if let Err(err) = result {
+                error!("failed to invoke consumer: {err:?}");
+                msg.nack(BasicNackOptions::default()).await.unwrap();
+                sleep(Duration::from_secs(1)).await;
+            } else {
+                msg.ack(BasicAckOptions::default()).await.unwrap();
+            }
         }
     }
 }
