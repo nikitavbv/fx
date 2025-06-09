@@ -11,6 +11,7 @@ pub use {
         FxExecutionError,
         FxFutureError,
         FxSqlError,
+        QueueMessage,
     },
     fx_macro::rpc,
     futures::FutureExt,
