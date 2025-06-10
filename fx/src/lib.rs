@@ -28,6 +28,7 @@ use {
     std::{sync::{atomic::{AtomicBool, Ordering}, Once}, panic, time::Duration, ops::Sub},
     lazy_static::lazy_static,
     thiserror::Error,
+    chrono::{DateTime, Utc, TimeZone},
     crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
@@ -275,6 +276,10 @@ impl FxInstant {
         Self {
             millis_since_unix: unsafe { sys::time() },
         }
+    }
+
+    pub fn to_datetime(&self) -> DateTime<Utc> {
+        Utc.timestamp_millis_opt(self.millis_since_unix).single().unwrap()
     }
 }
 
