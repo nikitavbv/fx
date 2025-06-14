@@ -63,7 +63,7 @@ async fn main() {
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
-    // test_fetch(&fx).await;
+    test_fetch(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
