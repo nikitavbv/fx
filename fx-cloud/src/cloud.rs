@@ -124,6 +124,10 @@ impl ServiceId {
             id: id.into(),
         }
     }
+
+    pub fn as_string(&self) -> String {
+        self.id.clone()
+    }
 }
 
 impl Into<String> for ServiceId {
@@ -143,7 +147,7 @@ pub(crate) struct Engine {
 
     compiler: RwLock<BoxedCompiler>,
 
-    execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
+    pub(crate) execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
     // internal storage where .wasm is loaded from:
@@ -512,7 +516,7 @@ pub(crate) struct ExecutionEnv {
 
     engine: Arc<Engine>,
     instance: Option<Instance>,
-    memory: Option<Memory>,
+    pub(crate) memory: Option<Memory>,
     execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 

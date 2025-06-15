@@ -1,6 +1,6 @@
 use {
     std::{convert::Infallible, net::SocketAddr, pin::Pin, sync::Arc, time::Duration},
-    tracing::error,
+    tracing::{error, warn},
     tokio::{net::TcpListener, join, time::sleep},
     hyper::{Request, body::{Incoming, Bytes}, Response, server::conn::http1},
     hyper_util::rt::{TokioIo, TokioTimer},
@@ -10,7 +10,9 @@ use {
         Registry,
         IntGauge,
         IntCounter,
+        IntGaugeVec,
         register_int_gauge_with_registry,
+        register_int_gauge_vec_with_registry,
         register_int_counter_with_registry,
     },
     crate::cloud::Engine,
@@ -24,6 +26,8 @@ pub struct Metrics {
     pub(crate) http_requests_in_flight: IntGauge,
     pub(crate) arena_streams_size: IntGauge,
     pub(crate) arena_futures_size: IntGauge,
+
+    pub(crate) function_memory_size: IntGaugeVec,
 }
 
 impl Metrics {
@@ -35,11 +39,15 @@ impl Metrics {
         let arena_streams_size = register_int_gauge_with_registry!("arena_streams_size", "size of streams arena", registry).unwrap();
         let arena_futures_size = register_int_gauge_with_registry!("arena_futures_size", "size of futures arena", registry).unwrap();
 
+        let function_memory_size = register_int_gauge_vec_with_registry!("function_memory_size", "size of memory used by function", &["function"], registry).unwrap();
+
         Self {
             http_requests_total,
             http_requests_in_flight,
             arena_streams_size,
             arena_futures_size,
+
+            function_memory_size,
 
             registry,
         }
@@ -91,6 +99,23 @@ async fn collect_metrics(engine: Arc<Engine>) {
             }
         }
         metrics.arena_futures_size.set(engine.futures_pool.len() as i64);
+
+        for (function_id, execution_env) in engine.execution_contexts.read().unwrap().iter() {
+            let function_id = function_id.as_string();
+            let store = match execution_env.store.try_lock() {
+                Ok(v) => v,
+                Err(err) => {
+                    warn!("failed to lock execution env to collect metrics: {err:?}");
+                    continue;
+                }
+            };
+            let memory = execution_env.function_env.as_ref(&store).memory.as_ref();
+            if let Some(memory) = memory.as_ref() {
+                let data_size = memory.view(&store).data_size();
+                metrics.function_memory_size.with_label_values(&[function_id]).set(data_size as i64);
+            }
+        }
+
         sleep(Duration::from_secs(10)).await;
     }
 }
