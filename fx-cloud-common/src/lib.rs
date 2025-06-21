@@ -14,7 +14,7 @@ pub struct FunctionInvokeEvent {
     pub function_id: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct LogMessageEvent {
     source: LogSource,
     fields: HashMap<String, String>,
@@ -31,9 +31,13 @@ impl LogMessageEvent {
     pub fn source(&self) -> &LogSource {
         &self.source
     }
+
+    pub fn fields(&self) -> &HashMap<String, String> {
+        &self.fields
+    }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub enum LogSource {
     Function {
         id: String,
