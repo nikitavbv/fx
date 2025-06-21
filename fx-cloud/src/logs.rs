@@ -136,8 +136,11 @@ impl RabbitMqLogger {
 
 impl Logger for RabbitMqLogger {
     fn log(&self, message: LogMessage) {
-        if let Err(err) = self.tx.blocking_send(message) {
-            error!("failed to write log to rabbitmq: {err:?}");
-        }
+        let tx = self.tx.clone();
+        tokio::task::spawn(async move {
+            if let Err(err) = tx.send(message).await {
+                error!("failed to write log to rabbitmq: {err:?}");
+            }
+        });
     }
 }
