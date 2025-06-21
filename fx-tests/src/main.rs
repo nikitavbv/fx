@@ -19,7 +19,10 @@ use {
 async fn main() {
     let started_at = Instant::now();
 
-    if !fs::exists("data").unwrap() {
+    if fs::exists("data").unwrap() {
+        // cleanup from previous test runs
+        let _ = fs::remove_file("data/test-kv/test-key");
+    } else {
         fs::create_dir("data").unwrap();
     }
 
@@ -63,7 +66,7 @@ async fn main() {
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
-    // test_fetch(&fx).await;
+    test_fetch(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
