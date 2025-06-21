@@ -12,5 +12,4 @@ tracing = "0.1.41"
 lazy_static = "1.5.0"
 async-stream = "0.3.6"
 fx = { path = "../../fx"}
-fx-utils = { path = "../../fx-utils" }
 fx-cloud-common = { path = "../../fx-cloud-common" }

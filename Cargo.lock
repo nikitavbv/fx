@@ -1661,6 +1661,7 @@ dependencies = [
 name = "fx"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "chrono",
  "futures",
  "fx-core",
@@ -1671,6 +1672,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.12",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -1697,7 +1699,6 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "fx",
- "fx-utils",
 ]
 
 [[package]]
@@ -1762,7 +1763,6 @@ dependencies = [
  "axum",
  "fx",
  "fx-cloud-common",
- "fx-utils",
  "leptos",
  "tokio",
  "tracing",
@@ -1796,7 +1796,6 @@ dependencies = [
  "async-stream",
  "fx",
  "fx-cloud-common",
- "fx-utils",
  "lazy_static",
  "sqlx",
  "tracing",
@@ -1810,21 +1809,6 @@ dependencies = [
  "fx-cloud",
  "fx-core",
  "tokio",
-]
-
-[[package]]
-name = "fx-utils"
-version = "0.1.0"
-dependencies = [
- "axum",
- "futures",
- "fx",
- "log",
- "sqlx",
- "sqlx-core",
- "thiserror 2.0.12",
- "tower",
- "tracing",
 ]
 
 [[package]]

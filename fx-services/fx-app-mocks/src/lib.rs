@@ -1,6 +1,5 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, rpc},
-    fx_utils::handle_http_axum_router,
+    fx::{FxCtx, HttpRequest, HttpResponse, rpc, utils::axum::handle_request},
     axum::{Router, routing::get},
 };
 
@@ -8,7 +7,7 @@ use {
 pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     ctx.init_logger();
 
-    handle_http_axum_router(
+    handle_request(
         Router::new()
             .route("/api/mock/get", get(mock_http_get)),
         req

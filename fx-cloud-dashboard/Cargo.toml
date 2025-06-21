@@ -13,5 +13,4 @@ tracing = "0.1.41"
 leptos = { version = "0.7.8", features = ["ssr"], default-features = false }
 
 fx = { path = "../fx" }
-fx-utils = { path = "../fx-utils" }
 fx-cloud-common = { path = "../fx-cloud-common" }

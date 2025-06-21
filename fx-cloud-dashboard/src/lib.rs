@@ -1,9 +1,8 @@
 use {
     std::collections::HashMap,
-    fx::{FxCtx, HttpRequest, HttpResponse, rpc},
+    fx::{FxCtx, HttpRequest, HttpResponse, rpc, utils::axum::handle_request},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
-    fx_utils::handle_http_axum_router,
     crate::{
         icons::{Settings, Code, Activity, Plus, Play, MoreHorizontal},
         components::{Button, ButtonVariant, Badge, BadgeVariant},
@@ -30,7 +29,7 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         .layer(Extension(FxCloudClient::new()))
         .layer(Extension(database));
 
-    handle_http_axum_router(app, req).await
+    handle_request(app, req).await
 }
 
 #[derive(Clone)]
