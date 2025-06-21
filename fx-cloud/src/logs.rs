@@ -3,10 +3,13 @@ use {
     tracing::{info, error},
     tokio::sync::mpsc,
     serde::Serialize,
+    fx_cloud_common::{
+        LogMessageEvent,
+        LogSource as LogMessageEventLogSource,
+    },
     crate::{cloud::ServiceId, error::LoggerError},
 };
 
-#[derive(Serialize)]
 pub struct LogMessage {
     source: LogSource,
     fields: HashMap<String, String>,
@@ -21,6 +24,12 @@ impl LogMessage {
     }
 }
 
+impl Into<LogMessageEvent> for LogMessage {
+    fn into(self) -> LogMessageEvent {
+        LogMessageEvent::new(self.source.into(), self.fields)
+    }
+}
+
 #[derive(Serialize)]
 pub enum LogSource {
     Function {
@@ -32,6 +41,15 @@ pub enum LogSource {
 impl LogSource {
     pub fn function(function_id: &ServiceId) -> Self {
         Self::Function { id: function_id.into() }
+    }
+}
+
+impl Into<LogMessageEventLogSource> for LogSource {
+    fn into(self) -> LogMessageEventLogSource {
+        match self {
+            Self::Function { id } => LogMessageEventLogSource::Function { id },
+            Self::FxRuntime => LogMessageEventLogSource::FxRuntime,
+        }
     }
 }
 
@@ -101,6 +119,8 @@ impl RabbitMqLogger {
                     None => break,
                 };
 
+                let msg: LogMessageEvent = msg.into();
+
                 let msg_encoded = match rmp_serde::to_vec(&msg) {
                     Ok(v) => v,
                     Err(err) => {
@@ -108,9 +128,9 @@ impl RabbitMqLogger {
                         continue;
                     }
                 };
-                let routing_key = match msg.source {
-                    LogSource::FxRuntime => "fx/runtime".to_owned(),
-                    LogSource::Function { id } => format!("fx/function/{id}")
+                let routing_key = match msg.source() {
+                    LogMessageEventLogSource::FxRuntime => "fx/runtime".to_owned(),
+                    LogMessageEventLogSource::Function { id } => format!("fx/function/{id}")
                 };
 
                 let result = channel.basic_publish(
