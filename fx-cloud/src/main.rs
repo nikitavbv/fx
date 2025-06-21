@@ -151,7 +151,15 @@ async fn main() {
                     }
                 };
 
-                BoxLogger::new(RabbitMqLogger::new(uri, exchange))
+                let logger = match RabbitMqLogger::new(uri, exchange).await {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!("failed to create rabbitmq logger: {err:?}");
+                        exit(-1);
+                    }
+                };
+
+                BoxLogger::new(logger)
             },
         })
     } else {
@@ -271,6 +279,14 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
 async fn reload_on_key_changes(engine: Arc<Engine>, storage: BoxedStorage) {
     let mut watcher = storage.watch();
     while let Some(key) = watcher.next().await {
+        let key = match key {
+            Ok(v) => v,
+            Err(err) => {
+                error!("kv watch error: {err:?}");
+                continue;
+            }
+        };
+
         let function_id = match String::from_utf8(key.key) {
             Ok(v) => v,
             Err(err) => {

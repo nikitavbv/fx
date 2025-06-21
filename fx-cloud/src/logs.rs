@@ -3,7 +3,7 @@ use {
     tracing::{info, error},
     tokio::sync::mpsc,
     serde::Serialize,
-    crate::cloud::ServiceId,
+    crate::{cloud::ServiceId, error::LoggerError},
 };
 
 #[derive(Serialize)]
@@ -81,16 +81,19 @@ pub struct RabbitMqLogger {
 }
 
 impl RabbitMqLogger {
-    pub fn new(uri: String, exchange: String) -> Self {
+    pub async fn new(uri: String, exchange: String) -> Result<Self, LoggerError> {
         let (tx, mut rx) = mpsc::channel(1024);
+
+        let connection = lapin::Connection::connect(
+            uri.as_str().into(),
+            lapin::ConnectionProperties::default().with_connection_name("fx-log".into())
+        ).await.map_err(|err| LoggerError::FailedToCreate { reason: format!("connection error: {err:?}") })?;
+
+        let channel = connection.create_channel().await
+            .map_err(|err| LoggerError::FailedToCreate { reason: format!("failed to create channel: {err:?}") })?;
+
         let connection_task = tokio::task::spawn(async move {
             info!("publishing logs to rabbitmq exchange: {exchange}");
-            let connection = lapin::Connection::connect(
-                uri.as_str().into(),
-                lapin::ConnectionProperties::default().with_connection_name("fx-log".into())
-            ).await.unwrap();
-
-            let channel = connection.create_channel().await.unwrap();
 
             loop {
                 let msg: LogMessage = match rx.recv().await {
@@ -124,10 +127,10 @@ impl RabbitMqLogger {
             }
         });
 
-        Self {
+        Ok(Self {
             tx,
             _connection_task: connection_task,
-        }
+        })
     }
 }
 

@@ -44,3 +44,15 @@ pub enum FxCloudError {
     #[error("stream not found")]
     StreamNotFound,
 }
+
+#[derive(Error, Debug)]
+pub enum LoggerError {
+    #[error("failed to create logger: {reason:?}")]
+    FailedToCreate { reason: String },
+}
+
+#[derive(Error, Debug)]
+pub enum KVWatchError {
+    #[error("failed to init watch: {reason:?}")]
+    FailedToInit { reason: String },
+}

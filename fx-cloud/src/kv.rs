@@ -1,10 +1,11 @@
 use {
     std::{sync::{Arc, Mutex}, path::{self, PathBuf}, fs, io, future},
+    tracing::{info, error},
     rusqlite::Connection,
-    futures::{stream::{self, BoxStream}, StreamExt},
+    futures::{stream::{self, BoxStream, empty as empty_stream}, StreamExt},
     tokio::sync::mpsc,
     notify::Watcher,
-    crate::error::FxCloudError,
+    crate::error::{FxCloudError, KVWatchError},
 };
 
 pub trait KVStorage {
@@ -12,7 +13,7 @@ pub trait KVStorage {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError>;
     fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError>;
 
-    fn watch(&self) -> BoxStream<KeyUpdate> {
+    fn watch(&self) -> BoxStream<Result<KeyUpdate, KVWatchError>> {
         stream::empty().boxed()
     }
 }
@@ -128,9 +129,9 @@ impl KVStorage for FsStorage {
         unimplemented!()
     }
 
-    fn watch(&self) -> BoxStream<KeyUpdate> {
+    fn watch(&self) -> BoxStream<Result<KeyUpdate, KVWatchError>> {
         let base_path = path::absolute(PathBuf::from(self.path.clone())).unwrap();
-        println!("running watch on {:?}", base_path);
+        info!("running watch on {:?}", base_path);
         let (tx, mut rx) = mpsc::channel(1024);
         let event_fn = {
             let base_path = base_path.clone();
@@ -151,15 +152,33 @@ impl KVStorage for FsStorage {
                 }
             }
         };
-        let mut watcher = notify::recommended_watcher(event_fn).unwrap();
-        watcher.watch(&base_path, notify::RecursiveMode::Recursive).unwrap();
-        self.watchers.lock().unwrap().push(Box::new(watcher));
+        let mut watcher = match notify::recommended_watcher(event_fn) {
+            Ok(v) => v,
+            Err(err) => {
+                let err = KVWatchError::FailedToInit { reason: format!("failed to create watcher: {err:?}") };
+                return stream::once(async move { Err(err) }).boxed();
+            },
+        };
+        if let Err(err) = watcher.watch(&base_path, notify::RecursiveMode::Recursive) {
+            let err = KVWatchError::FailedToInit { reason: format!("failed to watch path: {err:?}") };
+            return stream::once(async move { Err(err) }).boxed();
+        }
+
+        {
+            let mut watchers = match self.watchers.lock() {
+                Ok(v) => v,
+                Err(err) => {
+                    let err = KVWatchError::FailedToInit { reason: format!("failed to lock watchers: {err:?}") };
+                    return stream::once(async move { Err(err) }).boxed();
+                }
+            };
+            watchers.push(Box::new(watcher));
+        }
 
         async_stream::stream! {
             while let Some(item) = rx.recv().await {
-                yield item;
+                yield Ok(item);
             }
-            println!("stopping here");
         }.boxed()
     }
 }
@@ -219,16 +238,19 @@ impl<T: KVStorage> KVStorage for SuffixStorage<T> {
         unimplemented!()
     }
 
-    fn watch(&self) -> BoxStream<KeyUpdate> {
+    fn watch(&self) -> BoxStream<Result<KeyUpdate, KVWatchError>> {
         let suffix = self.suffix.clone();
         let suffix_len = suffix.len();
 
         self.inner
             .watch()
-            .filter(move |v| future::ready(v.key.ends_with(&suffix)))
-            .map(move |v| KeyUpdate {
+            .filter(move |v| future::ready(match v {
+                Ok(v) => v.key.ends_with(&suffix),
+                Err(_err) => true,
+            }))
+            .map(move |v| v.map(|v| KeyUpdate {
                 key: v.key[0..v.key.len() - suffix_len].to_vec(),
-            })
+            }))
             .boxed()
     }
 }
@@ -276,7 +298,7 @@ impl KVStorage for BoxedStorage {
         self.inner.list()
     }
 
-    fn watch(&self) -> BoxStream<KeyUpdate> {
+    fn watch(&self) -> BoxStream<Result<KeyUpdate, KVWatchError>> {
         self.inner.watch()
     }
 }
