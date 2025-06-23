@@ -303,9 +303,6 @@ pub struct SqlMigrations {
     pub migrations: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct CronRequest {}
-
 // TODO: FxStream should create stream on host side. On host side, each entry in StreamPool should contain reference to ExecutionContext or wrapped stream
 // created on host side (i.e., body of `fetch`). when stream is polled, host should run poll_next function in that ExecutionContext or poll_next a local Stream (depending on where stream lives).
 // One more positive aspect of this implementation is that it allows passthrough of streams (for example, from fetch to HttpResponse) - poll_next on host will poll Stream on host side without

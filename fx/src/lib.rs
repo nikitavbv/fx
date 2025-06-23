@@ -7,7 +7,6 @@ pub use {
         DatabaseSqlBatchQuery,
         SqlResult,
         SqlValue,
-        CronRequest,
         FxExecutionError,
         FxFutureError,
         FxSqlError,

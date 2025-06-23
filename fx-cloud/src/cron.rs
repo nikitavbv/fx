@@ -4,7 +4,6 @@ use {
     chrono::{DateTime, Utc, NaiveDateTime},
     tokio::time::sleep,
     cron as cron_utils,
-    fx_core::CronRequest,
     crate::{sql::{SqlDatabase, Query, Value}, ServiceId, cloud::Engine, error::FxCloudError},
 };
 
@@ -85,9 +84,15 @@ impl CronRunner {
                     },
                 }
 
-                engine.invoke_service::<(), ()>(engine.clone(), &ServiceId::new(task.function_id.clone()), &task.method_name, ()).await.unwrap();
-
-                database.update_run_time(&task.id, now);
+                let result = engine.invoke_service::<(), ()>(engine.clone(), &ServiceId::new(task.function_id.clone()), &task.method_name, ()).await;
+                match result {
+                    Ok(_) => {
+                        database.update_run_time(&task.id, now);
+                    },
+                    Err(err) => {
+                        error!("failed to run cron task: {err:?}. Will try again...");
+                    }
+                }
             }
 
             sleep(Duration::from_secs(1)).await;
