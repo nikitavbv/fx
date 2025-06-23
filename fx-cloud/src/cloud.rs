@@ -142,7 +142,7 @@ impl Into<String> for &ServiceId {
     }
 }
 
-pub(crate) struct Engine {
+pub struct Engine {
     pub(crate) metrics: Metrics,
 
     compiler: RwLock<BoxedCompiler>,
@@ -742,10 +742,10 @@ fn api_sql_migrate(mut ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, m
 }
 
 fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len: i64, argument_addr: i64, argument_len: i64) {
-    let queue = String::from_utf8(read_memory_owned(&ctx, queue_addr, queue_len)).unwrap();
-    let argument = read_memory_owned(&ctx, argument_addr, argument_len);
-    let engine = ctx.data().engine.clone();
     // TODO: queues need to come back in a different form
+    let _queue = String::from_utf8(read_memory_owned(&ctx, queue_addr, queue_len)).unwrap();
+    let _argument = read_memory_owned(&ctx, argument_addr, argument_len);
+    let _engine = ctx.data().engine.clone();
     // tokio::task::spawn(async move { engine.push_to_queue_raw(queue, argument).await });
 }
 

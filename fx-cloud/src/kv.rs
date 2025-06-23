@@ -121,7 +121,8 @@ impl KVStorage for FsStorage {
                 fs::create_dir_all(parent).unwrap();
             }
         }
-        fs::write(path, value).unwrap();
+        fs::write(path, value)
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to write filed: {err:?}") })?;
         Ok(())
     }
 
@@ -130,23 +131,58 @@ impl KVStorage for FsStorage {
     }
 
     fn watch(&self) -> BoxStream<Result<KeyUpdate, KVWatchError>> {
-        let base_path = path::absolute(PathBuf::from(self.path.clone())).unwrap();
+        let base_path = match path::absolute(PathBuf::from(self.path.clone())) {
+            Ok(v) => v,
+            Err(err) => {
+                let err = KVWatchError::FailedToInit { reason: format!("failed to get absolute path for path: {:?}, error: {err:?}", self.path) };
+                return stream::once(async move { Err(err) }).boxed();
+            }
+        };
+
         info!("running watch on {:?}", base_path);
+
         let (tx, mut rx) = mpsc::channel(1024);
         let event_fn = {
             let base_path = base_path.clone();
 
             move |res: notify::Result<notify::Event>| {
-                let res = res.unwrap();
+                let res = match res {
+                    Ok(v) => v,
+                    Err(err) => {
+                        if let Err(err) = tx.blocking_send(Err(KVWatchError::EventHandling {
+                            reason: format!("received notify error: {err:?}"),
+                        })) {
+                            error!("failed to send watch event when handling notify error: {err:?}");
+                        }
+                        return;
+                    }
+                };
+
                 match res.kind {
                     notify::EventKind::Access(_)
                     | notify::EventKind::Remove(_) => {},
                     _other => {
                         for changed_path in res.paths {
-                            let relative = pathdiff::diff_paths(changed_path, &base_path).unwrap();
-                            tx.blocking_send(KeyUpdate {
-                                key: relative.to_str().unwrap().as_bytes().to_vec(),
-                            }).unwrap();
+                            let relative = pathdiff::diff_paths(&changed_path, &base_path);
+                            let result = tx.blocking_send({
+                                if let Some(relative) = relative {
+                                    match relative.to_str() {
+                                        Some(v) => Ok(KeyUpdate {
+                                            key: v.as_bytes().to_vec(),
+                                        }),
+                                        None => Err(KVWatchError::EventHandling {
+                                            reason: format!("failed to convert pathdiff to str for changed path: {changed_path:?}"),
+                                        }),
+                                    }
+                                } else {
+                                    Err(KVWatchError::EventHandling {
+                                        reason: format!("failed to pathdiff for changed path: {changed_path:?}"),
+                                    })
+                                }
+                            });
+                            if let Err(err) = result {
+                                error!("failed to send watch event: {err:?}");
+                            }
                         }
                     }
                 }
@@ -177,7 +213,7 @@ impl KVStorage for FsStorage {
 
         async_stream::stream! {
             while let Some(item) = rx.recv().await {
-                yield Ok(item);
+                yield item;
             }
         }.boxed()
     }

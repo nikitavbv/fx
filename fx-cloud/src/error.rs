@@ -55,4 +55,7 @@ pub enum LoggerError {
 pub enum KVWatchError {
     #[error("failed to init watch: {reason:?}")]
     FailedToInit { reason: String },
+
+    #[error("failed to handle event: {reason:?}")]
+    EventHandling { reason: String },
 }

@@ -57,6 +57,7 @@ pub struct MemoizedCompiler {
 }
 
 impl MemoizedCompiler {
+    #[allow(dead_code)]
     pub fn new(storage: BoxedStorage, compiler: BoxedCompiler) -> Self {
         Self {
             storage,
