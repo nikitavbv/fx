@@ -759,6 +759,7 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     let ctx_data = ctx.data();
     ctx_data.engine.logger.read().unwrap().log(crate::logs::LogMessage::new(
         crate::logs::LogSource::function(&ctx_data.service_id),
+        crate::logs::LogLevel::Info,
         msg.fields,
     ));
 }

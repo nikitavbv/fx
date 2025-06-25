@@ -22,6 +22,7 @@ impl<S> Layer<S> for FxLoggingLayer where S: Subscriber {
     fn on_event(&self, event: &Event<'_>, _ctx: layer::Context<'_, S>) {
         let mut fields = HashMap::new();
         event.record(&mut FieldVisitor { fields: &mut fields });
+        // fields.insert("metadata".to_owned(), format!("{:?}", event.metadata()));
         let msg = LogMessage { fields };
         let msg = rmp_serde::to_vec(&msg).unwrap();
         unsafe { sys::log(msg.as_ptr() as i64, msg.len() as i64); }

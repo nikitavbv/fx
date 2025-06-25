@@ -12,13 +12,15 @@ use {
 
 pub struct LogMessage {
     source: LogSource,
+    level: LogLevel,
     fields: HashMap<String, String>,
 }
 
 impl LogMessage {
-    pub fn new(source: LogSource, fields: HashMap<String, String>) -> Self {
+    pub fn new(source: LogSource, level: LogLevel, fields: HashMap<String, String>) -> Self {
         Self {
             source,
+            level,
             fields,
         }
     }
@@ -51,6 +53,13 @@ impl Into<LogMessageEventLogSource> for LogSource {
             Self::FxRuntime => LogMessageEventLogSource::FxRuntime,
         }
     }
+}
+
+#[derive(Serialize)]
+pub enum LogLevel {
+    Info,
+    Warn,
+    Error,
 }
 
 pub trait Logger {
