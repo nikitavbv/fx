@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     tracing::{Subscriber, Event, field::{Field, Visit}},
     tracing_subscriber::{Layer, layer},
-    fx_core::LogMessage,
+    fx_core::{LogMessage, LogLevel},
     crate::sys,
 };
 
@@ -23,7 +23,7 @@ impl<S> Layer<S> for FxLoggingLayer where S: Subscriber {
         let mut fields = HashMap::new();
         event.record(&mut FieldVisitor { fields: &mut fields });
         // fields.insert("metadata".to_owned(), format!("{:?}", event.metadata()));
-        let msg = LogMessage { fields };
+        let msg = LogMessage { level: LogLevel::Info, fields };
         let msg = rmp_serde::to_vec(&msg).unwrap();
         unsafe { sys::log(msg.as_ptr() as i64, msg.len() as i64); }
     }
