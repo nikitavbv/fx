@@ -1,56 +1,13 @@
 use {
-    std::{
-        sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}},
-        collections::HashMap,
-        ops::DerefMut,
-        task::{self, Poll},
-        time::{SystemTime, UNIX_EPOCH},
-    },
-    wasmer::{
-        wasmparser::Operator,
-        Cranelift,
-        CompilerConfig,
-        Store,
-        EngineBuilder,
-        FunctionEnv,
-        FunctionEnvMut,
-        Memory,
-        Instance,
-        Function,
-        Value,
-        imports,
-        ExportError,
-    },
-    wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
-    serde::{Serialize, Deserialize},
-    futures::FutureExt,
-    rand::TryRngCore,
-    fx_core::{
-        LogMessage,
-        DatabaseSqlQuery,
-        DatabaseSqlBatchQuery,
-        SqlResult,
-        SqlResultRow,
-        SqlValue,
-        HttpRequest,
-        HttpResponse,
-        FxExecutionError,
-        FxFutureError,
-        FxSqlError,
-        SqlMigrations,
-    },
     crate::{
-        kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
-        error::FxCloudError,
-        compatibility,
-        sql::{self, SqlDatabase},
-        compiler::{Compiler, BoxedCompiler, SimpleCompiler},
-        futures::FuturesPool,
-        streams::StreamsPool,
-        metrics::Metrics,
-        definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition},
-        logs::{Logger, BoxLogger, StdoutLogger},
-    },
+        compatibility, compiler::{BoxedCompiler, Compiler, SimpleCompiler}, definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition}, error::FxCloudError, futures::FuturesPool, kv::{BoxedStorage, EmptyStorage, FsStorage, KVStorage, NamespacedStorage}, logs::{self, BoxLogger, Logger, StdoutLogger}, metrics::Metrics, sql::{self, SqlDatabase}, streams::StreamsPool
+    }, futures::FutureExt, fx_core::{
+        DatabaseSqlBatchQuery, DatabaseSqlQuery, FxExecutionError, FxFutureError, FxSqlError, HttpRequest, HttpResponse, LogMessage, SqlMigrations, SqlResult, SqlResultRow, SqlValue
+    }, rand::TryRngCore, serde::{Deserialize, Serialize}, std::{
+        collections::HashMap, ops::DerefMut, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex, RwLock}, task::{self, Poll}, time::{SystemTime, UNIX_EPOCH}
+    }, wasmer::{
+        imports, wasmparser::Operator, CompilerConfig, Cranelift, EngineBuilder, ExportError, Function, FunctionEnv, FunctionEnvMut, Instance, Memory, Store, Value
+    }, wasmer_middlewares::{metering::{get_remaining_points, set_remaining_points, MeteringPoints}, Metering}
 };
 
 #[derive(Clone)]
@@ -756,10 +713,18 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     }
     let msg: LogMessage = decode_memory(&ctx, msg_addr, msg_len);
 
+    let level = match msg.level {
+        fx_core::LogLevel::Trace => logs::LogLevel::Trace,
+        fx_core::LogLevel::Debug => logs::LogLevel::Debug,
+        fx_core::LogLevel::Info => logs::LogLevel::Info,
+        fx_core::LogLevel::Warn => logs::LogLevel::Warn,
+        fx_core::LogLevel::Error => logs::LogLevel::Error,
+    };
+
     let ctx_data = ctx.data();
     ctx_data.engine.logger.read().unwrap().log(crate::logs::LogMessage::new(
         crate::logs::LogSource::function(&ctx_data.service_id),
-        crate::logs::LogLevel::Info,
+        level,
         msg.fields,
     ));
 }

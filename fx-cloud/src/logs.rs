@@ -57,6 +57,8 @@ impl Into<LogMessageEventLogSource> for LogSource {
 
 #[derive(Serialize)]
 pub enum LogLevel {
+    Trace,
+    Debug,
     Info,
     Warn,
     Error,

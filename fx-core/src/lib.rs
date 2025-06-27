@@ -164,6 +164,7 @@ pub struct LogMessage {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum LogLevel {
+    Trace,
     Debug,
     Info,
     Warn,
