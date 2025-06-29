@@ -43,6 +43,9 @@ pub enum FxCloudError {
 
     #[error("stream not found")]
     StreamNotFound,
+
+    #[error("serialization error")]
+    SerializationError { reason: String },
 }
 
 #[derive(Error, Debug)]

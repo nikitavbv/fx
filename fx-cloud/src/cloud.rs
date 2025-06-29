@@ -537,9 +537,10 @@ fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
     view.write(addr as u64, value).unwrap();
 }
 
-fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> T {
+fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Result<T, FxCloudError> {
     let memory = read_memory_owned(&ctx, addr, len);
-    rmp_serde::from_slice(&memory).unwrap()
+    rmp_serde::from_slice(&memory)
+        .map_err(|err| FxCloudError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
 }
 
 fn api_rpc(
