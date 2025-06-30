@@ -269,6 +269,9 @@ pub enum FxSqlError {
 
     #[error("query failed: {reason}")]
     QueryFailed { reason: String },
+
+    #[error("serialization error: {reason}")]
+    SerializationError { reason: String },
 }
 
 #[derive(Error, Debug)]

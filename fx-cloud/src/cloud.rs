@@ -617,37 +617,39 @@ fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, binding_len:
 }
 
 fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
-    let request: DatabaseSqlQuery = decode_memory(&ctx, query_addr, query_len);
+    let result = decode_memory(&ctx, query_addr, query_len)
+        .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode request: {err:?}") })
+        .and_then(|request: DatabaseSqlQuery| {
+            let mut query = sql::Query::new(request.query.stmt);
+            for param in request.query.params {
+                query = query.with_param(match param {
+                    SqlValue::Null => sql::Value::Null,
+                    SqlValue::Integer(v) => sql::Value::Integer(v),
+                    SqlValue::Real(v) => sql::Value::Real(v),
+                    SqlValue::Text(v) => sql::Value::Text(v),
+                    SqlValue::Blob(v) => sql::Value::Blob(v),
+                });
+            }
 
-    let mut query = sql::Query::new(request.query.stmt);
-    for param in request.query.params {
-        query = query.with_param(match param {
-            SqlValue::Null => sql::Value::Null,
-            SqlValue::Integer(v) => sql::Value::Integer(v),
-            SqlValue::Real(v) => sql::Value::Real(v),
-            SqlValue::Text(v) => sql::Value::Text(v),
-            SqlValue::Blob(v) => sql::Value::Blob(v),
-        });
-    }
-
-    let result = ctx.data().sql.get(&request.database)
-        .as_ref()
-        .ok_or(FxSqlError::BindingNotExists)
-        .and_then(|database| database.exec(query).map_err(|err| FxSqlError::QueryFailed { reason: err.to_string() }))
-        .map(|result| SqlResult {
-            rows: result.rows.into_iter()
-                .map(|row| SqlResultRow {
-                    columns: row.columns.into_iter()
-                        .map(|value| match value {
-                            sql::Value::Null => SqlValue::Null,
-                            sql::Value::Integer(v) => SqlValue::Integer(v),
-                            sql::Value::Real(v) => SqlValue::Real(v),
-                            sql::Value::Text(v) => SqlValue::Text(v),
-                            sql::Value::Blob(v) => SqlValue::Blob(v),
+            ctx.data().sql.get(&request.database)
+                .as_ref()
+                .ok_or(FxSqlError::BindingNotExists)
+                .and_then(|database| database.exec(query).map_err(|err| FxSqlError::QueryFailed { reason: err.to_string() }))
+                .map(|result| SqlResult {
+                    rows: result.rows.into_iter()
+                        .map(|row| SqlResultRow {
+                            columns: row.columns.into_iter()
+                                .map(|value| match value {
+                                    sql::Value::Null => SqlValue::Null,
+                                    sql::Value::Integer(v) => SqlValue::Integer(v),
+                                    sql::Value::Real(v) => SqlValue::Real(v),
+                                    sql::Value::Text(v) => SqlValue::Text(v),
+                                    sql::Value::Blob(v) => SqlValue::Blob(v),
+                                })
+                                .collect(),
                         })
                         .collect(),
                 })
-                .collect(),
         });
     let result = rmp_serde::to_vec(&result).unwrap();
 
