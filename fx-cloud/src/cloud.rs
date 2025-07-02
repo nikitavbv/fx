@@ -662,27 +662,39 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
-fn api_sql_batch(ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64) {
-    let request: DatabaseSqlBatchQuery = decode_memory(&ctx, query_addr, query_len);
+fn api_sql_batch(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
+    let data = ctx.data().clone();
+    let result: Result<(), FxSqlError> = decode_memory(&ctx, query_addr, query_len)
+        .map(|request: DatabaseSqlBatchQuery| {
+            let queries = request.queries.into_iter()
+                .map(|request_query| {
+                    let mut query = sql::Query::new(request_query.stmt);
+                    for param in request_query.params {
+                        query = query.with_param(match param {
+                             SqlValue::Null => sql::Value::Null,
+                            SqlValue::Integer(v) => sql::Value::Integer(v),
+                            SqlValue::Real(v) => sql::Value::Real(v),
+                            SqlValue::Text(v) => sql::Value::Text(v),
+                            SqlValue::Blob(v) => sql::Value::Blob(v),
+                        });
+                    }
+                    query
+                })
+                .collect::<Vec<_>>();
 
-    let queries = request.queries.into_iter()
-        .map(|request_query| {
-            let mut query = sql::Query::new(request_query.stmt);
-            for param in request_query.params {
-                query = query.with_param(match param {
-                    SqlValue::Null => sql::Value::Null,
-                    SqlValue::Integer(v) => sql::Value::Integer(v),
-                    SqlValue::Real(v) => sql::Value::Real(v),
-                    SqlValue::Text(v) => sql::Value::Text(v),
-                    SqlValue::Blob(v) => sql::Value::Blob(v),
-                });
-            }
-            query
+            // TODO: report errors to calling service
+            data.sql.get(&request.database).as_ref().unwrap().batch(queries).unwrap();
         })
-        .collect::<Vec<_>>();
+        .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode request: {err:?}") });
 
-    // TODO: report errors to calling service
-    ctx.data().sql.get(&request.database).as_ref().unwrap().batch(queries).unwrap();
+    let (data, mut store) = ctx.data_and_store_mut();
+    let result = rmp_serde::to_vec(&result).unwrap();
+    let len = result.len() as i64;
+
+    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
+    write_memory(&ctx, ptr, &result);
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_sql_migrate(mut ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, migration_len: i64, output_ptr: i64) {
