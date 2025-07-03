@@ -698,11 +698,15 @@ fn api_sql_batch(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_l
 }
 
 fn api_sql_migrate(mut ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, migration_len: i64, output_ptr: i64) {
-    let migrations: SqlMigrations = decode_memory(&ctx, migration_addr, migration_len);
-    let result = ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations)
-        .map_err(|err| fx_core::FxSqlError::MigrationFailed {
-            reason: err.to_string(),
+    let result = decode_memory(&ctx, migration_addr, migration_len)
+        .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode migrations request: {err:?}") })
+        .and_then(|migrations: SqlMigrations| {
+            ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations)
+                .map_err(|err| fx_core::FxSqlError::MigrationFailed {
+                    reason: err.to_string(),
+                })
         });
+
     let result = rmp_serde::to_vec(&result).unwrap();
 
     let (data, mut store) = ctx.data_and_store_mut();
