@@ -804,26 +804,30 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         panic!("service {:?} is not allowed to call fetch", ctx.data().service_id.id);
     }
 
-    let req: HttpRequest = decode_memory(&ctx, req_addr, req_len);
+    let request = decode_memory(&ctx, req_addr, req_len)
+        .map_err(|err| FxFutureError::SerializationError {
+            reason: format!("failed to decode memory: {err:?}"),
+        })
+        .and_then(|req: HttpRequest| {
+            let request = ctx.data().fetch_client
+                .request(req.method, req.url.to_string())
+                .headers(req.headers);
 
-    let request = ctx.data().fetch_client
-        .request(req.method, req.url.to_string())
-        .headers(req.headers);
-
-    let request = if let Some(body) = req.body {
-        let stream = ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body);
-        match stream {
-            Ok(Some(stream)) => Ok(request.body(reqwest::Body::wrap_stream(stream))),
-            Ok(None) => Err(FxFutureError::FetchError {
-                reason: "stream not found".to_owned(),
-            }),
-            Err(err) => Err(FxFutureError::FetchError {
-                reason: format!("failed to read stream: {err:?}"),
-            })
-        }
-    } else {
-        Ok(request)
-    };
+            if let Some(body) = req.body {
+                let stream = ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body);
+                match stream {
+                    Ok(Some(stream)) => Ok(request.body(reqwest::Body::wrap_stream(stream))),
+                    Ok(None) => Err(FxFutureError::FetchError {
+                        reason: "stream not found".to_owned(),
+                    }),
+                    Err(err) => Err(FxFutureError::FetchError {
+                        reason: format!("failed to read stream: {err:?}"),
+                    })
+                }
+            } else {
+                Ok(request)
+            }
+        });
 
     let request_future = async move {
         match request {

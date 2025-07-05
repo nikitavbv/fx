@@ -338,6 +338,8 @@ pub enum FxFutureError {
     RpcError { reason: String },
     #[error("fetch call failed: {reason}")]
     FetchError { reason: String },
+    #[error("serialization error: {reason}")]
+    SerializationError { reason: String },
 }
 
 #[derive(Error, Debug, Serialize, Deserialize)]
