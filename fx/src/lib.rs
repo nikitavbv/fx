@@ -197,13 +197,19 @@ impl SqlDatabase {
         rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
     }
 
-    pub fn batch(&self, queries: Vec<SqlQuery>) {
+    pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
         let queries = DatabaseSqlBatchQuery {
             database: self.name.clone(),
             queries,
         };
         let queries = rmp_serde::to_vec(&queries).unwrap();
-        unsafe { sys::sql_batch(queries.as_ptr() as i64, queries.len() as i64); }
+
+        let ptr_and_len = sys::PtrWithLen::new();
+        unsafe {
+            sys::sql_batch(queries.as_ptr() as i64, queries.len() as i64, ptr_and_len.ptr_to_self())
+        }
+
+        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
     }
 }
 
