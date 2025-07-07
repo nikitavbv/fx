@@ -29,7 +29,7 @@ pub mod list_functions {
     impl Database {
         pub async fn list_functions(&self) -> Vec<Function> {
             self.database.exec(SqlQuery::new("select function_id, total_invocations from functions")).unwrap()
-                .rows
+                .into_rows()
                 .into_iter()
                 .map(|row| Function {
                     function_id: match row.columns.get(0).unwrap() {

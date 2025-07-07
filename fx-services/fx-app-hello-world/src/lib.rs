@@ -28,7 +28,7 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
         database.exec(SqlQuery::new("create table if not exists hello_table (v integer not null)")).unwrap();
         database.exec(SqlQuery::new("insert into hello_table (v) values (?)").bind(42)).unwrap();
         let result = database.exec(SqlQuery::new("select sum(v) as total from hello_table")).unwrap();
-        return HttpResponse::new().with_body(format!("hello sql! x={:?}", result.rows[0].columns[0]));
+        return HttpResponse::new().with_body(format!("hello sql! x={:?}", result.into_rows()[0].columns[0]));
     }
 
     HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))

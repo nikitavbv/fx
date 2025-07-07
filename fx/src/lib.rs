@@ -5,7 +5,6 @@ pub use {
         SqlQuery,
         DatabaseSqlQuery,
         DatabaseSqlBatchQuery,
-        SqlResult,
         SqlValue,
         FxExecutionError,
         FxFutureError,
@@ -32,13 +31,14 @@ use {
 };
 
 pub mod utils;
+pub mod sql;
 
 mod error;
 mod fx_futures;
 mod fx_streams;
 mod http;
-mod sys;
 mod logging;
+mod sys;
 
 lazy_static! {
     pub static ref CTX: FxCtx = FxCtx::new();
@@ -183,7 +183,7 @@ impl SqlDatabase {
         Self { name }
     }
 
-    pub fn exec(&self, query: SqlQuery) -> Result<SqlResult, FxSqlError> {
+    pub fn exec(&self, query: SqlQuery) -> Result<sql::SqlResult, FxSqlError> {
         let query = DatabaseSqlQuery {
             database: self.name.clone(),
             query,
@@ -194,7 +194,8 @@ impl SqlDatabase {
             sys::sql_exec(query.as_ptr() as i64, query.len() as i64, ptr_and_len.ptr_to_self())
         }
 
-        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+        rmp_serde::from_slice::<Result<fx_core::SqlResult, FxSqlError>>(&ptr_and_len.read_owned()).unwrap()
+            .map(|v| sql::SqlResult::from(v))
     }
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
