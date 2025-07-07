@@ -1,3 +1,6 @@
+install:
+    cargo install --path fx-cloud
+
 run: cloud-dashboard app-counter app-hello-world app-rpc-test-service
     cargo run -p fx-cloud
 
