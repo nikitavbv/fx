@@ -118,7 +118,8 @@ impl KVStorage for FsStorage {
         let path = self.path.join(&String::from_utf8(key.to_vec()).unwrap());
         if let Some(parent) = path.parent() {
             if !parent.exists() {
-                fs::create_dir_all(parent).unwrap();
+                fs::create_dir_all(parent)
+                    .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create parent directory for FsStorage: {err:?}") })?;
             }
         }
         fs::write(path, value)
