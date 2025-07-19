@@ -355,3 +355,14 @@ pub enum FxStreamError {
 pub struct QueueMessage {
     pub data: Vec<u8>,
 }
+
+pub mod metrics {
+    use super::*;
+
+    #[derive(Serialize, Deserialize)]
+    pub struct CounterIncrementRequest {
+        pub counter_name: String,
+        pub delta: u64,
+        pub tags: Vec<(String, String)>,
+    }
+}
