@@ -800,6 +800,14 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
 }
 
 fn api_metrics_counter_increment(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) {
+    let request: fx_core::metrics::CounterIncrementRequest = match decode_memory(&ctx, req_addr, req_len) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to decode memory for metrics counter increment: {err:?}");
+            return;
+        }
+    };
+
     // TODO: implement this
 }
 
