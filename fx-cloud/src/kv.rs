@@ -115,7 +115,10 @@ impl KVStorage for FsStorage {
     }
 
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
-        let path = self.path.join(&String::from_utf8(key.to_vec()).unwrap());
+        let path = self.path.join(
+            &String::from_utf8(key.to_vec())
+                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to decode key as string: {err:?}") })?
+        );
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent)
