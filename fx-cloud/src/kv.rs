@@ -98,11 +98,18 @@ impl FsStorage {
             watchers: Arc::new(Mutex::new(Vec::new())),
         }
     }
+
+    fn path_for_key(&self, key: &[u8]) -> Result<PathBuf, FxCloudError> {
+        Ok(self.path.join(
+            &String::from_utf8(key.to_vec())
+                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to decode key as string: {err:?}") })?
+        ))
+    }
 }
 
 impl KVStorage for FsStorage {
     fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
-        match fs::read(self.path.join(&String::from_utf8(key.to_vec()).unwrap())) {
+        match fs::read(self.path_for_key(key)?) {
             Ok(v) => Ok(Some(v)),
             Err(err) => {
                 if err.kind() == io::ErrorKind::NotFound {
@@ -115,10 +122,7 @@ impl KVStorage for FsStorage {
     }
 
     fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
-        let path = self.path.join(
-            &String::from_utf8(key.to_vec())
-                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to decode key as string: {err:?}") })?
-        );
+        let path = self.path_for_key(key)?;
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent)
