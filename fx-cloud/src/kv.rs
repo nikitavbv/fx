@@ -91,12 +91,13 @@ pub struct FsStorage {
 }
 
 impl FsStorage {
-    pub fn new(path: PathBuf) -> Self {
-        fs::create_dir_all(&path).unwrap();
-        Self {
+    pub fn new(path: PathBuf) -> Result<Self, FxCloudError> {
+        fs::create_dir_all(&path)
+            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create directory for FsStorage: {err:?}") })?;
+        Ok(Self {
             path,
             watchers: Arc::new(Mutex::new(Vec::new())),
-        }
+        })
     }
 
     fn path_for_key(&self, key: &[u8]) -> Result<PathBuf, FxCloudError> {

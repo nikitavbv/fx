@@ -237,7 +237,7 @@ impl Engine {
         for kv_definition in definition.kv {
             kv.insert(
                 kv_definition.id,
-                BoxedStorage::new(FsStorage::new(kv_definition.path.into())),
+                BoxedStorage::new(FsStorage::new(kv_definition.path.into())?),
             );
         }
 

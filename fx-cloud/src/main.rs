@@ -123,8 +123,9 @@ async fn main() {
     };
 
     let functions_dir = args.functions_dir.map(PathBuf::from).unwrap_or(current_dir);
-    let code_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_WASM, FsStorage::new(functions_dir.clone())));
-    let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, FsStorage::new(functions_dir)));
+    let functions_storage = FsStorage::new(functions_dir.clone()).unwrap();
+    let code_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_WASM, functions_storage.clone()));
+    let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
     let fx_cloud = FxCloud::new()
