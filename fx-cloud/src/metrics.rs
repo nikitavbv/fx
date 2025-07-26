@@ -1,5 +1,5 @@
 use {
-    std::{convert::Infallible, net::SocketAddr, pin::Pin, sync::Arc, time::Duration},
+    std::{convert::Infallible, net::SocketAddr, pin::Pin, sync::{Arc, RwLock}, time::Duration, collections::HashMap},
     tracing::{error, warn},
     tokio::{net::TcpListener, join, time::sleep},
     hyper::{Request, body::{Incoming, Bytes}, Response, server::conn::http1},
@@ -28,6 +28,13 @@ pub struct Metrics {
     pub(crate) arena_futures_size: IntGauge,
 
     pub(crate) function_memory_size: IntGaugeVec,
+
+    pub(crate) function_metrics: FunctionMetrics,
+}
+
+#[derive(Clone)]
+struct FunctionMetrics {
+    counters: Arc<RwLock<HashMap<String, IntCounter>>>,
 }
 
 impl Metrics {
@@ -50,6 +57,10 @@ impl Metrics {
             function_memory_size,
 
             registry,
+
+            function_metrics: FunctionMetrics {
+                counters: Arc::new(RwLock::new(HashMap::new())),
+            }
         }
     }
 
