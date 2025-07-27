@@ -84,7 +84,13 @@ pub async fn run_metrics_server(engine: Arc<Engine>, port: u16) {
         collect_metrics(engine.clone()),
         async {
             loop {
-                let (tcp, _) = listener.accept().await.unwrap();
+                let (tcp, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!("failed to accept connection in metrics server: {err:?}");
+                        continue;
+                    }
+                };
                 let io = TokioIo::new(tcp);
                 let metrics_server = metrics_server.clone();
                 tokio::task::spawn(async move {
@@ -111,20 +117,23 @@ async fn collect_metrics(engine: Arc<Engine>) {
         }
         metrics.arena_futures_size.set(engine.futures_pool.len() as i64);
 
-        for (function_id, execution_env) in engine.execution_contexts.read().unwrap().iter() {
-            let function_id = function_id.as_string();
-            let store = match execution_env.store.try_lock() {
-                Ok(v) => v,
-                Err(err) => {
-                    warn!("failed to lock execution env to collect metrics: {err:?}");
-                    continue;
+        match engine.execution_contexts.read() {
+            Ok(execution_contexts) => for (function_id, execution_env) in execution_contexts.iter() {
+                let function_id = function_id.as_string();
+                let store = match execution_env.store.try_lock() {
+                    Ok(v) => v,
+                    Err(err) => {
+                        warn!("failed to lock execution env to collect metrics: {err:?}");
+                        continue;
+                    }
+                };
+                let memory = execution_env.function_env.as_ref(&store).memory.as_ref();
+                if let Some(memory) = memory.as_ref() {
+                    let data_size = memory.view(&store).data_size();
+                    metrics.function_memory_size.with_label_values(&[function_id]).set(data_size as i64);
                 }
-            };
-            let memory = execution_env.function_env.as_ref(&store).memory.as_ref();
-            if let Some(memory) = memory.as_ref() {
-                let data_size = memory.view(&store).data_size();
-                metrics.function_memory_size.with_label_values(&[function_id]).set(data_size as i64);
-            }
+            },
+            Err(err) => error!("failed to read execution contexts when collecting metrics: {err:?}"),
         }
 
         sleep(Duration::from_secs(10)).await;

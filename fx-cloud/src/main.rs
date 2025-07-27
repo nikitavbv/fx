@@ -123,7 +123,13 @@ async fn main() {
     };
 
     let functions_dir = args.functions_dir.map(PathBuf::from).unwrap_or(current_dir);
-    let functions_storage = FsStorage::new(functions_dir.clone()).unwrap();
+    let functions_storage = match FsStorage::new(functions_dir.clone()) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to init functions storage: {err:?}");
+            exit(-1);
+        }
+    };
     let code_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_WASM, functions_storage.clone()));
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
