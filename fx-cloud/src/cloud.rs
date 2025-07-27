@@ -247,7 +247,10 @@ impl Engine {
                 sql_definition.id,
                 match sql_definition.storage {
                     SqlStorageDefinition::InMemory => SqlDatabase::in_memory().unwrap(), // TODO: function crashes, all data is lost
-                    SqlStorageDefinition::Path(path) => SqlDatabase::new(path).unwrap(),
+                    SqlStorageDefinition::Path(path) => SqlDatabase::new(path)
+                        .map_err(|err| FxCloudError::ExecutionContextInitError {
+                            reason: format!("failed to init SqlDatabase: {err:?}"),
+                        })?,
                 },
             );
         }

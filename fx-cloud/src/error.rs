@@ -14,7 +14,10 @@ pub enum FxCloudError {
     #[error("internal service error: {reason}")]
     ServiceInternalError { reason: String },
 
-    #[error("service executino error: {error:?}")]
+    #[error("failed to init execution context: {reason}")]
+    ExecutionContextInitError { reason: String },
+
+    #[error("service execution error: {error:?}")]
     ServiceExecutionError { error: FxExecutionError },
 
     #[error("compilation error: {reason}")]
