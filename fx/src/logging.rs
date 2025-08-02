@@ -13,6 +13,10 @@ struct FieldVisitor<'a> {
 }
 
 impl<'a> Visit for FieldVisitor<'a> {
+    fn record_str(&mut self, field: &Field, value: &str) {
+        self.fields.insert(field.name().to_owned(), value.to_owned());
+    }
+
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
         self.fields.insert(field.name().to_owned(), format!("{:?}", value));
     }
