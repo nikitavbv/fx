@@ -206,7 +206,7 @@ pub enum SqlError {
     #[error("failed to read row")]
     RowRead { reason: String },
 
-    #[error("failed to run query")]
+    #[error("failed to run query: {reason}")]
     QueryRun { reason: String },
 
     #[error("failed to start transaction")]
