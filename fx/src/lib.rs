@@ -27,7 +27,7 @@ use {
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    crate::{sys::read_memory, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
+    crate::{sys::read_memory_owned, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
 pub mod utils;
@@ -240,7 +240,7 @@ pub async fn sleep(duration: Duration) {
 }
 
 pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> Result<T, FxError> {
-    rmp_serde::from_slice(read_memory(addr, len))
+    rmp_serde::from_slice(&read_memory_owned(addr, len))
         .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize: {err:?}") })
 }
 
