@@ -24,7 +24,7 @@ use {
     },
     wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
     serde::{Serialize, Deserialize},
-    futures::FutureExt,
+    futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
     fx_core::{
         LogMessage,
@@ -331,7 +331,15 @@ impl Future for FunctionRuntimeFuture {
             let ctxs = self.engine.execution_contexts.read().unwrap();
             ctxs.get(&self.function_id).unwrap().clone()
         };
-        let mut store_lock = ctx.store.lock().unwrap();
+        let mut store_lock = match ctx.store.lock() {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to lock ctx.store: {err:?}");
+                return std::task::Poll::Ready(Err(FxCloudError::ExecutionContextRuntimeError {
+                    reason: format!("failed to lock ctx.store when polling FunctionRuntimeFuture."),
+                }));
+            }
+        };
         let store = store_lock.deref_mut();
 
         {
@@ -711,7 +719,7 @@ fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_le
 }
 
 fn api_sql_batch(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
-    let data = ctx.data().clone();
+    let data = ctx.data();
     let result: Result<(), FxSqlError> = decode_memory(&ctx, query_addr, query_len)
         .map(|request: DatabaseSqlBatchQuery| {
             let queries = request.queries.into_iter()
@@ -847,14 +855,18 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
 
     let request_future = async move {
         match request {
-            Ok(request) => {
-                let response = request.send().await.unwrap();
-                Ok(rmp_serde::to_vec(&HttpResponse {
-                    status: response.status(),
-                    headers: response.headers().clone(),
-                    body: response.bytes().await.unwrap().to_vec(),
-                }).unwrap())
-            },
+            Ok(request) => request.send()
+                .and_then(|response| async {
+                    Ok(rmp_serde::to_vec(&HttpResponse {
+                        status: response.status(),
+                        headers: response.headers().clone(),
+                        body: response.bytes().await.unwrap().to_vec(),
+                    }).unwrap())
+                })
+                .await
+                .map_err(|err| FxFutureError::FetchError {
+                    reason: format!("request failed: {err:?}"),
+                }),
             Err(err) => Err(err),
         }
     }.boxed();

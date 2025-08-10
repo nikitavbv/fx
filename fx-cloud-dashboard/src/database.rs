@@ -27,6 +27,7 @@ pub mod list_functions {
     }
 
     impl Database {
+        #[allow(clippy::get_first)]
         pub async fn list_functions(&self) -> Vec<Function> {
             self.database.exec(SqlQuery::new("select function_id, total_invocations from functions")).unwrap()
                 .into_rows()

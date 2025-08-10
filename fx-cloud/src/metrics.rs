@@ -2,9 +2,10 @@ use {
     std::{convert::Infallible, net::SocketAddr, pin::Pin, sync::{Arc, RwLock}, time::Duration, collections::HashMap},
     tracing::{error, warn},
     tokio::{net::TcpListener, join, time::sleep},
-    hyper::{Request, body::{Incoming, Bytes}, Response, server::conn::http1},
+    hyper::{Request, body::{Incoming, Bytes}, Response, server::conn::http1, http::StatusCode},
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::Full,
+    thiserror::Error,
     prometheus::{
         TextEncoder,
         Registry,
@@ -30,6 +31,14 @@ pub struct Metrics {
     pub(crate) function_memory_size: IntGaugeVec,
 
     pub(crate) function_metrics: FunctionMetrics,
+}
+
+#[derive(Error, Debug)]
+pub enum MetricsError {
+    #[error("failed to collect: {reason}")]
+    FailedToCollect {
+        reason: String
+    },
 }
 
 #[derive(Clone)]
@@ -64,17 +73,24 @@ impl Metrics {
         }
     }
 
-    pub fn encode(&self) -> String {
+    pub fn encode(&self) -> Result<String, MetricsError> {
         let metrics = self.registry.gather();
         let encoder = TextEncoder::new();
-        encoder.encode_to_string(&metrics).unwrap()
+        encoder.encode_to_string(&metrics)
+            .map_err(|err| MetricsError::FailedToCollect { reason: format!("{err:?}") })
     }
 }
 
 #[allow(dead_code)]
 pub async fn run_metrics_server(engine: Arc<Engine>, port: u16) {
     let addr: SocketAddr = ([0, 0, 0, 0], port).into();
-    let listener = TcpListener::bind(addr).await.unwrap();
+    let listener = match TcpListener::bind(addr).await {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to create TcpListener for metrics server: {err:?}");
+            return;
+        }
+    };
 
     println!("running metrics server on {addr:?}");
 
@@ -115,7 +131,12 @@ async fn collect_metrics(engine: Arc<Engine>) {
                 error!("failed to get streams arena size: {err:?}");
             }
         }
-        metrics.arena_futures_size.set(engine.futures_pool.len() as i64);
+        match engine.futures_pool.len() {
+            Ok(v) => metrics.arena_futures_size.set(v as i64),
+            Err(err) => {
+                error!("failed to get futures arena size: {err:?}");
+            }
+        }
 
         match engine.execution_contexts.read() {
             Ok(execution_contexts) => for (function_id, execution_env) in execution_contexts.iter() {
@@ -155,11 +176,21 @@ impl MetricsServer {
 
 impl hyper::service::Service<Request<Incoming>> for MetricsServer {
     type Response = Response<Full<Bytes>>;
-    type Error = Infallible;
+    type Error = MetricsError;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, _req: Request<Incoming>) -> Self::Future {
-        let metrics = self.metrics.encode();
+        let metrics = match self.metrics.encode() {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to encode metrics: {err:?}");
+                return Box::pin(async move {
+                    let mut response = Response::new(Full::new(Bytes::from("interal server error.\n")));
+                    *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                    Ok(response)
+                });
+            }
+        };
         Box::pin(async move { Ok(Response::new(Full::new(Bytes::from(metrics)))) })
     }
 }

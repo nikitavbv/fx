@@ -1,16 +1,15 @@
 use {
-    std::{fs, time::{Instant, Duration}},
+    std::{fs, time::Instant},
     fx_cloud::{
         FxCloud,
         kv::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
-        sql::SqlDatabase,
         ServiceId,
         error::FxCloudError,
         FxStream,
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition},
         compiler::{MemoizedCompiler, SimpleCompiler, BoxedCompiler},
     },
-    tokio::{join, time::sleep},
+    tokio::join,
     futures::StreamExt,
     fx_core::FxExecutionError,
 };
@@ -41,8 +40,6 @@ async fn main() {
 
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
-    let database_app = SqlDatabase::in_memory().unwrap();
-
     let fx = FxCloud::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
@@ -66,13 +63,12 @@ async fn main() {
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
-    // test_fetch(&fx).await;
+    test_fetch(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
     test_kv_simple(&fx).await;
-    // test_kv_wrong_binding_name(&fx).await;
-    // test_kv_disk(&fx).await;
+    test_kv_wrong_binding_name(&fx).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -129,7 +125,9 @@ async fn test_invoke_function_wrong_argument(fx: &FxCloud) {
     let result = fx.invoke_service::<String, u32>(&ServiceId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
     match result {
         FxCloudError::ServiceExecutionError { error } => match error {
-            FxExecutionError::RpcRequestRead { reason: _ } => assert!(true),
+            FxExecutionError::RpcRequestRead { reason: _ } => {
+                // this error is expected
+            },
         },
         other => panic!("unexpected fx error: {other:?}"),
     }
@@ -217,7 +215,7 @@ async fn test_random(fx: &FxCloud) {
 async fn test_time(fx: &FxCloud) {
     println!("> test_time");
     let millis = fx.invoke_service::<(), u64>(&ServiceId::new("test-app".to_owned()), "test_time", ()).await.unwrap();
-    assert!(millis >= 950 && millis <= 1050);
+    assert!((950..=1050).contains(&millis));
 }
 
 async fn test_kv_simple(fx: &FxCloud) {
@@ -235,9 +233,4 @@ async fn test_kv_simple(fx: &FxCloud) {
 async fn test_kv_wrong_binding_name(fx: &FxCloud) {
     println!("> test_kv_wrong_binding_name");
     fx.invoke_service::<(), ()>(&ServiceId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
-}
-
-async fn test_kv_disk(fx: &FxCloud) {
-    println!("> test_kv_disk");
-    fx.invoke_service::<(), ()>(&ServiceId::new("test-app"), "test_kv_disk", ()).await.unwrap();
 }

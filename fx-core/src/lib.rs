@@ -340,6 +340,8 @@ pub enum FxFutureError {
     FetchError { reason: String },
     #[error("serialization error: {reason}")]
     SerializationError { reason: String },
+    #[error("fx runtime error: {reason}")]
+    FxRuntimeError { reason: String },
 }
 
 #[derive(Error, Debug, Serialize, Deserialize)]

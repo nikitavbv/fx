@@ -17,6 +17,9 @@ pub enum FxCloudError {
     #[error("failed to init execution context: {reason}")]
     ExecutionContextInitError { reason: String },
 
+    #[error("execution context runtime error: {reason}")]
+    ExecutionContextRuntimeError { reason: String },
+
     #[error("service execution error: {error:?}")]
     ServiceExecutionError { error: FxExecutionError },
 

@@ -1,6 +1,7 @@
 use {
     std::{sync::{Arc, RwLock, Mutex}, task::{Poll, Context}, collections::HashMap},
     futures::{future::BoxFuture, FutureExt},
+    thiserror::Error,
     fx_core::FxFutureError,
 };
 
@@ -12,6 +13,14 @@ pub struct FuturesPool {
 
 #[derive(Debug)]
 pub struct HostPoolIndex(pub u64);
+
+#[derive(Error, Debug)]
+pub enum FuturesError {
+    #[error("failed to acquire arena lock: {reason:?}")]
+    LockingError {
+        reason: String,
+    }
+}
 
 impl FuturesPool {
     pub fn new() -> Self {
@@ -33,19 +42,35 @@ impl FuturesPool {
 
     pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
         let future = self.pool.try_read().unwrap().get(&index.0).unwrap().clone();
-        let mut future = future.try_lock().unwrap();
+        let mut future = match future.try_lock() {
+            Ok(v) => v,
+            Err(err) => return Poll::Ready(Err(FxFutureError::FxRuntimeError {
+                reason: format!("failed to acquite future lock: {err:?}"),
+            })),
+        };
 
         match future.poll_unpin(context) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
                 drop(future);
-                self.pool.try_write().unwrap().remove(&index.0);
+                match self.pool.try_write() {
+                    Ok(mut v) => v.remove(&index.0),
+                    Err(err) => {
+                        return Poll::Ready(Err(FxFutureError::FxRuntimeError {
+                            reason: format!("failed to acquire futures arena lock: {err:?}"),
+                        }));
+                    }
+                };
                 Poll::Ready(result)
             }
         }
     }
 
-    pub fn len(&self) -> u64 {
-        self.pool.try_read().unwrap().len() as u64
+    pub fn len(&self) -> Result<u64, FuturesError> {
+        self.pool.try_read()
+            .map(|v| v.len() as u64)
+            .map_err(|err| FuturesError::LockingError {
+                reason: format!("failed to acquire arena lock: {err:?}"),
+            })
     }
 }

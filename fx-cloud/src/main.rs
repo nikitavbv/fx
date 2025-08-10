@@ -223,8 +223,10 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
                         .await {
                             if err.is_timeout() {
                                 // ignore timeouts, because those can be caused by client
+                            } else if err.is_incomplete_message() {
+                                // ignore incomplete messages, because those are caused by client
                             } else {
-                                error!("error while handling http request: {err:?}");
+                                error!("error while handling http request: {err:?}"); // incomplete message should be fine
                             }
                         }
                 });
