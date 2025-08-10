@@ -9,10 +9,8 @@ use {
     tracing::error,
     wasmer::{
         wasmparser::Operator,
-        Cranelift,
-        CompilerConfig,
+        sys::{Cranelift, CompilerConfig, EngineBuilder},
         Store,
-        EngineBuilder,
         FunctionEnv,
         FunctionEnvMut,
         Memory,
