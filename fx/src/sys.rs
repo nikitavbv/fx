@@ -103,7 +103,7 @@ impl PtrWithLen {
     }
 
     #[allow(dead_code)]
-    pub fn read<'a>(&'a self) -> &'a [u8] {
+    pub fn read(&self) -> &[u8] {
         read_memory(self.ptr, self.len)
     }
 
@@ -113,6 +113,12 @@ impl PtrWithLen {
 
     pub fn read_decode<T: serde::de::DeserializeOwned>(&self) -> T {
         rmp_serde::from_slice(&self.read_owned()).unwrap()
+    }
+}
+
+impl Default for PtrWithLen {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

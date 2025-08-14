@@ -33,6 +33,12 @@ impl Migrations {
     }
 }
 
+impl Default for Migrations {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct Migration {
     statement: String,
 }

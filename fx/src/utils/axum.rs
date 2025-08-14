@@ -20,7 +20,7 @@ pub async fn handle_request(router: axum::Router, src_req: HttpRequest) -> HttpR
     }
 
     let fx_response = service.call(request
-        .body(body.map(|v| Body::from_stream(v)).unwrap_or(Body::empty()))
+        .body(body.map(Body::from_stream).unwrap_or(Body::empty()))
         .unwrap()
     );
     let fx_response = fx_response.await.unwrap();

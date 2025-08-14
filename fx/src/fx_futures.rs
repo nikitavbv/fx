@@ -67,7 +67,7 @@ impl PoolInner {
     }
 
     pub fn remove(&mut self, index: &PoolIndex) {
-        let _ = self.futures.remove(&index.0).unwrap();
+        drop(self.futures.remove(&index.0).unwrap());
     }
 }
 

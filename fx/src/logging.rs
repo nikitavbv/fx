@@ -18,7 +18,7 @@ impl<'a> Visit for FieldVisitor<'a> {
     }
 
     fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
-        self.fields.insert(field.name().to_owned(), format!("{:?}", value));
+        self.fields.insert(field.name().to_owned(), format!("{value:?}"));
     }
 }
 
@@ -28,12 +28,12 @@ impl<S> Layer<S> for FxLoggingLayer where S: Subscriber {
         event.record(&mut FieldVisitor { fields: &mut fields });
 
         let metadata = event.metadata();
-        let level = match metadata.level() {
-            &tracing::Level::TRACE => LogLevel::Trace,
-            &tracing::Level::DEBUG => LogLevel::Debug,
-            &tracing::Level::INFO => LogLevel::Info,
-            &tracing::Level::WARN => LogLevel::Warn,
-            &tracing::Level::ERROR => LogLevel::Error,
+        let level = match *metadata.level() {
+            tracing::Level::TRACE => LogLevel::Trace,
+            tracing::Level::DEBUG => LogLevel::Debug,
+            tracing::Level::INFO => LogLevel::Info,
+            tracing::Level::WARN => LogLevel::Warn,
+            tracing::Level::ERROR => LogLevel::Error,
         };
 
         // fields.insert("metadata".to_owned(), format!("{:?}", event.metadata()));

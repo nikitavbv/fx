@@ -30,18 +30,31 @@ impl FuturesPool {
         }
     }
 
-    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FxFutureError>>) -> HostPoolIndex {
+    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FxFutureError>>) -> Result<HostPoolIndex, FxFutureError> {
         let counter = {
-            let mut counter = self.counter.try_lock().unwrap();
+            let mut counter = self.counter.try_lock()
+                .map_err(|err| FxFutureError::FxRuntimeError {
+                    reason: format!("failed to acquire lock for futures arena counter: {err:?}"),
+                })?;
             *counter += 1;
             *counter
         };
-        self.pool.try_write().unwrap().insert(counter, Arc::new(Mutex::new(future)));
-        HostPoolIndex(counter)
+        self.pool.try_write()
+            .map_err(|err| FxFutureError::FxRuntimeError {
+                reason: format!("failed to acquire lock for futures arena: {err:?}"),
+            })?
+            .insert(counter, Arc::new(Mutex::new(future)));
+        Ok(HostPoolIndex(counter))
     }
 
     pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
-        let future = self.pool.try_read().unwrap().get(&index.0).unwrap().clone();
+        let future = self.pool.try_read()
+            .map_err(|err| FxFutureError::FxRuntimeError {
+                reason: format!("failed to acquire lock for futures arena: {err:?}")
+            })?
+            .get(&index.0)
+            .ok_or(FxFutureError::FxRuntimeError { reason: "future not found".to_owned() })?
+            .clone();
         let mut future = match future.try_lock() {
             Ok(v) => v,
             Err(err) => return Poll::Ready(Err(FxFutureError::FxRuntimeError {

@@ -102,7 +102,7 @@ impl DefinitionProvider {
         }
 
         Ok(self.storage.get(<&ServiceId as Into<String>>::into(id).as_bytes())
-            .unwrap()
+            .map_err(|err| DefinitionError::LoadError { reason: format!("failed to get definition from storage: {err:?}") })?
             .map(|v| definition_from_config(v))
             .transpose()?
             .unwrap_or(FunctionDefinition::default()))
@@ -166,6 +166,8 @@ pub struct CronTaskConfig {
 pub enum DefinitionError {
     #[error("failed to parse definition: {reason}")]
     ParseError { reason: String },
+    #[error("failed to load definition: {reason}")]
+    LoadError { reason: String },
 }
 
 pub fn load_cron_task_from_config(config: Vec<u8>) -> CronConfig {

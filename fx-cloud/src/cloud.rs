@@ -185,7 +185,13 @@ impl Engine {
 
     pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         let need_to_create_context = {
-            let execution_contexts = self.execution_contexts.read().unwrap();
+            let execution_contexts = match self.execution_contexts.read() {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to lock execution contexts: {err:?}");
+                    return Err(FxCloudError::ExecutionContextRuntimeError { reason: format!("failed to lock execution contexts: {err:?}") });
+                }
+            };
             if let Some(context) = execution_contexts.get(&service_id) {
                 context.needs_recreate.load(Ordering::SeqCst)
             } else {
@@ -617,7 +623,14 @@ fn api_rpc(
         })).boxed(),
         Err(err) => std::future::ready(Err(FxFutureError::RpcError { reason: err.to_string() })).boxed(),
     };
-    let response_future = ctx.data().engine.futures_pool.push(response_future.boxed());
+    let response_future = match ctx.data().engine.futures_pool.push(response_future.boxed()) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to push future to futures arena: {err:?}");
+            // todo: write error object
+            return -1;
+        }
+    };
 
     response_future.0 as i64
 }
@@ -869,13 +882,24 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         }
     }.boxed();
 
-    ctx.data().engine.futures_pool.push(request_future).0 as i64
+    match ctx.data().engine.futures_pool.push(request_future) {
+        Ok(v) => v.0 as i64,
+        Err(err) => {
+            error!("failed to push future to arena: {err:?}");
+            -1
+        }
+    }
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
-    let future_index = ctx.data().engine.futures_pool.push(sleep.map(|v| Ok(rmp_serde::to_vec(&v).unwrap())).boxed());
-    future_index.0 as i64
+    match ctx.data().engine.futures_pool.push(sleep.map(|v| Ok(rmp_serde::to_vec(&v).unwrap())).boxed()) {
+        Ok(v) => v.0 as i64,
+        Err(err) => {
+            error!("failed to push future to arena: {err:?}");
+            -1
+        }
+    }
 }
 
 fn api_random(mut ctx: FunctionEnvMut<ExecutionEnv>, len: i64, output_ptr: i64) {

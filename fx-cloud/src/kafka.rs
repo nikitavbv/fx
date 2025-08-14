@@ -32,7 +32,11 @@ impl FxCloud {
                 Ok(v) => {
                     match v.await {
                         Ok(_v) => {
-                            consumer.commit_message(&msg, CommitMode::Async).unwrap();
+                            if let Err(err) = consumer.commit_message(&msg, CommitMode::Async) {
+                                error!("failed to commit kafka message: {err:?}");
+                                sleep(Duration::from_secs(1)).await;
+                                continue;
+                            }
                         },
                         Err(err) => {
                             // TODO: these errors should be reported and counted

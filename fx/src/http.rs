@@ -23,9 +23,9 @@ impl FxHttpRequest for HttpRequest {
     }
 
     fn with_json(self, body: &serde_json::Value) -> Result<Self, HttpRequestError> {
-        Ok(self
+        self
             .with_header("content-type", "application/json")?
-            .with_body(serde_json::to_vec(body).unwrap())?)
+            .with_body(serde_json::to_vec(body).unwrap())
     }
 }
 

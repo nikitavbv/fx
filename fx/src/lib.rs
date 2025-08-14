@@ -130,6 +130,12 @@ impl FxCtx {
     }
 }
 
+impl Default for FxCtx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct KvStore {
     binding: String,
 }
@@ -195,7 +201,7 @@ impl SqlDatabase {
         }
 
         rmp_serde::from_slice::<Result<fx_core::SqlResult, FxSqlError>>(&ptr_and_len.read_owned()).unwrap()
-            .map(|v| sql::SqlResult::from(v))
+            .map(sql::SqlResult::from)
     }
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
