@@ -98,26 +98,26 @@ impl FxCloud {
     }
 
     #[allow(dead_code)]
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
     }
 
-    pub fn invoke_service_raw(&self, service: &ServiceId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+    pub fn invoke_service_raw(&self, service: &FunctionId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
 
     #[allow(dead_code)]
-    pub fn reload(&self, function_id: &ServiceId) {
+    pub fn reload(&self, function_id: &FunctionId) {
         self.engine.reload(function_id)
     }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ServiceId {
+pub struct FunctionId {
     id: String,
 }
 
-impl ServiceId {
+impl FunctionId {
     pub fn new(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -129,13 +129,13 @@ impl ServiceId {
     }
 }
 
-impl Into<String> for ServiceId {
+impl Into<String> for FunctionId {
     fn into(self) -> String {
         self.id
     }
 }
 
-impl Into<String> for &ServiceId {
+impl Into<String> for &FunctionId {
     fn into(self) -> String {
         self.id.clone()
     }
@@ -146,7 +146,7 @@ pub struct Engine {
 
     compiler: RwLock<BoxedCompiler>,
 
-    pub(crate) execution_contexts: RwLock<HashMap<ServiceId, Arc<ExecutionContext>>>,
+    pub(crate) execution_contexts: RwLock<HashMap<FunctionId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
     // internal storage where .wasm is loaded from:
@@ -177,13 +177,13 @@ impl Engine {
         }
     }
 
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &ServiceId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
         let response = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: ServiceId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
         let need_to_create_context = {
             let execution_contexts = match self.execution_contexts.read() {
                 Ok(v) => v,
@@ -213,14 +213,14 @@ impl Engine {
         Ok(self.run_service(engine, service_id.clone(), &function_name, argument))
     }
 
-    pub fn reload(&self, function_id: &ServiceId) {
+    pub fn reload(&self, function_id: &FunctionId) {
         if let Some(execution_context) = self.execution_contexts.read().unwrap().get(function_id) {
             println!("reloading {}", function_id.id);
             execution_context.needs_recreate.store(true, Ordering::SeqCst);
         }
     }
 
-    fn run_service(&self, engine: Arc<Engine>, function_id: ServiceId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+    fn run_service(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             engine,
             function_id,
@@ -230,7 +230,7 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, service_id: &ServiceId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
+    fn create_execution_context(&self, engine: Arc<Engine>, service_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
         let module_code = self.module_code_storage.read().unwrap().get(service_id.id.as_bytes())?;
         let module_code = match module_code {
             Some(v) => v,
@@ -270,7 +270,7 @@ impl Engine {
         )
     }
 
-    pub(crate) fn stream_poll_next(&self, function_id: &ServiceId, index: i64) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+    pub(crate) fn stream_poll_next(&self, function_id: &FunctionId, index: i64) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
@@ -292,7 +292,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn stream_drop(&self, function_id: &ServiceId, index: i64) {
+    pub(crate) fn stream_drop(&self, function_id: &FunctionId, index: i64) {
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
@@ -305,7 +305,7 @@ impl Engine {
 
 pub struct FunctionRuntimeFuture {
     engine: Arc<Engine>,
-    function_id: ServiceId,
+    function_id: FunctionId,
     function_name: String,
     argument: Vec<u8>,
     rpc_future_index: Arc<Mutex<Option<i64>>>,
@@ -454,7 +454,7 @@ pub(crate) struct ExecutionContext {
 impl ExecutionContext {
     pub fn new(
         engine: Arc<Engine>,
-        service_id: ServiceId,
+        service_id: FunctionId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         module_code: Vec<u8>,
@@ -537,7 +537,7 @@ pub(crate) struct ExecutionEnv {
     execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
-    service_id: ServiceId,
+    service_id: FunctionId,
 
     storage: HashMap<String, BoxedStorage>,
     sql: HashMap<String, SqlDatabase>,
@@ -551,7 +551,7 @@ pub(crate) struct ExecutionEnv {
 impl ExecutionEnv {
     pub fn new(
         engine: Arc<Engine>,
-        service_id: ServiceId,
+        service_id: FunctionId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         allow_fetch: bool,
@@ -612,7 +612,7 @@ fn api_rpc(
     arg_ptr: i64,
     arg_len: i64,
 ) -> i64 {
-    let service_id = ServiceId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
+    let service_id = FunctionId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
     let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 

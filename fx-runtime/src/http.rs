@@ -5,17 +5,17 @@ use {
     http_body_util::{Full, BodyStream},
     futures::{StreamExt, stream::BoxStream},
     fx_core::{HttpResponse, HttpRequest, FxStream},
-    crate::{FxCloud, ServiceId, error::FxCloudError},
+    crate::{FxCloud, FunctionId, error::FxCloudError},
 };
 
 #[derive(Clone)]
 pub struct HttpHandler {
     fx: FxCloud,
-    service_id: ServiceId,
+    service_id: FunctionId,
 }
 
 impl HttpHandler {
-    pub fn new(fx: FxCloud, service_id: ServiceId) -> Self {
+    pub fn new(fx: FxCloud, service_id: FunctionId) -> Self {
         Self {
             fx,
             service_id,

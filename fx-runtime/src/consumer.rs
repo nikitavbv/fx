@@ -5,7 +5,7 @@ use {
     futures::StreamExt,
     tokio::time::{sleep, Duration},
     fx_core::QueueMessage,
-    crate::cloud::{Engine, ServiceId},
+    crate::cloud::{Engine, FunctionId},
 };
 
 pub struct RabbitMqConsumer {
@@ -13,7 +13,7 @@ pub struct RabbitMqConsumer {
     amqp_addr: String,
     id: String,
     queue: String,
-    function_id: ServiceId,
+    function_id: FunctionId,
     rpc_method_name: String,
 }
 
@@ -24,7 +24,7 @@ impl RabbitMqConsumer {
             amqp_addr,
             id,
             queue,
-            function_id: ServiceId::new(function_id),
+            function_id: FunctionId::new(function_id),
             rpc_method_name,
         }
     }

@@ -3,7 +3,7 @@ use {
     fx_runtime::{
         FxCloud,
         kv::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
-        ServiceId,
+        FunctionId,
         error::FxCloudError,
         FxStream,
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition},
@@ -32,7 +32,7 @@ async fn main() {
 
     let definitions = DefinitionProvider::new(BoxedStorage::new(EmptyStorage))
         .with_definition(
-            ServiceId::new("test-app"),
+            FunctionId::new("test-app"),
             FunctionDefinition::new()
                 .with_kv(KvDefinition::new("test-kv", "data/test-kv"))
                 .with_sql(SqlDefinition::new("app"))
@@ -83,37 +83,37 @@ async fn main() {
 
 async fn test_simple(fx: &FxCloud) {
     println!("> test_simple");
-    let result: u32 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "simple", 10).await.unwrap();
+    let result: u32 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap();
     assert_eq!(52, result);
 }
 
 async fn test_sql_simple(fx: &FxCloud) {
     println!("> test_sql_simple");
-    let result: u64 = fx.invoke_service(&ServiceId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap();
+    let result: u64 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap();
     assert_eq!(52, result);
 }
 
 async fn test_invoke_function_non_existent(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-non-existent".to_owned()), "simple", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ()).await;
     assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
 }
 
 async fn test_invoke_function_non_existent_rpc(fx: &FxCloud) {
     println!("> test_invoke_function_non_existent_rpc");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "function_non_existent", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ()).await;
     assert_eq!(Err(FxCloudError::RpcHandlerNotDefined), result);
 }
 
 async fn test_invoke_function_no_module_code(fx: &FxCloud) {
     println!("> test_invoke_function_no_module_code");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-no-module-code".to_owned()), "simple", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ()).await;
     assert_eq!(Err(FxCloudError::ModuleCodeNotFound), result);
 }
 
 async fn test_invoke_function_panic(fx: &FxCloud) {
     println!("> test_invoke_function_panic");
-    let result = fx.invoke_service::<(), ()>(&ServiceId::new("test-app".to_owned()), "test_panic", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "test_panic", ()).await;
     match result.err().unwrap() {
         FxCloudError::ServiceInternalError { reason: _ } => {},
         other => panic!("expected service internal error, got: {other:?}"),
@@ -122,7 +122,7 @@ async fn test_invoke_function_panic(fx: &FxCloud) {
 
 async fn test_invoke_function_wrong_argument(fx: &FxCloud) {
     println!("> test_invoke_function_wrong_argument");
-    let result = fx.invoke_service::<String, u32>(&ServiceId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
+    let result = fx.invoke_service::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
     match result {
         FxCloudError::ServiceExecutionError { error } => match error {
             FxExecutionError::RpcRequestRead { reason: _ } => {
@@ -136,7 +136,7 @@ async fn test_invoke_function_wrong_argument(fx: &FxCloud) {
 async fn test_async_handler_simple(fx: &FxCloud) {
     println!("> test_async_handler_simple");
     let started_at = Instant::now();
-    let result = fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "async_simple", 42).await.unwrap();
+    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap();
     let total_time = (Instant::now() - started_at).as_secs();
     assert_eq!(42, result);
     assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
@@ -147,10 +147,10 @@ async fn test_async_concurrent(fx: &FxCloud) {
     let started_at = Instant::now();
     let result = join!(
         async {
-            fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "async_simple", 42).await.unwrap()
+            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap()
         },
         async {
-            fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "async_simple", 43).await.unwrap()
+            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 43).await.unwrap()
         }
     );
     let total_time = (Instant::now() - started_at).as_secs();
@@ -160,26 +160,26 @@ async fn test_async_concurrent(fx: &FxCloud) {
 
 async fn test_async_rpc(fx: &FxCloud) {
     println!("> test_async_rpc");
-    let result = fx.invoke_service::<u64, u64>(&ServiceId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap();
+    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap();
     assert_eq!(84, result);
 }
 
 async fn test_rpc_panic(fx: &FxCloud) {
     println!("> test_rpc_panic");
-    let result = fx.invoke_service::<(), i64>(&ServiceId::new("test-app"), "call_rpc_panic", ()).await.unwrap();
+    let result = fx.invoke_service::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap();
     assert_eq!(42, result);
 }
 
 async fn test_fetch(fx: &FxCloud) {
     println!("> test_fetch");
-    let result = fx.invoke_service::<(), Result<String, String>>(&ServiceId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
+    let result = fx.invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
         .unwrap();
     assert_eq!("hello fx!", &result);
 }
 
 async fn test_stream_simple(fx: &FxCloud) {
     println!("> test_stream_simple");
-    let stream: FxStream = fx.invoke_service::<(), FxStream>(&ServiceId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
+    let stream: FxStream = fx.invoke_service::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
     let mut stream = fx.read_stream(&stream).unwrap().unwrap();
     let started_at = Instant::now();
     let mut n = 0;
@@ -204,8 +204,8 @@ async fn test_stream_simple(fx: &FxCloud) {
 
 async fn test_random(fx: &FxCloud) {
     println!("> test_random");
-    let random_bytes_0: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&ServiceId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
-    let random_bytes_1: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&ServiceId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
+    let random_bytes_0: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
+    let random_bytes_1: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
 
     assert_eq!(32, random_bytes_0.len());
     assert_eq!(32, random_bytes_1.len());
@@ -214,23 +214,23 @@ async fn test_random(fx: &FxCloud) {
 
 async fn test_time(fx: &FxCloud) {
     println!("> test_time");
-    let millis = fx.invoke_service::<(), u64>(&ServiceId::new("test-app".to_owned()), "test_time", ()).await.unwrap();
+    let millis = fx.invoke_service::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap();
     assert!((950..=1050).contains(&millis));
 }
 
 async fn test_kv_simple(fx: &FxCloud) {
     println!("> test_kv_simple");
 
-    let result = fx.invoke_service::<(), Option<String>>(&ServiceId::new("test-app"), "test_kv_get", ()).await.unwrap();
+    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap();
     assert!(result.is_none());
 
-    fx.invoke_service::<String, ()>(&ServiceId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
+    fx.invoke_service::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
 
-    let result = fx.invoke_service::<(), Option<String>>(&ServiceId::new("test-app"), "test_kv_get", ()).await.unwrap().unwrap();
+    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().unwrap();
     assert_eq!("Hello World!", result);
 }
 
 async fn test_kv_wrong_binding_name(fx: &FxCloud) {
     println!("> test_kv_wrong_binding_name");
-    fx.invoke_service::<(), ()>(&ServiceId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
+    fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
 }

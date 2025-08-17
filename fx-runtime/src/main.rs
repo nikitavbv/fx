@@ -14,7 +14,7 @@ use {
     clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all},
     crate::{
-        cloud::{FxCloud, ServiceId, Engine},
+        cloud::{FxCloud, FunctionId, Engine},
         kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
@@ -188,7 +188,7 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
             } else {
                 &function
             };
-            let result = fx_cloud.invoke_service::<(), ()>(&ServiceId::new(function), &rpc_method_name, ()).await;
+            let result = fx_cloud.invoke_service::<(), ()>(&FunctionId::new(function), &rpc_method_name, ()).await;
             if let Err(err) = result {
                 error!("failed to invoke function: {err:?}");
                 exit(-1);
@@ -203,7 +203,7 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
                     exit(-1);
                 }
             };
-            let http_handler = HttpHandler::new(fx_cloud, ServiceId::new(function));
+            let http_handler = HttpHandler::new(fx_cloud, FunctionId::new(function));
             info!("running http server on {addr:?}");
             loop {
                 let (tcp, _) = match listener.accept().await {
@@ -303,6 +303,6 @@ async fn reload_on_key_changes(engine: Arc<Engine>, storage: BoxedStorage) {
                 continue;
             }
         };
-        engine.reload(&ServiceId::new(function_id))
+        engine.reload(&FunctionId::new(function_id))
     }
 }

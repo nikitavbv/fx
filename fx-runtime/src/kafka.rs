@@ -8,7 +8,7 @@ use {
         Message,
     },
     tokio::time::sleep,
-    crate::{FxCloud, ServiceId},
+    crate::{FxCloud, FunctionId},
 };
 
 struct CustomContext;
@@ -17,7 +17,7 @@ impl ConsumerContext for CustomContext {}
 
 impl FxCloud {
     #[allow(dead_code)]
-    pub async fn run_kafka(&self, bootstrap_servers: &str, topic: &str, service_id: &ServiceId, function_name: &str) {
+    pub async fn run_kafka(&self, bootstrap_servers: &str, topic: &str, service_id: &FunctionId, function_name: &str) {
         let consumer: StreamConsumer<CustomContext> = ClientConfig::new()
             .set("group.id", "fx")
             .set("bootstrap.servers", bootstrap_servers)

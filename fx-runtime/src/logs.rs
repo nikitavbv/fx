@@ -7,7 +7,7 @@ use {
         LogMessageEvent,
         LogSource as LogMessageEventLogSource,
     },
-    crate::{cloud::ServiceId, error::LoggerError},
+    crate::{cloud::FunctionId, error::LoggerError},
 };
 
 pub struct LogMessage {
@@ -41,7 +41,7 @@ pub enum LogSource {
 }
 
 impl LogSource {
-    pub fn function(function_id: &ServiceId) -> Self {
+    pub fn function(function_id: &FunctionId) -> Self {
         Self::Function { id: function_id.into() }
     }
 }

@@ -4,7 +4,7 @@ use {
     chrono::{DateTime, Utc, NaiveDateTime},
     tokio::time::sleep,
     cron as cron_utils,
-    crate::{sql::{SqlDatabase, Query, Value}, ServiceId, cloud::Engine, error::FxCloudError},
+    crate::{sql::{SqlDatabase, Query, Value}, FunctionId, cloud::Engine, error::FxCloudError},
 };
 
 const DATE_TIME_FORMAT: &str = "%F %T%.f";
@@ -84,7 +84,7 @@ impl CronRunner {
                     },
                 }
 
-                let result = engine.invoke_service::<(), ()>(engine.clone(), &ServiceId::new(task.function_id.clone()), &task.method_name, ()).await;
+                let result = engine.invoke_service::<(), ()>(engine.clone(), &FunctionId::new(task.function_id.clone()), &task.method_name, ()).await;
                 match result {
                     Ok(_) => {
                         database.update_run_time(&task.id, now);

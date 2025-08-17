@@ -7,7 +7,7 @@ use {
         kv::{BoxedStorage, SqliteStorage, WithKey, KVStorage},
         sql::{SqlDatabase, SqlError},
         error::FxCloudError,
-        cloud::ServiceId,
+        cloud::FunctionId,
     },
 };
 
@@ -80,7 +80,7 @@ impl SqlDefinition {
 
 pub struct DefinitionProvider {
     storage: BoxedStorage,
-    definitions: HashMap<ServiceId, FunctionDefinition>,
+    definitions: HashMap<FunctionId, FunctionDefinition>,
 }
 
 impl DefinitionProvider {
@@ -91,17 +91,17 @@ impl DefinitionProvider {
         }
     }
 
-    pub fn with_definition(mut self, service_id: ServiceId, definition: FunctionDefinition) -> Self {
+    pub fn with_definition(mut self, service_id: FunctionId, definition: FunctionDefinition) -> Self {
         self.definitions.insert(service_id, definition);
         self
     }
 
-    pub fn definition_for_function(&self, id: &ServiceId) -> Result<FunctionDefinition, DefinitionError> {
+    pub fn definition_for_function(&self, id: &FunctionId) -> Result<FunctionDefinition, DefinitionError> {
         if let Some(definition) = self.definitions.get(id) {
             return Ok(definition.clone());
         }
 
-        Ok(self.storage.get(<&ServiceId as Into<String>>::into(id).as_bytes())
+        Ok(self.storage.get(<&FunctionId as Into<String>>::into(id).as_bytes())
             .map_err(|err| DefinitionError::LoadError { reason: format!("failed to get definition from storage: {err:?}") })?
             .map(|v| definition_from_config(v))
             .transpose()?

@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll, Context}},
     futures::{stream::BoxStream, StreamExt},
     crate::{
-        cloud::{FxCloud, ServiceId, Engine},
+        cloud::{FxCloud, FunctionId, Engine},
         error::FxCloudError,
     },
 };
@@ -20,7 +20,7 @@ pub struct HostPoolIndex(pub u64);
 
 pub enum FxStream {
     HostStream(BoxStream<'static, Vec<u8>>),
-    FunctionStream(ServiceId),
+    FunctionStream(FunctionId),
 }
 
 impl StreamsPool {
@@ -38,7 +38,7 @@ impl StreamsPool {
     }
 
     // push stream owned by function
-    pub fn push_function_stream(&self, function_id: ServiceId) -> Result<HostPoolIndex, FxCloudError> {
+    pub fn push_function_stream(&self, function_id: FunctionId) -> Result<HostPoolIndex, FxCloudError> {
         Ok(self.inner.lock()
             .map_err(|err| FxCloudError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
             .push(FxStream::FunctionStream(function_id)))
