@@ -979,7 +979,7 @@ fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
     // TODO: permissions check
     let functions: Vec<_> = ctx.data().engine.execution_contexts.read().unwrap()
         .iter()
-        .map(|(function_id, _function)| fx_cloud_common::Function {
+        .map(|(function_id, _function)| fx_runtime_common::Function {
             id: function_id.id.clone(),
         })
         .collect();

@@ -3,7 +3,7 @@ use {
     tracing::{info, error},
     tokio::sync::mpsc,
     serde::Serialize,
-    fx_cloud_common::{
+    fx_runtime_common::{
         LogMessageEvent,
         LogSource as LogMessageEventLogSource,
     },

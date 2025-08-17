@@ -1,5 +1,5 @@
 [package]
-name = "fx-cloud"
+name = "fx-runtime"
 version = "0.1.0"
 edition = "2024"
 
@@ -37,4 +37,4 @@ pathdiff = "0.2.3"
 lapin = "2.5.3"
 
 fx-core = { path = "../fx-core" }
-fx-cloud-common = { path = "../fx-cloud-common" }
+fx-runtime-common = { path = "../fx-runtime-common" }

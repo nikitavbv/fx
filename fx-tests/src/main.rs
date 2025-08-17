@@ -1,6 +1,6 @@
 use {
     std::{fs, time::Instant},
-    fx_cloud::{
+    fx_runtime::{
         FxCloud,
         kv::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
         ServiceId,

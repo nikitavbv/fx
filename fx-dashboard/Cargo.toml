@@ -1,5 +1,5 @@
 [package]
-name = "fx-cloud-dashboard"
+name = "fx-dashboard"
 version = "0.1.0"
 edition = "2024"
 
@@ -13,4 +13,4 @@ tracing = "0.1.41"
 leptos = { version = "0.7.8", features = ["ssr"], default-features = false }
 
 fx = { path = "../fx" }
-fx-cloud-common = { path = "../fx-cloud-common" }
+fx-runtime-common = { path = "../fx-runtime-common" }

@@ -1,4 +1,4 @@
-use {fx::{FxCtx, rpc}, fx_cloud_common::FunctionInvokeEvent, crate::database::Database};
+use {fx::{FxCtx, rpc}, fx_runtime_common::FunctionInvokeEvent, crate::database::Database};
 
 #[rpc]
 pub async fn on_invoke(ctx: &FxCtx, event: FunctionInvokeEvent) {

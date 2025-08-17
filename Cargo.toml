@@ -2,8 +2,8 @@
 resolver = "2"
 members = [
     "fx",
-    "fx-cloud",
-    "fx-cloud-dashboard",
+    "fx-runtime",
+    "fx-dashboard",
     "fx-core",
     "fx-macro",
     "fx-tests",

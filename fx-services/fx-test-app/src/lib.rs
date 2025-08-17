@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     fx::{rpc, FxCtx, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch},
-    fx_cloud_common::FunctionInvokeEvent,
+    fx_runtime_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
 };
 
