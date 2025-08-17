@@ -1,2 +1,2 @@
 FROM ubuntu:latest
-COPY target/release/fx-cloud /usr/local/bin/fx
+COPY target/release/fx-runtime /usr/local/bin/fx
