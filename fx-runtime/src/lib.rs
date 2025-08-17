@@ -3,6 +3,7 @@ pub use {
     crate::cloud::{FxCloud, FunctionId},
 };
 
+mod api;
 mod cloud;
 mod compatibility;
 pub mod compiler;

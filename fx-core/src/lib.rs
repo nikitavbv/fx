@@ -5,6 +5,8 @@ use {
     http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode, Method as HttpMethod, Uri},
 };
 
+pub mod api;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {
     #[serde(with = "http_serde::method")]
