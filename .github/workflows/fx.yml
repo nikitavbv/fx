@@ -64,3 +64,21 @@ jobs:
       with:
         name: release-build
         path: target/release/fx-runtime
+  runtime-build-arm64:
+    name: runtime build arm64
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: test
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+        target: aarch64-unknown-linux-musl
+    - uses: Swatinem/rust-cache@v2
+    - uses: actions-rs/cargo@v1
+      with:
+        command: build
+        args: -p fx-runtime --release --target aarch64-unknown-linux-musl
