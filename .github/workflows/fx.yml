@@ -78,6 +78,7 @@ jobs:
         override: true
         target: aarch64-unknown-linux-musl
     - uses: Swatinem/rust-cache@v2
+    - run: sudo apt install gcc-aarch64-linux-gnu
     - uses: actions-rs/cargo@v1
       with:
         command: build
