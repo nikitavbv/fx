@@ -1,5 +1,5 @@
 use {
-    fx_core::{HttpRequest, HttpResponse, FxStream, FxFutureError, HttpRequestError},
+    fx_common::{HttpRequest, HttpResponse, FxStream, FxFutureError, HttpRequestError},
     crate::{
         fx_streams::FxStreamExport,
         fx_futures::{FxHostFuture, PoolIndex},

@@ -67,7 +67,7 @@ impl StreamsPool {
             .map(|mut v| v.remove(index))
     }
 
-    pub fn read(&self, engine: Arc<Engine>, stream: &fx_core::FxStream) -> Result<Option<FxReadableStream>, FxCloudError> {
+    pub fn read(&self, engine: Arc<Engine>, stream: &fx_common::FxStream) -> Result<Option<FxReadableStream>, FxCloudError> {
         Ok(Some(FxReadableStream {
             engine,
             stream: match self.remove(&HostPoolIndex(stream.index as u64))? {
@@ -130,7 +130,7 @@ impl StreamsPoolInner {
 
 impl FxCloud {
     #[allow(dead_code)]
-    pub fn read_stream(&self, stream: &fx_core::FxStream) -> Result<Option<FxReadableStream>, FxCloudError> {
+    pub fn read_stream(&self, stream: &fx_common::FxStream) -> Result<Option<FxReadableStream>, FxCloudError> {
         self.engine.streams_pool.read(self.engine.clone(), stream)
     }
 }

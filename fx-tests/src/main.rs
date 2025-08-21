@@ -11,7 +11,7 @@ use {
     },
     tokio::join,
     futures::StreamExt,
-    fx_core::FxExecutionError,
+    fx_common::FxExecutionError,
 };
 
 #[tokio::main(flavor = "current_thread")]

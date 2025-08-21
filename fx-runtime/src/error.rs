@@ -1,6 +1,6 @@
 use {
     thiserror::Error,
-    fx_core::FxExecutionError,
+    fx_common::FxExecutionError,
 };
 
 #[derive(Error, Debug, Eq, PartialEq)]

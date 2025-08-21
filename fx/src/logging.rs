@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     tracing::{Subscriber, Event, field::{Field, Visit}},
     tracing_subscriber::{Layer, layer},
-    fx_core::{LogMessage, LogLevel},
+    fx_common::{LogMessage, LogLevel},
     crate::sys,
 };
 

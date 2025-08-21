@@ -4,7 +4,7 @@ use {
     hyper::{Response, body::Bytes, StatusCode},
     http_body_util::{Full, BodyStream},
     futures::{StreamExt, stream::BoxStream},
-    fx_core::{HttpResponse, HttpRequest, FxStream},
+    fx_common::{HttpResponse, HttpRequest, FxStream},
     crate::{FxCloud, FunctionId, error::FxCloudError},
 };
 

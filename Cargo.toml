@@ -4,7 +4,7 @@ members = [
     "fx",
     "fx-runtime",
     "fx-dashboard",
-    "fx-core",
+    "fx-common",
     "fx-macro",
     "fx-tests",
     "fx-services/fx-app-counter",

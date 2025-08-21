@@ -1,5 +1,5 @@
 pub use {
-    fx_core::FxStream,
+    fx_common::FxStream,
     crate::cloud::{FxCloud, FunctionId},
 };
 

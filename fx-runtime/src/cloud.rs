@@ -24,7 +24,7 @@ use {
     serde::{Serialize, Deserialize},
     futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
-    fx_core::{
+    fx_common::{
         LogMessage,
         DatabaseSqlQuery,
         DatabaseSqlBatchQuery,
@@ -605,7 +605,7 @@ fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionE
 }
 
 fn api_call_handler(ctx: FunctionEnvMut<ExecutionEnv>, request_ptr: i64, request_len: i64, output_ptr: i64) -> i64 {
-    let request: fx_core::api::FxApiRequest = decode_memory(&ctx, request_ptr, request_len).unwrap();
+    let request: fx_common::api::FxApiRequest = decode_memory(&ctx, request_ptr, request_len).unwrap();
     0
 }
 
@@ -775,7 +775,7 @@ fn api_sql_migrate(mut ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, m
         .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode migrations request: {err:?}") })
         .and_then(|migrations: SqlMigrations| {
             ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations)
-                .map_err(|err| fx_core::FxSqlError::MigrationFailed {
+                .map_err(|err| fx_common::FxSqlError::MigrationFailed {
                     reason: err.to_string(),
                 })
         });
@@ -812,11 +812,11 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     };
 
     let level = match msg.level {
-        fx_core::LogLevel::Trace => logs::LogLevel::Trace,
-        fx_core::LogLevel::Debug => logs::LogLevel::Debug,
-        fx_core::LogLevel::Info => logs::LogLevel::Info,
-        fx_core::LogLevel::Warn => logs::LogLevel::Warn,
-        fx_core::LogLevel::Error => logs::LogLevel::Error,
+        fx_common::LogLevel::Trace => logs::LogLevel::Trace,
+        fx_common::LogLevel::Debug => logs::LogLevel::Debug,
+        fx_common::LogLevel::Info => logs::LogLevel::Info,
+        fx_common::LogLevel::Warn => logs::LogLevel::Warn,
+        fx_common::LogLevel::Error => logs::LogLevel::Error,
     };
 
     let ctx_data = ctx.data();
@@ -828,7 +828,7 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
 }
 
 fn api_metrics_counter_increment(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) {
-    let request: fx_core::metrics::CounterIncrementRequest = match decode_memory(&ctx, req_addr, req_len) {
+    let request: fx_common::metrics::CounterIncrementRequest = match decode_memory(&ctx, req_addr, req_len) {
         Ok(v) => v,
         Err(err) => {
             error!("failed to decode memory for metrics counter increment: {err:?}");
@@ -942,7 +942,7 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
 
 fn api_stream_export(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
     let res = ctx.data().engine.streams_pool.push_function_stream(ctx.data().service_id.clone())
-        .map_err(|err| fx_core::FxStreamError::PushFailed {
+        .map_err(|err| fx_common::FxStreamError::PushFailed {
             reason: err.to_string(),
         })
         .map(|v| v.0 as i64);
@@ -965,7 +965,7 @@ fn api_stream_poll_next(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, outpu
     match result {
         Poll::Pending => 0,
         Poll::Ready(Some(res)) => {
-            let res = res.map_err(|err| fx_core::FxStreamError::PollFailed {
+            let res = res.map_err(|err| fx_common::FxStreamError::PollFailed {
                 reason: err.to_string(),
             });
             let res = rmp_serde::to_vec(&res).unwrap();

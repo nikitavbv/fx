@@ -3,7 +3,7 @@ use {
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
-    fx_core::FxFutureError,
+    fx_common::FxFutureError,
     crate::{sys::future_poll, PtrWithLen},
 };
 

@@ -2,11 +2,11 @@ use {
     std::{sync::{Arc, Mutex}, task::{Context, Poll, Waker}, collections::HashMap},
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
-    fx_core::FxStreamError,
+    fx_common::FxStreamError,
     crate::sys::{self, stream_poll_next, PtrWithLen},
 };
 
-pub use fx_core::FxStream;
+pub use fx_common::FxStream;
 
 lazy_static! {
     pub(crate) static ref STREAM_POOL: StreamPool = StreamPool::new();
@@ -70,15 +70,15 @@ impl PoolInner {
 }
 
 pub trait FxStreamExport {
-    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_core::FxStreamError> where Self: Sized;
+    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_common::FxStreamError> where Self: Sized;
 }
 
 impl FxStreamExport for FxStream {
-    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_core::FxStreamError> {
+    fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_common::FxStreamError> {
         let inner = inner.boxed();
         let output_ptr = sys::PtrWithLen::new();
         unsafe { sys::stream_export(output_ptr.ptr_to_self()) };
-        let index: Result<i64, fx_core::FxStreamError> = output_ptr.read_decode();
+        let index: Result<i64, fx_common::FxStreamError> = output_ptr.read_decode();
         let index = index?;
         STREAM_POOL.push(index, inner);
         Ok(Self { index })

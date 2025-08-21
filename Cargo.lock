@@ -1637,7 +1637,7 @@ dependencies = [
  "axum",
  "chrono",
  "futures",
- "fx-core",
+ "fx-common",
  "fx-macro",
  "lazy_static",
  "once_cell",
@@ -1684,7 +1684,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-core"
+name = "fx-common"
 version = "0.1.0"
 dependencies = [
  "http",
@@ -1727,7 +1727,7 @@ dependencies = [
  "cron",
  "crossbeam",
  "futures",
- "fx-core",
+ "fx-common",
  "fx-runtime-common",
  "http-body-util",
  "hyper",
@@ -1779,7 +1779,7 @@ name = "fx-tests"
 version = "0.1.0"
 dependencies = [
  "futures",
- "fx-core",
+ "fx-common",
  "fx-runtime",
  "tokio",
 ]

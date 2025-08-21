@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, RwLock, Mutex}, task::{Poll, Context}, collections::HashMap},
     futures::{future::BoxFuture, FutureExt},
     thiserror::Error,
-    fx_core::FxFutureError,
+    fx_common::FxFutureError,
 };
 
 #[derive(Clone)]

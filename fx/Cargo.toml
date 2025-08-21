@@ -17,5 +17,5 @@ chrono = { version = "0.4.41", default-features = false }
 axum = { version = "0.8.3", default-features = false }
 tower = "0.5.2"
 
-fx-core = { path = "../fx-core" }
+fx-common = { path = "../fx-common" }
 fx-macro = { path = "../fx-macro" }

@@ -4,7 +4,7 @@ use {
     lapin::{Connection, ConnectionProperties, options::{BasicConsumeOptions, BasicNackOptions, BasicAckOptions}, types::FieldTable},
     futures::StreamExt,
     tokio::time::{sleep, Duration},
-    fx_core::QueueMessage,
+    fx_common::QueueMessage,
     crate::cloud::{Engine, FunctionId},
 };
 

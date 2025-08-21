@@ -1,5 +1,5 @@
 use {
-    fx_core::{SqlMigrations, FxSqlError},
+    fx_common::{SqlMigrations, FxSqlError},
     crate::{SqlDatabase, sys},
 };
 

@@ -1,5 +1,5 @@
 pub use {
-    fx_core::{
+    fx_common::{
         HttpRequest,
         HttpResponse,
         SqlQuery,
@@ -200,7 +200,7 @@ impl SqlDatabase {
             sys::sql_exec(query.as_ptr() as i64, query.len() as i64, ptr_and_len.ptr_to_self())
         }
 
-        rmp_serde::from_slice::<Result<fx_core::SqlResult, FxSqlError>>(&ptr_and_len.read_owned()).unwrap()
+        rmp_serde::from_slice::<Result<fx_common::SqlResult, FxSqlError>>(&ptr_and_len.read_owned()).unwrap()
             .map(sql::SqlResult::from)
     }
 

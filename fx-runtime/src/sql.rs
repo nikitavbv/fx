@@ -2,7 +2,7 @@ use {
     std::sync::{Arc, Mutex},
     rusqlite::{Connection, params_from_iter, ToSql, types::{ToSqlOutput, ValueRef}},
     thiserror::Error,
-    fx_core::SqlMigrations,
+    fx_common::SqlMigrations,
 };
 
 #[derive(Debug)]

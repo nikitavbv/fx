@@ -1,14 +1,14 @@
 use {
     std::iter::Iterator,
-    fx_core::SqlResultRow,
+    fx_common::SqlResultRow,
 };
 
 pub struct SqlResult {
     rows: Vec<SqlResultRow>,
 }
 
-impl From<fx_core::SqlResult> for SqlResult {
-    fn from(value: fx_core::SqlResult) -> Self {
+impl From<fx_common::SqlResult> for SqlResult {
+    fn from(value: fx_common::SqlResult) -> Self {
         Self {
             rows: value.rows,
         }
