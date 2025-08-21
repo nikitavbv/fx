@@ -8,6 +8,17 @@ use {
 pub mod api;
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct HttpRequestInternal {
+    #[serde(with = "http_serde::method")]
+    pub method: HttpMethod,
+    #[serde(with = "http_serde::uri")]
+    pub url: Uri,
+    #[serde(with = "http_serde::header_map")]
+    pub headers: HeaderMap,
+    pub body: Option<FxStream>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HttpRequest {
     #[serde(with = "http_serde::method")]
     pub method: HttpMethod,
@@ -87,6 +98,10 @@ impl HttpRequest {
     pub fn with_body_stream(mut self, stream: FxStream) -> Self {
         self.body = Some(stream);
         self
+    }
+
+    pub fn into_internal(self) -> HttpRequestInternal {
+        HttpRequestInternal { method: self.method, url: self.url, headers: self.headers, body: self.body }
     }
 }
 

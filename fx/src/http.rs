@@ -30,6 +30,8 @@ impl FxHttpRequest for HttpRequest {
 }
 
 pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FxFutureError> {
+    let req = req.into_internal();
+
     let req = rmp_serde::to_vec(&req).unwrap();
     let future_index = unsafe { sys::fetch(req.as_ptr() as i64, req.len() as i64) };
 

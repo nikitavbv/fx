@@ -31,7 +31,7 @@ use {
         SqlResult,
         SqlResultRow,
         SqlValue,
-        HttpRequest,
+        HttpRequestInternal,
         HttpResponse,
         FxExecutionError,
         FxFutureError,
@@ -849,7 +849,7 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         .map_err(|err| FxFutureError::SerializationError {
             reason: format!("failed to decode memory: {err:?}"),
         })
-        .and_then(|req: HttpRequest| {
+        .and_then(|req: HttpRequestInternal| {
             let request = ctx.data().fetch_client
                 .request(req.method, req.url.to_string())
                 .headers(req.headers);
