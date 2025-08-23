@@ -12,9 +12,11 @@ use {
         IntGauge,
         IntCounter,
         IntGaugeVec,
+        IntCounterVec,
         register_int_gauge_with_registry,
         register_int_gauge_vec_with_registry,
         register_int_counter_with_registry,
+        register_int_counter_vec_with_registry,
     },
     crate::cloud::Engine,
 };
@@ -29,6 +31,7 @@ pub struct Metrics {
     pub(crate) arena_futures_size: IntGauge,
 
     pub(crate) function_memory_size: IntGaugeVec,
+    pub(crate) function_poll_time: IntCounterVec,
 
     pub(crate) function_metrics: FunctionMetrics,
 }
@@ -56,6 +59,7 @@ impl Metrics {
         let arena_futures_size = register_int_gauge_with_registry!("arena_futures_size", "size of futures arena", registry).unwrap();
 
         let function_memory_size = register_int_gauge_vec_with_registry!("function_memory_size", "size of memory used by function", &["function"], registry).unwrap();
+        let function_poll_time = register_int_counter_vec_with_registry!("function_poll_time", "wall clock time spent polling function future", &["function"], registry).unwrap();
 
         Self {
             http_requests_total,
@@ -64,6 +68,7 @@ impl Metrics {
             arena_futures_size,
 
             function_memory_size,
+            function_poll_time,
 
             registry,
 

@@ -4,7 +4,7 @@ use {
         collections::HashMap,
         ops::DerefMut,
         task::{self, Poll},
-        time::{SystemTime, UNIX_EPOCH},
+        time::{SystemTime, UNIX_EPOCH, Instant},
     },
     tracing::error,
     wasmer::{
@@ -326,6 +326,8 @@ impl FunctionRuntimeFuture {
 impl Future for FunctionRuntimeFuture {
     type Output = Result<Vec<u8>, FxCloudError>;
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let started_at = Instant::now();
+
         let rpc_future_index = self.rpc_future_index.clone();
         let mut rpc_future_index = rpc_future_index.lock().unwrap();
 
@@ -438,6 +440,8 @@ impl Future for FunctionRuntimeFuture {
             if result.is_ready() {
                 self.record_function_invocation();
             }
+
+            self.engine.metrics.function_poll_time.with_label_values(&[&self.function_id.id]).inc_by((Instant::now() - started_at).as_millis() as u64);
 
             result
         }
