@@ -27,7 +27,17 @@ impl FxCloud {
 
         loop {
             let msg = consumer.recv().await.unwrap();
-            let payload = msg.payload().unwrap();
+            let payload = match msg.payload() {
+                Some(v) => v,
+                None => {
+                    if let Err(err) = consumer.commit_message(&msg, CommitMode::Async) {
+                        error!("failed to commit kafka message: {err:?}");
+                        sleep(Duration::from_secs(1)).await;
+                        continue;
+                    }
+                    continue;
+                }
+            };
             match self.invoke_service_raw(service_id, function_name, payload.to_vec()) {
                 Ok(v) => {
                     match v.await {
