@@ -81,7 +81,9 @@ jobs:
         target: aarch64-unknown-linux-musl
     - uses: Swatinem/rust-cache@v2
     - run: sudo apt install gcc-aarch64-linux-gnu
-    - uses: actions-rs/cargo@v1
-      with:
-        command: build
-        args: -p fx-runtime --release --target aarch64-unknown-linux-musl
+    - run: |
+        if ! command -v just cross /dev/null
+        then
+          cargo install cross --git https://github.com/cross-rs/cross
+        fi
+    - run: cross build -p fx-runtime --release --target aarch64-unknown-linux-musl
