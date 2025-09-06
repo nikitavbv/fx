@@ -97,9 +97,9 @@ pub async fn global_counter_inc(_ctx: &FxCtx, _arg: ()) -> u64 {
 
 #[rpc]
 pub async fn on_invoke(_ctx: &FxCtx, event: FunctionInvokeEvent) {
-    let mut invocation_count = INVOCATION_COUNT.lock().unwrap();
+    /*let mut invocation_count = INVOCATION_COUNT.lock().unwrap();
     let count = invocation_count.get(&event.function_id).unwrap_or(&0) + 1;
-    invocation_count.insert(event.function_id, count);
+    invocation_count.insert(event.function_id, count);*/
 }
 
 #[rpc]
