@@ -65,7 +65,7 @@ pub enum LogLevel {
 }
 
 pub trait Logger {
-    fn log(&self, message: LogMessage);
+    fn log(&self, message: LogMessageEvent);
 }
 
 pub struct BoxLogger {
@@ -81,7 +81,7 @@ impl BoxLogger {
 }
 
 impl Logger for BoxLogger {
-    fn log(&self, message: LogMessage) {
+    fn log(&self, message: LogMessageEvent) {
         self.inner.log(message)
     }
 }
@@ -95,17 +95,17 @@ impl StdoutLogger {
 }
 
 impl Logger for StdoutLogger {
-    fn log(&self, message: LogMessage) {
+    fn log(&self, message: LogMessageEvent) {
         let source = match message.source {
-            LogSource::Function { id } => id,
-            LogSource::FxRuntime => "fx".to_owned(),
+            LogMessageEventLogSource::Function { id } => id,
+            LogMessageEventLogSource::FxRuntime => "fx".to_owned(),
         };
         println!("{source} | {:?}", message.fields);
     }
 }
 
 pub struct RabbitMqLogger {
-    tx: tokio::sync::mpsc::Sender<LogMessage>,
+    tx: tokio::sync::mpsc::Sender<LogMessageEvent>,
     _connection_task: tokio::task::JoinHandle<()>,
 }
 
@@ -125,12 +125,10 @@ impl RabbitMqLogger {
             info!("publishing logs to rabbitmq exchange: {exchange}");
 
             loop {
-                let msg: LogMessage = match rx.recv().await {
+                let msg: LogMessageEvent = match rx.recv().await {
                     Some(v) => v,
                     None => break,
                 };
-
-                let msg: LogMessageEvent = msg.into();
 
                 let msg_encoded = match rmp_serde::to_vec(&msg) {
                     Ok(v) => v,
@@ -166,7 +164,7 @@ impl RabbitMqLogger {
 }
 
 impl Logger for RabbitMqLogger {
-    fn log(&self, message: LogMessage) {
+    fn log(&self, message: LogMessageEvent) {
         let tx = self.tx.clone();
         tokio::task::spawn(async move {
             if let Err(err) = tx.send(message).await {

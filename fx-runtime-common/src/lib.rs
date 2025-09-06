@@ -15,8 +15,8 @@ pub struct Function {
 // logs
 #[derive(Serialize, Deserialize, Debug)]
 pub struct LogMessageEvent {
-    source: LogSource,
-    fields: HashMap<String, EventFieldValue>,
+    pub source: LogSource,
+    pub fields: HashMap<String, EventFieldValue>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

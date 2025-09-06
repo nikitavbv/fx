@@ -38,6 +38,7 @@ use {
         FxSqlError,
         SqlMigrations,
     },
+    fx_runtime_common::LogMessageEvent,
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxCloudError,
@@ -300,6 +301,10 @@ impl Engine {
 
         let function_stream_drop = ctx.instance.exports.get_function("_fx_stream_drop").unwrap();
         function_stream_drop.call(store, &[wasmer::Value::I64(index)]).unwrap();
+    }
+
+    pub(crate) fn log(&self, message: LogMessageEvent) {
+        self.logger.read().unwrap().log(message);
     }
 }
 
@@ -824,11 +829,11 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     };
 
     let ctx_data = ctx.data();
-    ctx_data.engine.logger.read().unwrap().log(crate::logs::LogMessage::new(
+    ctx_data.engine.log(crate::logs::LogMessage::new(
         crate::logs::LogSource::function(&ctx_data.service_id),
         level,
         msg.fields,
-    ));
+    ).into());
 }
 
 fn api_metrics_counter_increment(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) {
