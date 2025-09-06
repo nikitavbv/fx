@@ -1,10 +1,11 @@
 use {
-    std::{convert::Infallible, pin::Pin},
+    std::{convert::Infallible, pin::Pin, time::Instant},
     tracing::error,
     hyper::{Response, body::Bytes, StatusCode},
     http_body_util::{Full, BodyStream},
     futures::{StreamExt, stream::BoxStream},
     fx_common::{HttpResponse, HttpRequest, FxStream},
+    fx_runtime_common::{FunctionInvokeEvent, events::InvocationTimings},
     crate::{FxCloud, FunctionId, error::FxCloudError},
 };
 
@@ -34,9 +35,12 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
         let service_id = self.service_id.clone();
         Box::pin(async move {
+            let started_at = Instant::now();
+
             let method = req.method().to_owned();
             let url = req.uri().clone();
             let headers = req.headers().clone();
+            let request_id = headers.get("x-request-id").and_then(|v| v.to_str().ok()).map(|v| v.to_owned());
             let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
             let fx_response = match engine.streams_pool.push(body) {
                 Ok(body_stream_index) => {
@@ -73,6 +77,12 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             *response.headers_mut() = fx_response.headers;
             engine.metrics.http_requests_in_flight.dec();
             engine.metrics.http_requests_total.inc();
+            engine.log(FunctionInvokeEvent {
+                request_id,
+                timings: InvocationTimings {
+                    total_time_millis: (Instant::now() - started_at).as_millis() as u64,
+                },
+            }.into());
             Ok(response)
         })
     }
