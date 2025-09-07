@@ -1,8 +1,9 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, time::Duration},
     tracing::{info, error},
     tokio::sync::mpsc,
     serde::Serialize,
+    tokio::time::sleep,
     fx_runtime_common::{
         LogMessageEvent,
         LogSource as LogMessageEventLogSource,
@@ -113,14 +114,7 @@ pub struct RabbitMqLogger {
 impl RabbitMqLogger {
     pub async fn new(uri: String, exchange: String) -> Result<Self, LoggerError> {
         let (tx, mut rx) = mpsc::channel(1024);
-
-        let connection = lapin::Connection::connect(
-            uri.as_str().into(),
-            lapin::ConnectionProperties::default().with_connection_name("fx-log".into())
-        ).await.map_err(|err| LoggerError::FailedToCreate { reason: format!("connection error: {err:?}") })?;
-
-        let channel = connection.create_channel().await
-            .map_err(|err| LoggerError::FailedToCreate { reason: format!("failed to create channel: {err:?}") })?;
+        let (mut _connection, mut channel) = Self::connect(&uri, &exchange).await?;
 
         let connection_task = tokio::task::spawn(async move {
             info!("publishing logs to rabbitmq exchange: {exchange}");
@@ -152,7 +146,11 @@ impl RabbitMqLogger {
                 ).await;
 
                 if let Err(err) = result {
-                    error!("failed to publish message to rabbitmq: {err:?}");
+                    error!("failed to publish message to rabbitmq: {err:?}. Reconnecting...");
+                    sleep(Duration::from_secs(1)).await;
+                    let (new_connection, new_channel) = Self::connect(&uri, &exchange).await.unwrap();
+                    _connection = new_connection;
+                    channel = new_channel;
                 }
             }
         });
@@ -161,6 +159,18 @@ impl RabbitMqLogger {
             tx,
             _connection_task: connection_task,
         })
+    }
+
+    async fn connect(uri: &String, exchange: &String) -> Result<(lapin::Connection, lapin::Channel), LoggerError> {
+        let connection = lapin::Connection::connect(
+            uri.as_str().into(),
+            lapin::ConnectionProperties::default().with_connection_name("fx-log".into())
+        ).await.map_err(|err| LoggerError::FailedToCreate { reason: format!("connection error: {err:?}") })?;
+
+        let channel = connection.create_channel().await
+            .map_err(|err| LoggerError::FailedToCreate { reason: format!("failed to create channel: {err:?}") })?;
+
+        Ok((connection, channel))
     }
 }
 
