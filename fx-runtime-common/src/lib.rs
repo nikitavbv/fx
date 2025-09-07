@@ -23,6 +23,9 @@ pub struct LogMessageEvent {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum EventFieldValue {
     Text(String),
+    U64(u64),
+    I64(i64),
+    F64(f64),
     Object(HashMap<String, Box<EventFieldValue>>),
 }
 
