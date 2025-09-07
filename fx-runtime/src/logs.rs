@@ -6,6 +6,7 @@ use {
     fx_runtime_common::{
         LogMessageEvent,
         LogSource as LogMessageEventLogSource,
+        utils::object_to_event_fields,
     },
     crate::{cloud::FunctionId, error::LoggerError},
 };
@@ -28,7 +29,7 @@ impl LogMessage {
 
 impl Into<LogMessageEvent> for LogMessage {
     fn into(self) -> LogMessageEvent {
-        LogMessageEvent::new(self.source.into(), self.fields)
+        LogMessageEvent::new(self.source.into(), object_to_event_fields(self.fields).unwrap_or(HashMap::new()))
     }
 }
 

@@ -6,6 +6,7 @@ use {
 pub use crate::events::FunctionInvokeEvent;
 
 pub mod events;
+pub mod utils;
 
 #[derive(Serialize, Deserialize)]
 pub struct Function {
@@ -26,12 +27,10 @@ pub enum EventFieldValue {
 }
 
 impl LogMessageEvent {
-    pub fn new(source: LogSource, fields: HashMap<String, String>) -> Self {
+    pub fn new(source: LogSource, fields: HashMap<String, EventFieldValue>) -> Self {
         Self {
             source,
-            fields: fields.into_iter()
-                .map(|(k, v)| (k, EventFieldValue::Text(v)))
-                .collect(),
+            fields,
         }
     }
 

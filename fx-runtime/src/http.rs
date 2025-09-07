@@ -30,13 +30,13 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        let started_at = Instant::now();
+
         let engine = self.fx.engine.clone();
         engine.metrics.http_requests_in_flight.inc();
 
         let service_id = self.service_id.clone();
         Box::pin(async move {
-            let started_at = Instant::now();
-
             let method = req.method().to_owned();
             let url = req.uri().clone();
             let headers = req.headers().clone();
