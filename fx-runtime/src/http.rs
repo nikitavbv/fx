@@ -1,9 +1,10 @@
 use {
-    std::{convert::Infallible, pin::Pin, time::Instant},
+    std::{convert::Infallible, pin::Pin, time::{Instant, Duration}},
     tracing::error,
     hyper::{Response, body::Bytes, StatusCode},
     http_body_util::{Full, BodyStream},
     futures::{StreamExt, stream::BoxStream},
+    tokio::time::timeout,
     fx_common::{HttpResponse, HttpRequest, FxStream},
     fx_runtime_common::{FunctionInvokeEvent, events::InvocationTimings},
     crate::{FxCloud, FunctionId, error::FxCloudError},
@@ -52,14 +53,22 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                         headers,
                         body: Some(body),
                     };
-                    let fx_response: HttpResponse = match engine.invoke_service(engine.clone(), &service_id, "http", request).await {
-                        Ok(v) => v,
-                        Err(err) => match err {
-                            FxCloudError::ServiceNotFound => response_service_not_found(),
-                            other => {
-                                error!("internal error while serving request: {other:?}");
-                                response_internal_error()
-                            },
+                    let invoke_service_future = engine.invoke_service::<_, HttpResponse>(engine.clone(), &service_id, "http", request);
+                    let invoke_service_with_timeout = timeout(Duration::from_secs(60), invoke_service_future);
+                    let fx_response = match invoke_service_with_timeout.await {
+                        Ok(v) => match v {
+                            Ok(v) => v,
+                            Err(err) => match err {
+                                FxCloudError::ServiceNotFound => response_service_not_found(),
+                                other => {
+                                    error!("internal error while serving request: {other:?}");
+                                    response_internal_error()
+                                },
+                            }
+                        },
+                        Err(err) => {
+                            error!("timeout when serving request: {err:?}");
+                            response_internal_error()
                         }
                     };
                     engine.streams_pool.remove(&body_stream_index).unwrap();
