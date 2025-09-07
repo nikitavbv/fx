@@ -234,6 +234,12 @@ impl IntoQueryParam for Vec<u8> {
     }
 }
 
+impl IntoQueryParam for bool {
+    fn into_query_param(self) -> SqlValue {
+        SqlValue::Integer(if self { 1 } else { 0 })
+    }
+}
+
 impl<T: IntoQueryParam> IntoQueryParam for Option<T> {
     fn into_query_param(self) -> SqlValue {
         match self {
