@@ -19,7 +19,7 @@ pub struct LogMessageEvent {
     pub fields: HashMap<String, EventFieldValue>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum EventFieldValue {
     Text(String),
     Object(HashMap<String, Box<EventFieldValue>>),
