@@ -125,6 +125,7 @@ impl<'a> HttpHandlerFuture<'a> {
                         headers,
                         body: Some(body),
                     };
+                    engine.metrics.http_functions_in_flight.inc();
                     let invoke_service_future = engine.invoke_service::<_, HttpResponse>(engine.clone(), &service_id, "http", request);
                     let invoke_service_with_timeout = timeout(Duration::from_secs(60), invoke_service_future);
                     let fx_response = match invoke_service_with_timeout.await {
@@ -143,6 +144,7 @@ impl<'a> HttpHandlerFuture<'a> {
                             response_internal_error()
                         }
                     };
+                    engine.metrics.http_functions_in_flight.dec();
                     engine.streams_pool.remove(&body_stream_index).unwrap();
 
                     fx_response
