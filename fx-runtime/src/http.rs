@@ -38,7 +38,6 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
 struct HttpHandlerFuture<'a> {
     inner: BoxFuture<'a, Result<Response<Full<Bytes>>, Infallible>>,
-    finalized: Arc<Mutex<bool>>,
 }
 
 impl<'a> HttpHandlerFuture<'a> {
@@ -46,10 +45,11 @@ impl<'a> HttpHandlerFuture<'a> {
         let started_at = Instant::now();
         engine.metrics.http_requests_in_flight.inc();
         let finalized = Arc::new(Mutex::new(false));
-        let finalized_copy = finalized.clone();
 
         let inner = Box::pin(async move {
+            let metric_guard_http_requests_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_requests_in_flight.clone());
             engine.metrics.http_futures_in_flight.inc();
+            let metric_guard_http_futures_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_futures_in_flight.clone());
 
             let method = req.method().to_owned();
             let url = req.uri().clone();
@@ -58,6 +58,7 @@ impl<'a> HttpHandlerFuture<'a> {
             let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
             let fx_response = match engine.streams_pool.push(body) {
                 Ok(body_stream_index) => {
+                    let body_stream_cleanup_guard = StreamPoolCleanupGuard::wrap(engine.clone(), body_stream_index.clone());
                     let body = FxStream { index: body_stream_index.0 as i64 };
 
                     let request = HttpRequest {
@@ -66,7 +67,10 @@ impl<'a> HttpHandlerFuture<'a> {
                         headers,
                         body: Some(body),
                     };
+
                     engine.metrics.http_functions_in_flight.inc();
+                    let metric_guard_http_functions_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_functions_in_flight.clone());
+
                     let invoke_service_future = engine.invoke_service::<_, HttpResponse>(engine.clone(), &service_id, "http", request);
                     let invoke_service_with_timeout = timeout(Duration::from_secs(60), invoke_service_future);
                     let fx_response = match invoke_service_with_timeout.await {
@@ -85,8 +89,9 @@ impl<'a> HttpHandlerFuture<'a> {
                             response_internal_error()
                         }
                     };
-                    engine.metrics.http_functions_in_flight.dec();
-                    engine.streams_pool.remove(&body_stream_index).unwrap();
+
+                    drop(metric_guard_http_functions_in_flight);
+                    drop(body_stream_cleanup_guard);
 
                     fx_response
                 },
@@ -99,7 +104,8 @@ impl<'a> HttpHandlerFuture<'a> {
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = fx_response.status;
             *response.headers_mut() = fx_response.headers;
-            engine.metrics.http_futures_in_flight.dec();
+            drop(metric_guard_http_requests_in_flight);
+            drop(metric_guard_http_futures_in_flight);
             engine.metrics.http_requests_in_flight.dec();
             engine.metrics.http_requests_total.inc();
             engine.log(FunctionInvokeEvent {
@@ -114,11 +120,9 @@ impl<'a> HttpHandlerFuture<'a> {
 
             Ok(response)
         });
-        let finalized = finalized_copy;
 
         Self {
             inner,
-            finalized,
         }
     }
 }
@@ -131,16 +135,40 @@ impl<'a> Future for HttpHandlerFuture<'a> {
     }
 }
 
-impl<'a> Drop for HttpHandlerFuture<'a> {
-    fn drop(&mut self) {
-        let is_finalized = match self.finalized.try_lock() {
-            Ok(v) => *v,
-            Err(_) => return,
-        };
+// for simplicity, this wrapper will cleanup stream from arena. Ideally, items in arena would have reference count.
+struct StreamPoolCleanupGuard {
+    engine: Arc<Engine>,
+    body_stream_index: crate::streams::HostPoolIndex,
+}
 
-        if !is_finalized {
-            warn!("non-finalized http request future dropped.");
+impl StreamPoolCleanupGuard {
+    fn wrap(engine: Arc<Engine>, body_stream_index: crate::streams::HostPoolIndex) -> Self {
+        Self {
+            engine,
+            body_stream_index,
         }
+    }
+}
+
+impl Drop for StreamPoolCleanupGuard {
+    fn drop(&mut self) {
+        self.engine.streams_pool.remove(&self.body_stream_index).unwrap();
+    }
+}
+
+struct MetricGaugeDecreaseGuard {
+    gauge: prometheus::core::GenericGauge<prometheus::core::AtomicI64>,
+}
+
+impl MetricGaugeDecreaseGuard {
+    fn wrap(gauge: prometheus::core::GenericGauge<prometheus::core::AtomicI64>) -> Self {
+        Self { gauge }
+    }
+}
+
+impl Drop for MetricGaugeDecreaseGuard {
+    fn drop(&mut self) {
+        self.gauge.dec();
     }
 }
 

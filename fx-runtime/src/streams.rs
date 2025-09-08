@@ -15,7 +15,7 @@ pub struct StreamsPool {
     inner: Arc<Mutex<StreamsPoolInner>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HostPoolIndex(pub u64);
 
 pub enum FxStream {
