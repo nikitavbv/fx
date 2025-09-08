@@ -106,7 +106,6 @@ impl<'a> HttpHandlerFuture<'a> {
             *response.headers_mut() = fx_response.headers;
             drop(metric_guard_http_requests_in_flight);
             drop(metric_guard_http_futures_in_flight);
-            engine.metrics.http_requests_in_flight.dec();
             engine.metrics.http_requests_total.inc();
             engine.log(FunctionInvokeEvent {
                 request_id,
