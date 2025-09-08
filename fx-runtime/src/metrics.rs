@@ -28,6 +28,7 @@ pub struct Metrics {
     pub(crate) http_requests_total: IntCounter,
     pub(crate) http_requests_in_flight: IntGauge,
     pub(crate) http_functions_in_flight: IntGauge,
+    pub(crate) http_futures_in_flight: IntGauge,
     pub(crate) arena_streams_size: IntGauge,
     pub(crate) arena_futures_size: IntGauge,
 
@@ -57,6 +58,7 @@ impl Metrics {
         let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total htpt requests processed", registry).unwrap();
         let http_requests_in_flight = register_int_gauge_with_registry!("http_requests_in_flight", "http requests being processed", registry).unwrap();
         let http_functions_in_flight = register_int_gauge_with_registry!("http_functions_in_flight", "http functions being processed", registry).unwrap();
+        let http_futures_in_flight = register_int_gauge_with_registry!("http_futures_in_flight", "http futures being processed", registry).unwrap();
         let arena_streams_size = register_int_gauge_with_registry!("arena_streams_size", "size of streams arena", registry).unwrap();
         let arena_futures_size = register_int_gauge_with_registry!("arena_futures_size", "size of futures arena", registry).unwrap();
 
@@ -67,6 +69,7 @@ impl Metrics {
             http_requests_total,
             http_requests_in_flight,
             http_functions_in_flight,
+            http_futures_in_flight,
             arena_streams_size,
             arena_futures_size,
 

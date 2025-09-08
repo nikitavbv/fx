@@ -17,6 +17,7 @@ pub struct HttpHandler {
 }
 
 impl HttpHandler {
+    #[allow(dead_code)]
     pub fn new(fx: FxCloud, service_id: FunctionId) -> Self {
         Self {
             fx,
@@ -110,6 +111,8 @@ impl<'a> HttpHandlerFuture<'a> {
         let finalized_copy = finalized.clone();
 
         let inner = Box::pin(async move {
+            engine.metrics.http_futures_in_flight.inc();
+
             let method = req.method().to_owned();
             let url = req.uri().clone();
             let headers = req.headers().clone();
@@ -158,6 +161,7 @@ impl<'a> HttpHandlerFuture<'a> {
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = fx_response.status;
             *response.headers_mut() = fx_response.headers;
+            engine.metrics.http_futures_in_flight.dec();
             engine.metrics.http_requests_in_flight.dec();
             engine.metrics.http_requests_total.inc();
             engine.log(FunctionInvokeEvent {
