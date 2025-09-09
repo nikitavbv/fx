@@ -45,6 +45,10 @@ impl FuturePool {
             Poll::Pending => Poll::Pending
         }
     }
+
+    pub fn remove(&self, index: PoolIndex) {
+        self.pool.lock().unwrap().remove(&index);
+    }
 }
 
 impl PoolInner {

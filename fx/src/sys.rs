@@ -27,6 +27,12 @@ pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_future_drop(future_index: i64) {
+    set_panic_hook();
+    FUTURE_POOL.remove(PoolIndex(future_index as u64));
+}
+
 /* returns 0 if pending, 1 if ready (some), 2 if ready (none) */
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_stream_next(stream_index: i64) -> i64 {

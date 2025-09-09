@@ -363,13 +363,14 @@ impl Future for FunctionRuntimeFuture {
 
         let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
 
-        if let Some(rpc_future_index) = rpc_future_index.as_ref() {
+        if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
             // TODO: measure points
-            let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index)])
+            let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index_value)])
                 .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
                 .unwrap_i64();
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
+                *rpc_future_index = None;
                 drop(store_lock);
                 self.record_function_invocation();
                 std::task::Poll::Ready(Ok(response))
@@ -449,6 +450,35 @@ impl Future for FunctionRuntimeFuture {
             self.engine.metrics.function_poll_time.with_label_values(&[&self.function_id.id]).inc_by((Instant::now() - started_at).as_millis() as u64);
 
             result
+        }
+    }
+}
+
+impl Drop for FunctionRuntimeFuture {
+    fn drop(&mut self) {
+        let rpc_future_index = match self.rpc_future_index.try_lock() {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to lock rpc_future_index when dropping FunctionRuntimeFuture: {err:?}");
+                return;
+            }
+        };
+
+        let rpc_future_index = match rpc_future_index.as_ref() {
+            Some(v) => v,
+            None => return,
+        };
+
+        let ctx = {
+            let ctxs = self.engine.execution_contexts.try_read().unwrap();
+            ctxs.get(&self.function_id).unwrap().clone()
+        };
+        let mut store_lock = ctx.store.try_lock().unwrap();
+        let store = store_lock.deref_mut();
+
+        let function_drop = ctx.instance.exports.get_function("_fx_future_drop").unwrap();
+        if let Err(err) = function_drop.call(store, &[Value::I64(*rpc_future_index)]) {
+            error!("failed to drop function future: {err:?}");
         }
     }
 }
