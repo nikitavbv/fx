@@ -79,6 +79,10 @@ impl FuturesPool {
         }
     }
 
+    pub fn remove(&self, index: &HostPoolIndex) {
+        drop(self.pool.write().unwrap().remove(&index.0));
+    }
+
     pub fn len(&self) -> Result<u64, FuturesError> {
         self.pool.try_read()
             .map(|v| v.len() as u64)

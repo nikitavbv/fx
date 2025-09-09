@@ -4,7 +4,7 @@ use {
     lazy_static::lazy_static,
     serde::Serialize,
     fx_common::FxFutureError,
-    crate::{sys::future_poll, PtrWithLen},
+    crate::{sys::{future_poll, future_drop}, PtrWithLen},
 };
 
 lazy_static! {
@@ -115,6 +115,14 @@ impl Future for FxHostFuture {
             Poll::Pending
         } else {
             Poll::Ready(rmp_serde::from_slice(&self.response_ptr.read_owned()).unwrap())
+        }
+    }
+}
+
+impl Drop for FxHostFuture {
+    fn drop(&mut self) {
+        unsafe {
+            future_drop(self.index.0 as i64)
         }
     }
 }

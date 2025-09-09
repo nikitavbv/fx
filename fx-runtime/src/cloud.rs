@@ -531,6 +531,7 @@ impl ExecutionContext {
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
                 "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
+                "future_drop" => Function::new_typed_with_env(&mut store, &function_env, api_future_drop),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
                 "stream_poll_next" => Function::new_typed_with_env(&mut store, &function_env, api_stream_poll_next),
             },
@@ -977,6 +978,10 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
             1
         },
     }
+}
+
+fn api_future_drop(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
+    ctx.data().engine.futures_pool.remove(&crate::futures::HostPoolIndex(index as u64));
 }
 
 fn api_stream_export(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
