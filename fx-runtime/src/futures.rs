@@ -1,5 +1,5 @@
 use {
-    std::{sync::{Arc, RwLock, Mutex}, task::{Poll, Context}, collections::HashMap},
+    std::{sync::{Arc, RwLock, Mutex}, task::{Poll, Context}, collections::{HashMap, VecDeque}},
     futures::{future::BoxFuture, FutureExt},
     thiserror::Error,
     fx_common::FxFutureError,
@@ -8,6 +8,7 @@ use {
 #[derive(Clone)]
 pub struct FuturesPool {
     pool: Arc<RwLock<HashMap<u64, Arc<Mutex<BoxFuture<'static, Result<Vec<u8>, FxFutureError>>>>>>>,
+    futures_to_drop: Arc<Mutex<VecDeque<u64>>>,
     counter: Arc<Mutex<u64>>,
 }
 
@@ -27,6 +28,7 @@ impl FuturesPool {
         Self {
             pool: Arc::new(RwLock::new(HashMap::new())),
             counter: Arc::new(Mutex::new(0)),
+            futures_to_drop: Arc::new(RwLock::new(VecDeque::new())),
         }
     }
 
@@ -67,7 +69,16 @@ impl FuturesPool {
             Poll::Ready(result) => {
                 drop(future);
                 match self.pool.try_write() {
-                    Ok(mut v) => v.remove(&index.0),
+                    Ok(mut v) => {
+                        v.remove(&index.0);
+
+                        // cleanup dropped futures
+                        if let Ok(mut futures_to_drop) = self.futures_to_drop.try_lock() {
+                            while let Some(future_to_drop) = futures_to_drop.pop_front() {
+                                v.remove(&future_to_drop);
+                            }
+                        }
+                    },
                     Err(err) => {
                         return Poll::Ready(Err(FxFutureError::FxRuntimeError {
                             reason: format!("failed to acquire futures arena lock: {err:?}"),
@@ -80,7 +91,7 @@ impl FuturesPool {
     }
 
     pub fn remove(&self, index: &HostPoolIndex) {
-        drop(self.pool.write().unwrap().remove(&index.0));
+        self.futures_to_drop.lock().unwrap().push_back(index.0);
     }
 
     pub fn len(&self) -> Result<u64, FuturesError> {
