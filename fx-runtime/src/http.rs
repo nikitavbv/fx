@@ -43,11 +43,11 @@ struct HttpHandlerFuture<'a> {
 impl<'a> HttpHandlerFuture<'a> {
     fn new(engine: Arc<Engine>, service_id: FunctionId, req: hyper::Request<hyper::body::Incoming>) -> Self {
         let started_at = Instant::now();
+
         engine.metrics.http_requests_in_flight.inc();
-        let finalized = Arc::new(Mutex::new(false));
+        let metric_guard_http_requests_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_requests_in_flight.clone());
 
         let inner = Box::pin(async move {
-            let metric_guard_http_requests_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_requests_in_flight.clone());
             engine.metrics.http_futures_in_flight.inc();
             let metric_guard_http_futures_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_futures_in_flight.clone());
 
@@ -113,9 +113,6 @@ impl<'a> HttpHandlerFuture<'a> {
                     total_time_millis: (Instant::now() - started_at).as_millis() as u64,
                 },
             }.into());
-            if let Ok(mut v) = finalized.try_lock() {
-                *v = true;
-            }
 
             Ok(response)
         });
