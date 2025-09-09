@@ -28,7 +28,7 @@ impl FuturesPool {
         Self {
             pool: Arc::new(RwLock::new(HashMap::new())),
             counter: Arc::new(Mutex::new(0)),
-            futures_to_drop: Arc::new(RwLock::new(VecDeque::new())),
+            futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
         }
     }
 
