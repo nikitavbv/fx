@@ -473,7 +473,13 @@ impl Drop for FunctionRuntimeFuture {
             let ctxs = self.engine.execution_contexts.try_read().unwrap();
             ctxs.get(&self.function_id).unwrap().clone()
         };
-        let mut store_lock = ctx.store.try_lock().unwrap();
+        let mut store_lock = match ctx.store.try_lock() {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to lock store when Dropping FunctionRuntimeFuture: {err:?}");
+                return;
+            }
+        };
         let store = store_lock.deref_mut();
 
         let function_drop = ctx.instance.exports.get_function("_fx_future_drop").unwrap();
