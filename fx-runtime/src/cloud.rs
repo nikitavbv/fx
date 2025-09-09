@@ -981,7 +981,7 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
 }
 
 fn api_future_drop(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
-    // ctx.data().engine.futures_pool.remove(&crate::futures::HostPoolIndex(index as u64));
+    ctx.data().engine.futures_pool.remove(&crate::futures::HostPoolIndex(index as u64));
 }
 
 fn api_stream_export(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
