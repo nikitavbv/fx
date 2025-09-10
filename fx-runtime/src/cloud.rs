@@ -1,7 +1,7 @@
 use {
     std::{
         sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}},
-        collections::HashMap,
+        collections::{HashMap, VecDeque},
         ops::DerefMut,
         task::{self, Poll},
         time::{SystemTime, UNIX_EPOCH, Instant},
@@ -361,6 +361,18 @@ impl Future for FunctionRuntimeFuture {
             }
         }
 
+        // cleanup futures
+        if let Ok(mut futures_to_drop) = ctx.futures_to_drop.try_lock() {
+            let function_drop = ctx.instance.exports.get_function("_fx_future_drop").unwrap();
+
+            while let Some(future_to_drop) = futures_to_drop.pop_front() {
+                if let Err(err) = function_drop.call(store, &[Value::I64(future_to_drop)]) {
+                    error!("failed to call _fx_future_drop: {err:?}");
+                };
+            }
+        }
+
+        // poll this future
         let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
 
         if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
@@ -473,19 +485,7 @@ impl Drop for FunctionRuntimeFuture {
             let ctxs = self.engine.execution_contexts.try_read().unwrap();
             ctxs.get(&self.function_id).unwrap().clone()
         };
-        let mut store_lock = match ctx.store.try_lock() {
-            Ok(v) => v,
-            Err(err) => {
-                error!("failed to lock store when Dropping FunctionRuntimeFuture: {err:?}");
-                return;
-            }
-        };
-        let store = store_lock.deref_mut();
-
-        let function_drop = ctx.instance.exports.get_function("_fx_future_drop").unwrap();
-        if let Err(err) = function_drop.call(store, &[Value::I64(*rpc_future_index)]) {
-            error!("failed to drop function future: {err:?}");
-        }
+        ctx.futures_to_drop.lock().unwrap().push_back(*rpc_future_index);
     }
 }
 
@@ -494,6 +494,7 @@ pub(crate) struct ExecutionContext {
     pub(crate) store: Arc<Mutex<Store>>,
     pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     needs_recreate: Arc<AtomicBool>,
+    futures_to_drop: Arc<Mutex<VecDeque<i64>>>,
 }
 
 impl ExecutionContext {
@@ -567,6 +568,7 @@ impl ExecutionContext {
             store: Arc::new(Mutex::new(store)),
             function_env,
             needs_recreate: Arc::new(AtomicBool::new(false)),
+            futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
         })
     }
 }
