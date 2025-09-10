@@ -363,12 +363,17 @@ impl Future for FunctionRuntimeFuture {
 
         // cleanup futures
         if let Ok(mut futures_to_drop) = ctx.futures_to_drop.try_lock() {
-            let function_drop = ctx.instance.exports.get_function("_fx_future_drop").unwrap();
-
-            while let Some(future_to_drop) = futures_to_drop.pop_front() {
-                if let Err(err) = function_drop.call(store, &[Value::I64(future_to_drop)]) {
-                    error!("failed to call _fx_future_drop: {err:?}");
-                };
+            match ctx.instance.exports.get_function("_fx_future_drop") {
+                Ok(function_drop) => {
+                    while let Some(future_to_drop) = futures_to_drop.pop_front() {
+                        if let Err(err) = function_drop.call(store, &[Value::I64(future_to_drop)]) {
+                            error!("failed to call _fx_future_drop: {err:?}");
+                        };
+                    }
+                },
+                Err(err) => {
+                    error!("_fx_future_drop not available in: {:?}, {err:?}", self.function_id.id);
+                }
             }
         }
 
