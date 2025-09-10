@@ -33,6 +33,7 @@ pub struct Metrics {
     pub(crate) arena_futures_size: IntGauge,
 
     pub(crate) function_memory_size: IntGaugeVec,
+    pub(crate) function_memory_pages: IntGaugeVec,
     pub(crate) function_poll_time: IntCounterVec,
 
     pub(crate) function_metrics: FunctionMetrics,
@@ -63,6 +64,7 @@ impl Metrics {
         let arena_futures_size = register_int_gauge_with_registry!("arena_futures_size", "size of futures arena", registry).unwrap();
 
         let function_memory_size = register_int_gauge_vec_with_registry!("function_memory_size", "size of memory used by function", &["function"], registry).unwrap();
+        let function_memory_pages = register_int_gauge_vec_with_registry!("function_memory_pages", "number of memory pages used by function", &["function"], registry).unwrap();
         let function_poll_time = register_int_counter_vec_with_registry!("function_poll_time", "wall clock time spent polling function future", &["function"], registry).unwrap();
 
         Self {
@@ -74,6 +76,7 @@ impl Metrics {
             arena_futures_size,
 
             function_memory_size,
+            function_memory_pages,
             function_poll_time,
 
             registry,
@@ -162,7 +165,8 @@ async fn collect_metrics(engine: Arc<Engine>) {
                 let memory = execution_env.function_env.as_ref(&store).memory.as_ref();
                 if let Some(memory) = memory.as_ref() {
                     let data_size = memory.view(&store).data_size();
-                    metrics.function_memory_size.with_label_values(&[function_id]).set(data_size as i64);
+                    metrics.function_memory_size.with_label_values(&[function_id.clone()]).set(data_size as i64);
+                    metrics.function_memory_pages.with_label_values(&[function_id.clone()]).set(memory.size(&store).0 as i64);
                 }
             },
             Err(err) => error!("failed to read execution contexts when collecting metrics: {err:?}"),
