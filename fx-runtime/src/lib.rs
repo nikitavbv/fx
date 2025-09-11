@@ -16,6 +16,7 @@ mod kafka;
 pub mod kv;
 mod logs;
 mod metrics;
+mod profiling;
 mod queue;
 pub mod sql;
 mod streams;

@@ -37,6 +37,7 @@ mod http;
 mod kafka;
 mod futures;
 mod metrics;
+mod profiling;
 mod sql;
 mod kv;
 mod logs;
