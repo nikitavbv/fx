@@ -26,6 +26,9 @@ jobs:
         toolchain: stable
         override: true
         target: wasm32-unknown-unknown
+    - run: |
+        wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+        sudo bash /tmp/llvm.sh 18
     - run: just test
   runtime-build:
     name: runtime build
@@ -40,6 +43,9 @@ jobs:
         toolchain: stable
         override: true
     - uses: Swatinem/rust-cache@v2
+    - run: |
+        wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
+        sudo bash /tmp/llvm.sh 18
     - uses: actions-rs/cargo@v1
       with:
         command: build
