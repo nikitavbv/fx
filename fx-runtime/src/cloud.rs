@@ -572,8 +572,10 @@ impl ExecutionContext {
             }
         }
 
+        let memory_tracker = crate::profiling::init_memory_tracker();
         let instance = Instance::new(&mut store, &module, &import_object)
             .map_err(|err| FxCloudError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
+        tracing::info!("memory used by Instance::new: {:?}", memory_tracker.report_total());
 
         Ok(Self {
             instance,
