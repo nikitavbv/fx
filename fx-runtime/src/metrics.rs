@@ -58,7 +58,7 @@ impl Metrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        let memory_resident = register_int_counter_with_registry!("memory_resident", "total memory allocated", registry).unwrap();
+        let memory_resident = register_int_gauge_with_registry!("memory_resident", "total memory allocated", registry).unwrap();
 
         let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total http requests processed", registry).unwrap();
         let http_requests_in_flight = register_int_gauge_with_registry!("http_requests_in_flight", "http requests being processed", registry).unwrap();
@@ -178,12 +178,12 @@ async fn collect_metrics(engine: Arc<Engine>) {
             Err(err) => error!("failed to read execution contexts when collecting metrics: {err:?}"),
         }
 
-        if let Err(err) = jemalloc_ctl::epoch::advance() {
+        if let Err(err) = tikv_jemalloc_ctl::epoch::advance() {
             error!("failed to advance jemalloc_ctl epoch: {err:?}");
         }
 
-        match jemalloc_ctl::stats::resident::read() {
-            Ok(v) => metrics.memory_resident.set(v),
+        match tikv_jemalloc_ctl::stats::resident::read() {
+            Ok(v) => metrics.memory_resident.set(v as i64),
             Err(err) => {
                 error!("failed to read jemalloc_ctl::stats::resident: {err:?}");
             }
