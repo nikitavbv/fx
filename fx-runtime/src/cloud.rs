@@ -275,6 +275,10 @@ impl Engine {
             true, // TODO: permissions
         );
 
+        if let Err(err) = tikv_jemalloc_ctl::epoch::advance() {
+            error!("failed to advance jemalloc_ctl epoch: {err:?}");
+        }
+
         let memory_after = tikv_jemalloc_ctl::stats::resident::read().ok();
         if let Some(memory_before) = memory_before && let Some(memory_after) = memory_after {
             tracing::info!("memory used to create execution context: {}", memory_after - memory_before);
