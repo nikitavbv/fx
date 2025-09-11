@@ -28,6 +28,8 @@ pub struct Metrics {
     memory_active: IntGauge,
     memory_resident: IntGauge,
 
+    pub(crate) memory_usage_execution_context_create: IntCounter,
+
     pub(crate) http_requests_total: IntCounter,
     pub(crate) http_requests_in_flight: IntGauge,
     pub(crate) http_functions_in_flight: IntGauge,
@@ -62,6 +64,8 @@ impl Metrics {
         let memory_active = register_int_gauge_with_registry!("memory_active", "total number of bytes in active pages allocated by the application", registry).unwrap();
         let memory_resident = register_int_gauge_with_registry!("memory_resident", "total number of bytes in physically resident data pages mapped by the allocator", registry).unwrap();
 
+        let memory_usage_execution_context_create = register_int_counter_with_registry!("memory_usage_execution_context_create", "memory usage increase when creating execution contexts", registry).unwrap();
+
         let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total http requests processed", registry).unwrap();
         let http_requests_in_flight = register_int_gauge_with_registry!("http_requests_in_flight", "http requests being processed", registry).unwrap();
         let http_functions_in_flight = register_int_gauge_with_registry!("http_functions_in_flight", "http functions being processed", registry).unwrap();
@@ -76,6 +80,8 @@ impl Metrics {
         Self {
             memory_active,
             memory_resident,
+
+            memory_usage_execution_context_create,
 
             http_requests_total,
             http_requests_in_flight,

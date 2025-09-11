@@ -232,6 +232,11 @@ impl Engine {
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, service_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
+        if let Err(err) = tikv_jemalloc_ctl::epoch::advance() {
+            error!("failed to advance jemalloc_ctl epoch: {err:?}");
+        }
+        let memory_before = tikv_jemalloc_ctl::stats::resident::read().ok();
+
         let module_code = self.module_code_storage.read().unwrap().get(service_id.id.as_bytes())?;
         let module_code = match module_code {
             Some(v) => v,
@@ -260,15 +265,23 @@ impl Engine {
             );
         }
 
-        ExecutionContext::new(
-            engine,
+        let execution_context = ExecutionContext::new(
+            engine.clone(),
             service_id.clone(),
             kv,
             sql,
             module_code,
             true, // TODO: permissions
             true, // TODO: permissions
-        )
+        );
+
+        let memory_after = tikv_jemalloc_ctl::stats::resident::read().ok();
+        if let Some(memory_before) = memory_before && let Some(memory_after) = memory_after {
+            tracing::info!("memory used to create execution context: {}", memory_after - memory_before);
+            engine.metrics.memory_usage_execution_context_create.inc_by((memory_after - memory_before) as u64);
+        }
+
+        execution_context
     }
 
     pub(crate) fn stream_poll_next(&self, function_id: &FunctionId, index: i64) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
