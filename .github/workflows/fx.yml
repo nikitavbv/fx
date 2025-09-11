@@ -12,7 +12,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: nightly
+        toolchain: stable
         override: true
     - uses: Swatinem/rust-cache@v2
     - run: |
@@ -23,7 +23,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: nightly
+        toolchain: stable
         override: true
         target: wasm32-unknown-unknown
     - run: just test
@@ -37,7 +37,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: nightly
+        toolchain: stable
         override: true
     - uses: Swatinem/rust-cache@v2
     - uses: actions-rs/cargo@v1
@@ -74,7 +74,7 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: nightly
+        toolchain: stable
         override: true
         target: aarch64-unknown-linux-musl
     - uses: Swatinem/rust-cache@v2
