@@ -29,7 +29,7 @@ jobs:
     - run: |
         wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
         sudo bash /tmp/llvm.sh 18
-        apt install libllvmX-dev libclangX-dev llvm-X-dev libpollyX-dev
+        sudo apt install libllvmX-dev libclangX-dev llvm-X-dev libpollyX-dev
     - run: just test
   runtime-build:
     name: runtime build
@@ -47,7 +47,7 @@ jobs:
     - run: |
         wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
         sudo bash /tmp/llvm.sh 18
-        apt install libllvmX-dev libclangX-dev llvm-X-dev libpollyX-dev
+        sudo apt install libllvmX-dev libclangX-dev llvm-X-dev libpollyX-dev
     - uses: actions-rs/cargo@v1
       with:
         command: build
