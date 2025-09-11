@@ -524,8 +524,11 @@ impl ExecutionContext {
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
+        let memory_tracker = crate::profiling::init_memory_tracker();
         let module = engine.compiler.read().unwrap().compile(&store, module_code)
             .map_err(|err| FxCloudError::CompilationError { reason: err.to_string() })?;
+        tracing::info!("memory used by compiler: {:?}", memory_tracker.report_total());
+
         let function_env = FunctionEnv::new(
             &mut store,
             ExecutionEnv::new(engine, service_id.clone(), storage, sql, allow_fetch, allow_log)

@@ -111,6 +111,7 @@ enum Command {
     },
 }
 
+#[cfg(not(target_arch = "aarch64"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
