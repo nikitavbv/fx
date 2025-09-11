@@ -519,7 +519,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
-        let mut compiler_config = Cranelift::default();
+        let mut compiler_config = wasmer_compiler_llvm::LLVM::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
