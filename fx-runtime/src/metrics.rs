@@ -25,6 +25,7 @@ use {
 pub struct Metrics {
     registry: Registry,
 
+    memory_active: IntGauge,
     memory_resident: IntGauge,
 
     pub(crate) http_requests_total: IntCounter,
@@ -58,7 +59,8 @@ impl Metrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        let memory_resident = register_int_gauge_with_registry!("memory_resident", "total memory allocated", registry).unwrap();
+        let memory_active = register_int_gauge_with_registry!("memory_active", "total number of bytes in active pages allocated by the application", registry).unwrap();
+        let memory_resident = register_int_gauge_with_registry!("memory_resident", "total number of bytes in physically resident data pages mapped by the allocator", registry).unwrap();
 
         let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total http requests processed", registry).unwrap();
         let http_requests_in_flight = register_int_gauge_with_registry!("http_requests_in_flight", "http requests being processed", registry).unwrap();
@@ -72,6 +74,7 @@ impl Metrics {
         let function_poll_time = register_int_counter_vec_with_registry!("function_poll_time", "wall clock time spent polling function future", &["function"], registry).unwrap();
 
         Self {
+            memory_active,
             memory_resident,
 
             http_requests_total,
@@ -180,6 +183,13 @@ async fn collect_metrics(engine: Arc<Engine>) {
 
         if let Err(err) = tikv_jemalloc_ctl::epoch::advance() {
             error!("failed to advance jemalloc_ctl epoch: {err:?}");
+        }
+
+        match tikv_jemalloc_ctl::stats::active::read() {
+            Ok(v) => metrics.memory_active.set(v as i64),
+            Err(err) => {
+                error!("failed to read tikv_jemalloc_ctl::stats::active: {err:?}");
+            }
         }
 
         match tikv_jemalloc_ctl::stats::resident::read() {
