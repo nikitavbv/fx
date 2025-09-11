@@ -580,6 +580,15 @@ impl ExecutionContext {
             .map_err(|err| FxCloudError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
         tracing::info!("memory used by Instance::new: {:?}", memory_tracker.report_total());
 
+        for (export_name, ext) in instance.exports.iter() {
+            match ext {
+                wasmer::Extern::Memory(memory) => {
+                    tracing::info!("memory: {export_name} {}", memory.size(&mut store).bytes().0);
+                },
+                _ => {},
+            }
+        }
+
         Ok(Self {
             instance,
             store: Arc::new(Mutex::new(store)),
