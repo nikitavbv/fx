@@ -183,7 +183,7 @@ async fn collect_metrics(engine: Arc<Engine>) {
         }
 
         match jemalloc_ctl::stats::resident::read() {
-            Ok(v) => {},
+            Ok(v) => metrics.memory_resident.set(v),
             Err(err) => {
                 error!("failed to read jemalloc_ctl::stats::resident: {err:?}");
             }
