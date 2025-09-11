@@ -110,6 +110,9 @@ enum Command {
     },
 }
 
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     FmtSubscriber::builder().with_max_level(Level::INFO).init();

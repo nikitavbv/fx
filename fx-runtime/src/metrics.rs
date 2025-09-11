@@ -25,6 +25,8 @@ use {
 pub struct Metrics {
     registry: Registry,
 
+    memory_resident: IntGauge,
+
     pub(crate) http_requests_total: IntCounter,
     pub(crate) http_requests_in_flight: IntGauge,
     pub(crate) http_functions_in_flight: IntGauge,
@@ -56,7 +58,9 @@ impl Metrics {
     pub fn new() -> Self {
         let registry = Registry::new();
 
-        let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total htpt requests processed", registry).unwrap();
+        let memory_resident = register_int_counter_with_registry!("memory_resident", "total memory allocated", registry).unwrap();
+
+        let http_requests_total = register_int_counter_with_registry!("http_requests_total", "total http requests processed", registry).unwrap();
         let http_requests_in_flight = register_int_gauge_with_registry!("http_requests_in_flight", "http requests being processed", registry).unwrap();
         let http_functions_in_flight = register_int_gauge_with_registry!("http_functions_in_flight", "http functions being processed", registry).unwrap();
         let http_futures_in_flight = register_int_gauge_with_registry!("http_futures_in_flight", "http futures being processed", registry).unwrap();
@@ -68,6 +72,8 @@ impl Metrics {
         let function_poll_time = register_int_counter_vec_with_registry!("function_poll_time", "wall clock time spent polling function future", &["function"], registry).unwrap();
 
         Self {
+            memory_resident,
+
             http_requests_total,
             http_requests_in_flight,
             http_functions_in_flight,
@@ -170,6 +176,17 @@ async fn collect_metrics(engine: Arc<Engine>) {
                 }
             },
             Err(err) => error!("failed to read execution contexts when collecting metrics: {err:?}"),
+        }
+
+        if let Err(err) = jemalloc_ctl::epoch::advance() {
+            error!("failed to advance jemalloc_ctl epoch: {err:?}");
+        }
+
+        match jemalloc_ctl::stats::resident::read() {
+            Ok(v) => {},
+            Err(err) => {
+                error!("failed to read jemalloc_ctl::stats::resident: {err:?}");
+            }
         }
 
         sleep(Duration::from_secs(10)).await;
