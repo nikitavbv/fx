@@ -187,21 +187,24 @@ async fn collect_metrics(engine: Arc<Engine>) {
             Err(err) => error!("failed to read execution contexts when collecting metrics: {err:?}"),
         }
 
-        if let Err(err) = tikv_jemalloc_ctl::epoch::advance() {
-            error!("failed to advance jemalloc_ctl epoch: {err:?}");
-        }
-
-        match tikv_jemalloc_ctl::stats::active::read() {
-            Ok(v) => metrics.memory_active.set(v as i64),
-            Err(err) => {
-                error!("failed to read tikv_jemalloc_ctl::stats::active: {err:?}");
+        #[cfg(not(target_arch = "aarch64"))]
+        {
+            if let Err(err) = tikv_jemalloc_ctl::epoch::advance() {
+                error!("failed to advance jemalloc_ctl epoch: {err:?}");
             }
-        }
 
-        match tikv_jemalloc_ctl::stats::resident::read() {
-            Ok(v) => metrics.memory_resident.set(v as i64),
-            Err(err) => {
-                error!("failed to read jemalloc_ctl::stats::resident: {err:?}");
+            match tikv_jemalloc_ctl::stats::active::read() {
+                Ok(v) => metrics.memory_active.set(v as i64),
+                Err(err) => {
+                    error!("failed to read tikv_jemalloc_ctl::stats::active: {err:?}");
+                }
+            }
+
+            match tikv_jemalloc_ctl::stats::resident::read() {
+                Ok(v) => metrics.memory_resident.set(v as i64),
+                Err(err) => {
+                    error!("failed to read jemalloc_ctl::stats::resident: {err:?}");
+                }
             }
         }
 
