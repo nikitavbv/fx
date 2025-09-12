@@ -519,7 +519,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxCloudError> {
-        let mut compiler_config = wasmer_compiler_llvm::LLVM::default();
+        let mut compiler_config = create_compiler_config();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
@@ -597,6 +597,17 @@ impl ExecutionContext {
             futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
         })
     }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn create_compiler_config() -> Cranelift {
+    Cranelift::default()
+}
+
+
+#[cfg(not(target_arch = "aarch64"))]
+fn create_compiler_config() -> wasmer_compiler_llvm::LLVM {
+    wasmer_compiler_llvm::LLVM::default()
 }
 
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
