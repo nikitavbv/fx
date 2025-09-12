@@ -11,7 +11,6 @@ http-body-util = "0.1.3"
 rayon = "1.10.0"
 thread_local = "1.1.8"
 wasmer = { git = "https://github.com/wasmerio/wasmer" }
-wasmer-compiler-llvm = { git = "https://github.com/wasmerio/wasmer" }
 wasmer-middlewares = { git = "https://github.com/wasmerio/wasmer" }
 rusqlite = { version = "0.35.0", features = ["bundled"] }
 rusqlite_migration = "2.1.0"
@@ -43,3 +42,4 @@ fx-runtime-common = { path = "../fx-runtime-common" }
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
+wasmer-compiler-llvm = { git = "https://github.com/wasmerio/wasmer" }
