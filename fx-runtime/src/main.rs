@@ -34,7 +34,6 @@ mod cron;
 mod definition;
 mod error;
 mod http;
-mod kafka;
 mod futures;
 mod metrics;
 mod profiling;

@@ -12,7 +12,6 @@ pub mod definition;
 pub mod error;
 mod futures;
 mod http;
-mod kafka;
 pub mod kv;
 mod logs;
 mod metrics;
