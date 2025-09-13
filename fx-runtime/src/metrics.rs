@@ -39,6 +39,7 @@ pub struct Metrics {
 
     pub(crate) function_memory_size: IntGaugeVec,
     pub(crate) function_memory_pages: IntGaugeVec,
+    pub(crate) function_execution_context_init_memory_usage: IntGaugeVec,
     pub(crate) function_poll_time: IntCounterVec,
 
     pub(crate) function_metrics: FunctionMetrics,
@@ -75,6 +76,7 @@ impl Metrics {
 
         let function_memory_size = register_int_gauge_vec_with_registry!("function_memory_size", "size of memory used by function", &["function"], registry).unwrap();
         let function_memory_pages = register_int_gauge_vec_with_registry!("function_memory_pages", "number of memory pages used by function", &["function"], registry).unwrap();
+        let function_execution_context_init_memory_usage = register_int_gauge_vec_with_registry!("function_execution_context_init_memory_usage", "memory used to init execution context of a function", &["function"], registry).unwrap();
         let function_poll_time = register_int_counter_vec_with_registry!("function_poll_time", "wall clock time spent polling function future", &["function"], registry).unwrap();
 
         Self {
@@ -92,6 +94,7 @@ impl Metrics {
 
             function_memory_size,
             function_memory_pages,
+            function_execution_context_init_memory_usage,
             function_poll_time,
 
             registry,

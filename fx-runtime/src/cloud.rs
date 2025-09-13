@@ -231,10 +231,10 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, service_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
-        let memory_tracker_total = crate::profiling::init_memory_tracker();
+    fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
+        let memory_tracker = crate::profiling::init_memory_tracker();
 
-        let module_code = self.module_code_storage.read().unwrap().get(service_id.id.as_bytes())?;
+        let module_code = self.module_code_storage.read().unwrap().get(function_id.id.as_bytes())?;
         let module_code = match module_code {
             Some(v) => v,
             None => return Err(FxCloudError::ModuleCodeNotFound),
@@ -262,10 +262,9 @@ impl Engine {
             );
         }
 
-        let memory_tracker_context_new = crate::profiling::init_memory_tracker();
         let execution_context = ExecutionContext::new(
             engine.clone(),
-            service_id.clone(),
+            function_id.clone(),
             kv,
             sql,
             module_code,
@@ -273,7 +272,9 @@ impl Engine {
             true, // TODO: permissions
         );
 
-        tracing::info!("memory used to create execution context: {:?}/{:?}", memory_tracker_total.report_total(), memory_tracker_context_new.report_total());
+        if let Some(memory_usage) = memory_tracker.report_total() {
+            engine.metrics.function_execution_context_init_memory_usage.with_label_values(&[function_id.as_string()]).set(memory_usage as i64);
+        }
 
         execution_context
     }
