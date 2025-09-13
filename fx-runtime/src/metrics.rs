@@ -143,7 +143,11 @@ pub async fn run_metrics_server(engine: Arc<Engine>, port: u16) {
                         .timer(TokioTimer::new())
                         .serve_connection(io, metrics_server)
                         .await {
-                            error!("error while handling metrics request: {err:?}");
+                            if err.is_timeout() || err.is_incomplete_message() {
+                                // ignore non-critical errors caused by clients
+                            } else {
+                                error!("error while handling metrics request: {err:?}");
+                            }
                         }
                 });
             }
