@@ -525,10 +525,8 @@ impl ExecutionContext {
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
-        let memory_tracker = crate::profiling::init_memory_tracker();
         let module = engine.compiler.read().unwrap().compile(&store, module_code)
             .map_err(|err| FxCloudError::CompilationError { reason: err.to_string() })?;
-        tracing::info!("memory used by compiler: {:?}", memory_tracker.report_total());
 
         let function_env = FunctionEnv::new(
             &mut store,
@@ -576,19 +574,8 @@ impl ExecutionContext {
             }
         }
 
-        let memory_tracker = crate::profiling::init_memory_tracker();
         let instance = Instance::new(&mut store, &module, &import_object)
             .map_err(|err| FxCloudError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
-        tracing::info!("memory used by Instance::new: {:?}", memory_tracker.report_total());
-
-        for (export_name, ext) in instance.exports.iter() {
-            match ext {
-                wasmer::Extern::Memory(memory) => {
-                    tracing::info!("memory: {export_name} {}", memory.size(&mut store).bytes().0);
-                },
-                _ => {},
-            }
-        }
 
         Ok(Self {
             instance,
