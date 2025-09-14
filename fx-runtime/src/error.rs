@@ -4,7 +4,7 @@ use {
 };
 
 #[derive(Error, Debug, Eq, PartialEq)]
-pub enum FxCloudError {
+pub enum FxRuntimeError {
     #[error("service not found")]
     ServiceNotFound,
 

@@ -9,7 +9,7 @@ use {
         LogSource as LogMessageEventLogSource,
         utils::object_to_event_fields,
     },
-    crate::{cloud::FunctionId, error::LoggerError},
+    crate::{runtime::FunctionId, error::LoggerError},
 };
 
 pub struct LogMessage {

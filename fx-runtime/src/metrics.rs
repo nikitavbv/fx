@@ -18,7 +18,7 @@ use {
         register_int_counter_with_registry,
         register_int_counter_vec_with_registry,
     },
-    crate::cloud::Engine,
+    crate::runtime::Engine,
 };
 
 #[derive(Clone)]

@@ -7,18 +7,18 @@ use {
     tokio::time::timeout,
     fx_common::{HttpResponse, HttpRequest, FxStream},
     fx_runtime_common::{FunctionInvokeEvent, events::InvocationTimings},
-    crate::{FxCloud, FunctionId, error::FxCloudError, cloud::Engine},
+    crate::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::Engine},
 };
 
 #[derive(Clone)]
 pub struct HttpHandler {
-    fx: FxCloud,
+    fx: FxRuntime,
     service_id: FunctionId,
 }
 
 impl HttpHandler {
     #[allow(dead_code)]
-    pub fn new(fx: FxCloud, service_id: FunctionId) -> Self {
+    pub fn new(fx: FxRuntime, service_id: FunctionId) -> Self {
         Self {
             fx,
             service_id,
@@ -77,7 +77,7 @@ impl<'a> HttpHandlerFuture<'a> {
                         Ok(v) => match v {
                             Ok(v) => v,
                             Err(err) => match err {
-                                FxCloudError::ServiceNotFound => response_service_not_found(),
+                                FxRuntimeError::ServiceNotFound => response_service_not_found(),
                                 other => {
                                     error!("internal error while serving request: {other:?}");
                                     response_internal_error()

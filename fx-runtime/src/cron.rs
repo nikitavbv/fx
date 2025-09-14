@@ -4,7 +4,7 @@ use {
     chrono::{DateTime, Utc, NaiveDateTime},
     tokio::time::sleep,
     cron as cron_utils,
-    crate::{sql::{SqlDatabase, Query, Value}, FunctionId, cloud::Engine, error::FxCloudError},
+    crate::{sql::{SqlDatabase, Query, Value}, FunctionId, runtime::Engine, error::FxRuntimeError},
 };
 
 const DATE_TIME_FORMAT: &str = "%F %T%.f";
@@ -108,7 +108,7 @@ struct CronDatabase {
 impl CronDatabase {
     fn new(database: SqlDatabase) -> Self {
         database.exec(Query::new("create table if not exists cron_tasks (task_id text primary key, last_run_at datetime)".to_owned()))
-            .map_err(|err| FxCloudError::CronError { reason: format!("failed to create state table: {err:?}") })
+            .map_err(|err| FxRuntimeError::CronError { reason: format!("failed to create state table: {err:?}") })
             .unwrap();
 
         Self {

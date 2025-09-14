@@ -2,8 +2,8 @@ use {
     std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll, Context}},
     futures::{stream::BoxStream, StreamExt},
     crate::{
-        cloud::{FxCloud, FunctionId, Engine},
-        error::FxCloudError,
+        runtime::{FxRuntime, FunctionId, Engine},
+        error::FxRuntimeError,
     },
 };
 
@@ -31,23 +31,23 @@ impl StreamsPool {
     }
 
     // push stream owned by host
-    pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> Result<HostPoolIndex, FxCloudError> {
+    pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> Result<HostPoolIndex, FxRuntimeError> {
         Ok(self.inner.lock()
-            .map_err(|err| FxCloudError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
+            .map_err(|err| FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
             .push(FxStream::HostStream(stream)))
     }
 
     // push stream owned by function
-    pub fn push_function_stream(&self, function_id: FunctionId) -> Result<HostPoolIndex, FxCloudError> {
+    pub fn push_function_stream(&self, function_id: FunctionId) -> Result<HostPoolIndex, FxRuntimeError> {
         Ok(self.inner.lock()
-            .map_err(|err| FxCloudError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
+            .map_err(|err| FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
             .push(FxStream::FunctionStream(function_id)))
     }
 
-    pub fn poll_next(&self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+    pub fn poll_next(&self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
         let mut pool = match self.inner.lock() {
             Ok(v) => v,
-            Err(err) => return Poll::Ready(Some(Err(FxCloudError::StreamingError { reason: format!("lock is poisoned: {err:?}") }))),
+            Err(err) => return Poll::Ready(Some(Err(FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") }))),
         };
 
         match pool.poll_next(engine, index, context) {
@@ -60,14 +60,14 @@ impl StreamsPool {
         }
     }
 
-    pub fn remove(&self, index: &HostPoolIndex) -> Result<Option<FxStream>, FxCloudError> {
+    pub fn remove(&self, index: &HostPoolIndex) -> Result<Option<FxStream>, FxRuntimeError> {
         self.inner
             .lock()
-            .map_err(|err| FxCloudError::StreamingError { reason: format!("lock is poisoned: {err:?}") })
+            .map_err(|err| FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") })
             .map(|mut v| v.remove(index))
     }
 
-    pub fn read(&self, engine: Arc<Engine>, stream: &fx_common::FxStream) -> Result<Option<FxReadableStream>, FxCloudError> {
+    pub fn read(&self, engine: Arc<Engine>, stream: &fx_common::FxStream) -> Result<Option<FxReadableStream>, FxRuntimeError> {
         Ok(Some(FxReadableStream {
             engine,
             stream: match self.remove(&HostPoolIndex(stream.index as u64))? {
@@ -78,9 +78,9 @@ impl StreamsPool {
         }))
     }
 
-    pub fn len(&self) -> Result<u64, FxCloudError> {
+    pub fn len(&self) -> Result<u64, FxRuntimeError> {
         self.inner.lock()
-            .map_err(|err| FxCloudError::StreamingError { reason: format!("lock is poisoned: {err:?}") })
+            .map_err(|err| FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") })
             .map(|v| v.len())
     }
 }
@@ -105,10 +105,10 @@ impl StreamsPoolInner {
         HostPoolIndex(counter)
     }
 
-    pub fn poll_next(&mut self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+    pub fn poll_next(&mut self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
         let stream = match self.pool.get_mut(&index.0) {
             Some(v) => v,
-            None => return Poll::Ready(Some(Err(FxCloudError::StreamNotFound))),
+            None => return Poll::Ready(Some(Err(FxRuntimeError::StreamNotFound))),
         };
 
         poll_next(
@@ -128,9 +128,9 @@ impl StreamsPoolInner {
     }
 }
 
-impl FxCloud {
+impl FxRuntime {
     #[allow(dead_code)]
-    pub fn read_stream(&self, stream: &fx_common::FxStream) -> Result<Option<FxReadableStream>, FxCloudError> {
+    pub fn read_stream(&self, stream: &fx_common::FxStream) -> Result<Option<FxReadableStream>, FxRuntimeError> {
         self.engine.streams_pool.read(self.engine.clone(), stream)
     }
 }
@@ -142,7 +142,7 @@ pub struct FxReadableStream {
 }
 
 impl futures::Stream for FxReadableStream {
-    type Item = Result<Vec<u8>, FxCloudError>;
+    type Item = Result<Vec<u8>, FxRuntimeError>;
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Option<Self::Item>> {
         let index = self.index;
         poll_next(self.engine.clone(), index, &mut self.stream, cx)
@@ -162,7 +162,7 @@ impl Drop for FxReadableStream {
     }
 }
 
-fn poll_next(engine: Arc<Engine>, index: i64, stream: &mut FxStream, cx: &mut task::Context<'_>) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+fn poll_next(engine: Arc<Engine>, index: i64, stream: &mut FxStream, cx: &mut task::Context<'_>) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
     let function_id = match stream {
         FxStream::HostStream(stream) => return stream.poll_next_unpin(cx).map(|v| v.map(|v| Ok(v))),
         FxStream::FunctionStream(function_id) => function_id,

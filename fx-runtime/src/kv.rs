@@ -5,13 +5,13 @@ use {
     futures::{stream::{self, BoxStream, empty as empty_stream}, StreamExt},
     tokio::sync::mpsc,
     notify::Watcher,
-    crate::error::{FxCloudError, KVWatchError},
+    crate::error::{FxRuntimeError, KVWatchError},
 };
 
 pub trait KVStorage {
-    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError>;
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError>;
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError>;
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxRuntimeError>;
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError>;
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError>;
 
     fn watch(&self) -> BoxStream<Result<KeyUpdate, KVWatchError>> {
         stream::empty().boxed()
@@ -30,56 +30,56 @@ pub struct SqliteStorage {
 
 impl SqliteStorage {
     #[allow(dead_code)]
-    pub fn new(path: impl AsRef<std::path::Path>) -> Result<Self, FxCloudError> {
+    pub fn new(path: impl AsRef<std::path::Path>) -> Result<Self, FxRuntimeError> {
         Self::from_connection(
             Connection::open(path)
-                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to open sqlite database: {err:?}") })?
+                .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to open sqlite database: {err:?}") })?
         )
     }
 
-    pub fn in_memory() -> Result<Self, FxCloudError> {
+    pub fn in_memory() -> Result<Self, FxRuntimeError> {
         Self::from_connection(
             Connection::open_in_memory()
-                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to open in memory sqlite: {err:?}") })?
+                .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to open in memory sqlite: {err:?}") })?
         )
     }
 
-    fn from_connection(connection: Connection) -> Result<Self, FxCloudError> {
+    fn from_connection(connection: Connection) -> Result<Self, FxRuntimeError> {
         connection.execute("create table if not exists kv (key blob primary key, value blob)", ())
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create kv table: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to create kv table: {err:?}") })?;
         Ok(Self { connection: Arc::new(Mutex::new(connection)) })
     }
 }
 
 impl KVStorage for SqliteStorage {
-    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxRuntimeError> {
         let connection = self.connection.lock()
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to acquire sqlite connection: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to acquire sqlite connection: {err:?}") })?;
         connection.execute("insert or replace into kv (key, value) values (?1, ?2)", (&key, &value))
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to execute sqlite query: {err:?}") })
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to execute sqlite query: {err:?}") })
             .map(|_| ())
     }
 
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError> {
         let connection = self.connection.lock()
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to acquire sqlite connection: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to acquire sqlite connection: {err:?}") })?;
         let mut stmt = connection.prepare("select value from kv where key = ?1")
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to prepare sqlite query: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to prepare sqlite query: {err:?}") })?;
         let mut rows = stmt.query([(key)])
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to map sqlite result to value: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to map sqlite result to value: {err:?}") })?;
 
         let res = rows.next()
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to read row from sqlite result: {err:?}") })?
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to read row from sqlite result: {err:?}") })?
             .map(|v| v.get(0));
 
         match res {
             Some(Ok(v)) => Ok(Some(v)),
-            Some(Err(err)) => Err(FxCloudError::StorageInternalError { reason: format!("failed to decode sqlite result: {err:?}") }),
+            Some(Err(err)) => Err(FxRuntimeError::StorageInternalError { reason: format!("failed to decode sqlite result: {err:?}") }),
             None => Ok(None)
         }
     }
 
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError> {
         unimplemented!()
     }
 }
@@ -91,51 +91,51 @@ pub struct FsStorage {
 }
 
 impl FsStorage {
-    pub fn new(path: PathBuf) -> Result<Self, FxCloudError> {
+    pub fn new(path: PathBuf) -> Result<Self, FxRuntimeError> {
         fs::create_dir_all(&path)
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create directory for FsStorage: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to create directory for FsStorage: {err:?}") })?;
         Ok(Self {
             path,
             watchers: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
-    fn path_for_key(&self, key: &[u8]) -> Result<PathBuf, FxCloudError> {
+    fn path_for_key(&self, key: &[u8]) -> Result<PathBuf, FxRuntimeError> {
         Ok(self.path.join(
             &String::from_utf8(key.to_vec())
-                .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to decode key as string: {err:?}") })?
+                .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to decode key as string: {err:?}") })?
         ))
     }
 }
 
 impl KVStorage for FsStorage {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError> {
         match fs::read(self.path_for_key(key)?) {
             Ok(v) => Ok(Some(v)),
             Err(err) => {
                 if err.kind() == io::ErrorKind::NotFound {
                     return Ok(None)
                 } else {
-                    return Err(FxCloudError::StorageInternalError { reason: format!("failed to read file: {err:?}") })
+                    return Err(FxRuntimeError::StorageInternalError { reason: format!("failed to read file: {err:?}") })
                 }
             }
         }
     }
 
-    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxRuntimeError> {
         let path = self.path_for_key(key)?;
         if let Some(parent) = path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent)
-                    .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to create parent directory for FsStorage: {err:?}") })?;
+                    .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to create parent directory for FsStorage: {err:?}") })?;
             }
         }
         fs::write(path, value)
-            .map_err(|err| FxCloudError::StorageInternalError { reason: format!("failed to write filed: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::StorageInternalError { reason: format!("failed to write filed: {err:?}") })?;
         Ok(())
     }
 
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError> {
         unimplemented!()
     }
 
@@ -250,9 +250,9 @@ impl<T> NamespacedStorage<T> {
 }
 
 impl<T: KVStorage> KVStorage for NamespacedStorage<T> {
-    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.namespaced_key(key), value) }
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.namespaced_key(key)) }
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> { unimplemented!() }
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxRuntimeError> { self.inner.set(&self.namespaced_key(key), value) }
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError> { self.inner.get(&self.namespaced_key(key)) }
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError> { unimplemented!() }
 }
 
 pub struct SuffixStorage<T> {
@@ -277,9 +277,9 @@ impl<T> SuffixStorage<T> {
 }
 
 impl<T: KVStorage> KVStorage for SuffixStorage<T> {
-    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> { self.inner.set(&self.suffixed_key(key), value) }
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { self.inner.get(&self.suffixed_key(key)) }
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxRuntimeError> { self.inner.set(&self.suffixed_key(key), value) }
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError> { self.inner.get(&self.suffixed_key(key)) }
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError> {
         unimplemented!()
     }
 
@@ -312,9 +312,9 @@ impl<T: Clone> Clone for SuffixStorage<T> {
 pub struct EmptyStorage;
 
 impl KVStorage for EmptyStorage {
-    fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> { Ok(None) }
-    fn set(&self, _key: &[u8], _value: &[u8]) -> Result<(), FxCloudError> { Ok(()) }
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> { Ok(Vec::new()) }
+    fn get(&self, _key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError> { Ok(None) }
+    fn set(&self, _key: &[u8], _value: &[u8]) -> Result<(), FxRuntimeError> { Ok(()) }
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError> { Ok(Vec::new()) }
 }
 
 #[derive(Clone)]
@@ -331,15 +331,15 @@ impl BoxedStorage {
 }
 
 impl KVStorage for BoxedStorage {
-    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxCloudError> {
+    fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>, FxRuntimeError> {
         self.inner.get(key)
     }
 
-    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxCloudError> {
+    fn set(&self, key: &[u8], value: &[u8]) -> Result<(), FxRuntimeError> {
         self.inner.set(key, value)
     }
 
-    fn list(&self) -> Result<Vec<Vec<u8>>, FxCloudError> {
+    fn list(&self) -> Result<Vec<Vec<u8>>, FxRuntimeError> {
         self.inner.list()
     }
 
@@ -349,11 +349,11 @@ impl KVStorage for BoxedStorage {
 }
 
 pub trait WithKey: Sized {
-    fn with_key(self, key: &[u8], value: &[u8]) -> Result<Self, FxCloudError>;
+    fn with_key(self, key: &[u8], value: &[u8]) -> Result<Self, FxRuntimeError>;
 }
 
 impl<S: KVStorage> WithKey for S {
-    fn with_key(self, key: &[u8], value: &[u8]) -> Result<Self, FxCloudError> {
+    fn with_key(self, key: &[u8], value: &[u8]) -> Result<Self, FxRuntimeError> {
         self.set(key, value)?;
         Ok(self)
     }

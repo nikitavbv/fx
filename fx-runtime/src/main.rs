@@ -14,7 +14,7 @@ use {
     clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all},
     crate::{
-        cloud::{FxCloud, FunctionId, Engine},
+        runtime::{FxRuntime, FunctionId, Engine},
         kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
@@ -26,7 +26,6 @@ use {
     },
 };
 
-mod cloud;
 mod compatibility;
 mod compiler;
 mod consumer;
@@ -37,6 +36,7 @@ mod http;
 mod futures;
 mod metrics;
 mod profiling;
+mod runtime;
 mod sql;
 mod kv;
 mod logs;
@@ -138,12 +138,12 @@ async fn main() {
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
-    let fx_cloud = FxCloud::new()
+    let fx_runtime = FxRuntime::new()
         .with_code_storage(code_storage.clone())
         .with_definition_provider(definition_provider);
 
-    let fx_cloud = if let Some(logger) = args.logger {
-        fx_cloud.with_logger(match logger {
+    let fx_runtime = if let Some(logger) = args.logger {
+        fx_runtime.with_logger(match logger {
             ArgsLogger::Stdout => BoxLogger::new(StdoutLogger::new()),
             ArgsLogger::RabbitMq => {
                 let uri = match args.logger_rabbitmq_uri {
@@ -174,17 +174,17 @@ async fn main() {
             },
         })
     } else {
-        fx_cloud
+        fx_runtime
     };
 
-    tokio::spawn(run_metrics_server(fx_cloud.engine.clone(), args.metrics_port.unwrap_or(8081)));
-    tokio::spawn(reload_on_key_changes(fx_cloud.engine.clone(), code_storage));
-    tokio::spawn(reload_on_key_changes(fx_cloud.engine.clone(), definition_storage));
+    tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
+    tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), code_storage));
+    tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), definition_storage));
 
-    run_command(fx_cloud, args.command).await;
+    run_command(fx_runtime, args.command).await;
 }
 
-async fn run_command(fx_cloud: FxCloud, command: Command) {
+async fn run_command(fx_runtime: FxRuntime, command: Command) {
     match command {
         Command::Run { function, rpc_method_name } => {
             let function = if function.ends_with(FILE_EXTENSION_WASM) {
@@ -192,7 +192,7 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
             } else {
                 &function
             };
-            let result = fx_cloud.invoke_service::<(), ()>(&FunctionId::new(function), &rpc_method_name, ()).await;
+            let result = fx_runtime.invoke_service::<(), ()>(&FunctionId::new(function), &rpc_method_name, ()).await;
             if let Err(err) = result {
                 error!("failed to invoke function: {err:?}");
                 exit(-1);
@@ -207,7 +207,7 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
                     exit(-1);
                 }
             };
-            let http_handler = HttpHandler::new(fx_cloud, FunctionId::new(function));
+            let http_handler = HttpHandler::new(fx_runtime, FunctionId::new(function));
             info!("running http server on {addr:?}");
             loop {
                 let (tcp, _) = match listener.accept().await {
@@ -253,7 +253,7 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
                 }
             };
             let cron_runner = {
-                let mut cron_runner = CronRunner::new(fx_cloud.engine.clone(), database);
+                let mut cron_runner = CronRunner::new(fx_runtime.engine.clone(), database);
 
                 for task in config.tasks {
                     cron_runner = cron_runner.with_task(
@@ -280,7 +280,7 @@ async fn run_command(fx_cloud: FxCloud, command: Command) {
             let config = load_rabbitmq_consumer_task_from_config(config);
             let consumers = config.consumers.into_iter()
                 .map(|v| async {
-                    RabbitMqConsumer::new(fx_cloud.engine.clone(), amqp_addr.clone(), v.id, v.queue, v.function, v.rpc_method_name).run().await
+                    RabbitMqConsumer::new(fx_runtime.engine.clone(), amqp_addr.clone(), v.id, v.queue, v.function, v.rpc_method_name).run().await
                 }.boxed())
                 .collect::<Vec<_>>();
 

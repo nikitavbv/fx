@@ -1,6 +1,6 @@
 use {
     wasmer::{FunctionEnvMut, Value, RuntimeError},
-    crate::cloud::ExecutionEnv,
+    crate::runtime::ExecutionEnv,
 };
 
 pub fn api_unsupported(_ctx: FunctionEnvMut<ExecutionEnv>, _vals: &[Value]) -> Result<Vec<Value>, RuntimeError> {

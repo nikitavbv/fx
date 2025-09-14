@@ -5,7 +5,7 @@ use {
     futures::StreamExt,
     tokio::time::{sleep, Duration},
     fx_common::QueueMessage,
-    crate::cloud::{Engine, FunctionId},
+    crate::runtime::{Engine, FunctionId},
 };
 
 pub struct RabbitMqConsumer {

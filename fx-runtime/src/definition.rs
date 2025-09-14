@@ -6,8 +6,8 @@ use {
     crate::{
         kv::{BoxedStorage, SqliteStorage, WithKey, KVStorage},
         sql::{SqlDatabase, SqlError},
-        error::FxCloudError,
-        cloud::FunctionId,
+        error::FxRuntimeError,
+        runtime::FunctionId,
     },
 };
 

@@ -1,10 +1,10 @@
 pub use {
     fx_common::FxStream,
-    crate::cloud::{FxCloud, FunctionId},
+    crate::runtime::{FxRuntime, FunctionId},
 };
 
 mod api;
-mod cloud;
+mod runtime;
 mod compatibility;
 pub mod compiler;
 pub mod consumer;

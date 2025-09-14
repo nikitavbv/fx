@@ -41,7 +41,7 @@ use {
     fx_runtime_common::LogMessageEvent,
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
-        error::FxCloudError,
+        error::FxRuntimeError,
         compatibility,
         sql::{self, SqlDatabase},
         compiler::{Compiler, BoxedCompiler, SimpleCompiler},
@@ -54,11 +54,11 @@ use {
 };
 
 #[derive(Clone)]
-pub struct FxCloud {
+pub struct FxRuntime {
     pub(crate) engine: Arc<Engine>,
 }
 
-impl FxCloud {
+impl FxRuntime {
     pub fn new() -> Self {
         Self {
             engine: Arc::new(Engine::new()),
@@ -99,11 +99,11 @@ impl FxCloud {
     }
 
     #[allow(dead_code)]
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxRuntimeError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
     }
 
-    pub fn invoke_service_raw(&self, service: &FunctionId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+    pub fn invoke_service_raw(&self, service: &FunctionId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
 
@@ -178,19 +178,19 @@ impl Engine {
         }
     }
 
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxCloudError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxRuntimeError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
         let response = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxCloudError> {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
         let need_to_create_context = {
             let execution_contexts = match self.execution_contexts.read() {
                 Ok(v) => v,
                 Err(err) => {
                     error!("failed to lock execution contexts: {err:?}");
-                    return Err(FxCloudError::ExecutionContextRuntimeError { reason: format!("failed to lock execution contexts: {err:?}") });
+                    return Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to lock execution contexts: {err:?}") });
                 }
             };
             if let Some(context) = execution_contexts.get(&service_id) {
@@ -206,7 +206,7 @@ impl Engine {
             let ctx = execution_contexts.get(&service_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
                 let definition = self.definition_provider.read().unwrap().definition_for_function(&service_id)
-                    .map_err(|err| FxCloudError::DefinitionError { reason: err.to_string() })?;
+                    .map_err(|err| FxRuntimeError::DefinitionError { reason: err.to_string() })?;
                 execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id, definition)?));
             }
         }
@@ -231,13 +231,13 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxCloudError> {
+    fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxRuntimeError> {
         let memory_tracker = crate::profiling::init_memory_tracker();
 
         let module_code = self.module_code_storage.read().unwrap().get(function_id.id.as_bytes())?;
         let module_code = match module_code {
             Some(v) => v,
-            None => return Err(FxCloudError::ModuleCodeNotFound),
+            None => return Err(FxRuntimeError::ModuleCodeNotFound),
         };
 
         let mut kv = HashMap::new();
@@ -255,7 +255,7 @@ impl Engine {
                 match sql_definition.storage {
                     SqlStorageDefinition::InMemory => SqlDatabase::in_memory().unwrap(), // TODO: function crashes, all data is lost
                     SqlStorageDefinition::Path(path) => SqlDatabase::new(path)
-                        .map_err(|err| FxCloudError::ExecutionContextInitError {
+                        .map_err(|err| FxRuntimeError::ExecutionContextInitError {
                             reason: format!("failed to init SqlDatabase: {err:?}"),
                         })?,
                 },
@@ -279,7 +279,7 @@ impl Engine {
         execution_context
     }
 
-    pub(crate) fn stream_poll_next(&self, function_id: &FunctionId, index: i64) -> Poll<Option<Result<Vec<u8>, FxCloudError>>> {
+    pub(crate) fn stream_poll_next(&self, function_id: &FunctionId, index: i64) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
@@ -295,7 +295,7 @@ impl Engine {
                 Poll::Ready(Some(Ok(response)))
             },
             2 => Poll::Ready(None),
-            other => Poll::Ready(Some(Err(FxCloudError::StreamingError {
+            other => Poll::Ready(Some(Err(FxRuntimeError::StreamingError {
                 reason: format!("unexpected repsonse code from _fx_stream_next: {other:?}"),
             }))),
         }
@@ -337,7 +337,7 @@ impl FunctionRuntimeFuture {
 }
 
 impl Future for FunctionRuntimeFuture {
-    type Output = Result<Vec<u8>, FxCloudError>;
+    type Output = Result<Vec<u8>, FxRuntimeError>;
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let started_at = Instant::now();
 
@@ -354,7 +354,7 @@ impl Future for FunctionRuntimeFuture {
             Ok(v) => v,
             Err(err) => {
                 error!("failed to lock ctx.store: {err:?}");
-                return std::task::Poll::Ready(Err(FxCloudError::ExecutionContextRuntimeError {
+                return std::task::Poll::Ready(Err(FxRuntimeError::ExecutionContextRuntimeError {
                     reason: format!("failed to lock ctx.store when polling FunctionRuntimeFuture."),
                 }));
             }
@@ -391,7 +391,7 @@ impl Future for FunctionRuntimeFuture {
         if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
             // TODO: measure points
             let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index_value)])
-                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
+                .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
                 .unwrap_i64();
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
@@ -420,20 +420,20 @@ impl Future for FunctionRuntimeFuture {
 
             let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}"))
                 .map_err(|err| match err {
-                   ExportError::Missing(_) => FxCloudError::RpcHandlerNotDefined,
-                   ExportError::IncompatibleType => FxCloudError::RpcHandlerIncompatibleType,
+                   ExportError::Missing(_) => FxRuntimeError::RpcHandlerNotDefined,
+                   ExportError::IncompatibleType => FxRuntimeError::RpcHandlerIncompatibleType,
                 })?;
 
             ctx.function_env.as_mut(store).execution_error = None;
 
             // TODO: errors like this should be reported to some data stream
             let future_index = function.call(store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
-                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
+                .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
 
             if let Some(execution_error) = ctx.function_env.as_ref(store).execution_error.as_ref() {
                 let execution_error: FxExecutionError = rmp_serde::from_slice(execution_error.as_slice()).unwrap();
                 ctx.needs_recreate.store(true, Ordering::SeqCst);
-                return Poll::Ready(Err(FxCloudError::ServiceExecutionError { error: execution_error }));
+                return Poll::Ready(Err(FxRuntimeError::ServiceExecutionError { error: execution_error }));
             }
 
             let future_index = match future_index {
@@ -445,7 +445,7 @@ impl Future for FunctionRuntimeFuture {
             };
 
             let poll_is_ready = function_poll.call(store, &[Value::I64(future_index as i64)])
-                .map_err(|err| FxCloudError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
+                .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
             let poll_is_ready = match poll_is_ready {
                 Ok(v) => v[0].unwrap_i64(),
                 Err(err) => {
@@ -519,14 +519,14 @@ impl ExecutionContext {
         module_code: Vec<u8>,
         allow_fetch: bool,
         allow_log: bool
-    ) -> Result<Self, FxCloudError> {
+    ) -> Result<Self, FxRuntimeError> {
         let mut compiler_config = create_compiler_config();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
 
         let mut store = Store::new(EngineBuilder::new(compiler_config));
 
         let module = engine.compiler.read().unwrap().compile(&store, module_code)
-            .map_err(|err| FxCloudError::CompilationError { reason: err.to_string() })?;
+            .map_err(|err| FxRuntimeError::CompilationError { reason: err.to_string() })?;
 
         let function_env = FunctionEnv::new(
             &mut store,
@@ -575,7 +575,7 @@ impl ExecutionContext {
         }
 
         let instance = Instance::new(&mut store, &module, &import_object)
-            .map_err(|err| FxCloudError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
+            .map_err(|err| FxRuntimeError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
 
         Ok(Self {
             instance,
@@ -671,10 +671,10 @@ fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
     view.write(addr as u64, value).unwrap();
 }
 
-fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Result<T, FxCloudError> {
+fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Result<T, FxRuntimeError> {
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
-        .map_err(|err| FxCloudError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
+        .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
 }
 
 fn api_call_handler(ctx: FunctionEnvMut<ExecutionEnv>, request_ptr: i64, request_len: i64, output_ptr: i64) -> i64 {
