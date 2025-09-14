@@ -39,4 +39,6 @@ fx-common = { path = "../fx-common" }
 fx-runtime-common = { path = "../fx-runtime-common" }
 
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]
+tikv-jemallocator = "0.6.0"
+tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
 wasmer-compiler-llvm = { git = "https://github.com/wasmerio/wasmer" }

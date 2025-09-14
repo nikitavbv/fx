@@ -1747,6 +1747,8 @@ dependencies = [
  "sha2",
  "thiserror 2.0.16",
  "thread_local",
+ "tikv-jemalloc-ctl",
+ "tikv-jemallocator",
  "tokio",
  "tracing",
  "tracing-subscriber",
