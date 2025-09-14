@@ -28,21 +28,21 @@ pub struct Metrics {
     memory_active: IntGauge,
     memory_resident: IntGauge,
 
-    pub(crate) memory_usage_execution_context_create: IntCounter,
+    pub memory_usage_execution_context_create: IntCounter,
 
-    pub(crate) http_requests_total: IntCounter,
-    pub(crate) http_requests_in_flight: IntGauge,
-    pub(crate) http_functions_in_flight: IntGauge,
-    pub(crate) http_futures_in_flight: IntGauge,
-    pub(crate) arena_streams_size: IntGauge,
-    pub(crate) arena_futures_size: IntGauge,
+    pub http_requests_total: IntCounter,
+    pub http_requests_in_flight: IntGauge,
+    pub http_functions_in_flight: IntGauge,
+    pub http_futures_in_flight: IntGauge,
+    pub arena_streams_size: IntGauge,
+    pub arena_futures_size: IntGauge,
 
-    pub(crate) function_memory_size: IntGaugeVec,
-    pub(crate) function_memory_pages: IntGaugeVec,
-    pub(crate) function_execution_context_init_memory_usage: IntGaugeVec,
-    pub(crate) function_poll_time: IntCounterVec,
+    pub function_memory_size: IntGaugeVec,
+    pub function_memory_pages: IntGaugeVec,
+    pub function_execution_context_init_memory_usage: IntGaugeVec,
+    pub function_poll_time: IntCounterVec,
 
-    pub(crate) function_metrics: FunctionMetrics,
+    pub function_metrics: FunctionMetrics,
 }
 
 #[derive(Error, Debug)]

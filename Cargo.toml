@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "fx",
     "fx-runtime",
+    "fx-runtime-common",
+    "fx-server",
     "fx-dashboard",
     "fx-common",
     "fx-macro",

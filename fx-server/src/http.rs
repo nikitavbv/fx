@@ -7,7 +7,7 @@ use {
     tokio::time::timeout,
     fx_common::{HttpResponse, HttpRequest, FxStream},
     fx_runtime_common::{FunctionInvokeEvent, events::InvocationTimings},
-    crate::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::Engine},
+    fx_runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::Engine},
 };
 
 #[derive(Clone)]
@@ -134,11 +134,11 @@ impl<'a> Future for HttpHandlerFuture<'a> {
 // for simplicity, this wrapper will cleanup stream from arena. Ideally, items in arena would have reference count.
 struct StreamPoolCleanupGuard {
     engine: Arc<Engine>,
-    body_stream_index: crate::streams::HostPoolIndex,
+    body_stream_index: fx_runtime::streams::HostPoolIndex,
 }
 
 impl StreamPoolCleanupGuard {
-    fn wrap(engine: Arc<Engine>, body_stream_index: crate::streams::HostPoolIndex) -> Self {
+    fn wrap(engine: Arc<Engine>, body_stream_index: fx_runtime::streams::HostPoolIndex) -> Self {
         Self {
             engine,
             body_stream_index,

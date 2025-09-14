@@ -1766,6 +1766,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "cron",
+ "futures",
+ "fx-common",
+ "fx-runtime",
+ "fx-runtime-common",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "prometheus",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "fx-test-app"
 version = "0.1.0"
 dependencies = [

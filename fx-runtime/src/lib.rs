@@ -4,18 +4,17 @@ pub use {
 };
 
 mod api;
-mod runtime;
+pub mod runtime;
 mod compatibility;
 pub mod compiler;
 pub mod consumer;
 pub mod definition;
 pub mod error;
 mod futures;
-mod http;
 pub mod kv;
-mod logs;
-mod metrics;
+pub mod logs;
+pub mod metrics;
 mod profiling;
 mod queue;
 pub mod sql;
-mod streams;
+pub mod streams;

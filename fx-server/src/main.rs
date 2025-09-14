@@ -13,34 +13,23 @@ use {
     hyper_util::rt::{TokioIo, TokioTimer},
     clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all},
-    crate::{
+    fx_runtime::{
         runtime::{FxRuntime, FunctionId, Engine},
         kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
-        http::HttpHandler,
-        cron::{CronRunner, CronTaskDefinition},
         metrics::run_metrics_server,
         logs::{BoxLogger, StdoutLogger, RabbitMqLogger},
         consumer::RabbitMqConsumer,
     },
+    crate::{
+        cron::{CronRunner, CronTaskDefinition},
+        http::HttpHandler,
+    },
 };
 
-mod compatibility;
-mod compiler;
-mod consumer;
 mod cron;
-mod definition;
-mod error;
 mod http;
-mod futures;
-mod metrics;
-mod profiling;
-mod runtime;
-mod sql;
-mod kv;
-mod logs;
-mod streams;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
 const FILE_EXTENSION_DEFINITION: &str = ".fx.yaml";

@@ -55,7 +55,7 @@ use {
 
 #[derive(Clone)]
 pub struct FxRuntime {
-    pub(crate) engine: Arc<Engine>,
+    pub engine: Arc<Engine>,
 }
 
 impl FxRuntime {
@@ -143,18 +143,18 @@ impl Into<String> for &FunctionId {
 }
 
 pub struct Engine {
-    pub(crate) metrics: Metrics,
+    pub metrics: Metrics,
 
     compiler: RwLock<BoxedCompiler>,
 
-    pub(crate) execution_contexts: RwLock<HashMap<FunctionId, Arc<ExecutionContext>>>,
+    pub execution_contexts: RwLock<HashMap<FunctionId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
 
-    pub(crate) futures_pool: FuturesPool,
-    pub(crate) streams_pool: StreamsPool,
+    pub futures_pool: FuturesPool,
+    pub streams_pool: StreamsPool,
 
     logger: RwLock<BoxLogger>,
 }
@@ -311,7 +311,7 @@ impl Engine {
         function_stream_drop.call(store, &[wasmer::Value::I64(index)]).unwrap();
     }
 
-    pub(crate) fn log(&self, message: LogMessageEvent) {
+    pub fn log(&self, message: LogMessageEvent) {
         self.logger.read().unwrap().log(message);
     }
 }
