@@ -1,7 +1,7 @@
 FROM ubuntu:latest
 
-ARG TARGETPLATFORM
+ARG TARGETARCH
 
-COPY build/$TARGETPLATFORM/fx-runtime /usr/local/bin/fx
+COPY build/$TARGETARCH/fx-runtime /usr/local/bin/fx
 
 ENTRYPOINT ["fx"]
