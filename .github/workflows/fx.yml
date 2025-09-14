@@ -80,7 +80,7 @@ jobs:
     - uses: actions/upload-artifact@v4
       with:
         name: fx-runtime-arm64
-        path: target/release/fx-runtime
+        path: target/aarch64-unknown-linux-musl/release/fx-runtime
   docker:
     name: build and publish docker image
     runs-on: ubuntu-latest
