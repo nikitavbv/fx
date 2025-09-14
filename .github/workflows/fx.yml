@@ -54,7 +54,7 @@ jobs:
         args: -p fx-runtime --release
     - uses: actions/upload-artifact@v4
       with:
-        name: release-build
+        name: fx-runtime-amd64
         path: target/release/fx-runtime
   runtime-build-arm64:
     name: runtime build arm64
@@ -79,7 +79,7 @@ jobs:
     - run: cross build -p fx-runtime --release --target aarch64-unknown-linux-musl
     - uses: actions/upload-artifact@v4
       with:
-        name: release-build
+        name: fx-runtime-arm64
         path: target/release/fx-runtime
   docker:
     name: build and publish docker image
@@ -95,7 +95,18 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-    - run: mkdir build && cp target/release/fx-runtime build/amd64/fx-runtime && cp target/aarch64-unknown-linux-musl/release/fx-runtime build/arm64/fx-runtime
+    - name: download amd64 build
+      uses: actions/download-artifact@v4
+      with:
+        name: fx-runtime-amd64
+        path: ./build/amd64/
+    - name: download arm64 build
+      uses: actions/download-artifact@v4
+      with:
+        name: fx-runtime-arm64
+        path: ./build/arm64/
+    - run: ls build
+    - run: ls build/amd64
     - uses: docker/build-push-action@v4
       with:
         file: Dockerfile
