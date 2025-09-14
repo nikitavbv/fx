@@ -20,3 +20,7 @@ tracing-subscriber = "0.3.19"
 fx-runtime = { path = "../fx-runtime" }
 fx-runtime-common = { path = "../fx-runtime-common" }
 fx-common = { path = "../fx-common" }
+
+[target.'cfg(not(target_arch = "aarch64"))'.dependencies]
+tikv-jemallocator = "0.6.0"
+tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
