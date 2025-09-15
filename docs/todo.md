@@ -1,6 +1,5 @@
 # todo
 
-- add missing permissions checks
 - handle errors everywhere
 - rename "storage" to "kv"
 - rename "fx-core" to "fx-common"
