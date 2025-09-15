@@ -535,7 +535,6 @@ impl ExecutionContext {
 
         let mut import_object = imports! {
             "fx" => {
-                "fx_api" => Function::new_typed_with_env(&mut store, &function_env, api_call_handler),
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, api_send_error),
@@ -675,11 +674,6 @@ fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionE
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_call_handler(ctx: FunctionEnvMut<ExecutionEnv>, request_ptr: i64, request_len: i64, output_ptr: i64) -> i64 {
-    let request: fx_common::api::FxApiRequest = decode_memory(&ctx, request_ptr, request_len).unwrap();
-    0
 }
 
 fn api_rpc(
