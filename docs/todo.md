@@ -8,3 +8,8 @@
 - add back queues api
 - reload config files.
 - better syntax for sql queries.
+- create "subsystems" module (where definition provider, kv, sql, metrics, compiler, logs) will go
+- compatibility.rs should become api/placeholders.rs
+- consumer.rs should go to `fx-server`
+- remove unused dependencies in Cargo.toml of `fx-runtime`
+- one error per function instead of `FxRuntimeError`.
