@@ -535,7 +535,7 @@ impl ExecutionContext {
 
         let mut import_object = imports! {
             "fx" => {
-                "rpc" => Function::new_typed_with_env(&mut store, &function_env, api_rpc),
+                "rpc" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_rpc),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, api_send_error),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, api_kv_get),
@@ -604,7 +604,7 @@ pub(crate) struct ExecutionEnv {
 
     futures_waker: Option<std::task::Waker>,
 
-    engine: Arc<Engine>,
+    pub(crate) engine: Arc<Engine>,
     instance: Option<Instance>,
     pub(crate) memory: Option<Memory>,
     execution_error: Option<Vec<u8>>,
@@ -652,7 +652,7 @@ impl ExecutionEnv {
     }
 }
 
-fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {
+pub fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {
     let memory = ctx.data().memory.as_ref().unwrap();
     let view = memory.view(&ctx);
     let addr = addr as u64;
@@ -674,38 +674,6 @@ fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionE
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_rpc(
-    ctx: FunctionEnvMut<ExecutionEnv>,
-    service_name_ptr: i64,
-    service_name_len: i64,
-    function_name_ptr: i64,
-    function_name_len: i64,
-    arg_ptr: i64,
-    arg_len: i64,
-) -> i64 {
-    let service_id = FunctionId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
-    let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
-    let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
-
-    let engine = ctx.data().engine.clone();
-    let response_future = match engine.clone().invoke_service_raw(engine.clone(), service_id, function_name, argument) {
-        Ok(response_future) => response_future.map(|v| v.map_err(|err| FxFutureError::RpcError {
-            reason: err.to_string(),
-        })).boxed(),
-        Err(err) => std::future::ready(Err(FxFutureError::RpcError { reason: err.to_string() })).boxed(),
-    };
-    let response_future = match ctx.data().engine.futures_pool.push(response_future.boxed()) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to push future to futures arena: {err:?}");
-            // todo: write error object
-            return -1;
-        }
-    };
-
-    response_future.0 as i64
 }
 
 fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
