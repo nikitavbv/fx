@@ -15,6 +15,7 @@ use {
 pub struct FunctionDefinition {
     pub kv: Vec<KvDefinition>,
     pub sql: Vec<SqlDefinition>,
+    pub rpc: Vec<RpcDefinition>,
 }
 
 impl FunctionDefinition {
@@ -38,6 +39,7 @@ impl Default for FunctionDefinition {
         Self {
             kv: Vec::new(),
             sql: Vec::new(),
+            rpc: Vec::new(),
         }
     }
 }
@@ -76,6 +78,11 @@ impl SqlDefinition {
             storage: SqlStorageDefinition::InMemory,
         }
     }
+}
+
+#[derive(Clone)]
+pub struct RpcDefinition {
+    pub id: String,
 }
 
 pub struct DefinitionProvider {
@@ -127,6 +134,10 @@ fn definition_from_config(config: Vec<u8>) -> Result<FunctionDefinition, Definit
                 storage: SqlStorageDefinition::Path(v.path),
             })
             .collect(),
+        rpc: config.rpc.unwrap_or(Vec::new())
+            .into_iter()
+            .map(|v| RpcDefinition { id: v.id })
+            .collect(),
     })
 }
 
@@ -134,6 +145,7 @@ fn definition_from_config(config: Vec<u8>) -> Result<FunctionDefinition, Definit
 struct FunctionConfig {
     kv: Option<Vec<KvConfig>>,
     sql: Option<Vec<SqlConfig>>,
+    rpc: Option<Vec<RpcConfig>>,
 }
 
 #[derive(Deserialize)]
@@ -146,6 +158,11 @@ struct KvConfig {
 struct SqlConfig {
     id: String,
     path: String,
+}
+
+#[derive(Deserialize)]
+struct RpcConfig {
+    id: String,
 }
 
 #[derive(Deserialize)]

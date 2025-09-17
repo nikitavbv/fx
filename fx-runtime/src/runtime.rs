@@ -262,11 +262,20 @@ impl Engine {
             );
         }
 
+        let mut rpc = HashMap::new();
+        for rpc_definition in definition.rpc {
+            rpc.insert(
+                rpc_definition.id,
+                RpcBinding {},
+            );
+        }
+
         let execution_context = ExecutionContext::new(
             engine.clone(),
             function_id.clone(),
             kv,
             sql,
+            rpc,
             module_code,
             true, // TODO: permissions
             true, // TODO: permissions
@@ -516,6 +525,7 @@ impl ExecutionContext {
         service_id: FunctionId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
+        rpc: HashMap<String, RpcBinding>,
         module_code: Vec<u8>,
         allow_fetch: bool,
         allow_log: bool
@@ -530,7 +540,7 @@ impl ExecutionContext {
 
         let function_env = FunctionEnv::new(
             &mut store,
-            ExecutionEnv::new(engine, service_id.clone(), storage, sql, allow_fetch, allow_log)
+            ExecutionEnv::new(engine, service_id.clone(), storage, sql, rpc, allow_fetch, allow_log)
         );
 
         let mut import_object = imports! {
@@ -614,6 +624,7 @@ pub(crate) struct ExecutionEnv {
 
     storage: HashMap<String, BoxedStorage>,
     sql: HashMap<String, SqlDatabase>,
+    rpc: HashMap<String, RpcBinding>,
 
     allow_fetch: bool,
     allow_log: bool,
@@ -627,6 +638,7 @@ impl ExecutionEnv {
         service_id: FunctionId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
+        rpc: HashMap<String, RpcBinding>,
         allow_fetch: bool,
         allow_log: bool
     ) -> Self {
@@ -641,6 +653,7 @@ impl ExecutionEnv {
             service_id,
             storage,
             sql,
+            rpc,
             allow_fetch,
             allow_log,
             fetch_client: reqwest::Client::new(),
@@ -1043,3 +1056,5 @@ pub(crate) struct PtrWithLen {
     pub ptr: i64,
     pub len: i64,
 }
+
+struct RpcBinding {}
