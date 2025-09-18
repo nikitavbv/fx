@@ -1,6 +1,6 @@
 use {
     wasmer::FunctionEnvMut,
-    tracing::error,
+    tracing::{error, warn},
     fx_common::FxFutureError,
     futures::FutureExt,
     crate::{
@@ -18,6 +18,13 @@ pub fn handle_rpc(
     arg_len: i64,
 ) -> i64 {
     let service_id = FunctionId::new(String::from_utf8(read_memory_owned(&ctx, service_name_ptr, service_name_len)).unwrap());
+
+    let binding = ctx.data().rpc.get(&service_id.as_string());
+    if binding.is_none() {
+        let this_function_name = ctx.data().service_id.as_string();
+        warn!("function {this_function_name:?} does not have an rpc binding defined for {:?} which it calls. This will be a runtime error in a next version of fx.", service_id.as_string());
+    }
+
     let function_name = String::from_utf8(read_memory_owned(&ctx, function_name_ptr, function_name_len)).unwrap();
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 

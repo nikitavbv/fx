@@ -620,11 +620,11 @@ pub(crate) struct ExecutionEnv {
     execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
-    service_id: FunctionId,
+    pub(crate) service_id: FunctionId,
 
     storage: HashMap<String, BoxedStorage>,
     sql: HashMap<String, SqlDatabase>,
-    rpc: HashMap<String, RpcBinding>,
+    pub(crate) rpc: HashMap<String, RpcBinding>,
 
     allow_fetch: bool,
     allow_log: bool,
@@ -1057,4 +1057,4 @@ pub(crate) struct PtrWithLen {
     pub len: i64,
 }
 
-struct RpcBinding {}
+pub(crate) struct RpcBinding {}
