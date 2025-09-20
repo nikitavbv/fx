@@ -6,7 +6,7 @@ use {
         FunctionId,
         error::FxRuntimeError,
         FxStream,
-        definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition},
+        definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition, RpcDefinition},
         compiler::{MemoizedCompiler, SimpleCompiler, BoxedCompiler},
     },
     tokio::join,
@@ -36,6 +36,7 @@ async fn main() {
             FunctionDefinition::new()
                 .with_kv(KvDefinition::new("test-kv", "data/test-kv"))
                 .with_sql(SqlDefinition::new("app"))
+                .with_rpc(RpcDefinition::new("other-app"))
         );
 
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());

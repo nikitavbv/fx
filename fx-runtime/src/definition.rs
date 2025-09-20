@@ -32,6 +32,11 @@ impl FunctionDefinition {
         self.sql.push(sql);
         self
     }
+
+    pub fn with_rpc(mut self, rpc: RpcDefinition) -> Self {
+        self.rpc.push(rpc);
+        self
+    }
 }
 
 impl Default for FunctionDefinition {
@@ -83,6 +88,14 @@ impl SqlDefinition {
 #[derive(Clone)]
 pub struct RpcDefinition {
     pub id: String,
+}
+
+impl RpcDefinition {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+        }
+    }
 }
 
 pub struct DefinitionProvider {
