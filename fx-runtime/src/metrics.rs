@@ -42,6 +42,8 @@ pub struct Metrics {
     pub function_execution_context_init_memory_usage: IntGaugeVec,
     pub function_poll_time: IntCounterVec,
 
+    pub function_fx_api_calls: IntCounterVec,
+
     pub function_metrics: FunctionMetrics,
 }
 
@@ -79,6 +81,8 @@ impl Metrics {
         let function_execution_context_init_memory_usage = register_int_gauge_vec_with_registry!("function_execution_context_init_memory_usage", "memory used to init execution context of a function", &["function"], registry).unwrap();
         let function_poll_time = register_int_counter_vec_with_registry!("function_poll_time", "wall clock time spent polling function future", &["function"], registry).unwrap();
 
+        let function_fx_api_calls = register_int_counter_vec_with_registry!("function_fx_api_calls", "function calls of fx api", &["function", "api"], registry).unwrap();
+
         Self {
             memory_active,
             memory_resident,
@@ -98,6 +102,8 @@ impl Metrics {
             function_poll_time,
 
             registry,
+
+            function_fx_api_calls,
 
             function_metrics: FunctionMetrics {
                 counters: Arc::new(RwLock::new(HashMap::new())),
