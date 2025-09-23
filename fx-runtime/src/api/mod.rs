@@ -1,4 +1,5 @@
 // TODO: see rpc and refactor all other api calls similarly
+pub(crate) mod kv;
 pub(crate) mod rpc;
 
 // TODO:
