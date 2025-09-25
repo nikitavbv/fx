@@ -40,7 +40,7 @@ pub fn handle_rpc(
     let argument = read_memory_owned(&ctx, arg_ptr, arg_len);
 
     let engine = ctx.data().engine.clone();
-    let response_future = match engine.clone().invoke_service_raw(engine.clone(), function_id, method_name, argument) {
+    let response_future = match engine.clone().invoke_service_raw(engine.clone(), function_id.clone(), method_name, argument) {
         Ok(response_future) => response_future.map(|v| v.map_err(|err| FxFutureError::RpcError {
             reason: err.to_string(),
         })).boxed(),
@@ -53,6 +53,8 @@ pub fn handle_rpc(
             return ResultCode::RuntimeError.as_i64();
         }
     };
+
+    engine.metrics.function_fx_api_calls.with_label_values(&[function_id.as_string().as_str(), "rpc"]).inc();
 
     response_future.0 as i64
 }
