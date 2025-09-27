@@ -54,7 +54,7 @@ pub fn handle_rpc(
         }
     };
 
-    engine.metrics.function_fx_api_calls.with_label_values(&[function_id.as_string().as_str(), "rpc"]).inc();
+    engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "rpc"]).inc();
 
     response_future.0 as i64
 }
