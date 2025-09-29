@@ -549,7 +549,7 @@ impl ExecutionContext {
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, api_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, api_send_error),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, crate::api::kv::handle_kv_get),
-                "kv_set" => Function::new_typed_with_env(&mut store, &function_env, api_kv_set),
+                "kv_set" => Function::new_typed_with_env(&mut store, &function_env, crate::api::kv::handle_kv_set),
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
                 "sql_batch" => Function::new_typed_with_env(&mut store, &function_env, api_sql_batch),
                 "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
@@ -695,21 +695,6 @@ fn api_send_rpc_response(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: 
 
 fn api_send_error(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
     ctx.data_mut().execution_error = Some(read_memory_owned(&ctx, addr, len));
-}
-
-fn api_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, binding_len: i64, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) -> i64 {
-    let binding = String::from_utf8(read_memory_owned(&ctx, binding_addr, binding_len)).unwrap();
-    let storage = match ctx.data().storage.get(&binding) {
-        Some(v) => v,
-        None => return 1,
-    };
-
-    let key = read_memory_owned(&ctx, k_addr, k_len);
-    let value = read_memory_owned(&ctx, v_addr, v_len);
-    // TODO: report errors to calling service
-    storage.set(&key, &value).unwrap();
-
-    0
 }
 
 fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {

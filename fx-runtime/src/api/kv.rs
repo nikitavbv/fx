@@ -32,3 +32,20 @@ pub fn handle_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, b
 
     0
 }
+
+pub fn handle_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, binding_len: i64, k_addr: i64, k_len: i64, v_addr: i64, v_len: i64) -> i64 {
+    let binding = String::from_utf8(read_memory_owned(&ctx, binding_addr, binding_len)).unwrap();
+    let storage = match ctx.data().storage.get(&binding) {
+        Some(v) => v,
+        None => return 1,
+    };
+
+    let key = read_memory_owned(&ctx, k_addr, k_len);
+    let value = read_memory_owned(&ctx, v_addr, v_len);
+    // TODO: report errors to calling service
+    storage.set(&key, &value).unwrap();
+
+    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "kv::set"]).inc();
+
+    0
+}
