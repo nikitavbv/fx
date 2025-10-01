@@ -547,7 +547,7 @@ impl ExecutionContext {
             "fx" => {
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_rpc),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
-                "send_error" => Function::new_typed_with_env(&mut store, &function_env, api_send_error),
+                "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, crate::api::kv::handle_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, crate::api::kv::handle_kv_set),
                 "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
@@ -617,7 +617,7 @@ pub(crate) struct ExecutionEnv {
     pub(crate) engine: Arc<Engine>,
     instance: Option<Instance>,
     pub(crate) memory: Option<Memory>,
-    execution_error: Option<Vec<u8>>,
+    pub(crate) execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
     pub(crate) service_id: FunctionId,
@@ -687,10 +687,6 @@ fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionE
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_send_error(mut ctx: FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) {
-    ctx.data_mut().execution_error = Some(read_memory_owned(&ctx, addr, len));
 }
 
 fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
