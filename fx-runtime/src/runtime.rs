@@ -550,7 +550,7 @@ impl ExecutionContext {
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
                 "kv_get" => Function::new_typed_with_env(&mut store, &function_env, crate::api::kv::handle_kv_get),
                 "kv_set" => Function::new_typed_with_env(&mut store, &function_env, crate::api::kv::handle_kv_set),
-                "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, api_sql_exec),
+                "sql_exec" => Function::new_typed_with_env(&mut store, &function_env, crate::api::sql::handle_sql_exec),
                 "sql_batch" => Function::new_typed_with_env(&mut store, &function_env, api_sql_batch),
                 "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
@@ -623,7 +623,7 @@ pub(crate) struct ExecutionEnv {
     pub(crate) service_id: FunctionId,
 
     pub(crate) storage: HashMap<String, BoxedStorage>,
-    sql: HashMap<String, SqlDatabase>,
+    pub(crate) sql: HashMap<String, SqlDatabase>,
     pub(crate) rpc: HashMap<String, RpcBinding>,
 
     allow_fetch: bool,
@@ -683,56 +683,10 @@ pub fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8])
     view.write(addr as u64, value).unwrap();
 }
 
-fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Result<T, FxRuntimeError> {
+pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Result<T, FxRuntimeError> {
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
-    let result = decode_memory(&ctx, query_addr, query_len)
-        .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode request: {err:?}") })
-        .and_then(|request: DatabaseSqlQuery| {
-            let mut query = sql::Query::new(request.query.stmt);
-            for param in request.query.params {
-                query = query.with_param(match param {
-                    SqlValue::Null => sql::Value::Null,
-                    SqlValue::Integer(v) => sql::Value::Integer(v),
-                    SqlValue::Real(v) => sql::Value::Real(v),
-                    SqlValue::Text(v) => sql::Value::Text(v),
-                    SqlValue::Blob(v) => sql::Value::Blob(v),
-                });
-            }
-
-            ctx.data().sql.get(&request.database)
-                .as_ref()
-                .ok_or(FxSqlError::BindingNotExists)
-                .and_then(|database| database.exec(query).map_err(|err| FxSqlError::QueryFailed { reason: err.to_string() }))
-                .map(|result| SqlResult {
-                    rows: result.rows.into_iter()
-                        .map(|row| SqlResultRow {
-                            columns: row.columns.into_iter()
-                                .map(|value| match value {
-                                    sql::Value::Null => SqlValue::Null,
-                                    sql::Value::Integer(v) => SqlValue::Integer(v),
-                                    sql::Value::Real(v) => SqlValue::Real(v),
-                                    sql::Value::Text(v) => SqlValue::Text(v),
-                                    sql::Value::Blob(v) => SqlValue::Blob(v),
-                                })
-                                .collect(),
-                        })
-                        .collect(),
-                })
-        });
-    let result = rmp_serde::to_vec(&result).unwrap();
-
-    let (data, mut store) = ctx.data_and_store_mut();
-
-    let len = result.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &result);
-
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_sql_batch(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
