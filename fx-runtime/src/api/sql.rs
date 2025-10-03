@@ -48,4 +48,6 @@ pub fn handle_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, q
     write_memory(&ctx, ptr, &result);
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+
+    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "sql::exec"]).inc();
 }
