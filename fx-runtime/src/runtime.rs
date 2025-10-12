@@ -42,7 +42,6 @@ use {
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxRuntimeError,
-        compatibility,
         sql::{self, SqlDatabase},
         compiler::{Compiler, BoxedCompiler, SimpleCompiler},
         futures::FuturesPool,
@@ -576,7 +575,7 @@ impl ExecutionContext {
             if module != "fx" && module != "fx_cloud" {
                 match import.ty() {
                     wasmer::ExternType::Function(f) => {
-                        import_object.define(module, import.name(), Function::new_with_env(&mut store, &function_env, f, compatibility::api_unsupported));
+                        import_object.define(module, import.name(), Function::new_with_env(&mut store, &function_env, f, crate::api::unsupported::handle_unsupported));
                     },
                     other => panic!("unexpected import type: {other:?}"),
                 }

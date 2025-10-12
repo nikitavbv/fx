@@ -2,6 +2,7 @@
 pub(crate) mod kv;
 pub(crate) mod rpc;
 pub(crate) mod sql;
+pub(crate) mod unsupported;
 
 // TODO:
 // - rate limiting - use governor crate and have a set of rate limits defined in FunctionDefinition
