@@ -21,6 +21,7 @@ use {
         metrics::run_metrics_server,
         logs::{BoxLogger, StdoutLogger, RabbitMqLogger},
         consumer::RabbitMqConsumer,
+        compiler::{SimpleCompiler, BoxedCompiler, MemoizedCompiler},
     },
     crate::{
         cron::{CronRunner, CronTaskDefinition},
@@ -42,6 +43,9 @@ struct Args {
 
     #[arg(long)]
     functions_dir: Option<String>,
+
+    #[arg(long)]
+    compiler_cache_dir: Option<String>,
 
     #[arg(long)]
     metrics_port: Option<u16>,
@@ -127,9 +131,24 @@ async fn main() {
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
+    let compiler = BoxedCompiler::new(SimpleCompiler::new());
+    let compiler = if let Some(compiler_cache_dir) = args.compiler_cache_dir {
+        let compiler_cache_dir = PathBuf::from(compiler_cache_dir);
+        match FsStorage::new(compiler_cache_dir) {
+            Ok(storage) => BoxedCompiler::new(MemoizedCompiler::new(BoxedStorage::new(storage), compiler)),
+            Err(err) => {
+                error!("failed to init compiler cache storage: {err:?}. Falling back to compiler without cache...");
+                compiler
+            }
+        }
+    } else {
+        compiler
+    };
+
     let fx_runtime = FxRuntime::new()
         .with_code_storage(code_storage.clone())
-        .with_definition_provider(definition_provider);
+        .with_definition_provider(definition_provider)
+        .with_compiler(compiler);
 
     let fx_runtime = if let Some(logger) = args.logger {
         fx_runtime.with_logger(match logger {
