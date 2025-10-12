@@ -41,9 +41,9 @@ pub fn hello_cron(ctx: &FxCtx, _req: ()) {
 }
 
 #[rpc]
-pub fn from_cli(ctx: &FxCtx, _req: ()) {
+pub fn example(ctx: &FxCtx, _req: ()) {
     ctx.init_logger();
-    info!("hello from cli!");
+    info!("hello from fx!");
 }
 
 #[derive(Serialize)]

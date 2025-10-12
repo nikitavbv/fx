@@ -33,6 +33,19 @@ see [fx-services](./fx-services) for more examples.
 
 ## usage
 
+### invoke functions using cli interface
+
+build hello world example (alternatively, compile your own function to `.wasm`):
 ```bash
-cargo run -p fx-cloud -- ./app.wasm
+just app-hello-world
+```
+
+then run function using fx:
+```bash
+cargo run -p fx-server -- run target/wasm32-unknown-unknown/release/fx_app_hello_world example
+```
+
+expected output:
+```
+target/wasm32-unknown-unknown/release/fx_app_hello_world | {"message": Text("hello from fx!")}
 ```
