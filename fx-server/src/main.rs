@@ -19,18 +19,21 @@ use {
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
         metrics::run_metrics_server,
-        logs::{BoxLogger, StdoutLogger, RabbitMqLogger},
-        consumer::RabbitMqConsumer,
+        logs::{BoxLogger, StdoutLogger},
         compiler::{SimpleCompiler, BoxedCompiler, MemoizedCompiler},
     },
     crate::{
         cron::{CronRunner, CronTaskDefinition},
         http::HttpHandler,
+        consumer::RabbitMqConsumer,
+        logs::RabbitMqLogger,
     },
 };
 
+mod consumer;
 mod cron;
 mod http;
+mod logs;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
 const FILE_EXTENSION_DEFINITION: &str = ".fx.yaml";

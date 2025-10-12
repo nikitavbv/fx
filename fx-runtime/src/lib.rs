@@ -6,7 +6,6 @@ pub use {
 mod api;
 pub mod runtime;
 pub mod compiler;
-pub mod consumer;
 pub mod definition;
 pub mod error;
 mod futures;
