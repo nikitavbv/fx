@@ -619,7 +619,7 @@ pub(crate) struct ExecutionEnv {
     pub(crate) execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
-    pub(crate) service_id: FunctionId,
+    pub(crate) function_id: FunctionId,
 
     pub(crate) storage: HashMap<String, BoxedStorage>,
     pub(crate) sql: HashMap<String, SqlDatabase>,
@@ -649,7 +649,7 @@ impl ExecutionEnv {
             memory: None,
             execution_error: None,
             rpc_response: None,
-            service_id,
+            function_id: service_id,
             storage,
             sql,
             rpc,
@@ -739,7 +739,7 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
 
     let ctx_data = ctx.data();
     ctx_data.engine.log(crate::logs::LogMessage::new(
-        crate::logs::LogSource::function(&ctx_data.service_id),
+        crate::logs::LogSource::function(&ctx_data.function_id),
         level,
         msg.fields,
     ).into());
@@ -760,7 +760,7 @@ fn api_metrics_counter_increment(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i6
 fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
     if !ctx.data().allow_fetch {
         // TODO: handle this properly
-        panic!("service {:?} is not allowed to call fetch", ctx.data().service_id.id);
+        panic!("service {:?} is not allowed to call fetch", ctx.data().function_id.id);
     }
 
     let request = decode_memory(&ctx, req_addr, req_len)
@@ -863,7 +863,7 @@ fn api_future_drop(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
 }
 
 fn api_stream_export(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
-    let res = ctx.data().engine.streams_pool.push_function_stream(ctx.data().service_id.clone())
+    let res = ctx.data().engine.streams_pool.push_function_stream(ctx.data().function_id.clone())
         .map_err(|err| fx_common::FxStreamError::PushFailed {
             reason: err.to_string(),
         })

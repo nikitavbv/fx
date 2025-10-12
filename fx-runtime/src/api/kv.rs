@@ -28,7 +28,7 @@ pub fn handle_kv_get(mut ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, b
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 
-    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "kv::get"]).inc();
+    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().function_id.as_string().as_str(), "kv::get"]).inc();
 
     0
 }
@@ -45,7 +45,7 @@ pub fn handle_kv_set(ctx: FunctionEnvMut<ExecutionEnv>, binding_addr: i64, bindi
     // TODO: report errors to calling service
     storage.set(&key, &value).unwrap();
 
-    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "kv::set"]).inc();
+    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().function_id.as_string().as_str(), "kv::set"]).inc();
 
     0
 }

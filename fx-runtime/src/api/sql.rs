@@ -49,7 +49,7 @@ pub fn handle_sql_exec(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, q
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 
-    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "sql::exec"]).inc();
+    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().function_id.as_string().as_str(), "sql::exec"]).inc();
 }
 
 pub fn handle_sql_batch(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, query_len: i64, output_ptr: i64) {
@@ -86,5 +86,5 @@ pub fn handle_sql_batch(mut ctx: FunctionEnvMut<ExecutionEnv>, query_addr: i64, 
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 
-    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().service_id.as_string().as_str(), "sql::batch"]).inc();
+    ctx.data().engine.metrics.function_fx_api_calls.with_label_values(&[ctx.data().function_id.as_string().as_str(), "sql::batch"]).inc();
 }
