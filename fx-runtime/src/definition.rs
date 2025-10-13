@@ -111,8 +111,8 @@ impl DefinitionProvider {
         }
     }
 
-    pub fn with_definition(mut self, service_id: FunctionId, definition: FunctionDefinition) -> Self {
-        self.definitions.insert(service_id, definition);
+    pub fn with_definition(mut self, function_id: FunctionId, definition: FunctionDefinition) -> Self {
+        self.definitions.insert(function_id, definition);
         self
     }
 
