@@ -183,7 +183,7 @@ impl Engine {
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, service_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
         let need_to_create_context = {
             let execution_contexts = match self.execution_contexts.read() {
                 Ok(v) => v,
@@ -192,7 +192,7 @@ impl Engine {
                     return Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to lock execution contexts: {err:?}") });
                 }
             };
-            if let Some(context) = execution_contexts.get(&service_id) {
+            if let Some(context) = execution_contexts.get(&function_id) {
                 context.needs_recreate.load(Ordering::SeqCst)
             } else {
                 true
@@ -202,15 +202,15 @@ impl Engine {
         if need_to_create_context {
             // need to create execution context first
             let mut execution_contexts = self.execution_contexts.write().unwrap();
-            let ctx = execution_contexts.get(&service_id);
+            let ctx = execution_contexts.get(&function_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                let definition = self.definition_provider.read().unwrap().definition_for_function(&service_id)
+                let definition = self.definition_provider.read().unwrap().definition_for_function(&function_id)
                     .map_err(|err| FxRuntimeError::DefinitionError { reason: err.to_string() })?;
-                execution_contexts.insert(service_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &service_id, definition)?));
+                execution_contexts.insert(function_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, definition)?));
             }
         }
 
-        Ok(self.run_service(engine, service_id.clone(), &function_name, argument))
+        Ok(self.run_service(engine, function_id.clone(), &function_name, argument))
     }
 
     pub fn reload(&self, function_id: &FunctionId) {
