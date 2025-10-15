@@ -521,7 +521,7 @@ pub(crate) struct ExecutionContext {
 impl ExecutionContext {
     pub fn new(
         engine: Arc<Engine>,
-        service_id: FunctionId,
+        function_id: FunctionId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
@@ -539,7 +539,7 @@ impl ExecutionContext {
 
         let function_env = FunctionEnv::new(
             &mut store,
-            ExecutionEnv::new(engine, service_id.clone(), storage, sql, rpc, allow_fetch, allow_log)
+            ExecutionEnv::new(engine, function_id, storage, sql, rpc, allow_fetch, allow_log)
         );
 
         let mut import_object = imports! {
