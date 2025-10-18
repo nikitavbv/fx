@@ -634,7 +634,7 @@ pub(crate) struct ExecutionEnv {
 impl ExecutionEnv {
     pub fn new(
         engine: Arc<Engine>,
-        service_id: FunctionId,
+        function_id: FunctionId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
@@ -649,7 +649,7 @@ impl ExecutionEnv {
             memory: None,
             execution_error: None,
             rpc_response: None,
-            function_id: service_id,
+            function_id,
             storage,
             sql,
             rpc,
