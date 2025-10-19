@@ -529,10 +529,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxRuntimeError> {
-        let mut compiler_config = create_compiler_config();
-        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
-
-        let mut store = Store::new(EngineBuilder::new(compiler_config));
+        let mut store = Store::new(engine.compiler.read().unwrap().create_wasmer_engine_builder());
 
         let module = engine.compiler.read().unwrap().compile(&store, module_code)
             .map_err(|err| FxRuntimeError::CompilationError { reason: err.to_string() })?;
@@ -594,19 +591,6 @@ impl ExecutionContext {
         })
     }
 }
-
-#[cfg(target_arch = "aarch64")]
-fn create_compiler_config() -> Cranelift {
-    Cranelift::default()
-}
-
-
-#[cfg(not(target_arch = "aarch64"))]
-fn create_compiler_config() -> wasmer_compiler_llvm::LLVM {
-    wasmer_compiler_llvm::LLVM::default()
-}
-
-fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub(crate) struct ExecutionEnv {
     execution_context: RwLock<Option<Arc<ExecutionContext>>>,

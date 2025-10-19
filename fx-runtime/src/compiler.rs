@@ -1,12 +1,19 @@
 use {
     std::sync::Arc,
-    wasmer::{Module, Store},
+    wasmer::{
+        Module,
+        Store,
+        sys::{Cranelift, CompilerConfig, EngineBuilder},
+        wasmparser::Operator,
+    },
+    wasmer_middlewares::Metering,
     sha2::{Sha256, Digest},
     thiserror::Error,
     crate::kv::{KVStorage, BoxedStorage},
 };
 
 pub trait Compiler {
+    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder;
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError>;
 }
 
@@ -32,6 +39,10 @@ impl BoxedCompiler {
 }
 
 impl Compiler for BoxedCompiler {
+    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
+        self.inner.create_wasmer_engine_builder()
+    }
+
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
         self.inner.compile(store, bytes)
     }
@@ -43,9 +54,27 @@ impl SimpleCompiler {
     pub fn new() -> Self {
         Self
     }
+
+    #[cfg(target_arch = "aarch64")]
+    fn create_compiler_config(&self) -> Cranelift {
+        Cranelift::default()
+    }
+
+    #[cfg(not(target_arch = "aarch64"))]
+    fn create_compiler_config(&self) -> wasmer_compiler_llvm::LLVM {
+        wasmer_compiler_llvm::LLVM::default()
+    }
 }
 
+fn ops_cost_function(_: &Operator) -> u64 { 1 }
+
 impl Compiler for SimpleCompiler {
+    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
+        let mut compiler_config = self.create_compiler_config();
+        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
+        EngineBuilder::new(compiler_config)
+    }
+
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
         Module::new(&store, &bytes).map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
     }
@@ -74,6 +103,10 @@ impl MemoizedCompiler {
 
 // TODO: Module supports .clone()
 impl Compiler for MemoizedCompiler {
+    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
+        self.compiler.create_wasmer_engine_builder()
+    }
+
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
         let key = self.key(&bytes);
         match self.storage.get(&key).unwrap() {
