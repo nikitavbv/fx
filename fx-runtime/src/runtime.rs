@@ -43,7 +43,7 @@ use {
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxRuntimeError,
         sql::{self, SqlDatabase},
-        compiler::{Compiler, BoxedCompiler, SimpleCompiler},
+        compiler::{Compiler, BoxedCompiler, CraneliftCompiler},
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
@@ -163,7 +163,7 @@ impl Engine {
         Self {
             metrics: Metrics::new(),
 
-            compiler: RwLock::new(BoxedCompiler::new(SimpleCompiler::new())),
+            compiler: RwLock::new(BoxedCompiler::new(CraneliftCompiler::new())),
 
             execution_contexts: RwLock::new(HashMap::new()),
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),

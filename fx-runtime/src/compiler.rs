@@ -48,29 +48,17 @@ impl Compiler for BoxedCompiler {
     }
 }
 
-pub struct SimpleCompiler;
+pub struct CraneliftCompiler {}
 
-impl SimpleCompiler {
+impl CraneliftCompiler {
     pub fn new() -> Self {
-        Self
-    }
-
-    #[cfg(target_arch = "aarch64")]
-    fn create_compiler_config(&self) -> Cranelift {
-        Cranelift::default()
-    }
-
-    #[cfg(not(target_arch = "aarch64"))]
-    fn create_compiler_config(&self) -> wasmer_compiler_llvm::LLVM {
-        wasmer_compiler_llvm::LLVM::default()
+        Self {}
     }
 }
 
-fn ops_cost_function(_: &Operator) -> u64 { 1 }
-
-impl Compiler for SimpleCompiler {
-    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
-        let mut compiler_config = self.create_compiler_config();
+impl Compiler for CraneliftCompiler {
+    fn create_wasmer_engine_builder(&self) -> EngineBuilder {
+        let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
         EngineBuilder::new(compiler_config)
     }
@@ -79,6 +67,8 @@ impl Compiler for SimpleCompiler {
         Module::new(&store, &bytes).map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
     }
 }
+
+fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub struct MemoizedCompiler {
     storage: BoxedStorage,

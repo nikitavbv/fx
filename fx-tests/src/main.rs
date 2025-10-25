@@ -7,7 +7,7 @@ use {
         error::FxRuntimeError,
         FxStream,
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition, RpcDefinition},
-        compiler::{MemoizedCompiler, SimpleCompiler, BoxedCompiler},
+        compiler::{MemoizedCompiler, CraneliftCompiler, BoxedCompiler},
     },
     tokio::join,
     futures::StreamExt,
@@ -44,7 +44,7 @@ async fn main() {
     let fx = FxRuntime::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
-        .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(SimpleCompiler::new()))));
+        .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))));
         /*.with_service(
             Service::new(ServiceId::new("test-app".to_owned()))
                 .allow_fetch()

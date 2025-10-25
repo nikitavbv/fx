@@ -20,16 +20,18 @@ use {
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
         metrics::run_metrics_server,
         logs::{BoxLogger, StdoutLogger},
-        compiler::{SimpleCompiler, BoxedCompiler, MemoizedCompiler},
+        compiler::{BoxedCompiler, MemoizedCompiler},
     },
     crate::{
         cron::{CronRunner, CronTaskDefinition},
         http::HttpHandler,
         consumer::RabbitMqConsumer,
         logs::RabbitMqLogger,
+        compiler::{LLVMCompiler, CraneliftCompiler},
     },
 };
 
+mod compiler;
 mod consumer;
 mod cron;
 mod http;
@@ -134,7 +136,9 @@ async fn main() {
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
-    let compiler = BoxedCompiler::new(SimpleCompiler::new());
+    let compiler = LLVMCompiler::new()
+        .map(BoxedCompiler::new)
+        .unwrap_or_else(|| BoxedCompiler::new(CraneliftCompiler::new()));
     let compiler = if let Some(compiler_cache_dir) = args.compiler_cache_dir {
         let compiler_cache_dir = PathBuf::from(compiler_cache_dir);
         match FsStorage::new(compiler_cache_dir) {
