@@ -35,7 +35,7 @@ pub struct LLVMCompiler {}
 impl LLVMCompiler {
     #[cfg(not(target_arch = "aarch64"))]
     pub fn new() -> Option<Self> {
-        Some(Self)
+        Some(Self {})
     }
 
     #[cfg(target_arch = "aarch64")]
