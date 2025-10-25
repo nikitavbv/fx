@@ -14,7 +14,7 @@ use {
 
 pub trait Compiler {
     fn create_store(&self) -> Store;
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError>;
+    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError>;
 }
 
 #[derive(Error, Debug)]
@@ -43,8 +43,8 @@ impl Compiler for BoxedCompiler {
         self.inner.create_store()
     }
 
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
-        self.inner.compile(store, bytes)
+    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        self.inner.compile(bytes)
     }
 }
 
@@ -63,8 +63,11 @@ impl Compiler for CraneliftCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
-        Module::new(&store, &bytes).map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        let store = self.create_store();
+        Module::new(&store, &bytes)
+            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map(|module| (store, module))
     }
 }
 
@@ -97,18 +100,20 @@ impl Compiler for MemoizedCompiler {
         self.compiler.create_store()
     }
 
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
+    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         let key = self.key(&bytes);
         match self.storage.get(&key).unwrap() {
             Some(v) => {
-                let module = unsafe { Module::deserialize(store, v) };
+                let store = self.create_store();
+                let module = unsafe { Module::deserialize(&store, v) };
                 module.map_err(|err| CompilerError::FailedToDeserialize { reason: err.to_string() })
+                    .map(|module| (store, module))
             },
             None => {
-                let module = self.compiler.compile(store, bytes)?;
+                let (store, module) = self.compiler.compile(bytes)?;
                 let serialized = module.serialize().unwrap();
                 self.storage.set(&key, &serialized.to_vec()).unwrap();
-                Ok(module)
+                Ok((store, module))
             }
         }
     }

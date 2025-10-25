@@ -25,8 +25,11 @@ impl Compiler for CraneliftCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
-        Module::new(&store, &bytes).map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        let store = self.create_store();
+        Module::new(&store, &bytes)
+            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map(|module| (store, module))
     }
 }
 
@@ -57,8 +60,11 @@ impl Compiler for LLVMCompiler {
         unreachable!("should not be reachable on aarch64")
     }
 
-    fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
-        Module::new(&store, &bytes).map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        let store = self.create_store();
+        Module::new(&store, &bytes)
+            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map(|module| (store, module))
     }
 }
 
