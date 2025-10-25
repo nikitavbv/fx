@@ -13,7 +13,7 @@ use {
 };
 
 pub trait Compiler {
-    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder;
+    fn create_store(&self) -> Store;
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError>;
 }
 
@@ -39,8 +39,8 @@ impl BoxedCompiler {
 }
 
 impl Compiler for BoxedCompiler {
-    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
-        self.inner.create_wasmer_engine_builder()
+    fn create_store(&self) -> Store {
+        self.inner.create_store()
     }
 
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
@@ -57,10 +57,10 @@ impl CraneliftCompiler {
 }
 
 impl Compiler for CraneliftCompiler {
-    fn create_wasmer_engine_builder(&self) -> EngineBuilder {
+    fn create_store(&self) -> Store {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
-        EngineBuilder::new(compiler_config)
+        Store::new(EngineBuilder::new(compiler_config))
     }
 
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
@@ -93,8 +93,8 @@ impl MemoizedCompiler {
 
 // TODO: Module supports .clone()
 impl Compiler for MemoizedCompiler {
-    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
-        self.compiler.create_wasmer_engine_builder()
+    fn create_store(&self) -> Store {
+        self.compiler.create_store()
     }
 
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {

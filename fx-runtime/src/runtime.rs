@@ -529,8 +529,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxRuntimeError> {
-        let mut store = Store::new(engine.compiler.read().unwrap().create_wasmer_engine_builder());
-
+        let mut store = engine.compiler.read().unwrap().create_store();
         let module = engine.compiler.read().unwrap().compile(&store, module_code)
             .map_err(|err| FxRuntimeError::CompilationError { reason: err.to_string() })?;
 

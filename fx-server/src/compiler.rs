@@ -19,10 +19,10 @@ impl CraneliftCompiler {
 }
 
 impl Compiler for CraneliftCompiler {
-    fn create_wasmer_engine_builder(&self) -> EngineBuilder {
+    fn create_store(&self) -> Store {
         let mut compiler_config = Cranelift::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
-        EngineBuilder::new(compiler_config)
+        Store::new(EngineBuilder::new(compiler_config))
     }
 
     fn compile(&self, store: &Store, bytes: Vec<u8>) -> Result<Module, CompilerError> {
@@ -46,14 +46,14 @@ impl LLVMCompiler {
 
 impl Compiler for LLVMCompiler {
     #[cfg(not(target_arch = "aarch64"))]
-    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
+    fn create_store(&self) -> Store {
         let mut compiler_config = wasmer_compiler_llvm::LLVM::default();
         compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
-        EngineBuilder::new(compiler_config)
+        Store::new(EngineBuilder::new(compiler_config))
     }
 
     #[cfg(target_arch = "aarch64")]
-    fn create_wasmer_engine_builder(&self) -> wasmer::sys::EngineBuilder {
+    fn create_store(&self) -> Store {
         unreachable!("should not be reachable on aarch64")
     }
 
