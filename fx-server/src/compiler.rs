@@ -3,39 +3,16 @@ use {
     wasmer::{
         Module,
         Store,
-        sys::{Cranelift, CompilerConfig, EngineBuilder},
+        sys::{CompilerConfig, EngineBuilder},
         wasmparser::Operator,
     },
     wasmer_middlewares::Metering,
     tokio::sync::{mpsc as tokio_mpsc, Mutex as TokioMutex},
     fx_runtime::{
-        compiler::{Compiler, CompilerError, BoxedCompiler, MemoizedCompiler},
+        compiler::{Compiler, CompilerError, BoxedCompiler, MemoizedCompiler, CompilerMetadata},
         runtime::FunctionId,
     },
 };
-
-pub struct CraneliftCompiler {}
-
-impl CraneliftCompiler {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Compiler for CraneliftCompiler {
-    fn create_store(&self) -> Store {
-        let mut compiler_config = Cranelift::default();
-        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
-        Store::new(EngineBuilder::new(compiler_config))
-    }
-
-    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
-        let store = self.create_store();
-        Module::new(&store, &bytes)
-            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
-            .map(|module| (store, module))
-    }
-}
 
 pub struct LLVMCompiler {}
 
@@ -64,11 +41,13 @@ impl Compiler for LLVMCompiler {
         unreachable!("should not be reachable on aarch64")
     }
 
-    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
-            .map(|module| (store, module))
+            .map(|module| (store, module, CompilerMetadata {
+                backend: "llvm".to_owned(),
+            }))
     }
 }
 
@@ -87,11 +66,13 @@ impl Compiler for SinglepassCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, _function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &module_code)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
-            .map(|module| (store, module))
+            .map(|module| (store, module, CompilerMetadata {
+                backend: "singlepass".to_owned(),
+            }))
     }
 }
 
@@ -151,9 +132,11 @@ impl Compiler for TieredCompiler {
         panic!("create_store should not be called on TieredCompiler, use compile instead")
     }
 
-    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
-        if let Some(v) = self.optimizing.load_from_storage_if_available(&module_code)? {
-            return Ok(v);
+    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
+        if let Some((store, module, metadata)) = self.optimizing.load_from_storage_if_available(&module_code)? {
+            return Ok((store, module, CompilerMetadata {
+                backend: format!("tiered[optimized] | {}", metadata.backend),
+            }));
         }
 
         if let Ok(mut pending) = self.pending.lock() {
@@ -164,5 +147,8 @@ impl Compiler for TieredCompiler {
         }
 
         self.fast.compile(function_id, module_code)
+            .map(|(store, module, metadata)| (store, module, CompilerMetadata {
+                backend: format!("tiered[fast] | {}", metadata.backend),
+            }))
     }
 }

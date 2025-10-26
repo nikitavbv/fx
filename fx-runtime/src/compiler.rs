@@ -17,7 +17,12 @@ use {
 
 pub trait Compiler {
     fn create_store(&self) -> Store;
-    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError>;
+    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError>;
+}
+
+#[derive(Clone)]
+pub struct CompilerMetadata {
+    pub backend: String,
 }
 
 #[derive(Error, Debug)]
@@ -47,7 +52,7 @@ impl Compiler for BoxedCompiler {
         self.inner.create_store()
     }
 
-    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         self.inner.compile(function_id, bytes)
     }
 }
@@ -67,11 +72,13 @@ impl Compiler for CraneliftCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
-            .map(|module| (store, module))
+            .map(|module| (store, module, CompilerMetadata {
+                backend: "cranelift".to_owned(),
+            }))
     }
 }
 
@@ -97,7 +104,7 @@ impl MemoizedCompiler {
         hasher.finalize().to_vec()
     }
 
-    pub fn load_from_storage_if_available(&self, module_code: &[u8]) -> Result<Option<(Store, Module)>, CompilerError> {
+    pub fn load_from_storage_if_available(&self, module_code: &[u8]) -> Result<Option<(Store, Module, CompilerMetadata)>, CompilerError> {
         let key = self.key(&module_code);
         self.storage.get(&key)
             .unwrap()
@@ -105,7 +112,9 @@ impl MemoizedCompiler {
                 let store = self.create_store();
                 let module = unsafe { Module::deserialize(&store, compiled_module) };
                 module.map_err(|err| CompilerError::FailedToDeserialize { reason: err.to_string() })
-                    .map(|module| (store, module))
+                    .map(|module| (store, module, CompilerMetadata {
+                        backend: "unknown".to_owned(),
+                    }))
             })
             .transpose()
     }
@@ -117,15 +126,19 @@ impl Compiler for MemoizedCompiler {
         self.compiler.create_store()
     }
 
-    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
-        if let Some(v) = self.load_from_storage_if_available(&module_code)? {
-            return Ok(v);
+    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
+        if let Some((store, module, compiler_metadata)) = self.load_from_storage_if_available(&module_code)? {
+            return Ok((store, module, CompilerMetadata {
+                backend: format!("MemoizedCompiler[hit] | {}", compiler_metadata.backend),
+            }));
         };
 
         let key = self.key(&module_code);
-        let (store, module) = self.compiler.compile(function_id, module_code)?;
+        let (store, module, compiler_metadata) = self.compiler.compile(function_id, module_code)?;
         let serialized = module.serialize().unwrap();
         self.storage.set(&key, &serialized.to_vec()).unwrap();
-        Ok((store, module))
+        Ok((store, module, CompilerMetadata {
+            backend: format!("MemoizedCompiler[miss] | {}", compiler_metadata.backend),
+        }))
     }
 }

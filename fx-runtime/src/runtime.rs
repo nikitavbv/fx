@@ -38,12 +38,12 @@ use {
         FxSqlError,
         SqlMigrations,
     },
-    fx_runtime_common::LogMessageEvent,
+    fx_runtime_common::{LogMessageEvent, LogSource},
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxRuntimeError,
         sql::{self, SqlDatabase},
-        compiler::{Compiler, BoxedCompiler, CraneliftCompiler},
+        compiler::{Compiler, BoxedCompiler, CraneliftCompiler, CompilerMetadata},
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
@@ -529,12 +529,12 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxRuntimeError> {
-        let (mut store, module) = engine.compiler.read().unwrap().compile(&function_id, module_code)
+        let (mut store, module, compiler_metadata) = engine.compiler.read().unwrap().compile(&function_id, module_code)
             .map_err(|err| FxRuntimeError::CompilationError { reason: err.to_string() })?;
 
         let function_env = FunctionEnv::new(
             &mut store,
-            ExecutionEnv::new(engine, function_id, storage, sql, rpc, allow_fetch, allow_log)
+            ExecutionEnv::new(engine, function_id, storage, sql, rpc, allow_fetch, allow_log, compiler_metadata)
         );
 
         let mut import_object = imports! {
@@ -592,6 +592,7 @@ impl ExecutionContext {
 
 pub(crate) struct ExecutionEnv {
     execution_context: RwLock<Option<Arc<ExecutionContext>>>,
+    compiler_metadata: CompilerMetadata,
 
     futures_waker: Option<std::task::Waker>,
 
@@ -621,10 +622,12 @@ impl ExecutionEnv {
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
         allow_fetch: bool,
-        allow_log: bool
+        allow_log: bool,
+        compiler_metadata: CompilerMetadata,
     ) -> Self {
         Self {
             execution_context: RwLock::new(None),
+            compiler_metadata,
             futures_waker: None,
             engine,
             instance: None,
