@@ -70,15 +70,17 @@ impl Compiler for LLVMCompiler {
 
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
+#[derive(Clone)]
 pub struct TieredCompiler {
-    fast: BoxedCompiler,
+    fast: Arc<BoxedCompiler>,
     optimizing: Arc<MemoizedCompiler>,
-    optimizing_tx: mpsc::Sender<Vec<u8>>,
+    optimizing_tx: Arc<mpsc::Sender<Vec<u8>>>,
     pending: Arc<Mutex<HashSet<Vec<u8>>>>,
 }
 
 impl TieredCompiler {
     pub fn new(fast: BoxedCompiler, optimizing: MemoizedCompiler) -> Self {
+        let fast = Arc::new(fast);
         let optimizing = Arc::new(optimizing);
         let pending = Arc::new(Mutex::new(HashSet::new()));
 
@@ -97,6 +99,7 @@ impl TieredCompiler {
                 }
             });
         }
+        let optimizing_tx = Arc::new(optimizing_tx);
 
         Self {
             fast,

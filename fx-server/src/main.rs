@@ -27,7 +27,7 @@ use {
         http::HttpHandler,
         consumer::RabbitMqConsumer,
         logs::RabbitMqLogger,
-        compiler::{LLVMCompiler, CraneliftCompiler},
+        compiler::{LLVMCompiler, CraneliftCompiler, TieredCompiler},
     },
 };
 
@@ -136,20 +136,18 @@ async fn main() {
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
-    let compiler = LLVMCompiler::new()
-        .map(BoxedCompiler::new)
-        .unwrap_or_else(|| BoxedCompiler::new(CraneliftCompiler::new()));
-    let compiler = if let Some(compiler_cache_dir) = args.compiler_cache_dir {
-        let compiler_cache_dir = PathBuf::from(compiler_cache_dir);
-        match FsStorage::new(compiler_cache_dir) {
-            Ok(storage) => BoxedCompiler::new(MemoizedCompiler::new(BoxedStorage::new(storage), compiler)),
-            Err(err) => {
-                error!("failed to init compiler cache storage: {err:?}. Falling back to compiler without cache...");
-                compiler
-            }
+    let fast_compiler = BoxedCompiler::new(CraneliftCompiler::new());
+
+    let compiler = match LLVMCompiler::new() {
+        Some(llvm) => {
+            let llvm = BoxedCompiler::new(llvm);
+            let memoized_llvm = MemoizedCompiler::new(BoxedStorage::new(SqliteStorage::in_memory().unwrap()), llvm);
+            BoxedCompiler::new(TieredCompiler::new(fast_compiler, memoized_llvm))
+        },
+        None => {
+            // llvm compiler is not available. Let's fallback to Cranelift
+            fast_compiler
         }
-    } else {
-        compiler
     };
 
     let fx_runtime = FxRuntime::new()
