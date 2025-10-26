@@ -84,37 +84,37 @@ async fn main() {
 
 async fn test_simple(fx: &FxRuntime) {
     println!("> test_simple");
-    let result: u32 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap();
+    let result: u32 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0;
     assert_eq!(52, result);
 }
 
 async fn test_sql_simple(fx: &FxRuntime) {
     println!("> test_sql_simple");
-    let result: u64 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap();
+    let result: u64 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0;
     assert_eq!(52, result);
 }
 
 async fn test_invoke_function_non_existent(fx: &FxRuntime) {
     println!("> test_invoke_function_non_existent");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ()).await.map(|v| v.0);
     assert_eq!(Err(FxRuntimeError::ModuleCodeNotFound), result);
 }
 
 async fn test_invoke_function_non_existent_rpc(fx: &FxRuntime) {
     println!("> test_invoke_function_non_existent_rpc");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ()).await.map(|v| v.0);
     assert_eq!(Err(FxRuntimeError::RpcHandlerNotDefined), result);
 }
 
 async fn test_invoke_function_no_module_code(fx: &FxRuntime) {
     println!("> test_invoke_function_no_module_code");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ()).await.map(|v| v.0);
     assert_eq!(Err(FxRuntimeError::ModuleCodeNotFound), result);
 }
 
 async fn test_invoke_function_panic(fx: &FxRuntime) {
     println!("> test_invoke_function_panic");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "test_panic", ()).await;
+    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "test_panic", ()).await.map(|v| v.0);
     match result.err().unwrap() {
         FxRuntimeError::ServiceInternalError { reason: _ } => {},
         other => panic!("expected service internal error, got: {other:?}"),
@@ -137,7 +137,7 @@ async fn test_invoke_function_wrong_argument(fx: &FxRuntime) {
 async fn test_async_handler_simple(fx: &FxRuntime) {
     println!("> test_async_handler_simple");
     let started_at = Instant::now();
-    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap();
+    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
     let total_time = (Instant::now() - started_at).as_secs();
     assert_eq!(42, result);
     assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
@@ -148,10 +148,10 @@ async fn test_async_concurrent(fx: &FxRuntime) {
     let started_at = Instant::now();
     let result = join!(
         async {
-            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap()
+            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0
         },
         async {
-            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 43).await.unwrap()
+            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 43).await.unwrap().0
         }
     );
     let total_time = (Instant::now() - started_at).as_secs();
@@ -161,26 +161,26 @@ async fn test_async_concurrent(fx: &FxRuntime) {
 
 async fn test_async_rpc(fx: &FxRuntime) {
     println!("> test_async_rpc");
-    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap();
+    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap().0;
     assert_eq!(84, result);
 }
 
 async fn test_rpc_panic(fx: &FxRuntime) {
     println!("> test_rpc_panic");
-    let result = fx.invoke_service::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap();
+    let result = fx.invoke_service::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap().0;
     assert_eq!(42, result);
 }
 
 async fn test_fetch(fx: &FxRuntime) {
     println!("> test_fetch");
-    let result = fx.invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap()
+    let result = fx.invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap().0
         .unwrap();
     assert_eq!("hello fx!", &result);
 }
 
 async fn test_stream_simple(fx: &FxRuntime) {
     println!("> test_stream_simple");
-    let stream: FxStream = fx.invoke_service::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap();
+    let stream: FxStream = fx.invoke_service::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap().0;
     let mut stream = fx.read_stream(&stream).unwrap().unwrap();
     let started_at = Instant::now();
     let mut n = 0;
@@ -205,8 +205,8 @@ async fn test_stream_simple(fx: &FxRuntime) {
 
 async fn test_random(fx: &FxRuntime) {
     println!("> test_random");
-    let random_bytes_0: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
-    let random_bytes_1: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap();
+    let random_bytes_0: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
+    let random_bytes_1: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
 
     assert_eq!(32, random_bytes_0.len());
     assert_eq!(32, random_bytes_1.len());
@@ -215,19 +215,19 @@ async fn test_random(fx: &FxRuntime) {
 
 async fn test_time(fx: &FxRuntime) {
     println!("> test_time");
-    let millis = fx.invoke_service::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap();
+    let millis = fx.invoke_service::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
     assert!((950..=1050).contains(&millis));
 }
 
 async fn test_kv_simple(fx: &FxRuntime) {
     println!("> test_kv_simple");
 
-    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap();
+    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0;
     assert!(result.is_none());
 
     fx.invoke_service::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
 
-    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().unwrap();
+    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0.unwrap();
     assert_eq!("Hello World!", result);
 }
 

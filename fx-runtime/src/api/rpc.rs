@@ -41,9 +41,12 @@ pub fn handle_rpc(
 
     let engine = ctx.data().engine.clone();
     let response_future = match engine.clone().invoke_service_raw(engine.clone(), function_id.clone(), method_name, argument) {
-        Ok(response_future) => response_future.map(|v| v.map_err(|err| FxFutureError::RpcError {
-            reason: err.to_string(),
-        })).boxed(),
+        Ok(response_future) => response_future.map(|v| v
+            .map(|v| v.0)
+            .map_err(|err| FxFutureError::RpcError {
+                reason: err.to_string(),
+            })
+        ).boxed(),
         Err(err) => std::future::ready(Err(FxFutureError::RpcError { reason: err.to_string() })).boxed(),
     };
     let response_future = match ctx.data().engine.futures_pool.push(response_future.boxed()) {

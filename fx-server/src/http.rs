@@ -56,7 +56,7 @@ impl<'a> HttpHandlerFuture<'a> {
             let headers = req.headers().clone();
             let request_id = headers.get("x-request-id").and_then(|v| v.to_str().ok()).map(|v| v.to_owned());
             let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
-            let fx_response = match engine.streams_pool.push(body) {
+            let (fx_response, invocation_event) = match engine.streams_pool.push(body) {
                 Ok(body_stream_index) => {
                     let body_stream_cleanup_guard = StreamPoolCleanupGuard::wrap(engine.clone(), body_stream_index.clone());
                     let body = FxStream { index: body_stream_index.0 as i64 };
@@ -73,31 +73,31 @@ impl<'a> HttpHandlerFuture<'a> {
 
                     let invoke_service_future = engine.invoke_service::<_, HttpResponse>(engine.clone(), &service_id, "http", request);
                     let invoke_service_with_timeout = timeout(Duration::from_secs(60), invoke_service_future);
-                    let fx_response = match invoke_service_with_timeout.await {
+                    let (fx_response, invocation_event) = match invoke_service_with_timeout.await {
                         Ok(v) => match v {
-                            Ok(v) => v,
-                            Err(err) => match err {
+                            Ok(v) => (v.0, Some(v.1)),
+                            Err(err) => (match err {
                                 FxRuntimeError::ServiceNotFound => response_service_not_found(),
                                 other => {
                                     error!("internal error while serving request: {other:?}");
                                     response_internal_error()
                                 },
-                            }
+                            }, None)
                         },
                         Err(err) => {
                             error!("timeout when serving request: {err:?}");
-                            response_internal_error()
+                            (response_internal_error(), None)
                         }
                     };
 
                     drop(metric_guard_http_functions_in_flight);
                     drop(body_stream_cleanup_guard);
 
-                    fx_response
+                    (fx_response, invocation_event)
                 },
                 Err(err) => {
                     error!("failed to push stream: {err:?}");
-                    response_internal_error()
+                    (response_internal_error(), None)
                 }
             };
 
@@ -112,6 +112,7 @@ impl<'a> HttpHandlerFuture<'a> {
                 timings: InvocationTimings {
                     total_time_millis: (Instant::now() - started_at).as_millis() as u64,
                 },
+                compiler_backend: invocation_event.map(|v| v.compiler_metadata.backend),
             }.into());
 
             Ok(response)

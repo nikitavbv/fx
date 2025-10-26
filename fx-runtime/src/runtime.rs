@@ -98,7 +98,7 @@ impl FxRuntime {
     }
 
     #[allow(dead_code)]
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxRuntimeError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FxRuntimeError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
     }
 
@@ -177,10 +177,10 @@ impl Engine {
         }
     }
 
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<S, FxRuntimeError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FxRuntimeError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
-        let response = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
-        Ok(rmp_serde::from_slice(&response).unwrap())
+        let (response, event) = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
+        Ok((rmp_serde::from_slice(&response).unwrap(), event))
     }
 
     pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
@@ -345,7 +345,7 @@ impl FunctionRuntimeFuture {
 }
 
 impl Future for FunctionRuntimeFuture {
-    type Output = Result<Vec<u8>, FxRuntimeError>;
+    type Output = Result<(Vec<u8>, FunctionInvocationEvent), FxRuntimeError>;
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let started_at = Instant::now();
 
@@ -404,9 +404,12 @@ impl Future for FunctionRuntimeFuture {
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
                 *rpc_future_index = None;
+                let compiler_metadata = ctx.function_env.as_ref(store).compiler_metadata.clone();
                 drop(store_lock);
                 self.record_function_invocation();
-                std::task::Poll::Ready(Ok(response))
+                std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
+                    compiler_metadata,
+                })))
             } else {
                 std::task::Poll::Pending
             };
@@ -463,7 +466,9 @@ impl Future for FunctionRuntimeFuture {
             };
             let result = if poll_is_ready == 1 {
                 let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
-                std::task::Poll::Ready(Ok(response))
+                std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
+                    compiler_metadata: ctx.function_env.as_ref(store).compiler_metadata.clone(),
+                })))
             } else {
                 *rpc_future_index = Some(future_index);
                 std::task::Poll::Pending
@@ -913,3 +918,7 @@ pub(crate) struct PtrWithLen {
 }
 
 pub(crate) struct RpcBinding {}
+
+pub struct FunctionInvocationEvent {
+    pub compiler_metadata: CompilerMetadata,
+}

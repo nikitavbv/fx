@@ -8,6 +8,7 @@ use {
 pub struct FunctionInvokeEvent {
     pub request_id: Option<String>,
     pub timings: InvocationTimings,
+    pub compiler_backend: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
