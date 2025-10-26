@@ -29,6 +29,7 @@ pub enum CompilerError {
     FailedToDeserialize { reason: String },
 }
 
+#[derive(Clone)]
 pub struct BoxedCompiler {
     inner: Arc<Box<dyn Compiler + Send + Sync>>,
 }

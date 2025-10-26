@@ -137,18 +137,17 @@ async fn main() {
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
     let fast_compiler = BoxedCompiler::new(CraneliftCompiler::new());
-
-    let compiler = match LLVMCompiler::new() {
-        Some(llvm) => {
+    let tiered_compiler = LLVMCompiler::new()
+        .map(|llvm| {
             let llvm = BoxedCompiler::new(llvm);
             let memoized_llvm = MemoizedCompiler::new(BoxedStorage::new(SqliteStorage::in_memory().unwrap()), llvm);
-            BoxedCompiler::new(TieredCompiler::new(fast_compiler, memoized_llvm))
-        },
-        None => {
-            // llvm compiler is not available. Let's fallback to Cranelift
-            fast_compiler
-        }
-    };
+            TieredCompiler::new(fast_compiler.clone(), memoized_llvm)
+        });
+    let tiered_compiler_optimizations_consumer = tiered_compiler.as_ref().map(|v| v.consume_optimizations());
+
+    let compiler = tiered_compiler
+        .map(BoxedCompiler::new)
+        .unwrap_or(fast_compiler);
 
     let fx_runtime = FxRuntime::new()
         .with_code_storage(code_storage.clone())
@@ -193,6 +192,9 @@ async fn main() {
     tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
     tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), code_storage));
     tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), definition_storage));
+    if let Some(tiered_compiler_optimizations_consumer) = tiered_compiler_optimizations_consumer {
+        tokio::spawn(reload_on_optimizations(fx_runtime.engine.clone(), tiered_compiler_optimizations_consumer));
+    }
 
     run_command(fx_runtime, args.command).await;
 }
@@ -321,5 +323,13 @@ async fn reload_on_key_changes(engine: Arc<Engine>, storage: BoxedStorage) {
             }
         };
         engine.reload(&FunctionId::new(function_id))
+    }
+}
+
+async fn reload_on_optimizations(engine: Arc<Engine>, subscriber: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<FunctionId>>>) {
+    let mut subscriber = subscriber.lock().await;
+    while let Some(function_id) = subscriber.recv().await {
+        info!(function_id=function_id.as_string(), "reloading optimized function");
+        engine.reload(&function_id);
     }
 }

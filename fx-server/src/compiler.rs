@@ -7,6 +7,7 @@ use {
         wasmparser::Operator,
     },
     wasmer_middlewares::Metering,
+    tokio::sync::{mpsc as tokio_mpsc, Mutex as TokioMutex},
     fx_runtime::{
         compiler::{Compiler, CompilerError, BoxedCompiler, MemoizedCompiler},
         runtime::FunctionId,
@@ -28,7 +29,7 @@ impl Compiler for CraneliftCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
@@ -79,6 +80,7 @@ pub struct TieredCompiler {
     optimizing: Arc<MemoizedCompiler>,
     optimizing_tx: Arc<mpsc::Sender<(FunctionId, Vec<u8>)>>,
     pending: Arc<Mutex<HashSet<Vec<u8>>>>,
+    optimized_rx: Arc<TokioMutex<tokio_mpsc::Receiver<FunctionId>>>,
 }
 
 impl TieredCompiler {
@@ -88,6 +90,7 @@ impl TieredCompiler {
         let pending = Arc::new(Mutex::new(HashSet::new()));
 
         let (optimizing_tx, rx) = mpsc::channel::<(FunctionId, Vec<u8>)>();
+        let (optimized_tx, optimized_rx) = tokio_mpsc::channel(100);
         {
             let optimizing = optimizing.clone();
             let pending = pending.clone();
@@ -99,17 +102,22 @@ impl TieredCompiler {
                     if let Ok(mut pending) = pending.lock() {
                         pending.remove(&module_code);
                     }
+                    optimized_tx.blocking_send(function_id).unwrap();
                 }
             });
         }
-        let optimizing_tx = Arc::new(optimizing_tx);
 
         Self {
             fast,
             optimizing,
-            optimizing_tx,
+            optimizing_tx: Arc::new(optimizing_tx),
             pending,
+            optimized_rx: Arc::new(TokioMutex::new(optimized_rx)),
         }
+    }
+
+    pub fn consume_optimizations(&self) -> Arc<TokioMutex<tokio_mpsc::Receiver<FunctionId>>> {
+        self.optimized_rx.clone()
     }
 }
 
