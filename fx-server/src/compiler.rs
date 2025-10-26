@@ -7,7 +7,7 @@ use {
         wasmparser::Operator,
     },
     wasmer_middlewares::Metering,
-    fx_runtime::compiler::{Compiler, CompilerError},
+    fx_runtime::compiler::{Compiler, CompilerError, BoxedCompiler, MemoizedCompiler},
 };
 
 pub struct CraneliftCompiler {}
@@ -69,3 +69,33 @@ impl Compiler for LLVMCompiler {
 }
 
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
+
+pub struct TieredCompiler {
+    fast: BoxedCompiler,
+    optimizing: MemoizedCompiler,
+}
+
+impl TieredCompiler {
+    pub fn new(fast: BoxedCompiler, optimizing: MemoizedCompiler) -> Self {
+        Self {
+            fast,
+            optimizing,
+        }
+    }
+}
+
+impl Compiler for TieredCompiler {
+    fn create_store(&self) -> Store {
+        // the reason why create_store cannot be called directly is because we cannot know which
+        // compiler will be used ahead of time.
+        panic!("create_store should not be called on TieredCompiler, use compile instead")
+    }
+
+    fn compile(&self, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        if let Some(v) = self.optimizing.load_from_storage_if_available(&module_code)? {
+            return Ok(v);
+        }
+
+        self.fast.compile(module_code)
+    }
+}

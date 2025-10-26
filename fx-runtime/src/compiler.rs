@@ -92,6 +92,19 @@ impl MemoizedCompiler {
         hasher.update(module_code);
         hasher.finalize().to_vec()
     }
+
+    pub fn load_from_storage_if_available(&self, module_code: &[u8]) -> Result<Option<(Store, Module)>, CompilerError> {
+        let key = self.key(&module_code);
+        self.storage.get(&key)
+            .unwrap()
+            .map(|compiled_module| {
+                let store = self.create_store();
+                let module = unsafe { Module::deserialize(&store, compiled_module) };
+                module.map_err(|err| CompilerError::FailedToDeserialize { reason: err.to_string() })
+                    .map(|module| (store, module))
+            })
+            .transpose()
+    }
 }
 
 // TODO: Module supports .clone()
@@ -100,21 +113,15 @@ impl Compiler for MemoizedCompiler {
         self.compiler.create_store()
     }
 
-    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
-        let key = self.key(&bytes);
-        match self.storage.get(&key).unwrap() {
-            Some(v) => {
-                let store = self.create_store();
-                let module = unsafe { Module::deserialize(&store, v) };
-                module.map_err(|err| CompilerError::FailedToDeserialize { reason: err.to_string() })
-                    .map(|module| (store, module))
-            },
-            None => {
-                let (store, module) = self.compiler.compile(bytes)?;
-                let serialized = module.serialize().unwrap();
-                self.storage.set(&key, &serialized.to_vec()).unwrap();
-                Ok((store, module))
-            }
-        }
+    fn compile(&self, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        if let Some(v) = self.load_from_storage_if_available(&module_code)? {
+            return Ok(v);
+        };
+
+        let key = self.key(&module_code);
+        let (store, module) = self.compiler.compile(module_code)?;
+        let serialized = module.serialize().unwrap();
+        self.storage.set(&key, &serialized.to_vec()).unwrap();
+        Ok((store, module))
     }
 }
