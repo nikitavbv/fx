@@ -72,6 +72,29 @@ impl Compiler for LLVMCompiler {
     }
 }
 
+pub struct SinglepassCompiler {}
+
+impl SinglepassCompiler {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Compiler for SinglepassCompiler {
+    fn create_store(&self) -> Store {
+        let mut compiler_config = wasmer_compiler_singlepass::Singlepass::default();
+        compiler_config.push_middleware(Arc::new(Metering::new(u64::MAX, ops_cost_function)));
+        Store::new(EngineBuilder::new(compiler_config))
+    }
+
+    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        let store = self.create_store();
+        Module::new(&store, &module_code)
+            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map(|module| (store, module))
+    }
+}
+
 fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 #[derive(Clone)]

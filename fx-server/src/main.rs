@@ -27,7 +27,7 @@ use {
         http::HttpHandler,
         consumer::RabbitMqConsumer,
         logs::RabbitMqLogger,
-        compiler::{LLVMCompiler, CraneliftCompiler, TieredCompiler},
+        compiler::{LLVMCompiler, TieredCompiler, SinglepassCompiler},
     },
 };
 
@@ -136,7 +136,7 @@ async fn main() {
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
-    let fast_compiler = BoxedCompiler::new(CraneliftCompiler::new());
+    let fast_compiler = BoxedCompiler::new(SinglepassCompiler::new());
     let tiered_compiler = LLVMCompiler::new()
         .map(|llvm| {
             let llvm = BoxedCompiler::new(llvm);
