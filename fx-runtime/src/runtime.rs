@@ -529,7 +529,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FxRuntimeError> {
-        let (mut store, module) = engine.compiler.read().unwrap().compile(module_code)
+        let (mut store, module) = engine.compiler.read().unwrap().compile(&function_id, module_code)
             .map_err(|err| FxRuntimeError::CompilationError { reason: err.to_string() })?;
 
         let function_env = FunctionEnv::new(

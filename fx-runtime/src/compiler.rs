@@ -9,12 +9,15 @@ use {
     wasmer_middlewares::Metering,
     sha2::{Sha256, Digest},
     thiserror::Error,
-    crate::kv::{KVStorage, BoxedStorage},
+    crate::{
+        kv::{KVStorage, BoxedStorage},
+        runtime::FunctionId,
+    },
 };
 
 pub trait Compiler {
     fn create_store(&self) -> Store;
-    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError>;
+    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError>;
 }
 
 #[derive(Error, Debug)]
@@ -43,8 +46,8 @@ impl Compiler for BoxedCompiler {
         self.inner.create_store()
     }
 
-    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
-        self.inner.compile(bytes)
+    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+        self.inner.compile(function_id, bytes)
     }
 }
 
@@ -63,7 +66,7 @@ impl Compiler for CraneliftCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
@@ -113,13 +116,13 @@ impl Compiler for MemoizedCompiler {
         self.compiler.create_store()
     }
 
-    fn compile(&self, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         if let Some(v) = self.load_from_storage_if_available(&module_code)? {
             return Ok(v);
         };
 
         let key = self.key(&module_code);
-        let (store, module) = self.compiler.compile(module_code)?;
+        let (store, module) = self.compiler.compile(function_id, module_code)?;
         let serialized = module.serialize().unwrap();
         self.storage.set(&key, &serialized.to_vec()).unwrap();
         Ok((store, module))

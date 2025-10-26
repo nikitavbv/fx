@@ -7,7 +7,10 @@ use {
         wasmparser::Operator,
     },
     wasmer_middlewares::Metering,
-    fx_runtime::compiler::{Compiler, CompilerError, BoxedCompiler, MemoizedCompiler},
+    fx_runtime::{
+        compiler::{Compiler, CompilerError, BoxedCompiler, MemoizedCompiler},
+        runtime::FunctionId,
+    },
 };
 
 pub struct CraneliftCompiler {}
@@ -25,7 +28,7 @@ impl Compiler for CraneliftCompiler {
         Store::new(EngineBuilder::new(compiler_config))
     }
 
-    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
@@ -60,7 +63,7 @@ impl Compiler for LLVMCompiler {
         unreachable!("should not be reachable on aarch64")
     }
 
-    fn compile(&self, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
             .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
@@ -74,7 +77,7 @@ fn ops_cost_function(_: &Operator) -> u64 { 1 }
 pub struct TieredCompiler {
     fast: Arc<BoxedCompiler>,
     optimizing: Arc<MemoizedCompiler>,
-    optimizing_tx: Arc<mpsc::Sender<Vec<u8>>>,
+    optimizing_tx: Arc<mpsc::Sender<(FunctionId, Vec<u8>)>>,
     pending: Arc<Mutex<HashSet<Vec<u8>>>>,
 }
 
@@ -84,14 +87,14 @@ impl TieredCompiler {
         let optimizing = Arc::new(optimizing);
         let pending = Arc::new(Mutex::new(HashSet::new()));
 
-        let (optimizing_tx, rx) = mpsc::channel::<Vec<u8>>();
+        let (optimizing_tx, rx) = mpsc::channel::<(FunctionId, Vec<u8>)>();
         {
             let optimizing = optimizing.clone();
             let pending = pending.clone();
 
             thread::spawn(move || {
-                while let Ok(module_code) = rx.recv() {
-                    let _ = optimizing.compile(module_code.clone());
+                while let Ok((function_id, module_code)) = rx.recv() {
+                    let _ = optimizing.compile(&function_id, module_code.clone());
 
                     if let Ok(mut pending) = pending.lock() {
                         pending.remove(&module_code);
@@ -117,7 +120,7 @@ impl Compiler for TieredCompiler {
         panic!("create_store should not be called on TieredCompiler, use compile instead")
     }
 
-    fn compile(&self, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
+    fn compile(&self, function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         if let Some(v) = self.optimizing.load_from_storage_if_available(&module_code)? {
             return Ok(v);
         }
@@ -125,10 +128,10 @@ impl Compiler for TieredCompiler {
         if let Ok(mut pending) = self.pending.lock() {
             if !pending.contains(&module_code) {
                 pending.insert(module_code.clone());
-                self.optimizing_tx.send(module_code.clone()).unwrap();
+                self.optimizing_tx.send((function_id.clone(), module_code.clone())).unwrap();
             }
         }
 
-        self.fast.compile(module_code)
+        self.fast.compile(function_id, module_code)
     }
 }
