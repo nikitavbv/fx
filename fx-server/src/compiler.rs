@@ -1,5 +1,5 @@
 use {
-    std::sync::Arc,
+    std::{sync::{Arc, Mutex, mpsc}, thread, collections::HashSet},
     wasmer::{
         Module,
         Store,
@@ -72,14 +72,37 @@ fn ops_cost_function(_: &Operator) -> u64 { 1 }
 
 pub struct TieredCompiler {
     fast: BoxedCompiler,
-    optimizing: MemoizedCompiler,
+    optimizing: Arc<MemoizedCompiler>,
+    optimizing_tx: mpsc::Sender<Vec<u8>>,
+    pending: Arc<Mutex<HashSet<Vec<u8>>>>,
 }
 
 impl TieredCompiler {
     pub fn new(fast: BoxedCompiler, optimizing: MemoizedCompiler) -> Self {
+        let optimizing = Arc::new(optimizing);
+        let pending = Arc::new(Mutex::new(HashSet::new()));
+
+        let (optimizing_tx, rx) = mpsc::channel::<Vec<u8>>();
+        {
+            let optimizing = optimizing.clone();
+            let pending = pending.clone();
+
+            thread::spawn(move || {
+                while let Ok(module_code) = rx.recv() {
+                    let _ = optimizing.compile(module_code.clone());
+
+                    if let Ok(mut pending) = pending.lock() {
+                        pending.remove(&module_code);
+                    }
+                }
+            });
+        }
+
         Self {
             fast,
             optimizing,
+            optimizing_tx,
+            pending,
         }
     }
 }
@@ -94,6 +117,13 @@ impl Compiler for TieredCompiler {
     fn compile(&self, module_code: Vec<u8>) -> Result<(Store, Module), CompilerError> {
         if let Some(v) = self.optimizing.load_from_storage_if_available(&module_code)? {
             return Ok(v);
+        }
+
+        if let Ok(mut pending) = self.pending.lock() {
+            if !pending.contains(&module_code) {
+                pending.insert(module_code.clone());
+                self.optimizing_tx.send(module_code.clone()).unwrap();
+            }
         }
 
         self.fast.compile(module_code)
