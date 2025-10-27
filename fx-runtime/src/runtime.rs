@@ -719,6 +719,12 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
         }
     };
 
+    let event_type = match msg.event_type {
+        fx_common::LogEventType::Begin => logs::LogEventType::Begin,
+        fx_common::LogEventType::End => logs::LogEventType::End,
+        fx_common::LogEventType::Instant => logs::LogEventType::Instant,
+    };
+
     let level = match msg.level {
         fx_common::LogLevel::Trace => logs::LogLevel::Trace,
         fx_common::LogLevel::Debug => logs::LogLevel::Debug,
@@ -730,6 +736,7 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
     let ctx_data = ctx.data();
     ctx_data.engine.log(crate::logs::LogMessage::new(
         crate::logs::LogSource::function(&ctx_data.function_id),
+        event_type,
         level,
         msg.fields,
     ).into());

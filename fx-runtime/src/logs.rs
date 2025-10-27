@@ -6,23 +6,26 @@ use {
     tokio::time::sleep,
     fx_runtime_common::{
         LogSource as LogMessageEventLogSource,
+        LogEventType as LogMessageEventLogEventType,
         utils::object_to_event_fields,
     },
     crate::{runtime::FunctionId, error::LoggerError},
 };
 
-pub use fx_runtime_common::{LogMessageEvent, EventFieldValue};
+pub use fx_runtime_common::{LogMessageEvent, EventFieldValue, LogEventType};
 
 pub struct LogMessage {
     source: LogSource,
+    event_type: LogEventType,
     level: LogLevel,
     fields: HashMap<String, String>,
 }
 
 impl LogMessage {
-    pub fn new(source: LogSource, level: LogLevel, fields: HashMap<String, String>) -> Self {
+    pub fn new(source: LogSource, event_type: LogEventType, level: LogLevel, fields: HashMap<String, String>) -> Self {
         Self {
             source,
+            event_type,
             level,
             fields,
         }
@@ -31,7 +34,11 @@ impl LogMessage {
 
 impl Into<LogMessageEvent> for LogMessage {
     fn into(self) -> LogMessageEvent {
-        LogMessageEvent::new(self.source.into(), object_to_event_fields(self.fields).unwrap_or(HashMap::new()))
+        LogMessageEvent::new(
+            self.source.into(),
+            self.event_type.into(),
+            object_to_event_fields(self.fields).unwrap_or(HashMap::new())
+        )
     }
 }
 

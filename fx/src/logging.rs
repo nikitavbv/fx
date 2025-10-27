@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     tracing::{Subscriber, Event, field::{Field, Visit}, span::Attributes, Id},
     tracing_subscriber::{Layer, layer},
-    fx_common::{LogMessage, LogLevel},
+    fx_common::{LogMessage, LogLevel, LogEventType},
     crate::sys,
 };
 
@@ -28,7 +28,33 @@ impl<S> Layer<S> for FxLoggingLayer where S: Subscriber + for<'lookup> tracing_s
         let mut fields = HashMap::<String, String>::new();
         let mut visitor = FieldVisitor { fields: &mut fields };
         attrs.record(&mut visitor);
-        span.extensions_mut().insert(fields);
+        span.extensions_mut().insert(fields.clone());
+    }
+
+    fn on_enter(&self, id: &Id, ctx: layer::Context<'_, S>) {
+        let span = ctx.span(id).expect("span must exist");
+        log(
+            LogEventType::Begin,
+            log_level_from_metadata(span.metadata()),
+            {
+                let mut fields = span.extensions().get::<HashMap<String, String>>().cloned().unwrap_or(HashMap::new());
+                fields.insert("name".to_owned(), span.name().to_owned());
+                fields
+            }
+        );
+    }
+
+    fn on_exit(&self, id: &Id, ctx: layer::Context<'_, S>) {
+        let span = ctx.span(id).expect("span must exist");
+        log(
+            LogEventType::End,
+            log_level_from_metadata(span.metadata()),
+            {
+                let mut fields = span.extensions().get::<HashMap<String, String>>().cloned().unwrap_or(HashMap::new());
+                fields.insert("name".to_owned(), span.name().to_owned());
+                fields
+            }
+        );
     }
 
     fn on_event(&self, event: &Event<'_>, ctx: layer::Context<'_, S>) {
@@ -44,19 +70,21 @@ impl<S> Layer<S> for FxLoggingLayer where S: Subscriber + for<'lookup> tracing_s
 
         event.record(&mut FieldVisitor { fields: &mut fields });
 
-        let metadata = event.metadata();
-        let level = match *metadata.level() {
-            tracing::Level::TRACE => LogLevel::Trace,
-            tracing::Level::DEBUG => LogLevel::Debug,
-            tracing::Level::INFO => LogLevel::Info,
-            tracing::Level::WARN => LogLevel::Warn,
-            tracing::Level::ERROR => LogLevel::Error,
-        };
-
-        // fields.insert("metadata".to_owned(), format!("{:?}", event.metadata()));
-        let msg = LogMessage { level, fields };
-
-        let msg = rmp_serde::to_vec(&msg).unwrap();
-        unsafe { sys::log(msg.as_ptr() as i64, msg.len() as i64); }
+        log(LogEventType::Instant, log_level_from_metadata(event.metadata()), fields);
     }
+}
+
+fn log_level_from_metadata(metadata: &'static tracing::Metadata<'static>) -> LogLevel {
+    match *metadata.level() {
+        tracing::Level::TRACE => LogLevel::Trace,
+        tracing::Level::DEBUG => LogLevel::Debug,
+        tracing::Level::INFO => LogLevel::Info,
+        tracing::Level::WARN => LogLevel::Warn,
+        tracing::Level::ERROR => LogLevel::Error,
+    }
+}
+
+fn log(event_type: LogEventType, level: LogLevel, fields: HashMap<String, String>) {
+    let msg = rmp_serde::to_vec(&LogMessage { event_type, level, fields }).unwrap();
+    unsafe { sys::log(msg.as_ptr() as i64, msg.len() as i64); }
 }

@@ -17,6 +17,7 @@ pub struct Function {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogMessageEvent {
     pub source: LogSource,
+    pub event_type: LogEventType,
     pub fields: HashMap<String, EventFieldValue>,
 }
 
@@ -30,9 +31,10 @@ pub enum EventFieldValue {
 }
 
 impl LogMessageEvent {
-    pub fn new(source: LogSource, fields: HashMap<String, EventFieldValue>) -> Self {
+    pub fn new(source: LogSource, event_type: LogEventType, fields: HashMap<String, EventFieldValue>) -> Self {
         Self {
             source,
+            event_type,
             fields,
         }
     }
@@ -44,6 +46,13 @@ impl LogMessageEvent {
     pub fn fields(&self) -> &HashMap<String, EventFieldValue> {
         &self.fields
     }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub enum LogEventType {
+    Begin,
+    End,
+    Instant,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

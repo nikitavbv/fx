@@ -177,6 +177,7 @@ impl HttpResponseBody for &str {
 pub struct LogMessage {
     pub level: LogLevel,
     pub fields: HashMap<String, String>,
+    pub event_type: LogEventType,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -186,6 +187,13 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum LogEventType {
+    Begin,
+    End,
+    Instant,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

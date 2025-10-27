@@ -8,7 +8,7 @@ use {
         FxStream,
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition, RpcDefinition},
         compiler::{MemoizedCompiler, CraneliftCompiler, BoxedCompiler},
-        logs::{BoxLogger, EventFieldValue},
+        logs::{BoxLogger, EventFieldValue, LogEventType},
     },
     tokio::join,
     futures::StreamExt,
@@ -254,15 +254,29 @@ async fn test_log_span(fx: &FxRuntime, logger: Arc<TestLogger>) {
     println!("> test_log_span");
     fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
 
+    // both events include fields inherited from span
     let first_message = logger.events()
         .into_iter()
-        .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("first message".to_owned()))
+        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("first message".to_owned())).unwrap_or(false))
         .expect("expected first message to be present");
     let second_message = logger.events()
         .into_iter()
-        .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("second message".to_owned()))
+        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("second message".to_owned())).unwrap_or(false))
         .expect("expected second message to be present");
-
     assert!(first_message.fields.get("request_id").unwrap() == &EventFieldValue::Text("some-request-id".to_owned()));
     assert!(second_message.fields.get("request_id").unwrap() == &EventFieldValue::Text("some-request-id".to_owned()));
+
+    // span begin and end are logged
+    assert!(
+        logger.events()
+            .into_iter()
+            .find(|v| v.event_type == LogEventType::Begin && v.fields.get("name").map(|v| v == &EventFieldValue::Text("test_log_span".to_owned())).unwrap_or(false))
+            .is_some()
+    );
+    assert!(
+        logger.events()
+            .into_iter()
+            .find(|v| v.event_type == LogEventType::End && v.fields.get("name").map(|v| v == &EventFieldValue::Text("test_log_span".to_owned())).unwrap_or(false))
+            .is_some()
+    );
 }
