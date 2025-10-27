@@ -14,13 +14,13 @@ pub struct Function {
 }
 
 // logs
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LogMessageEvent {
     pub source: LogSource,
     pub fields: HashMap<String, EventFieldValue>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum EventFieldValue {
     Text(String),
     U64(u64),
@@ -46,7 +46,7 @@ impl LogMessageEvent {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum LogSource {
     Function {
         id: String,

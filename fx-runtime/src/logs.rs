@@ -1,16 +1,17 @@
 use {
-    std::{collections::HashMap, time::Duration},
+    std::{collections::HashMap, sync::Arc},
     tracing::{info, error},
     tokio::sync::mpsc,
     serde::Serialize,
     tokio::time::sleep,
     fx_runtime_common::{
-        LogMessageEvent,
         LogSource as LogMessageEventLogSource,
         utils::object_to_event_fields,
     },
     crate::{runtime::FunctionId, error::LoggerError},
 };
+
+pub use fx_runtime_common::{LogMessageEvent, EventFieldValue};
 
 pub struct LogMessage {
     source: LogSource,
@@ -103,5 +104,11 @@ impl Logger for StdoutLogger {
             LogMessageEventLogSource::FxRuntime => "fx".to_owned(),
         };
         println!("{source} | {:?}", message.fields);
+    }
+}
+
+impl<T: Logger> Logger for Arc<T> {
+    fn log(&self, message: LogMessageEvent) {
+        self.as_ref().log(message);
     }
 }

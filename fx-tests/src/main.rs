@@ -1,5 +1,5 @@
 use {
-    std::{fs, time::Instant},
+    std::{fs, time::Instant, sync::Arc},
     fx_runtime::{
         FxRuntime,
         kv::{SqliteStorage, BoxedStorage, WithKey, EmptyStorage},
@@ -8,11 +8,15 @@ use {
         FxStream,
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition, RpcDefinition},
         compiler::{MemoizedCompiler, CraneliftCompiler, BoxedCompiler},
+        logs::{BoxLogger, EventFieldValue},
     },
     tokio::join,
     futures::StreamExt,
     fx_common::FxExecutionError,
+    crate::logger::TestLogger,
 };
+
+mod logger;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
@@ -41,17 +45,13 @@ async fn main() {
 
     let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
 
+    let logger = Arc::new(TestLogger::new());
+
     let fx = FxRuntime::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
-        .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))));
-        /*.with_service(
-            Service::new(ServiceId::new("test-app".to_owned()))
-                .allow_fetch()
-                .with_storage("test-kv".to_owned(), BoxedStorage::new(SqliteStorage::in_memory().unwrap()))
-                .with_storage("test-kv-disk".to_owned(), BoxedStorage::new(SqliteStorage::new("data/test-kv-disk").unwrap()))
-                .with_sql_database("app".to_owned(), database_app)
-        )*/
+        .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
+        .with_logger(BoxLogger::new(logger.clone()));
 
     test_simple(&fx).await;
     test_sql_simple(&fx).await;
@@ -70,6 +70,7 @@ async fn main() {
     test_time(&fx).await;
     test_kv_simple(&fx).await;
     test_kv_wrong_binding_name(&fx).await;
+    test_log(&fx, logger.clone()).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -234,4 +235,16 @@ async fn test_kv_simple(fx: &FxRuntime) {
 async fn test_kv_wrong_binding_name(fx: &FxRuntime) {
     println!("> test_kv_wrong_binding_name");
     fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
+}
+
+async fn test_log(fx: &FxRuntime, logger: Arc<TestLogger>) {
+    println!("> test_log");
+    fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();
+
+    assert!(
+        logger.events()
+            .into_iter()
+            .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("this is a test log".to_owned()))
+            .is_some()
+    );
 }

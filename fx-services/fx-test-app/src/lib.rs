@@ -1,5 +1,6 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
+    tracing::info,
     fx::{rpc, FxCtx, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch},
     fx_runtime_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
@@ -160,4 +161,10 @@ pub async fn test_kv_wrong_binding_name(ctx: &FxCtx, _arg: ()) {
     let kv = ctx.kv("test-kv-wrong");
     let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
     assert_eq!(KvError::BindingDoesNotExist, err);
+}
+
+#[rpc]
+pub async fn test_log(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    info!("this is a test log");
 }
