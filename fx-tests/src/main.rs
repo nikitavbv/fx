@@ -71,6 +71,7 @@ async fn main() {
     test_kv_simple(&fx).await;
     test_kv_wrong_binding_name(&fx).await;
     test_log(&fx, logger.clone()).await;
+    test_log_span(&fx, logger.clone()).await;
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -247,4 +248,21 @@ async fn test_log(fx: &FxRuntime, logger: Arc<TestLogger>) {
             .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("this is a test log".to_owned()))
             .is_some()
     );
+}
+
+async fn test_log_span(fx: &FxRuntime, logger: Arc<TestLogger>) {
+    println!("> test_log_span");
+    fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
+
+    let first_message = logger.events()
+        .into_iter()
+        .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("first message".to_owned()))
+        .expect("expected first message to be present");
+    let second_message = logger.events()
+        .into_iter()
+        .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("second message".to_owned()))
+        .expect("expected second message to be present");
+
+    assert!(first_message.fields.get("request_id").unwrap() == &EventFieldValue::Text("some-request-id".to_owned()));
+    assert!(second_message.fields.get("request_id").unwrap() == &EventFieldValue::Text("some-request-id".to_owned()));
 }

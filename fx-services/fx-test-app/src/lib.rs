@@ -168,3 +168,13 @@ pub async fn test_log(ctx: &FxCtx, _arg: ()) {
     ctx.init_logger();
     info!("this is a test log");
 }
+
+#[rpc]
+pub async fn test_log_span(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    let span = tracing::info_span!("test_log_span", request_id="some-request-id");
+    let _guard = span.enter();
+
+    info!("first message");
+    info!("second message");
+}
