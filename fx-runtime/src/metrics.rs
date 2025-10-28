@@ -18,7 +18,7 @@ use {
         register_int_counter_with_registry,
         register_int_counter_vec_with_registry,
     },
-    crate::runtime::Engine,
+    crate::runtime::{Engine, FunctionId},
 };
 
 #[derive(Clone)]
@@ -53,11 +53,6 @@ pub enum MetricsError {
     FailedToCollect {
         reason: String
     },
-}
-
-#[derive(Clone)]
-struct FunctionMetrics {
-    counters: Arc<RwLock<HashMap<String, IntCounter>>>,
 }
 
 impl Metrics {
@@ -101,13 +96,11 @@ impl Metrics {
             function_execution_context_init_memory_usage,
             function_poll_time,
 
-            registry,
+            registry: registry.clone(),
 
             function_fx_api_calls,
 
-            function_metrics: FunctionMetrics {
-                counters: Arc::new(RwLock::new(HashMap::new())),
-            }
+            function_metrics: FunctionMetrics::new(registry),
         }
     }
 
@@ -116,6 +109,35 @@ impl Metrics {
         let encoder = TextEncoder::new();
         encoder.encode_to_string(&metrics)
             .map_err(|err| MetricsError::FailedToCollect { reason: format!("{err:?}") })
+    }
+}
+
+#[derive(Clone)]
+pub struct FunctionMetrics {
+    registry: Registry,
+
+    counters: Arc<RwLock<HashMap<String, IntCounter>>>,
+}
+
+impl FunctionMetrics {
+    pub fn new(registry: Registry) -> Self {
+        Self {
+            registry,
+
+            counters: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn counter_increment(&self, function_id: &FunctionId, counter_name: String, delta: u64) {
+        let counter_name = format!("{}_{counter_name}", function_id.as_string());
+        let mut counters = self.counters.write().unwrap();
+        if !counters.contains_key(&counter_name) {
+            let counter_opts = prometheus::Opts::new(counter_name.clone(), format!("metric exported by {}", function_id.as_string()));
+            let counter = IntCounter::with_opts(counter_opts).unwrap();
+            self.registry.register(Box::new(counter.clone())).unwrap();
+            counters.insert(counter_name.clone(), counter);
+        }
+        counters.get(&counter_name).unwrap().inc_by(delta);
     }
 }
 

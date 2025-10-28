@@ -554,7 +554,7 @@ impl ExecutionContext {
                 "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
-                "metrics_counter_increment" => Function::new_typed_with_env(&mut store, &function_env, api_metrics_counter_increment),
+                "metrics_counter_increment" => Function::new_typed_with_env(&mut store, &function_env, crate::api::metrics::handle_metrics_counter_increment),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
@@ -740,18 +740,6 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
         level,
         msg.fields,
     ).into());
-}
-
-fn api_metrics_counter_increment(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) {
-    let request: fx_common::metrics::CounterIncrementRequest = match decode_memory(&ctx, req_addr, req_len) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to decode memory for metrics counter increment: {err:?}");
-            return;
-        }
-    };
-
-    // TODO: implement this
 }
 
 fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
