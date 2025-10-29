@@ -80,6 +80,7 @@ unsafe extern "C" {
     pub(crate) fn sql_migrate(migrations_ptr: i64, migrations_len: i64, output_ptr: i64);
     pub(crate) fn queue_push(queue_ptr: i64, queue_len: i64, argument_ptr: i64, argument_len: i64);
     pub(crate) fn log(ptr: i64, len: i64);
+    pub(crate) fn metrics_counter_increment(counter_name_addr: i64, counter_name_len: i64, delta: i64);
     pub(crate) fn fetch(req_ptr: i64, req_len: i64) -> i64;
     pub(crate) fn sleep(millis: i64) -> i64;
     pub(crate) fn random(len: i64, output_ptr: i64);
