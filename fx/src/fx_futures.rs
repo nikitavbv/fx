@@ -75,8 +75,14 @@ impl PoolInner {
         self.futures.get_mut(&index.0).as_mut().unwrap().poll_unpin(context)
     }
 
-    pub fn remove(&mut self, index: &PoolIndex) {
-        drop(self.futures.remove(&index.0).unwrap());
+    pub fn remove(&mut self, index: &PoolIndex) -> Result<(), FxError> {
+        match self.futures.remove(&index.0) {
+            Some(v) => {
+                drop(v);
+                Ok(())
+            },
+            None => Err(FxError::FutureError { reason: format!("future with this index does not exist in the pool") })
+        }
     }
 }
 
