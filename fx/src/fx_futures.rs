@@ -4,7 +4,7 @@ use {
     lazy_static::lazy_static,
     serde::Serialize,
     fx_common::FxFutureError,
-    crate::{sys::{future_poll, future_drop}, PtrWithLen},
+    crate::{sys::{future_poll, future_drop}, PtrWithLen, error::FxError},
 };
 
 lazy_static! {
@@ -46,8 +46,13 @@ impl FuturePool {
         }
     }
 
-    pub fn remove(&self, index: PoolIndex) {
-        self.pool.lock().unwrap().remove(&index);
+    pub fn remove(&self, index: PoolIndex) -> Result<(), FxError> {
+        self.pool.lock()
+            .map_err(|err| FxError::FutureError {
+                reason: format!("failed to lock future pool: {err:?}"),
+            })?
+            .remove(&index);
+        Ok(())
     }
 }
 

@@ -382,11 +382,18 @@ impl Future for FunctionRuntimeFuture {
             match ctx.instance.exports.get_function("_fx_future_drop") {
                 Ok(function_drop) => {
                     while let Some(future_to_drop) = futures_to_drop.pop_front() {
-                        if let Err(err) = function_drop.call(store, &[Value::I64(future_to_drop)]) {
-                            error!("failed to call _fx_future_drop: {err:?}");
-                            ctx.needs_recreate.store(true, Ordering::SeqCst);
-                            return std::task::Poll::Ready(Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to call _fx_future_drop: {err:?}") }));
-                        };
+                        match function_drop.call(store, &[Value::I64(future_to_drop)]) {
+                            Ok(v) => {
+                                if v[0].i64().unwrap() != 0 {
+                                    error!("_fx_future_drop returned an error");
+                                }
+                            },
+                            Err(err) => {
+                                error!("failed to call _fx_future_drop: {err:?}");
+                                ctx.needs_recreate.store(true, Ordering::SeqCst);
+                                return std::task::Poll::Ready(Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to call _fx_future_drop: {err:?}") }));
+                            }
+                        }
                     }
                 },
                 Err(err) => {

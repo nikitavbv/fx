@@ -28,9 +28,12 @@ pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _fx_future_drop(future_index: i64) {
+pub extern "C" fn _fx_future_drop(future_index: i64) -> i64 {
     set_panic_hook();
-    FUTURE_POOL.remove(PoolIndex(future_index as u64));
+    match FUTURE_POOL.remove(PoolIndex(future_index as u64)) {
+        Ok(_) => 0,
+        Err(_) => -1,
+    }
 }
 
 /* returns 0 if pending, 1 if ready (some), 2 if ready (none) */
