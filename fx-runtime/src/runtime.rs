@@ -384,6 +384,8 @@ impl Future for FunctionRuntimeFuture {
                     while let Some(future_to_drop) = futures_to_drop.pop_front() {
                         if let Err(err) = function_drop.call(store, &[Value::I64(future_to_drop)]) {
                             error!("failed to call _fx_future_drop: {err:?}");
+                            ctx.needs_recreate.store(true, Ordering::SeqCst);
+                            return std::task::Poll::Ready(Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to call _fx_future_drop: {err:?}") }));
                         };
                     }
                 },
