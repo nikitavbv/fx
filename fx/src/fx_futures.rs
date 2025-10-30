@@ -51,8 +51,7 @@ impl FuturePool {
             .map_err(|err| FxError::FutureError {
                 reason: format!("failed to lock future pool: {err:?}"),
             })?
-            .remove(&index);
-        Ok(())
+            .remove(&index)
     }
 }
 
