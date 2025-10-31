@@ -47,7 +47,8 @@ impl FuturePool {
     }
 
     pub fn remove(&self, index: PoolIndex) -> Result<(), FxError> {
-        self.pool.lock()
+        self.pool
+            .try_lock()
             .map_err(|err| FxError::FutureError {
                 reason: format!("failed to lock future pool: {err:?}"),
             })?
