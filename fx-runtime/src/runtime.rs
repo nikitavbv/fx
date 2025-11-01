@@ -6,7 +6,7 @@ use {
         task::{self, Poll},
         time::{SystemTime, UNIX_EPOCH, Instant},
     },
-    tracing::error,
+    tracing::{error, info},
     wasmer::{
         wasmparser::Operator,
         sys::{Cranelift, CompilerConfig, EngineBuilder},
@@ -752,6 +752,8 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
 }
 
 fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
+    info!("api_fetch - start");
+
     if !ctx.data().allow_fetch {
         // TODO: handle this properly
         panic!("service {:?} is not allowed to call fetch", ctx.data().function_id.id);
@@ -783,7 +785,9 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         });
 
     let request_future = async move {
-        match request {
+        info!("api_fetch - request future start");
+
+        let result = match request {
             Ok(request) => request.send()
                 .and_then(|response| async {
                     Ok(rmp_serde::to_vec(&HttpResponse {
@@ -797,7 +801,9 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
                     reason: format!("request failed: {err:?}"),
                 }),
             Err(err) => Err(err),
-        }
+        };
+
+        info!("api_fetch - request future done");
     }.boxed();
 
     match ctx.data().engine.futures_pool.push(request_future) {
