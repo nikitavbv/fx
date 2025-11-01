@@ -70,6 +70,7 @@ jobs:
         override: true
         target: aarch64-unknown-linux-musl
     - uses: Swatinem/rust-cache@v2
+    - run: sudi apt update
     - run: sudo apt install gcc-aarch64-linux-gnu
     - run: |
         if ! command -v just cross /dev/null
