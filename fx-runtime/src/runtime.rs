@@ -804,6 +804,8 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         };
 
         info!("api_fetch - request future done");
+
+        result
     }.boxed();
 
     match ctx.data().engine.futures_pool.push(request_future) {
