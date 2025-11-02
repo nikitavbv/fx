@@ -1,5 +1,6 @@
 use {
     std::{sync::{Mutex, Arc}, task::{Context, Poll, Waker}, collections::HashMap},
+    tracing::info,
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
@@ -122,11 +123,14 @@ impl FxHostFuture {
 impl Future for FxHostFuture {
     type Output = Result<Vec<u8>, FxFutureError>;
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
+        info!("FxHostFuture - poll");
+        let result = if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
             Poll::Pending
         } else {
             Poll::Ready(rmp_serde::from_slice(&self.response_ptr.read_owned()).unwrap())
-        }
+        };
+        info!("FxHostFuture - poll complete");
+        result
     }
 }
 

@@ -1,5 +1,6 @@
 use {
     std::{sync::{Arc, Mutex}, task::{Context, Poll, Waker}, collections::HashMap},
+    tracing::info,
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
     fx_common::FxStreamError,
@@ -32,16 +33,19 @@ impl StreamPool {
     }
 
     pub fn next(&self, index: i64) -> Poll<Option<Vec<u8>>> {
+        info!("stream arena - next");
         let mut context = Context::from_waker(Waker::noop());
         let mut pool = self.pool.lock().unwrap();
-        match pool.next(index, &mut context) {
+        let result = match pool.next(index, &mut context) {
             Poll::Ready(None) => {
                 pool.remove(index);
                 Poll::Ready(None)
             },
             Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
             Poll::Pending => Poll::Pending,
-        }
+        };
+        info!("stream arena - next complete");
+        result
     }
 
     pub fn remove(&self, index: u64) {
