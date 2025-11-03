@@ -31,6 +31,7 @@ use {
 };
 
 pub mod utils;
+pub mod metrics;
 pub mod sql;
 
 mod error;
