@@ -33,9 +33,10 @@ impl StreamPool {
     }
 
     pub fn next(&self, index: i64) -> Poll<Option<Vec<u8>>> {
-        info!("stream arena - next");
+        info!(stream_id=index, "stream arena - next");
         let mut context = Context::from_waker(Waker::noop());
         let mut pool = self.pool.lock().unwrap();
+        info!(stream_id=index, "acquired arena lock");
         let result = match pool.next(index, &mut context) {
             Poll::Ready(None) => {
                 pool.remove(index);
@@ -44,7 +45,7 @@ impl StreamPool {
             Poll::Ready(Some(v)) => Poll::Ready(Some(v)),
             Poll::Pending => Poll::Pending,
         };
-        info!("stream arena - next complete");
+        info!(stream_id=index, "stream arena - next complete");
         result
     }
 
