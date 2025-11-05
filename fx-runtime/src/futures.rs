@@ -2,6 +2,7 @@ use {
     std::{sync::{Arc, RwLock, Mutex}, task::{Poll, Context}, collections::{HashMap, VecDeque}},
     futures::{future::BoxFuture, FutureExt},
     thiserror::Error,
+    tracing::info,
     fx_common::FxFutureError,
 };
 
@@ -50,6 +51,7 @@ impl FuturesPool {
     }
 
     pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
+        info!(index=index.0, "FuturesPool.poll");
         let future = self.pool.try_read()
             .map_err(|err| FxFutureError::FxRuntimeError {
                 reason: format!("failed to acquire lock for futures arena: {err:?}")
@@ -59,12 +61,16 @@ impl FuturesPool {
             .clone();
         let mut future = match future.try_lock() {
             Ok(v) => v,
-            Err(err) => return Poll::Ready(Err(FxFutureError::FxRuntimeError {
-                reason: format!("failed to acquite future lock: {err:?}"),
-            })),
+            Err(err) => {
+                info!(index=index.0, "FuturesPool.poll done - failed to lock future");
+
+                return Poll::Ready(Err(FxFutureError::FxRuntimeError {
+                    reason: format!("failed to acquire future lock: {err:?}"),
+                }))
+            },
         };
 
-        match future.poll_unpin(context) {
+        let result = match future.poll_unpin(context) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
                 drop(future);
@@ -73,13 +79,17 @@ impl FuturesPool {
                         v.remove(&index.0);
 
                         // cleanup dropped futures
+                        info!(index=index.0, "FuturesPool cleanup");
                         if let Ok(mut futures_to_drop) = self.futures_to_drop.try_lock() {
                             while let Some(future_to_drop) = futures_to_drop.pop_front() {
                                 v.remove(&future_to_drop);
                             }
                         }
+                        info!(index=index.0, "FuturesPool cleanup done");
                     },
                     Err(err) => {
+                        info!(index=index.0, "FuturesPool.poll done - failed to lock arena");
+
                         return Poll::Ready(Err(FxFutureError::FxRuntimeError {
                             reason: format!("failed to acquire futures arena lock: {err:?}"),
                         }));
@@ -87,7 +97,11 @@ impl FuturesPool {
                 };
                 Poll::Ready(result)
             }
-        }
+        };
+
+        info!(index=index.0, "FuturesPool.poll done - ok");
+
+        result
     }
 
     pub fn remove(&self, index: &HostPoolIndex) {
