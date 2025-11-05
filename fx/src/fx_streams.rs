@@ -107,12 +107,15 @@ pub struct FxImportedStream {
 impl Stream for FxImportedStream {
     type Item = Result<Vec<u8>, FxStreamError>;
     fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        info!(stream_id=self.index, "polling stream");
         let response_ptr = PtrWithLen::new();
-        match unsafe { stream_poll_next(self.index, response_ptr.ptr_to_self()) } {
+        let result = match unsafe { stream_poll_next(self.index, response_ptr.ptr_to_self()) } {
             0 => Poll::Pending,
             1 => Poll::Ready(Some(response_ptr.read_decode())),
             2 => Poll::Ready(None),
             other => panic!("unexpected value: {other:?}"),
-        }
+        };
+        info!(stream_id=self.index, "polling stream - done");
+        result
     }
 }
