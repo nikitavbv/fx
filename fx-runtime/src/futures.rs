@@ -82,6 +82,7 @@ impl FuturesPool {
                         info!(index=index.0, "FuturesPool cleanup");
                         if let Ok(mut futures_to_drop) = self.futures_to_drop.try_lock() {
                             while let Some(future_to_drop) = futures_to_drop.pop_front() {
+                                info!(future_to_drop, "dropping future");
                                 v.remove(&future_to_drop);
                             }
                         }
