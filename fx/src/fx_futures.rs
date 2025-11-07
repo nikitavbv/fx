@@ -48,6 +48,8 @@ impl FuturePool {
     }
 
     pub fn remove(&self, index: PoolIndex) -> Result<(), FxError> {
+        info!(index=index.0, "removing future");
+
         self.pool
             .try_lock()
             .map_err(|err| FxError::FutureError {
@@ -79,7 +81,9 @@ impl PoolInner {
     pub fn remove(&mut self, index: &PoolIndex) -> Result<(), FxError> {
         match self.futures.remove(&index.0) {
             Some(v) => {
+                info!(index=index.0, "dropping future");
                 drop(v);
+                info!(index=index.0, "dropping future - done.");
                 Ok(())
             },
             None => Err(FxError::FutureError { reason: format!("future with this index does not exist in the pool") })
