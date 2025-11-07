@@ -861,6 +861,7 @@ fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr
 }
 
 fn api_future_drop(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
+    info!(future_index=index, "future drop api is called");
     ctx.data().engine.futures_pool.remove(&crate::futures::HostPoolIndex(index as u64));
 }
 
