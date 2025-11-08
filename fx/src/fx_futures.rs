@@ -1,6 +1,6 @@
 use {
     std::{sync::{Mutex, Arc}, task::{Context, Poll, Waker}, collections::HashMap},
-    tracing::info,
+    tracing::{info, error},
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
@@ -40,7 +40,9 @@ impl FuturePool {
         let mut pool = self.pool.lock().unwrap();
         match pool.poll(&index, &mut context) {
             Poll::Ready(v) => {
-                pool.remove(&index);
+                if let Err(err) = pool.remove(&index) {
+                    error!("failed to remove future from arena: {err:?}");
+                };
                 Poll::Ready(v)
             },
             Poll::Pending => Poll::Pending
