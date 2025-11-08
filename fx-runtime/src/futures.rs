@@ -100,7 +100,7 @@ impl FuturesPool {
             }
         };
 
-        info!(index=index.0, "FuturesPool.poll done - ok");
+        info!(index=index.0, is_ready=result.is_ready(), "FuturesPool.poll done - ok");
 
         result
     }
