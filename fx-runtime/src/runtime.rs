@@ -313,13 +313,8 @@ impl Engine {
         info!(stream_index=index, "reading execution contexts");
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
-        info!(stream_index=index, "locking store to drop stream");
-        let mut store_lock = ctx.store.lock().unwrap();
-        info!(stream_index=index, "locked store to drop stream");
-        let store = store_lock.deref_mut();
-
-        let function_stream_drop = ctx.instance.exports.get_function("_fx_stream_drop").unwrap();
-        function_stream_drop.call(store, &[wasmer::Value::I64(index)]).unwrap();
+        ctx.streams_to_drop.lock().unwrap().push_back(index);
+        info!(stream_index=index, "added stream to drop to streams_to_drop");
     }
 
     pub fn log(&self, message: LogMessageEvent) {
@@ -402,6 +397,14 @@ impl Future for FunctionRuntimeFuture {
                 Err(err) => {
                     error!("_fx_future_drop not available in: {:?}, {err:?}", self.function_id.id);
                 }
+            }
+        }
+
+        // cleanup streams
+        if let Ok(mut streams_to_drop) = ctx.streams_to_drop.try_lock() {
+            let function_stream_drop = ctx.instance.exports.get_function("_fx_stream_drop").unwrap();
+            while let Some(stream_to_drop) = streams_to_drop.pop_front() {
+                function_stream_drop.call(store, &[Value::I64(stream_to_drop)]).unwrap();
             }
         }
 
@@ -533,6 +536,7 @@ pub(crate) struct ExecutionContext {
     pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     needs_recreate: Arc<AtomicBool>,
     futures_to_drop: Arc<Mutex<VecDeque<i64>>>,
+    streams_to_drop: Arc<Mutex<VecDeque<i64>>>,
 }
 
 impl ExecutionContext {
@@ -603,6 +607,7 @@ impl ExecutionContext {
             function_env,
             needs_recreate: Arc::new(AtomicBool::new(false)),
             futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
+            streams_to_drop: Arc::new(Mutex::new(VecDeque::new())),
         })
     }
 }
