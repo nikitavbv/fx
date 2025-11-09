@@ -310,9 +310,12 @@ impl Engine {
     }
 
     pub(crate) fn stream_drop(&self, function_id: &FunctionId, index: i64) {
+        info!(stream_index=index, "reading execution contexts");
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
+        info!(stream_index=index, "locking store to drop stream");
         let mut store_lock = ctx.store.lock().unwrap();
+        info!(stream_index=index, "locked store to drop stream");
         let store = store_lock.deref_mut();
 
         let function_stream_drop = ctx.instance.exports.get_function("_fx_stream_drop").unwrap();
