@@ -808,13 +808,17 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         result
     }.boxed();
 
-    match ctx.data().engine.futures_pool.push(request_future) {
+    let result = match ctx.data().engine.futures_pool.push(request_future) {
         Ok(v) => v.0 as i64,
         Err(err) => {
             error!("failed to push future to arena: {err:?}");
             -1
         }
-    }
+    };
+
+    info!(future_index=result, "created future for api_fetch");
+
+    result
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
