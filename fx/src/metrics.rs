@@ -1,5 +1,6 @@
 use crate::sys::metrics_counter_increment;
 
+#[derive(Clone)]
 pub struct Counter {
     name: String,
 }
