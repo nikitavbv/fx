@@ -560,6 +560,7 @@ impl ExecutionContext {
 
         let mut import_object = imports! {
             "fx" => {
+                "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "rpc" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_rpc),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),

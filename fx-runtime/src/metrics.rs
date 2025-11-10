@@ -128,7 +128,7 @@ impl FunctionMetrics {
         }
     }
 
-    pub fn counter_increment(&self, function_id: &FunctionId, counter_name: String, delta: u64) {
+    pub fn counter_increment(&self, function_id: &FunctionId, counter_name: &str, delta: u64) {
         let counter_name = format!("{}_{counter_name}", function_id.as_string());
         let mut counters = self.counters.write().unwrap();
         if !counters.contains_key(&counter_name) {

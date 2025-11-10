@@ -11,5 +11,5 @@ pub fn handle_metrics_counter_increment(
 ) {
     let function_id = ctx.data().function_id.clone();
     let counter_name = String::from_utf8(read_memory_owned(&ctx, counter_name_addr, counter_name_len)).unwrap();
-    ctx.data().engine.metrics.function_metrics.counter_increment(&function_id, counter_name, delta as u64);
+    ctx.data().engine.metrics.function_metrics.counter_increment(&function_id, &counter_name, delta as u64);
 }
