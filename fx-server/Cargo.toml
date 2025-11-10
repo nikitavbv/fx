@@ -34,5 +34,5 @@ wasmer-compiler-llvm = { git = "https://github.com/wasmerio/wasmer" }
 [package.metadata.cross.target.aarch64-unknown-linux-musl]
 pre-build = [
     "apt update",
-    "apt install capnproto"
+    "apt install -y capnproto"
 ]
