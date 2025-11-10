@@ -30,3 +30,9 @@ fx-common = { path = "../fx-common" }
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
 wasmer-compiler-llvm = { git = "https://github.com/wasmerio/wasmer" }
+
+[target.aarch64-unknown-linux-musl]
+pre-build = [
+    "apt update",
+    "apt install capnproto"
+]
