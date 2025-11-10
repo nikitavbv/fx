@@ -36,6 +36,7 @@ pathdiff = "0.2.3"
 
 fx-common = { path = "../fx-common" }
 fx-runtime-common = { path = "../fx-runtime-common" }
+fx-api = { path = "../fx-api" }
 
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]
 tikv-jemallocator = "0.6.0"
