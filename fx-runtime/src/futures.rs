@@ -106,10 +106,7 @@ impl FuturesPool {
     }
 
     pub fn remove(&self, index: &HostPoolIndex) {
-        info!(index=index.0, "acquiring futures_to_drop lock");
-        let mut futures_to_drop = self.futures_to_drop.lock().unwrap();
-        info!(index=index.0, "acquired futures_to_drop lock");
-        futures_to_drop.push_back(index.0);
+        self.futures_to_drop.lock().unwrap().push_back(index.0);
     }
 
     pub fn len(&self) -> Result<u64, FuturesError> {

@@ -83,9 +83,7 @@ impl PoolInner {
     pub fn remove(&mut self, index: &PoolIndex) -> Result<(), FxError> {
         match self.futures.remove(&index.0) {
             Some(v) => {
-                info!(index=index.0, "dropping future");
                 drop(v);
-                info!(index=index.0, "dropping future - done.");
                 Ok(())
             },
             None => Err(FxError::FutureError { reason: format!("future with this index does not exist in the pool") })
@@ -130,13 +128,11 @@ impl Future for FxHostFuture {
     type Output = Result<Vec<u8>, FxFutureError>;
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         info!(future_id=self.index.0, "FxHostFuture - poll");
-        let result = if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
+        if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
             Poll::Pending
         } else {
             Poll::Ready(rmp_serde::from_slice(&self.response_ptr.read_owned()).unwrap())
-        };
-        info!(future_id=self.index.0, "FxHostFuture - poll complete");
-        result
+        }
     }
 }
 
