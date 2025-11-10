@@ -30,6 +30,7 @@ jobs:
         wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
         sudo bash /tmp/llvm.sh 18
         sudo apt install libpolly-18-dev
+    - run: sudo apt install capnproto
     - run: just test
   server-build:
     name: server build
@@ -48,6 +49,7 @@ jobs:
         wget https://apt.llvm.org/llvm.sh -O /tmp/llvm.sh
         sudo bash /tmp/llvm.sh 18
         sudo apt install libpolly-18-dev
+    - run: sudo apt install capnproto
     - uses: actions-rs/cargo@v1
       with:
         command: build
@@ -71,7 +73,7 @@ jobs:
         target: aarch64-unknown-linux-musl
     - uses: Swatinem/rust-cache@v2
     - run: sudo apt update
-    - run: sudo apt install gcc-aarch64-linux-gnu
+    - run: sudo apt install gcc-aarch64-linux-gnu capnproto
     - run: |
         if ! command -v just cross /dev/null
         then
