@@ -571,7 +571,6 @@ impl ExecutionContext {
                 "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
-                "metrics_counter_increment" => Function::new_typed_with_env(&mut store, &function_env, crate::api::metrics::handle_metrics_counter_increment),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),

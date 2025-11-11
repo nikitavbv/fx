@@ -6,7 +6,6 @@ use {
 
 // TODO: see rpc and refactor all other api calls similarly
 pub(crate) mod kv;
-pub(crate) mod metrics;
 pub(crate) mod rpc;
 pub(crate) mod sql;
 pub(crate) mod unsupported;
