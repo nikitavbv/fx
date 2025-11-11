@@ -27,10 +27,16 @@ pub fn fx_api_handler(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len:
 
     let message_reader = fx_api::capnp::serialize::read_message_from_flat_slice(&mut data, fx_api::capnp::message::ReaderOptions::default()).unwrap();
     let request = message_reader.get_root::<fx_api::fx_capnp::fx_api_call::Reader>().unwrap();
+    let op = request.get_op();
 
-    if request.has_metrics_counter_increment() {
-        let counter_increment_request = request.get_metrics_counter_increment().unwrap();
-        ctx.data().engine.metrics.function_metrics.counter_increment(&function_id, counter_increment_request.get_counter_name().unwrap().to_str().unwrap(), counter_increment_request.get_delta());
-        info!("incremented counter using fx_api_handler");
-    }
+    use fx_api::fx_capnp::fx_api_call::op::{Which as Operation};
+    match op.which().unwrap() {
+        Operation::MetricsCounterIncrement(v) => {
+            let counter_increment_request = v.unwrap();
+            ctx.data().engine.metrics.function_metrics.counter_increment(&function_id, counter_increment_request.get_counter_name().unwrap().to_str().unwrap(), counter_increment_request.get_delta());
+        },
+        Operation::Rpc(v) => {
+            unimplemented!()
+        }
+    };
 }
