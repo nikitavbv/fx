@@ -1,4 +1,7 @@
-use crate::sys::metrics_counter_increment;
+use {
+    fx_api::{capnp, fx_capnp},
+    crate::sys::invoke_fx_api,
+};
 
 #[derive(Clone)]
 pub struct Counter {
@@ -13,6 +16,11 @@ impl Counter {
     }
 
     pub fn increment(&self, delta: u64) {
-        unsafe { metrics_counter_increment(self.name.as_ptr() as i64, self.name.len() as i64, delta as i64); }
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let mut metrics_counter_increment_request = request.init_metrics_counter_increment();
+        metrics_counter_increment_request.set_counter_name(&self.name);
+        metrics_counter_increment_request.set_delta(delta);
+        invoke_fx_api(message);
     }
 }

@@ -1721,6 +1721,7 @@ dependencies = [
  "axum",
  "chrono",
  "futures",
+ "fx-api",
  "fx-common",
  "fx-macro",
  "lazy_static",

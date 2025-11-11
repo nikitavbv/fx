@@ -1,5 +1,6 @@
 use {
     std::task::Poll,
+    fx_api::{capnp, fx_capnp},
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
@@ -58,6 +59,7 @@ pub extern "C" fn _fx_stream_drop(stream_index: i64) {
 // imports:
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
+    pub(crate) fn fx_api(req_addr: i64, req_len: i64);
     pub(crate) fn rpc(
         service_name_ptr: i64,
         service_name_len: i64,
@@ -140,4 +142,9 @@ pub(crate) fn read_memory<'a>(ptr: i64, len: i64) -> &'a [u8] {
 
 pub(crate) fn read_memory_owned(ptr: i64, len: i64) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize) }
+}
+
+pub(crate) fn invoke_fx_api(message: capnp::message::Builder<capnp::message::HeapAllocator>) {
+    let message = capnp::serialize::write_message_to_words(&message);
+    unsafe { fx_api(message.as_ptr() as i64, message.len() as i64) };
 }

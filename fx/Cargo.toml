@@ -19,3 +19,4 @@ tower = "0.5.2"
 
 fx-common = { path = "../fx-common" }
 fx-macro = { path = "../fx-macro" }
+fx-api = { path = "../fx-api" }
