@@ -51,7 +51,6 @@ impl FuturesPool {
     }
 
     pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
-        info!(index=index.0, "FuturesPool.poll");
         let future = self.pool.try_read()
             .map_err(|err| FxFutureError::FxRuntimeError {
                 reason: format!("failed to acquire lock for futures arena: {err:?}")
@@ -62,8 +61,6 @@ impl FuturesPool {
         let mut future = match future.try_lock() {
             Ok(v) => v,
             Err(err) => {
-                info!(index=index.0, "FuturesPool.poll done - failed to lock future");
-
                 return Poll::Ready(Err(FxFutureError::FxRuntimeError {
                     reason: format!("failed to acquire future lock: {err:?}"),
                 }))
@@ -89,8 +86,6 @@ impl FuturesPool {
                         info!(index=index.0, "FuturesPool cleanup done");
                     },
                     Err(err) => {
-                        info!(index=index.0, "FuturesPool.poll done - failed to lock arena");
-
                         return Poll::Ready(Err(FxFutureError::FxRuntimeError {
                             reason: format!("failed to acquire futures arena lock: {err:?}"),
                         }));
@@ -99,8 +94,6 @@ impl FuturesPool {
                 Poll::Ready(result)
             }
         };
-
-        info!(index=index.0, is_ready=result.is_ready(), "FuturesPool.poll done - ok");
 
         result
     }

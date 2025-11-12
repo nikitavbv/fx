@@ -127,7 +127,6 @@ impl FxHostFuture {
 impl Future for FxHostFuture {
     type Output = Result<Vec<u8>, FxFutureError>;
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        info!(future_id=self.index.0, "FxHostFuture - poll");
         if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
             Poll::Pending
         } else {
