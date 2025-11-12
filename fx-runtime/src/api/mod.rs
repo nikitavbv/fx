@@ -1,7 +1,7 @@
 use {
     wasmer::FunctionEnvMut,
-    tracing::info,
-    crate::runtime::ExecutionEnv,
+    fx_api::{capnp, fx_capnp},
+    crate::runtime::{ExecutionEnv, write_memory_obj, PtrWithLen},
 };
 
 // TODO: see rpc and refactor all other api calls similarly
@@ -16,27 +16,43 @@ pub(crate) mod unsupported;
 // - metrics - counters per syscall type
 // - no "fx_cloud" namespace, should be just one more binding
 
-pub fn fx_api_handler(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) {
+pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
     let function_id = ctx.data().function_id.clone();
 
-    let memory = ctx.data().memory.as_ref().unwrap();
-    let view = memory.view(&ctx);
+    let (data, mut store) = ctx.data_and_store_mut();
+
+    let memory = data.memory.as_ref().unwrap();
+    let view = memory.view(&store);
     let req_addr = req_addr as usize;
     let req_len = req_len as usize;
-    let mut data = unsafe { &view.data_unchecked_mut()[req_addr..req_addr+req_len] };
 
-    let message_reader = fx_api::capnp::serialize::read_message_from_flat_slice(&mut data, fx_api::capnp::message::ReaderOptions::default()).unwrap();
+    let mut message_bytes = unsafe { &view.data_unchecked_mut()[req_addr..req_addr+req_len] };
+    let message_reader = fx_api::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_api::capnp::message::ReaderOptions::default()).unwrap();
     let request = message_reader.get_root::<fx_api::fx_capnp::fx_api_call::Reader>().unwrap();
     let op = request.get_op();
+
+    let mut response_message = capnp::message::Builder::new_default();
+    let response = response_message.init_root::<fx_capnp::fx_api_call_result::Builder>();
+    let mut response_op = response.init_op();
 
     use fx_api::fx_capnp::fx_api_call::op::{Which as Operation};
     match op.which().unwrap() {
         Operation::MetricsCounterIncrement(v) => {
             let counter_increment_request = v.unwrap();
-            ctx.data().engine.metrics.function_metrics.counter_increment(&function_id, counter_increment_request.get_counter_name().unwrap().to_str().unwrap(), counter_increment_request.get_delta());
+            data.engine.metrics.function_metrics.counter_increment(&function_id, counter_increment_request.get_counter_name().unwrap().to_str().unwrap(), counter_increment_request.get_delta());
+            response_op.set_metrics_counter_increment(());
         },
         Operation::Rpc(v) => {
             unimplemented!()
         }
     };
+
+    let response_size = capnp::serialize::compute_serialized_size_in_words(&response_message);
+    let ptr = data.client_malloc().call(&mut store, &[wasmer::Value::I64(response_size as i64)]).unwrap()[0].i64().unwrap() as usize;
+
+    unsafe {
+        capnp::serialize::write_message(&mut memory.view(&store).data_unchecked_mut()[ptr..ptr+response_size], &response_message).unwrap();
+    }
+
+    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr: ptr as i64, len: response_size as i64 });
 }

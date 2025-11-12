@@ -8,8 +8,10 @@ struct FxApiCall {
 }
 
 struct FxApiCallResult {
-    metricsCounterIncrement @0 :Void;
-    rpc @1 :RpcCallResponse;
+    op :union {
+        metricsCounterIncrement @0 :Void;
+        rpc @1 :RpcCallResponse;
+    }
 }
 
 struct MetricsCounterIncrementRequest {

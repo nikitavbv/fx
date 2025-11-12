@@ -59,7 +59,7 @@ pub extern "C" fn _fx_stream_drop(stream_index: i64) {
 // imports:
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
-    pub(crate) fn fx_api(req_addr: i64, req_len: i64);
+    pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
     pub(crate) fn rpc(
         service_name_ptr: i64,
         service_name_len: i64,
@@ -145,5 +145,7 @@ pub(crate) fn read_memory_owned(ptr: i64, len: i64) -> Vec<u8> {
 
 pub(crate) fn invoke_fx_api(message: capnp::message::Builder<capnp::message::HeapAllocator>) {
     let message = capnp::serialize::write_message_to_words(&message);
-    unsafe { fx_api(message.as_ptr() as i64, message.len() as i64) };
+    let output_ptr = PtrWithLen::default();
+    unsafe { fx_api(message.as_ptr() as i64, message.len() as i64, output_ptr.ptr_to_self()) };
+    let _response = output_ptr.read_owned();
 }
