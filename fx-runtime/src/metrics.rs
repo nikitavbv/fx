@@ -129,7 +129,7 @@ impl FunctionMetrics {
     }
 
     pub fn counter_increment(&self, function_id: &FunctionId, counter_name: &str, delta: u64) {
-        let counter_name = format!("{}_{counter_name}", function_id.as_string());
+        let counter_name = format!("{}_{counter_name}", function_id.as_string().replace("-", "_"));
         let mut counters = self.counters.write().unwrap();
         if !counters.contains_key(&counter_name) {
             let counter_opts = prometheus::Opts::new(counter_name.clone(), format!("metric exported by {}", function_id.as_string()));

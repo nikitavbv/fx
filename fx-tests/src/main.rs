@@ -72,6 +72,8 @@ async fn main() {
     test_kv_wrong_binding_name(&fx).await;
     test_log(&fx, logger.clone()).await;
     test_log_span(&fx, logger.clone()).await;
+    test_metrics_counter_increment(&fx).await;
+
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
     // TODO: test sql with all types
@@ -279,4 +281,10 @@ async fn test_log_span(fx: &FxRuntime, logger: Arc<TestLogger>) {
             .find(|v| v.event_type == LogEventType::End && v.fields.get("name").map(|v| v == &EventFieldValue::Text("test_log_span".to_owned())).unwrap_or(false))
             .is_some()
     );
+}
+
+async fn test_metrics_counter_increment(fx: &FxRuntime) {
+    println!("> test_metrics_counter_increment");
+    fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
+    // TODO: check counter value
 }

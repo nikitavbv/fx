@@ -47,7 +47,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         }
     };
 
-    let response_size = capnp::serialize::compute_serialized_size_in_words(&response_message);
+    let response_size = capnp::serialize::compute_serialized_size_in_words(&response_message) * 8;
     let ptr = data.client_malloc().call(&mut store, &[wasmer::Value::I64(response_size as i64)]).unwrap()[0].i64().unwrap() as usize;
 
     unsafe {

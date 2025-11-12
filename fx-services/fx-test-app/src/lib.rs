@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    fx::{rpc, FxCtx, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch},
+    fx::{rpc, FxCtx, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
     fx_runtime_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
 };
@@ -177,4 +177,10 @@ pub async fn test_log_span(ctx: &FxCtx, _arg: ()) {
 
     info!("first message");
     info!("second message");
+}
+
+#[rpc]
+pub async fn test_counter_increment(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    Counter::new("test_counter").increment(1);
 }
