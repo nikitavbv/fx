@@ -35,7 +35,6 @@ impl StreamPool {
     pub fn next(&self, index: i64) -> Poll<Option<Vec<u8>>> {
         let mut context = Context::from_waker(Waker::noop());
         let mut pool = self.pool.lock().unwrap();
-        info!(stream_id=index, "acquired arena lock");
         match pool.next(index, &mut context) {
             Poll::Ready(None) => {
                 pool.remove(index);
