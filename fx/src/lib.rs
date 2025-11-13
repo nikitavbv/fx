@@ -108,26 +108,6 @@ impl FxCtx {
         Ok(rmp_serde::from_slice(&response).unwrap())
     }
 
-    pub fn rpc_async<T: serde::ser::Serialize>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) {
-        let service_id = service_id.into();
-        let service_id = service_id.as_bytes();
-        let function = function.into();
-        let function = function.as_bytes();
-        let arg = rmp_serde::to_vec(&arg).unwrap();
-        let arg = arg.as_slice();
-
-        unsafe {
-            sys::rpc_async(
-                service_id.as_ptr() as i64,
-                service_id.len() as i64,
-                function.as_ptr() as i64,
-                function.len() as i64,
-                arg.as_ptr() as i64,
-                arg.len() as i64
-            );
-        }
-    }
-
     pub fn random(&self, len: u64) -> Vec<u8> {
         let ptr_and_len = sys::PtrWithLen::new();
         unsafe { sys::random(len as i64, ptr_and_len.ptr_to_self()) };
