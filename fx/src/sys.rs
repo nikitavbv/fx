@@ -1,5 +1,5 @@
 use {
-    std::task::Poll,
+    std::{task::Poll, io::Cursor},
     fx_api::{capnp, fx_capnp},
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
@@ -60,14 +60,6 @@ pub extern "C" fn _fx_stream_drop(stream_index: i64) {
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
     pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
-    pub(crate) fn rpc(
-        service_name_ptr: i64,
-        service_name_len: i64,
-        function_name_ptr: i64,
-        function_name_len: i64,
-        arg_ptr: i64,
-        arg_len: i64,
-    ) -> i64;
     pub(crate) fn rpc_async(
         service_name_ptr: i64,
         service_name_len: i64,
@@ -143,9 +135,10 @@ pub(crate) fn read_memory_owned(ptr: i64, len: i64) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize) }
 }
 
-pub(crate) fn invoke_fx_api(message: capnp::message::Builder<capnp::message::HeapAllocator>) {
+pub(crate) fn invoke_fx_api(message: capnp::message::Builder<capnp::message::HeapAllocator>) -> capnp::message::Reader<capnp::serialize::OwnedSegments> {
     let message = capnp::serialize::write_message_to_words(&message);
     let output_ptr = PtrWithLen::default();
     unsafe { fx_api(message.as_ptr() as i64, message.len() as i64, output_ptr.ptr_to_self()) };
-    let _response = output_ptr.read_owned();
+    let response = output_ptr.read_owned();
+    capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap()
 }

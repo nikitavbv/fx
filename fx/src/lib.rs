@@ -14,7 +14,7 @@ pub use {
     fx_macro::rpc,
     futures::FutureExt,
     crate::{
-        sys::PtrWithLen,
+        sys::{PtrWithLen},
         fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
@@ -27,7 +27,8 @@ use {
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    crate::{sys::read_memory_owned, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
+    fx_api::{capnp, fx_capnp},
+    crate::{sys::{read_memory_owned, invoke_fx_api}, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
 };
 
 pub mod utils;
@@ -77,23 +78,30 @@ impl FxCtx {
         Queue::new(name.into())
     }
 
-    pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, service_id: impl Into<String>, function: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
-        let service_id = service_id.into();
-        let service_id = service_id.as_bytes();
-        let function = function.into();
-        let function = function.as_bytes();
-        let arg = rmp_serde::to_vec(&arg).unwrap();
-        let arg = arg.as_slice();
+    pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, function_id: impl Into<String>, method: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
+        let future_index = {
+            let arg = rmp_serde::to_vec(&arg).unwrap();
 
-        let future_index = unsafe {
-            sys::rpc(
-                service_id.as_ptr() as i64,
-                service_id.len() as i64,
-                function.as_ptr() as i64,
-                function.len() as i64,
-                arg.as_ptr() as i64,
-                arg.len() as i64,
-            )
+            let mut message = capnp::message::Builder::new_default();
+            let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+            let op = request.init_op();
+            let mut rpc_request = op.init_rpc();
+            rpc_request.set_function_id(function_id.into());
+            rpc_request.set_method_name(method.into());
+            rpc_request.set_argument(&arg);
+            let response = invoke_fx_api(message);
+            let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+            match response.get_op().which().unwrap() {
+                fx_capnp::fx_api_call_result::op::Which::Rpc(v) => {
+                    let rpc_response = v.unwrap();
+                    match rpc_response.get_response().which().unwrap() {
+                        fx_capnp::rpc_call_response::response::Which::FutureId(v) => v,
+                        _other => panic!("unexpected rpc response"),
+                    }
+                },
+                _other => panic!("unexpected response from rpc api"),
+            }
         };
 
         let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
