@@ -760,8 +760,6 @@ fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
 }
 
 fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
-    info!("api_fetch - start");
-
     if !ctx.data().allow_fetch {
         // TODO: handle this properly
         panic!("service {:?} is not allowed to call fetch", ctx.data().function_id.id);
@@ -793,9 +791,7 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
         });
 
     let request_future = async move {
-        info!("api_fetch - request future start");
-
-        let result = match request {
+        match request {
             Ok(request) => request.send()
                 .and_then(|response| async {
                     Ok(rmp_serde::to_vec(&HttpResponse {
@@ -809,24 +805,16 @@ fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> 
                     reason: format!("request failed: {err:?}"),
                 }),
             Err(err) => Err(err),
-        };
-
-        info!("api_fetch - request future done");
-
-        result
+        }
     }.boxed();
 
-    let result = match ctx.data().engine.futures_pool.push(request_future) {
+    match ctx.data().engine.futures_pool.push(request_future) {
         Ok(v) => v.0 as i64,
         Err(err) => {
             error!("failed to push future to arena: {err:?}");
             -1
         }
-    };
-
-    info!(future_index=result, "created future for api_fetch");
-
-    result
+    }
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
