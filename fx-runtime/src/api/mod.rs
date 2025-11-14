@@ -47,6 +47,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::Rpc(v) => {
             handle_rpc(data, v.unwrap(), response_op.init_rpc());
+        },
+        Operation::KvGet(v) => {
+            unimplemented!()
         }
     };
 

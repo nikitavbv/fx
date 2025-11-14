@@ -60,8 +60,8 @@ pub extern "C" fn _fx_stream_drop(stream_index: i64) {
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
     pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
-    pub(crate) fn send_rpc_response(ptr: i64, len: i64);
-    pub(crate) fn send_error(ptr: i64, len: i64);
+    pub(crate) fn send_rpc_response(ptr: i64, len: i64); // TODO: replace with unified api handler in fx sdk
+    pub(crate) fn send_error(ptr: i64, len: i64); // TODO: replace with unified api handler in fx sdk
     pub(crate) fn kv_get(binding_ptr: i64, binding_len: i64, k_ptr: i64, k_len: i64, output_ptr: i64) -> i64; // 0 - ok, 1 - binding does not exist, 2 - value does not exist
     pub(crate) fn kv_set(binding_ptr: i64, binding_len: i64, k_ptr: i64, k_len: i64, v_ptr: i64, v_len: i64) -> i64; // 0 - ok, 1 - binding does not exist
     pub(crate) fn sql_exec(query_ptr: i64, query_len: i64, output_ptr: i64);

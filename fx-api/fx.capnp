@@ -4,6 +4,7 @@ struct FxApiCall {
     op :union {
         metricsCounterIncrement @0 :MetricsCounterIncrementRequest;
         rpc @1 :RpcCallRequest;
+        kvGet @2 :KvGetRequest;
     }
 }
 
@@ -11,6 +12,7 @@ struct FxApiCallResult {
     op :union {
         metricsCounterIncrement @0 :Void;
         rpc @1 :RpcCallResponse;
+        kvGet @2 :KvGetResponse;
     }
 }
 
@@ -30,5 +32,18 @@ struct RpcCallResponse {
         futureId @0 :UInt64;
         bindingNotFound @1 :Void;
         runtimeError @2 :Void;
+    }
+}
+
+struct KvGetRequest {
+    bindingId @0 :Text;
+    key @1 :Data;
+}
+
+struct KvGetResponse {
+    response :union {
+        value @0 :Data;
+        bindingNotFOund @1 :Void;
+        keyNotFound @2 :Void;
     }
 }
