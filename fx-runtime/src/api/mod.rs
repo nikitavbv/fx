@@ -4,7 +4,10 @@ use {
     futures::FutureExt,
     fx_api::{capnp, fx_capnp},
     fx_common::FxFutureError,
-    crate::runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId},
+    crate::{
+        runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId},
+        kv::KVStorage,
+    },
 };
 
 // TODO: see rpc and refactor all other api calls similarly
@@ -49,7 +52,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_rpc(data, v.unwrap(), response_op.init_rpc());
         },
         Operation::KvGet(v) => {
-            unimplemented!()
+            handle_kv_get(data, v.unwrap(), response_op.init_kv_get());
         }
     };
 
@@ -63,7 +66,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr: ptr as i64, len: response_size as i64 });
 }
 
-fn handle_rpc<'s>(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {
+fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {
     let mut rpc_response = rpc_response.init_response();
 
     let function_id = FunctionId::new(rpc_request.get_function_id().unwrap().to_string().unwrap());
@@ -96,4 +99,31 @@ fn handle_rpc<'s>(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::
     engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "rpc"]).inc();
 
     rpc_response.set_future_id(response_future.0);
+}
+
+fn handle_kv_get(data: &ExecutionEnv, kv_get_request: fx_capnp::kv_get_request::Reader, kv_get_response: fx_capnp::kv_get_response::Builder) {
+    let mut kv_get_response = kv_get_response.init_response();
+
+    let binding = kv_get_request.get_binding_id().unwrap().to_str().unwrap();
+    let storage = match data.storage.get(binding) {
+        Some(v) => v,
+        None => {
+            kv_get_response.set_binding_not_found(());
+            return;
+        }
+    };
+
+    let key = kv_get_request.get_key().unwrap();
+    let value = storage.get(key).unwrap();
+    let value = match value {
+        Some(v) => v,
+        None => {
+            kv_get_response.set_key_not_found(());
+            return;
+        }
+    };
+
+    kv_get_response.set_value(&value);
+
+    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::get"]).inc();
 }

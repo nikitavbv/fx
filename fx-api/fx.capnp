@@ -43,7 +43,7 @@ struct KvGetRequest {
 struct KvGetResponse {
     response :union {
         value @0 :Data;
-        bindingNotFOund @1 :Void;
+        bindingNotFound @1 :Void;
         keyNotFound @2 :Void;
     }
 }
