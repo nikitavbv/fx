@@ -137,14 +137,25 @@ impl KvStore {
     }
 
     pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, KvError> {
-        let key = key.as_bytes();
-        let ptr_and_len = sys::PtrWithLen::new();
-        let result = unsafe { sys::kv_get(self.binding.as_ptr() as i64, self.binding.len() as i64, key.as_ptr() as i64, key.len() as i64, ptr_and_len.ptr_to_self()) };
-        match result {
-            0 => Ok(Some(ptr_and_len.read_owned())),
-            1 => Err(KvError::BindingDoesNotExist),
-            2 => Ok(None),
-            _ => Err(KvError::UnknownError),
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut kv_get_request = op.init_kv_get();
+        kv_get_request.set_key(key.as_bytes());
+        kv_get_request.set_binding_id(self.binding.as_str());
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::KvGet(v) => {
+                let kv_get_response = v.unwrap();
+                match kv_get_response.get_response().which().unwrap() {
+                    fx_capnp::kv_get_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
+                    fx_capnp::kv_get_response::response::Which::KeyNotFound(_) => Ok(None),
+                    fx_capnp::kv_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
+                }
+            },
+            _other => panic!("unexpected response from kv_get api"),
         }
     }
 
