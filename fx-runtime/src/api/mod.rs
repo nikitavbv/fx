@@ -53,6 +53,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::KvGet(v) => {
             handle_kv_get(data, v.unwrap(), response_op.init_kv_get());
+        },
+        Operation::KvSet(v) => {
+            unimplemented!()
         }
     };
 
