@@ -55,7 +55,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_kv_get(data, v.unwrap(), response_op.init_kv_get());
         },
         Operation::KvSet(v) => {
-            unimplemented!()
+            handle_kv_set(data, v.unwrap(), response_op.init_kv_set());
         }
     };
 
@@ -129,4 +129,23 @@ fn handle_kv_get(data: &ExecutionEnv, kv_get_request: fx_capnp::kv_get_request::
     kv_get_response.set_value(&value);
 
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::get"]).inc();
+}
+
+fn handle_kv_set(data: &ExecutionEnv, kv_set_request: fx_capnp::kv_set_request::Reader, kv_set_response: fx_capnp::kv_set_response::Builder) {
+    let mut kv_set_response = kv_set_response.init_response();
+
+    let binding = kv_set_request.get_binding_id().unwrap().to_str().unwrap();
+    let storage = match data.storage.get(binding) {
+        Some(v) => v,
+        None => {
+            kv_set_response.set_binding_not_found(());
+            return;
+        }
+    };
+
+    storage.set(kv_set_request.get_key().unwrap(), kv_set_request.get_value().unwrap()).unwrap();
+
+    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::set"]).inc();
+
+    kv_set_response.set_ok(());
 }
