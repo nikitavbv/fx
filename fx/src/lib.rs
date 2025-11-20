@@ -160,12 +160,24 @@ impl KvStore {
     }
 
     pub fn set(&self, key: &str, value: &[u8]) -> Result<(), KvError> {
-        let key = key.as_bytes();
-        let result = unsafe { sys::kv_set(self.binding.as_ptr() as i64, self.binding.len() as i64, key.as_ptr() as i64, key.len() as i64, value.as_ptr() as i64, value.len() as i64) };
-        match result {
-            0 => Ok(()),
-            1 => Err(KvError::BindingDoesNotExist),
-            _ => Err(KvError::UnknownError),
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut kv_set_request = op.init_kv_set();
+        kv_set_request.set_key(key.as_bytes());
+        kv_set_request.set_value(value);
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::KvSet(v) => {
+                let kv_set_response = v.unwrap();
+                match kv_set_response.get_response().which().unwrap() {
+                    fx_capnp::kv_set_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
+                    fx_capnp::kv_set_response::response::Which::Ok(_) => Ok(()),
+                }
+            },
+            _other => panic!("unexpected response from kv_set api"),
         }
     }
 }
