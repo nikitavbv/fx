@@ -164,6 +164,7 @@ impl KvStore {
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut kv_set_request = op.init_kv_set();
+        kv_set_request.set_binding_id(self.binding.as_str());
         kv_set_request.set_key(key.as_bytes());
         kv_set_request.set_value(value);
         let response = invoke_fx_api(message);

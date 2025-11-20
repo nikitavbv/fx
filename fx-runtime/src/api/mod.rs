@@ -145,7 +145,7 @@ fn handle_kv_set(data: &ExecutionEnv, kv_set_request: fx_capnp::kv_set_request::
 
     storage.set(kv_set_request.get_key().unwrap(), kv_set_request.get_value().unwrap()).unwrap();
 
-    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::set"]).inc();
-
     kv_set_response.set_ok(());
+
+    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::set"]).inc();
 }
