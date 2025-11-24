@@ -55,6 +55,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::KvSet(v) => {
             handle_kv_set(data, v.unwrap(), response_op.init_kv_set());
+        },
+        Operation::SqlExec(v) => {
+            unimplemented!("sql exec api not implemented yet")
         }
     };
 
