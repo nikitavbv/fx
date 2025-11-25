@@ -57,7 +57,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_kv_set(data, v.unwrap(), response_op.init_kv_set());
         },
         Operation::SqlExec(v) => {
-            unimplemented!("sql exec api not implemented yet")
+            handle_sql_exec(data, v.unwrap(), response_op.init_sql_exec())
         }
     };
 
@@ -150,4 +150,57 @@ fn handle_kv_set(data: &ExecutionEnv, kv_set_request: fx_capnp::kv_set_request::
     kv_set_response.set_ok(());
 
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::set"]).inc();
+}
+
+fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: fx_capnp::sql_exec_request::Reader, sql_exec_response: fx_capnp::sql_exec_response::Builder) {
+    let mut sql_exec_response = sql_exec_response.init_response();
+
+    let binding = sql_exec_request.get_database().unwrap().to_string().unwrap();
+    let database = match data.sql.get(&binding) {
+        Some(v) => v,
+        None => {
+            sql_exec_response.set_binding_not_found(());
+            return;
+        }
+    };
+
+    let request_query = sql_exec_request.get_query().unwrap();
+    let mut query = crate::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
+    for param in request_query.get_params().unwrap().into_iter() {
+        use fx_capnp::sql_value::value::{Which as SqlValue};
+
+        query = query.with_param(match param.get_value().which().unwrap() {
+            SqlValue::Null(_) => crate::sql::Value::Null,
+            SqlValue::Integer(v) => crate::sql::Value::Integer(v),
+            SqlValue::Real(v) => crate::sql::Value::Real(v),
+            SqlValue::Text(v) => crate::sql::Value::Text(v.unwrap().to_string().unwrap()),
+            SqlValue::Blob(v) => crate::sql::Value::Blob(v.unwrap().to_vec()),
+        })
+    }
+
+    let result = match database.exec(query) {
+        Ok(v) => v,
+        Err(err) => {
+            let mut error_response = sql_exec_response.init_sql_error();
+            error_response.set_description(err.to_string());
+            return;
+        }
+    };
+
+    let mut response_rows = sql_exec_response.init_rows(result.rows.len() as u32);
+    for (index, result_row) in result.rows.into_iter().enumerate() {
+        let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
+        for (column_index, value) in result_row.columns.into_iter().enumerate() {
+            let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
+            match value {
+                crate::sql::Value::Null => response_value.set_null(()),
+                crate::sql::Value::Integer(v) => response_value.set_integer(v),
+                crate::sql::Value::Real(v) => response_value.set_real(v),
+                crate::sql::Value::Text(v) => response_value.set_text(v),
+                crate::sql::Value::Blob(v) => response_value.set_blob(&v),
+            }
+        }
+    }
+
+    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "sql::exec"]).inc();
 }

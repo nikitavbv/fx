@@ -86,9 +86,17 @@ struct SqlValue {
 }
 
 struct SqlExecResponse {
-    rows @0 :List(SqlResultRow);
+    response :union {
+        rows @0 :List(SqlResultRow);
+        bindingNotFound @1 :Void;
+        sqlError @2 :SqlError;
+    }
 }
 
 struct SqlResultRow {
     columns @0 :List(SqlValue);
+}
+
+struct SqlError {
+    description @0 :Text;
 }
