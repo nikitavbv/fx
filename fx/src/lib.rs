@@ -203,18 +203,42 @@ impl SqlDatabase {
     }
 
     pub fn exec(&self, query: SqlQuery) -> Result<sql::SqlResult, FxSqlError> {
-        let query = DatabaseSqlQuery {
-            database: self.name.clone(),
-            query,
-        };
-        let query = rmp_serde::to_vec(&query).unwrap();
-        let ptr_and_len = sys::PtrWithLen::new();
-        unsafe {
-            sys::sql_exec(query.as_ptr() as i64, query.len() as i64, ptr_and_len.ptr_to_self())
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut sql_exec_request = op.init_sql_exec();
+        sql_exec_request.set_database(&self.name);
+        let mut request_query = sql_exec_request.init_query();
+        request_query.set_statement(query.stmt);
+        let mut params = request_query.init_params(query.params.len() as u32);
+        for (param_index, param) in query.params.into_iter().enumerate() {
+            let mut request_param = params.reborrow().get(param_index as u32).init_value();
+            match param {
+                SqlValue::Null => request_param.set_null(()),
+                SqlValue::Integer(v) => request_param.set_integer(v),
+                SqlValue::Real(v) => request_param.set_real(v),
+                SqlValue::Text(v) => request_param.set_text(v),
+                SqlValue::Blob(v) => request_param.set_blob(&v),
+            }
         }
 
-        rmp_serde::from_slice::<Result<fx_common::SqlResult, FxSqlError>>(&ptr_and_len.read_owned()).unwrap()
-            .map(sql::SqlResult::from)
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::SqlExec(v) => {
+                let sql_exec_response = v.unwrap();
+                match sql_exec_response.get_response().which().unwrap() {
+                    fx_capnp::sql_exec_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
+                    fx_capnp::sql_exec_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
+                    fx_capnp::sql_exec_response::response::Which::Rows(rows) => {
+                        // TODO
+                        unimplemented!()
+                    }
+                }
+            },
+            _other => panic!("unexpected response from sql_exec api"),
+        }
     }
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
