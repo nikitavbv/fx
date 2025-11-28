@@ -232,8 +232,8 @@ impl SqlDatabase {
                     fx_capnp::sql_exec_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
                     fx_capnp::sql_exec_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
                     fx_capnp::sql_exec_response::response::Which::Rows(rows) => {
-                        // TODO
-                        unimplemented!()
+                        let rows = rows.unwrap();
+                        Ok(sql::SqlResult::from(rows))
                     }
                 }
             },
