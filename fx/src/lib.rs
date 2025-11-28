@@ -242,6 +242,10 @@ impl SqlDatabase {
     }
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
+        let mut message = capnp::message::Builder::new_default();
+        // TODO: finish this
+
+        // before:
         let queries = DatabaseSqlBatchQuery {
             database: self.name.clone(),
             queries,

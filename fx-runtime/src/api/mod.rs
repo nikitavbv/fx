@@ -57,7 +57,10 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_kv_set(data, v.unwrap(), response_op.init_kv_set());
         },
         Operation::SqlExec(v) => {
-            handle_sql_exec(data, v.unwrap(), response_op.init_sql_exec())
+            handle_sql_exec(data, v.unwrap(), response_op.init_sql_exec());
+        },
+        Operation::SqlBatch(v) => {
+            handle_sql_batch(data, v.unwrap(), response_op.init_sql_batch());
         }
     };
 
@@ -165,18 +168,7 @@ fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: fx_capnp::sql_exec_req
     };
 
     let request_query = sql_exec_request.get_query().unwrap();
-    let mut query = crate::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
-    for param in request_query.get_params().unwrap().into_iter() {
-        use fx_capnp::sql_value::value::{Which as SqlValue};
-
-        query = query.with_param(match param.get_value().which().unwrap() {
-            SqlValue::Null(_) => crate::sql::Value::Null,
-            SqlValue::Integer(v) => crate::sql::Value::Integer(v),
-            SqlValue::Real(v) => crate::sql::Value::Real(v),
-            SqlValue::Text(v) => crate::sql::Value::Text(v.unwrap().to_string().unwrap()),
-            SqlValue::Blob(v) => crate::sql::Value::Blob(v.unwrap().to_vec()),
-        })
-    }
+    let query = sql_query_from_reader(request_query);
 
     let result = match database.exec(query) {
         Ok(v) => v,
@@ -203,4 +195,48 @@ fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: fx_capnp::sql_exec_req
     }
 
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "sql::exec"]).inc();
+}
+
+fn handle_sql_batch(data: &ExecutionEnv, sql_batch_request: fx_capnp::sql_batch_request::Reader, sql_batch_response: fx_capnp::sql_batch_response::Builder) {
+    let mut sql_batch_response = sql_batch_response.init_response();
+
+    let binding = sql_batch_request.get_database().unwrap().to_string().unwrap();
+    let database = match data.sql.get(&binding) {
+        Some(v) => v,
+        None => {
+            sql_batch_response.set_binding_not_found(());
+            return;
+        }
+    };
+
+    let queries = sql_batch_request.get_queries()
+        .unwrap()
+        .into_iter()
+        .map(sql_query_from_reader)
+        .collect::<Vec<_>>();
+
+    match database.batch(queries) {
+        Ok(_) => {
+            sql_batch_response.set_ok(());
+        },
+        Err(err) => {
+            sql_batch_response.init_sql_error().set_description(err.to_string());
+        }
+    }
+}
+
+fn sql_query_from_reader(request_query: fx_capnp::sql_query::Reader<'_>) -> crate::sql::Query {
+    let mut query = crate::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
+    for param in request_query.get_params().unwrap().into_iter() {
+        use fx_capnp::sql_value::value::{Which as SqlValue};
+
+        query = query.with_param(match param.get_value().which().unwrap() {
+            SqlValue::Null(_) => crate::sql::Value::Null,
+            SqlValue::Integer(v) => crate::sql::Value::Integer(v),
+            SqlValue::Real(v) => crate::sql::Value::Real(v),
+            SqlValue::Text(v) => crate::sql::Value::Text(v.unwrap().to_string().unwrap()),
+            SqlValue::Blob(v) => crate::sql::Value::Blob(v.unwrap().to_vec()),
+        })
+    }
+    query
 }

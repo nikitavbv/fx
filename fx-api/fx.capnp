@@ -7,6 +7,7 @@ struct FxApiCall {
         kvGet @2 :KvGetRequest;
         kvSet @3 :KvSetRequest;
         sqlExec @4 :SqlExecRequest;
+        sqlBatch @5 :SqlBatchRequest;
     }
 }
 
@@ -17,6 +18,7 @@ struct FxApiCallResult {
         kvGet @2 :KvGetResponse;
         kvSet @3 :KvSetResponse;
         sqlExec @4 :SqlExecResponse;
+        sqlBatch @5 :SqlBatchResponse;
     }
 }
 
@@ -99,4 +101,17 @@ struct SqlResultRow {
 
 struct SqlError {
     description @0 :Text;
+}
+
+struct SqlBatchRequest {
+    database @0 :Text;
+    queries @1 :List(SqlQuery);
+}
+
+struct SqlBatchResponse {
+    response :union {
+        ok @0 :Void;
+        bindingNotFound @1 :Void;
+        sqlError @2 :SqlError;
+    }
 }
