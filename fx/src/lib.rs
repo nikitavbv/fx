@@ -243,21 +243,43 @@ impl SqlDatabase {
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
-        // TODO: finish this
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut sql_batch_request = op.init_sql_batch();
+        sql_batch_request.set_database(&self.name);
+        let mut request_queries = sql_batch_request.init_queries(queries.len() as u32);
 
-        // before:
-        let queries = DatabaseSqlBatchQuery {
-            database: self.name.clone(),
-            queries,
-        };
-        let queries = rmp_serde::to_vec(&queries).unwrap();
+        for (query_index, query) in queries.into_iter().enumerate() {
+            let mut request_query = request_queries.reborrow().get(query_index as u32);
+            request_query.set_statement(query.stmt);
+            let mut request_query_params = request_query.init_params(query.params.len() as u32);
 
-        let ptr_and_len = sys::PtrWithLen::new();
-        unsafe {
-            sys::sql_batch(queries.as_ptr() as i64, queries.len() as i64, ptr_and_len.ptr_to_self())
+            for (param_index, param) in query.params.into_iter().enumerate() {
+                let mut request_param = request_query_params.reborrow().get(param_index as u32).init_value();
+                match param {
+                    SqlValue::Null => request_param.set_null(()),
+                    SqlValue::Integer(v) => request_param.set_integer(v),
+                    SqlValue::Real(v) => request_param.set_real(v),
+                    SqlValue::Text(v) => request_param.set_text(v),
+                    SqlValue::Blob(v) => request_param.set_blob(&v),
+                }
+            }
         }
 
-        rmp_serde::from_slice(&ptr_and_len.read_owned()).unwrap()
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::SqlBatch(v) => {
+                let sql_batch_response = v.unwrap();
+                match sql_batch_response.get_response().which().unwrap() {
+                    fx_capnp::sql_batch_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
+                    fx_capnp::sql_batch_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
+                    fx_capnp::sql_batch_response::response::Which::Ok(_) => Ok(()),
+                }
+            },
+            _other => panic!("unexpected response from sql_batch api"),
+        }
     }
 }
 
