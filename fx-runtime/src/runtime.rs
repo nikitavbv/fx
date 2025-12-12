@@ -694,7 +694,7 @@ fn api_sql_migrate(mut ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, m
     let result = decode_memory(&ctx, migration_addr, migration_len)
         .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode migrations request: {err:?}") })
         .and_then(|migrations: SqlMigrations| {
-            ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations)
+            ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations.migrations)
                 .map_err(|err| fx_common::FxSqlError::MigrationFailed {
                     reason: err.to_string(),
                 })

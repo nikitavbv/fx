@@ -125,9 +125,7 @@ impl SqlDatabase {
     }
 
     // run sql migrations
-    pub fn migrate(&self, migrations: SqlMigrations) -> Result<(), SqlError> {
-        let migrations: Vec<String> = migrations.migrations.into_iter().map(|v| v).collect();
-
+    pub fn migrate(&self, migrations: Vec<String>) -> Result<(), SqlError> {
         let mut rusqlite_migrations = Vec::new();
         for migration in &migrations {
             rusqlite_migrations.push(rusqlite_migration::M::up(migration));

@@ -62,7 +62,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_sql_batch(data, v.unwrap(), response_op.init_sql_batch());
         },
         Operation::SqlMigrate(v) => {
-            unimplemented!("this api is not implemented yet");
+            handle_sql_migrate(data, v.unwrap(), response_op.init_sql_migrate());
         }
     };
 
@@ -241,4 +241,27 @@ fn sql_query_from_reader(request_query: fx_capnp::sql_query::Reader<'_>) -> crat
         })
     }
     query
+}
+
+fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: fx_capnp::sql_migrate_request::Reader, sql_migrate_response: fx_capnp::sql_migrate_response::Builder) {
+    let mut sql_migrate_response = sql_migrate_response.init_response();
+
+    let binding = sql_migrate_request.get_database().unwrap().to_string().unwrap();
+    let database = match data.sql.get(&binding) {
+        Some(v) => v,
+        None => {
+            sql_migrate_response.set_binding_not_found(());
+            return;
+        }
+    };
+
+    let migrations = sql_migrate_request.get_migrations().unwrap().into_iter().map(|v| v.unwrap().to_string().unwrap()).collect();
+    match database.migrate(migrations) {
+        Ok(_) => {
+            sql_migrate_response.set_ok(());
+        },
+        Err(err) => {
+            sql_migrate_response.init_sql_error().set_description(err.to_string());
+        }
+    }
 }

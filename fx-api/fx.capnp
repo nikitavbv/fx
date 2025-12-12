@@ -20,6 +20,7 @@ struct FxApiCallResult {
         kvSet @3 :KvSetResponse;
         sqlExec @4 :SqlExecResponse;
         sqlBatch @5 :SqlBatchResponse;
+        sqlMigrate @6 :SqlMigrateResponse;
     }
 }
 
