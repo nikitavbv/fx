@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "sql_batch" => Function::new_typed_with_env(&mut store, &function_env, crate::api::sql::handle_sql_batch),
                 "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
