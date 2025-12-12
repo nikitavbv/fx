@@ -8,6 +8,7 @@ struct FxApiCall {
         kvSet @3 :KvSetRequest;
         sqlExec @4 :SqlExecRequest;
         sqlBatch @5 :SqlBatchRequest;
+        sqlMigrate @6 :SqlMigrateRequest;
     }
 }
 
@@ -109,6 +110,19 @@ struct SqlBatchRequest {
 }
 
 struct SqlBatchResponse {
+    response :union {
+        ok @0 :Void;
+        bindingNotFound @1 :Void;
+        sqlError @2 :SqlError;
+    }
+}
+
+struct SqlMigrateRequest {
+    database @0 :Text;
+    migrations @1 :List(Text);
+}
+
+struct SqlMigrateResponse {
     response :union {
         ok @0 :Void;
         bindingNotFound @1 :Void;

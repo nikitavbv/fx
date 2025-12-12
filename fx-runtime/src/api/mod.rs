@@ -60,6 +60,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::SqlBatch(v) => {
             handle_sql_batch(data, v.unwrap(), response_op.init_sql_batch());
+        },
+        Operation::SqlMigrate(v) => {
+            unimplemented!("this api is not implemented yet");
         }
     };
 
