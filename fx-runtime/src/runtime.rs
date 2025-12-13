@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "sql_migrate" => Function::new_typed_with_env(&mut store, &function_env, api_sql_migrate),
                 "queue_push" => Function::new_typed_with_env(&mut store, &function_env, api_queue_push),
                 "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
@@ -688,26 +687,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_sql_migrate(mut ctx: FunctionEnvMut<ExecutionEnv>, migration_addr: i64, migration_len: i64, output_ptr: i64) {
-    let result = decode_memory(&ctx, migration_addr, migration_len)
-        .map_err(|err| FxSqlError::SerializationError { reason: format!("failed to decode migrations request: {err:?}") })
-        .and_then(|migrations: SqlMigrations| {
-            ctx.data().sql.get(&migrations.database).as_ref().unwrap().migrate(migrations.migrations)
-                .map_err(|err| fx_common::FxSqlError::MigrationFailed {
-                    reason: err.to_string(),
-                })
-        });
-
-    let result = rmp_serde::to_vec(&result).unwrap();
-
-    let (data, mut store) = ctx.data_and_store_mut();
-    let len = result.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &result);
-
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_queue_push(ctx: FunctionEnvMut<ExecutionEnv>, queue_addr: i64, queue_len: i64, argument_addr: i64, argument_len: i64) {
