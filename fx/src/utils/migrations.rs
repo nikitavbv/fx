@@ -1,6 +1,7 @@
 use {
     fx_common::{SqlMigrations, FxSqlError},
-    crate::{SqlDatabase, sys},
+    fx_api::{capnp, fx_capnp},
+    crate::{SqlDatabase, sys::{self, invoke_fx_api}},
 };
 
 pub struct Migrations {
@@ -20,16 +21,33 @@ impl Migrations {
     }
 
     pub fn run(&self, database: &SqlDatabase) -> Result<(), FxSqlError> {
-        let migrations = SqlMigrations {
-            database: database.name.clone(),
-            migrations: self.migrations.iter()
-                .map(|migration| migration.statement.clone())
-                .collect(),
-        };
-        let migrations = rmp_serde::to_vec(&migrations).unwrap();
-        let response_ptr = sys::PtrWithLen::new();
-        unsafe { sys::sql_migrate(migrations.as_ptr() as i64, migrations.len() as i64, response_ptr.ptr_to_self()); }
-        response_ptr.read_decode()
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut sql_migrate_request = op.init_sql_migrate();
+        sql_migrate_request.set_database(&database.name);
+
+        let mut migrations = sql_migrate_request.init_migrations(self.migrations.len() as u32);
+        for (index, migration) in self.migrations.iter().enumerate() {
+            migrations.set(index as u32, &migration.statement);
+        }
+
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::SqlMigrate(v) => {
+                let migrate_response = v.unwrap();
+
+                use fx_capnp::sql_migrate_response::response::Which;
+                match migrate_response.get_response().which().unwrap() {
+                    Which::Ok(_) => Ok(()),
+                    Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
+                    Which::SqlError(err) => Err(FxSqlError::QueryFailed { reason: err.unwrap().get_description().unwrap().to_string().unwrap() }),
+                }
+            },
+            _other => panic!("unexpected response for migrate api"),
+        }
     }
 }
 
