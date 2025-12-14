@@ -7,6 +7,7 @@ use {
     crate::{
         runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId},
         kv::KVStorage,
+        logs,
     },
 };
 
@@ -65,7 +66,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_sql_migrate(data, v.unwrap(), response_op.init_sql_migrate());
         },
         Operation::Log(v) => {
-            unimplemented!("log operation is not implemented yet")
+            handle_log(data, v.unwrap(), response_op.init_log());
         }
     };
 
@@ -267,4 +268,26 @@ fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: fx_capnp::sql_mi
             sql_migrate_response.init_sql_error().set_description(err.to_string());
         }
     }
+}
+
+fn handle_log(data: &ExecutionEnv, log_request: fx_capnp::log_request::Reader, _log_response: fx_capnp::log_response::Builder) {
+    data.engine.log(logs::LogMessage::new(
+        logs::LogSource::function(&data.function_id),
+        match log_request.get_event_type().unwrap() {
+            fx_capnp::EventType::Begin => logs::LogEventType::Begin,
+            fx_capnp::EventType::End => logs::LogEventType::End,
+            fx_capnp::EventType::Instant => logs::LogEventType::Instant,
+        },
+        match log_request.get_level().unwrap() {
+            fx_capnp::LogLevel::Trace => logs::LogLevel::Trace,
+            fx_capnp::LogLevel::Debug => logs::LogLevel::Debug,
+            fx_capnp::LogLevel::Info => logs::LogLevel::Info,
+            fx_capnp::LogLevel::Warn => logs::LogLevel::Warn,
+            fx_capnp::LogLevel::Error => logs::LogLevel::Error,
+        },
+        log_request.get_fields().unwrap()
+            .into_iter()
+            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+            .collect()
+    ).into());
 }
