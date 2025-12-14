@@ -74,10 +74,6 @@ impl FxCtx {
         SqlDatabase::new(name.into())
     }
 
-    pub fn queue(&self, name: impl Into<String>) -> Queue {
-        Queue::new(name.into())
-    }
-
     pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, function_id: impl Into<String>, method: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
         let future_index = {
             let arg = rmp_serde::to_vec(&arg).unwrap();
@@ -279,27 +275,6 @@ impl SqlDatabase {
                 }
             },
             _other => panic!("unexpected response from sql_batch api"),
-        }
-    }
-}
-
-#[derive(Clone)]
-pub struct Queue {
-    queue_name: String,
-}
-
-impl Queue {
-    pub fn new(queue_name: String) -> Self {
-        Self { queue_name }
-    }
-
-    pub fn push<T: serde::ser::Serialize>(&self, argument: T) {
-        self.push_raw(rmp_serde::to_vec(&argument).unwrap());
-    }
-
-    pub fn push_raw(&self, argument: Vec<u8>) {
-        unsafe {
-            sys::queue_push(self.queue_name.as_ptr() as i64, self.queue_name.len() as i64, argument.as_ptr() as i64, argument.len() as i64);
         }
     }
 }
