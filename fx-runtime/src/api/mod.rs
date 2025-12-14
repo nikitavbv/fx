@@ -63,6 +63,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::SqlMigrate(v) => {
             handle_sql_migrate(data, v.unwrap(), response_op.init_sql_migrate());
+        },
+        Operation::Log(v) => {
+            unimplemented!("log operation is not implemented yet")
         }
     };
 
