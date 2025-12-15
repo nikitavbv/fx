@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "log" => Function::new_typed_with_env(&mut store, &function_env, api_log),
                 "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
@@ -686,42 +685,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_log(ctx: FunctionEnvMut<ExecutionEnv>, msg_addr: i64, msg_len: i64) {
-    if !ctx.data().allow_log {
-        // TODO: record a metric somewhere
-        return;
-    }
-    let msg: LogMessage = match decode_memory(&ctx, msg_addr, msg_len) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to decode memory for log message: {err:?}");
-            return;
-        }
-    };
-
-    let event_type = match msg.event_type {
-        fx_common::LogEventType::Begin => logs::LogEventType::Begin,
-        fx_common::LogEventType::End => logs::LogEventType::End,
-        fx_common::LogEventType::Instant => logs::LogEventType::Instant,
-    };
-
-    let level = match msg.level {
-        fx_common::LogLevel::Trace => logs::LogLevel::Trace,
-        fx_common::LogLevel::Debug => logs::LogLevel::Debug,
-        fx_common::LogLevel::Info => logs::LogLevel::Info,
-        fx_common::LogLevel::Warn => logs::LogLevel::Warn,
-        fx_common::LogLevel::Error => logs::LogLevel::Error,
-    };
-
-    let ctx_data = ctx.data();
-    ctx_data.engine.log(crate::logs::LogMessage::new(
-        crate::logs::LogSource::function(&ctx_data.function_id),
-        event_type,
-        level,
-        msg.fields,
-    ).into());
 }
 
 fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
