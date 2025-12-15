@@ -67,6 +67,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::Log(v) => {
             handle_log(data, v.unwrap(), response_op.init_log());
+        },
+        Operation::Fetch(v) => {
+            unimplemented!("fetch api is not implemented yet");
         }
     };
 

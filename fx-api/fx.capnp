@@ -10,6 +10,7 @@ struct FxApiCall {
         sqlBatch @5 :SqlBatchRequest;
         sqlMigrate @6 :SqlMigrateRequest;
         log @7 :LogRequest;
+        fetch @8 :FetchRequest;
     }
 }
 
@@ -23,6 +24,7 @@ struct FxApiCallResult {
         sqlBatch @5 :SqlBatchResponse;
         sqlMigrate @6 :SqlMigrateResponse;
         log @7 :LogResponse;
+        fetch @8 :FetchResponse;
     }
 }
 
@@ -159,3 +161,34 @@ enum EventType {
 }
 
 struct LogResponse {}
+
+struct FetchRequest {
+    method @0 :HttpMethod;
+    url @1 :Text;
+    headers @2 :List(HttpHeader);
+    body @3 :Stream;
+}
+
+enum HttpMethod {
+    get @0;
+    put @1;
+    post @2;
+    patch @3;
+    delete @4;
+}
+
+struct HttpHeader {
+    name @0 :Text;
+    value @1 :Text;
+}
+
+struct Stream {
+    id @0 :UInt64;
+}
+
+struct FetchResponse {
+    response :union {
+        futureId @0 :UInt64;
+        fetchError @1 :Text;
+    }
+}
