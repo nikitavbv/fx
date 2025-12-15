@@ -3,7 +3,8 @@ use {
     tracing::{Subscriber, Event, field::{Field, Visit}, span::Attributes, Id},
     tracing_subscriber::{Layer, layer},
     fx_common::{LogMessage, LogLevel, LogEventType},
-    crate::sys,
+    fx_api::{capnp, fx_capnp},
+    crate::invoke_fx_api,
 };
 
 pub struct FxLoggingLayer;
@@ -85,6 +86,30 @@ fn log_level_from_metadata(metadata: &'static tracing::Metadata<'static>) -> Log
 }
 
 fn log(event_type: LogEventType, level: LogLevel, fields: HashMap<String, String>) {
-    let msg = rmp_serde::to_vec(&LogMessage { event_type, level, fields }).unwrap();
-    unsafe { sys::log(msg.as_ptr() as i64, msg.len() as i64); }
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+    let op = request.init_op();
+    let mut log_request = op.init_log();
+
+    log_request.set_event_type(match event_type {
+        LogEventType::Begin => fx_capnp::EventType::Begin,
+        LogEventType::End => fx_capnp::EventType::End,
+        LogEventType::Instant => fx_capnp::EventType::Instant,
+    });
+
+    log_request.set_level(match level {
+        LogLevel::Trace => fx_capnp::LogLevel::Trace,
+        LogLevel::Debug => fx_capnp::LogLevel::Debug,
+        LogLevel::Info => fx_capnp::LogLevel::Info,
+        LogLevel::Warn => fx_capnp::LogLevel::Warn,
+        LogLevel::Error => fx_capnp::LogLevel::Error,
+    });
+
+    let mut request_fields = log_request.init_fields(fields.len() as u32);
+    for (field_index, (field_name, field_value)) in fields.into_iter().enumerate() {
+        let mut request_field = request_fields.reborrow().get(field_index as u32);
+        request_field.set_name(field_name);
+        request_field.set_value(field_value);
+    }
+    let _response = invoke_fx_api(message);
 }
