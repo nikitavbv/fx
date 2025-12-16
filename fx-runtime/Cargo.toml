@@ -33,6 +33,7 @@ clap = { version = "4.5.38", features = ["derive"] }
 notify = "8.0.0"
 async-stream = "0.3.6"
 pathdiff = "0.2.3"
+http = "1.4.0"
 
 fx-common = { path = "../fx-common" }
 fx-runtime-common = { path = "../fx-runtime-common" }

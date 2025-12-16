@@ -69,7 +69,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_log(data, v.unwrap(), response_op.init_log());
         },
         Operation::Fetch(v) => {
-            unimplemented!("fetch api is not implemented yet");
+            handle_fetch(data, v.unwrap(), response_op.init_fetch());
         }
     };
 
@@ -293,4 +293,60 @@ fn handle_log(data: &ExecutionEnv, log_request: fx_capnp::log_request::Reader, _
             .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
             .collect()
     ).into());
+}
+
+fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Reader, fetch_response: fx_capnp::fetch_response::Builder) {
+    let mut fetch_response = fetch_response.init_response();
+
+    let request = data.fetch_client
+        .request(
+            match fetch_request.get_method().unwrap() {
+                fx_capnp::HttpMethod::Get => http::Method::GET,
+                fx_capnp::HttpMethod::Post => http::Method::POST,
+                fx_capnp::HttpMethod::Put => http::Method::PUT,
+                fx_capnp::HttpMethod::Patch => http::Method::PATCH,
+                fx_capnp::HttpMethod::Delete => http::Method::DELETE,
+            },
+            fetch_request.get_url().unwrap().to_str().unwrap()
+        )
+        .headers({
+            let mut headers = http::HeaderMap::new();
+
+            for header in fetch_request.get_headers().unwrap().into_iter() {
+                headers.append(
+                    http::HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap(),
+                    header.get_value().unwrap().to_string().unwrap().parse().unwrap()
+                );
+            }
+
+            headers
+        });
+
+    let request = if let Ok(body) = fetch_request.get_body() {
+        let body = fx_common::FxStream { index: body.get_id() as i64 };
+        let stream = data.engine.streams_pool.read(data.engine.clone(), &body).unwrap();
+        request.body(reqwest::Body::wrap_stream(stream.unwrap()))
+    } else {
+        request
+    };
+
+    let request_future = async move {
+        use futures::TryFutureExt;
+
+        request.send()
+            .and_then(|response| async {
+                Ok(rmp_serde::to_vec(&fx_common::HttpResponse {
+                    status: response.status(),
+                    headers: response.headers().clone(),
+                    body: response.bytes().await.unwrap().to_vec(),
+                }).unwrap())
+            })
+            .await
+            .map_err(|err| FxFutureError::FetchError {
+                reason: format!("request failed: {err:?}"),
+            })
+    }.boxed();
+
+    let index = data.engine.futures_pool.push(request_future).unwrap();
+    fetch_response.set_future_id(index.0);
 }

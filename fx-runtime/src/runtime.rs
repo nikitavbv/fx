@@ -625,7 +625,7 @@ pub(crate) struct ExecutionEnv {
     allow_fetch: bool,
     allow_log: bool,
 
-    fetch_client: reqwest::Client,
+    pub(crate) fetch_client: reqwest::Client,
 }
 
 impl ExecutionEnv {
