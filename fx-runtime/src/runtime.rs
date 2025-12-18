@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "fetch" => Function::new_typed_with_env(&mut store, &function_env, api_fetch),
                 "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
                 "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
@@ -685,64 +684,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_fetch(ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64) -> i64 {
-    if !ctx.data().allow_fetch {
-        // TODO: handle this properly
-        panic!("service {:?} is not allowed to call fetch", ctx.data().function_id.id);
-    }
-
-    let request = decode_memory(&ctx, req_addr, req_len)
-        .map_err(|err| FxFutureError::SerializationError {
-            reason: format!("failed to decode memory: {err:?}"),
-        })
-        .and_then(|req: HttpRequestInternal| {
-            let request = ctx.data().fetch_client
-                .request(req.method, req.url.to_string())
-                .headers(req.headers);
-
-            if let Some(body) = req.body {
-                let stream = ctx.data().engine.streams_pool.read(ctx.data().engine.clone(), &body);
-                match stream {
-                    Ok(Some(stream)) => Ok(request.body(reqwest::Body::wrap_stream(stream))),
-                    Ok(None) => Err(FxFutureError::FetchError {
-                        reason: "stream not found".to_owned(),
-                    }),
-                    Err(err) => Err(FxFutureError::FetchError {
-                        reason: format!("failed to read stream: {err:?}"),
-                    })
-                }
-            } else {
-                Ok(request)
-            }
-        });
-
-    let request_future = async move {
-        match request {
-            Ok(request) => request.send()
-                .and_then(|response| async {
-                    Ok(rmp_serde::to_vec(&HttpResponse {
-                        status: response.status(),
-                        headers: response.headers().clone(),
-                        body: response.bytes().await.unwrap().to_vec(),
-                    }).unwrap())
-                })
-                .await
-                .map_err(|err| FxFutureError::FetchError {
-                    reason: format!("request failed: {err:?}"),
-                }),
-            Err(err) => Err(err),
-        }
-    }.boxed();
-
-    match ctx.data().engine.futures_pool.push(request_future) {
-        Ok(v) => v.0 as i64,
-        Err(err) => {
-            error!("failed to push future to arena: {err:?}");
-            -1
-        }
-    }
 }
 
 fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
