@@ -11,6 +11,7 @@ struct FxApiCall {
         sqlMigrate @6 :SqlMigrateRequest;
         log @7 :LogRequest;
         fetch @8 :FetchRequest;
+        sleep @9 :SleepRequest;
     }
 }
 
@@ -25,6 +26,7 @@ struct FxApiCallResult {
         sqlMigrate @6 :SqlMigrateResponse;
         log @7 :LogResponse;
         fetch @8 :FetchResponse;
+        sleep @9 :SleepResponse;
     }
 }
 
@@ -192,3 +194,9 @@ struct FetchResponse {
         fetchError @1 :Text;
     }
 }
+
+struct SleepRequest {
+    millis @0 :UInt64;
+}
+
+struct SleepResponse {}

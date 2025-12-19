@@ -70,6 +70,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::Fetch(v) => {
             handle_fetch(data, v.unwrap(), response_op.init_fetch());
+        },
+        Operation::Sleep(v) => {
+            unimplemented!("sleep api is not implemented yet")
         }
     };
 
