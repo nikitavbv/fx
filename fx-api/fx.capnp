@@ -199,4 +199,9 @@ struct SleepRequest {
     millis @0 :UInt64;
 }
 
-struct SleepResponse {}
+struct SleepResponse {
+    response :union {
+        futureId @0 :UInt64;
+        sleepError @1 :Text;
+    }
+}

@@ -72,7 +72,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_fetch(data, v.unwrap(), response_op.init_fetch());
         },
         Operation::Sleep(v) => {
-            unimplemented!("sleep api is not implemented yet")
+            handle_sleep(data, v.unwrap(), response_op.init_sleep());
         }
     };
 
@@ -352,4 +352,18 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
 
     let index = data.engine.futures_pool.push(request_future).unwrap();
     fetch_response.set_future_id(index.0);
+}
+
+fn handle_sleep(data: &ExecutionEnv, sleep_request: fx_capnp::sleep_request::Reader, sleep_response: fx_capnp::sleep_response::Builder) {
+    let mut response = sleep_response.init_response();
+
+    let sleep = tokio::time::sleep(std::time::Duration::from_millis(sleep_request.get_millis()));
+    match data.engine.futures_pool.push(sleep.map(|_| Ok(Vec::new())).boxed()) {
+        Ok(v) => {
+            response.set_future_id(v.0);
+        },
+        Err(err) => {
+            response.set_sleep_error(err.to_string());
+        }
+    }
 }
