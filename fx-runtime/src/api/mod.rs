@@ -73,6 +73,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::Sleep(v) => {
             handle_sleep(data, v.unwrap(), response_op.init_sleep());
+        },
+        Operation::Random(v) => {
+            unimplemented!("random api is not implemented yet")
         }
     };
 

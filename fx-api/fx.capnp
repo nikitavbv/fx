@@ -12,6 +12,7 @@ struct FxApiCall {
         log @7 :LogRequest;
         fetch @8 :FetchRequest;
         sleep @9 :SleepRequest;
+        random @10 :RandomRequest;
     }
 }
 
@@ -27,6 +28,7 @@ struct FxApiCallResult {
         log @7 :LogResponse;
         fetch @8 :FetchResponse;
         sleep @9 :SleepResponse;
+        random @10 :RandomResponse;
     }
 }
 
@@ -204,4 +206,12 @@ struct SleepResponse {
         futureId @0 :UInt64;
         sleepError @1 :Text;
     }
+}
+
+struct RandomRequest {
+    length @0 :UInt64;
+}
+
+struct RandomResponse {
+    data @0 :Data;
 }
