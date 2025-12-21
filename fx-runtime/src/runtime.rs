@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "sleep" => Function::new_typed_with_env(&mut store, &function_env, api_sleep),
                 "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
                 "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
@@ -684,17 +683,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_sleep(ctx: FunctionEnvMut<ExecutionEnv>, millis: i64) -> i64 {
-    let sleep = tokio::time::sleep(std::time::Duration::from_millis(millis as u64));
-    match ctx.data().engine.futures_pool.push(sleep.map(|v| Ok(rmp_serde::to_vec(&v).unwrap())).boxed()) {
-        Ok(v) => v.0 as i64,
-        Err(err) => {
-            error!("failed to push future to arena: {err:?}");
-            -1
-        }
-    }
 }
 
 fn api_random(mut ctx: FunctionEnvMut<ExecutionEnv>, len: i64, output_ptr: i64) {
