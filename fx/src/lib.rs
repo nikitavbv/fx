@@ -280,7 +280,29 @@ impl SqlDatabase {
 }
 
 pub async fn sleep(duration: Duration) {
-    FxHostFuture::new(PoolIndex(unsafe { sys::sleep(duration.as_millis() as i64) } as u64)).await.unwrap();
+    let future_id = {
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut sleep_request = op.init_sleep();
+        sleep_request.set_millis(duration.as_millis() as u64);
+
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::Sleep(v) => {
+                let sleep = v.unwrap();
+                match sleep.get_response().which().unwrap() {
+                    fx_capnp::sleep_response::response::Which::FutureId(v) => v,
+                    fx_capnp::sleep_response::response::Which::SleepError(err) => panic!("failed to sleep: {err:?}"),
+                }
+            },
+            _other => panic!("unexpected response from sleep api"),
+        }
+    };
+
+    FxHostFuture::new(PoolIndex(future_id)).await.unwrap();
 }
 
 pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> Result<T, FxError> {
