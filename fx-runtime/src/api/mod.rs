@@ -1,4 +1,5 @@
 use {
+    std::time::{SystemTime, UNIX_EPOCH},
     wasmer::FunctionEnvMut,
     tracing::error,
     futures::FutureExt,
@@ -78,8 +79,8 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         Operation::Random(v) => {
             handle_random(v.unwrap(), response_op.init_random());
         },
-        Operation::Time(v) => {
-            unimplemented!("time api is not implemented yet")
+        Operation::Time(_) => {
+            handle_time(response_op.init_time());
         }
     };
 
@@ -379,4 +380,8 @@ fn handle_random(random_request: fx_capnp::random_request::Reader, mut random_re
     let mut random_data = vec![0; random_request.get_length() as usize];
     rand::rngs::OsRng.try_fill_bytes(&mut random_data).unwrap();
     random_response.set_data(&random_data);
+}
+
+fn handle_time(mut time_response: fx_capnp::time_response::Builder) {
+    time_response.set_timestamp(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
 }
