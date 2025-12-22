@@ -13,6 +13,7 @@ struct FxApiCall {
         fetch @8 :FetchRequest;
         sleep @9 :SleepRequest;
         random @10 :RandomRequest;
+        time @11 :TimeRequest;
     }
 }
 
@@ -29,6 +30,7 @@ struct FxApiCallResult {
         fetch @8 :FetchResponse;
         sleep @9 :SleepResponse;
         random @10 :RandomResponse;
+        time @11 :TimeResponse;
     }
 }
 
@@ -214,4 +216,10 @@ struct RandomRequest {
 
 struct RandomResponse {
     data @0 :Data;
+}
+
+struct TimeRequest {}
+
+struct TimeResponse {
+    timestamp @0 :UInt64;
 }

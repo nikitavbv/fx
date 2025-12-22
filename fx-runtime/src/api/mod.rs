@@ -77,6 +77,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::Random(v) => {
             handle_random(v.unwrap(), response_op.init_random());
+        },
+        Operation::Time(v) => {
+            unimplemented!("time api is not implemented yet")
         }
     };
 
