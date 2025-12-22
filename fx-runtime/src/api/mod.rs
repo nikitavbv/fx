@@ -2,6 +2,7 @@ use {
     wasmer::FunctionEnvMut,
     tracing::error,
     futures::FutureExt,
+    rand::TryRngCore,
     fx_api::{capnp, fx_capnp},
     fx_common::FxFutureError,
     crate::{
@@ -75,7 +76,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
             handle_sleep(data, v.unwrap(), response_op.init_sleep());
         },
         Operation::Random(v) => {
-            unimplemented!("random api is not implemented yet")
+            handle_random(v.unwrap(), response_op.init_random());
         }
     };
 
@@ -369,4 +370,10 @@ fn handle_sleep(data: &ExecutionEnv, sleep_request: fx_capnp::sleep_request::Rea
             response.set_sleep_error(err.to_string());
         }
     }
+}
+
+fn handle_random(random_request: fx_capnp::random_request::Reader, mut random_response: fx_capnp::random_response::Builder) {
+    let mut random_data = vec![0; random_request.get_length() as usize];
+    rand::rngs::OsRng.try_fill_bytes(&mut random_data).unwrap();
+    random_response.set_data(&random_data);
 }
