@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "random" => Function::new_typed_with_env(&mut store, &function_env, api_random),
                 "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
                 "future_drop" => Function::new_typed_with_env(&mut store, &function_env, api_future_drop),
@@ -683,17 +682,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_random(mut ctx: FunctionEnvMut<ExecutionEnv>, len: i64, output_ptr: i64) {
-    let mut random_data = vec![0; len as usize];
-    rand::rngs::OsRng.try_fill_bytes(&mut random_data).unwrap();
-
-    let (data, mut store) = ctx.data_and_store_mut();
-    let len = random_data.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &random_data);
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
 }
 
 fn api_time(_ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
