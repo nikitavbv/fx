@@ -105,9 +105,19 @@ impl FxCtx {
     }
 
     pub fn random(&self, len: u64) -> Vec<u8> {
-        let ptr_and_len = sys::PtrWithLen::new();
-        unsafe { sys::random(len as i64, ptr_and_len.ptr_to_self()) };
-        ptr_and_len.read_owned()
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut random_request = op.init_random();
+        random_request.set_length(len);
+
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::Random(v) => v.unwrap().get_data().unwrap().to_vec(),
+            _other => panic!("unexpected response from random api"),
+        }
     }
 
     pub fn now(&self) -> FxInstant {
