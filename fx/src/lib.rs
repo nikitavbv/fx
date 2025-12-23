@@ -355,8 +355,24 @@ pub struct FxInstant {
 
 impl FxInstant {
     pub fn now() -> Self {
+        let mut message = capnp::message::Builder::new_default();
+        message.init_root::<fx_capnp::fx_api_call::Builder>()
+            .init_op()
+            .init_time();
+
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        let timestamp = match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::Time(v) => {
+                let time_response = v.unwrap();
+                time_response.get_timestamp()
+            },
+            _other => panic!("unexpected response from time api"),
+        };
+
         Self {
-            millis_since_unix: unsafe { sys::time() },
+            millis_since_unix: timestamp as i64,
         }
     }
 
