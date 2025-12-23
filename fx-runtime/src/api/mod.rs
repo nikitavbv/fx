@@ -81,6 +81,9 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::Time(_) => {
             handle_time(response_op.init_time());
+        },
+        Operation::FuturePoll(_) => {
+            unimplemented!("future poll api is not implemented yet");
         }
     };
 

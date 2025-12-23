@@ -14,6 +14,7 @@ struct FxApiCall {
         sleep @9 :SleepRequest;
         random @10 :RandomRequest;
         time @11 :TimeRequest;
+        futurePoll @12 :FuturePollRequest;
     }
 }
 
@@ -31,6 +32,7 @@ struct FxApiCallResult {
         sleep @9 :SleepResponse;
         random @10 :RandomResponse;
         time @11 :TimeResponse;
+        futurePoll @12 :FuturePollResponse;
     }
 }
 
@@ -222,4 +224,15 @@ struct TimeRequest {}
 
 struct TimeResponse {
     timestamp @0 :UInt64;
+}
+
+struct FuturePollRequest {
+    futureId @0 :UInt64;
+}
+
+struct FuturePollResponse {
+    response :union {
+        result @0 :Data;
+        error @1 :Text;
+    }
 }
