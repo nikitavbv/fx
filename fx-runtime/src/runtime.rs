@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "time" => Function::new_typed_with_env(&mut store, &function_env, api_time),
                 "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
                 "future_drop" => Function::new_typed_with_env(&mut store, &function_env, api_future_drop),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
@@ -682,10 +681,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_time(_ctx: FunctionEnvMut<ExecutionEnv>) -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
 fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
