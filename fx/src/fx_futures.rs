@@ -5,7 +5,8 @@ use {
     lazy_static::lazy_static,
     serde::Serialize,
     fx_common::FxFutureError,
-    crate::{sys::{future_poll, future_drop}, PtrWithLen, error::FxError},
+    fx_api::{fx_capnp, capnp},
+    crate::{sys::future_drop, PtrWithLen, error::FxError, invoke_fx_api},
 };
 
 lazy_static! {
@@ -127,10 +128,25 @@ impl FxHostFuture {
 impl Future for FxHostFuture {
     type Output = Result<Vec<u8>, FxFutureError>;
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if unsafe { future_poll(self.index.0 as i64, self.response_ptr.ptr_to_self()) } == 0 {
-            Poll::Pending
-        } else {
-            Poll::Ready(rmp_serde::from_slice(&self.response_ptr.read_owned()).unwrap())
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut future_poll_request = op.init_future_poll();
+        future_poll_request.set_future_id(self.index.0);
+
+        let response = invoke_fx_api(message);
+        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+        match response.get_op().which().unwrap() {
+            fx_capnp::fx_api_call_result::op::Which::FuturePoll(v) => {
+                let future_poll_response = v.unwrap();
+                match future_poll_response.get_response().which().unwrap() {
+                    fx_capnp::future_poll_response::response::Which::Pending(_) => Poll::Pending,
+                    fx_capnp::future_poll_response::response::Which::Result(v) => Poll::Ready(Ok(v.unwrap().to_vec())),
+                    fx_capnp::future_poll_response::response::Which::Error(err) => Poll::Ready(Err(FxFutureError::FxRuntimeError { reason: err.unwrap().to_string().unwrap() })),
+                }
+            },
+            _other => panic!("unexpected response from future_poll api"),
         }
     }
 }
