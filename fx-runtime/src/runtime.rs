@@ -604,7 +604,7 @@ pub(crate) struct ExecutionEnv {
     execution_context: RwLock<Option<Arc<ExecutionContext>>>,
     compiler_metadata: CompilerMetadata,
 
-    futures_waker: Option<std::task::Waker>,
+    pub(crate) futures_waker: Option<std::task::Waker>,
 
     pub(crate) engine: Arc<Engine>,
     instance: Option<Instance>,

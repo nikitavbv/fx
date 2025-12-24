@@ -82,8 +82,8 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         Operation::Time(_) => {
             handle_time(response_op.init_time());
         },
-        Operation::FuturePoll(_) => {
-            unimplemented!("future poll api is not implemented yet");
+        Operation::FuturePoll(v) => {
+            handle_future_poll(data, v.unwrap(), response_op.init_future_poll());
         }
     };
 
@@ -387,4 +387,24 @@ fn handle_random(random_request: fx_capnp::random_request::Reader, mut random_re
 
 fn handle_time(mut time_response: fx_capnp::time_response::Builder) {
     time_response.set_timestamp(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
+}
+
+fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future_poll_request::Reader, future_poll_response: fx_capnp::future_poll_response::Builder) {
+    use futures::task::Poll;
+
+    let mut response = future_poll_response.init_response();
+
+    let result = data.engine.futures_pool.poll(&crate::futures::HostPoolIndex(future_poll_request.get_future_id()), &mut futures::task::Context::from_waker(data.futures_waker.as_ref().unwrap()));
+
+    match result {
+        Poll::Pending => {
+            response.set_pending(());
+        },
+        Poll::Ready(res) => {
+            match res {
+                Ok(v) => response.set_result(&v),
+                Err(err) => response.set_error(err.to_string()),
+            }
+        }
+    }
 }

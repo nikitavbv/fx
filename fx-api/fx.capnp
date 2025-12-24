@@ -232,7 +232,8 @@ struct FuturePollRequest {
 
 struct FuturePollResponse {
     response :union {
-        result @0 :Data;
-        error @1 :Text;
+        pending @0 :Void;
+        result @1 :Data;
+        error @2 :Text;
     }
 }
