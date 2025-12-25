@@ -563,7 +563,6 @@ impl ExecutionContext {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
                 "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
                 "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
-                "future_poll" => Function::new_typed_with_env(&mut store, &function_env, api_future_poll),
                 "future_drop" => Function::new_typed_with_env(&mut store, &function_env, api_future_drop),
                 "stream_export" => Function::new_typed_with_env(&mut store, &function_env, api_stream_export),
                 "stream_poll_next" => Function::new_typed_with_env(&mut store, &function_env, api_stream_poll_next),
@@ -681,23 +680,6 @@ pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<Execut
     let memory = read_memory_owned(&ctx, addr, len);
     rmp_serde::from_slice(&memory)
         .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_future_poll(mut ctx: FunctionEnvMut<ExecutionEnv>, index: i64, output_ptr: i64) -> i64 {
-    let result = ctx.data().engine.futures_pool.poll(&crate::futures::HostPoolIndex(index as u64), &mut task::Context::from_waker(ctx.data().futures_waker.as_ref().unwrap()));
-
-    match result {
-        Poll::Pending => 0,
-        Poll::Ready(res) => {
-            let (data, mut store) = ctx.data_and_store_mut();
-            let res = rmp_serde::to_vec(&res).unwrap();
-            let len = res.len() as i64;
-            let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-            write_memory(&ctx, ptr, &res);
-            write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
-            1
-        },
-    }
 }
 
 fn api_future_drop(ctx: FunctionEnvMut<ExecutionEnv>, index: i64) {
