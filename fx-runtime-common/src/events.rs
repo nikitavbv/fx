@@ -1,7 +1,7 @@
 use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
-    crate::{LogMessageEvent, LogSource, LogEventType, utils::object_to_event_fields},
+    crate::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, utils::object_to_event_fields},
 };
 
 #[derive(Serialize, Deserialize)]
@@ -18,6 +18,11 @@ pub struct InvocationTimings {
 
 impl Into<LogMessageEvent> for FunctionInvokeEvent {
     fn into(self) -> LogMessageEvent {
-        LogMessageEvent::new(LogSource::FxRuntime, LogEventType::Instant, object_to_event_fields(self).unwrap_or(HashMap::new()))
+        LogMessageEvent::new(
+            LogSource::FxRuntime,
+            LogEventType::Instant,
+            LogEventLevel::Info,
+            object_to_event_fields(self).unwrap_or(HashMap::new())
+        )
     }
 }

@@ -7,6 +7,7 @@ use {
     fx_runtime_common::{
         LogSource as LogMessageEventLogSource,
         LogEventType as LogMessageEventLogEventType,
+        LogEventLevel as LogMessageLogEventLevel,
         utils::object_to_event_fields,
     },
     crate::{runtime::FunctionId, error::LoggerError},
@@ -37,6 +38,7 @@ impl Into<LogMessageEvent> for LogMessage {
         LogMessageEvent::new(
             self.source.into(),
             self.event_type.into(),
+            self.level.into(),
             object_to_event_fields(self.fields).unwrap_or(HashMap::new())
         )
     }
@@ -72,6 +74,18 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
+}
+
+impl Into<LogMessageLogEventLevel> for LogLevel {
+    fn into(self) -> LogMessageLogEventLevel {
+        match self {
+            Self::Trace => LogMessageLogEventLevel::Trace,
+            Self::Debug => LogMessageLogEventLevel::Debug,
+            Self::Info => LogMessageLogEventLevel::Info,
+            Self::Warn => LogMessageLogEventLevel::Warn,
+            Self::Error => LogMessageLogEventLevel::Error,
+        }
+    }
 }
 
 pub trait Logger {

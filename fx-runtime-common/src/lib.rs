@@ -18,6 +18,7 @@ pub struct Function {
 pub struct LogMessageEvent {
     pub source: LogSource,
     pub event_type: LogEventType,
+    pub level: LogEventLevel,
     pub fields: HashMap<String, EventFieldValue>,
 }
 
@@ -31,10 +32,11 @@ pub enum EventFieldValue {
 }
 
 impl LogMessageEvent {
-    pub fn new(source: LogSource, event_type: LogEventType, fields: HashMap<String, EventFieldValue>) -> Self {
+    pub fn new(source: LogSource, event_type: LogEventType, level: LogEventLevel, fields: HashMap<String, EventFieldValue>) -> Self {
         Self {
             source,
             event_type,
+            level,
             fields,
         }
     }
@@ -61,4 +63,13 @@ pub enum LogSource {
         id: String,
     },
     FxRuntime,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum LogEventLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
 }
