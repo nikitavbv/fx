@@ -1,5 +1,6 @@
 # todo
 
+- handle counter tags in fx-runtime/metrics.
 - handle errors everywhere
 - rename "storage" to "kv"
 - `fx-common` should contain types for rpc only, no logic. Actual logic (e.g, functions to construct http requests) should live in `fx`.

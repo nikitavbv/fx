@@ -45,8 +45,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
     use fx_api::fx_capnp::fx_api_call::op::{Which as Operation};
     match op.which().unwrap() {
         Operation::MetricsCounterIncrement(v) => {
-            let counter_increment_request = v.unwrap();
-            data.engine.metrics.function_metrics.counter_increment(&function_id, counter_increment_request.get_counter_name().unwrap().to_str().unwrap(), counter_increment_request.get_delta());
+            handle_metrics_counter_increment(data, v.unwrap());
             response_op.set_metrics_counter_increment(());
         },
         Operation::Rpc(v) => {
@@ -95,6 +94,18 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
     }
 
     write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr: ptr as i64, len: response_size as i64 });
+}
+
+fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_request: fx_capnp::metrics_counter_increment_request::Reader) {
+    data.engine.metrics.function_metrics.counter_increment(
+        &data.function_id,
+        counter_increment_request.get_counter_name().unwrap().to_str().unwrap(),
+        counter_increment_request.get_tags().unwrap()
+            .into_iter()
+            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+            .collect(),
+        counter_increment_request.get_delta()
+    );
 }
 
 fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {

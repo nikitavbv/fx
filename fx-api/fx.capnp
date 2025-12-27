@@ -39,6 +39,12 @@ struct FxApiCallResult {
 struct MetricsCounterIncrementRequest {
     counterName @0 :Text;
     delta @1 :UInt64;
+    tags @2 :List(MetricsTag);
+}
+
+struct MetricsTag {
+    name @0 :Text;
+    value @1 :Text;
 }
 
 struct RpcCallRequest {
