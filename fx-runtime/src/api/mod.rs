@@ -312,16 +312,40 @@ fn handle_log(data: &ExecutionEnv, log_request: fx_capnp::log_request::Reader, _
 fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Reader, fetch_response: fx_capnp::fetch_response::Builder) {
     let mut fetch_response = fetch_response.init_response();
 
+    let method = match fetch_request.get_method() {
+        Ok(v) => v,
+        Err(err) => {
+            fetch_response.set_fetch_error(format!("failed to read http method from fetch_request: unknown http method: {err:?}"));
+            return;
+        }
+    };
+
+    let url = match fetch_request.get_url() {
+        Ok(v) => v,
+        Err(err) => {
+            fetch_response.set_fetch_error(format!("failed to read target url from fetch_request: {err:?}"));
+            return;
+        }
+    };
+
+    let url = match url.to_str() {
+        Ok(v) => v,
+        Err(err) => {
+            fetch_response.set_fetch_error(format!("failed to decode target url as string: {err:?}"));
+            return;
+        }
+    };
+
     let request = data.fetch_client
         .request(
-            match fetch_request.get_method().unwrap() {
+            match method {
                 fx_capnp::HttpMethod::Get => http::Method::GET,
                 fx_capnp::HttpMethod::Post => http::Method::POST,
                 fx_capnp::HttpMethod::Put => http::Method::PUT,
                 fx_capnp::HttpMethod::Patch => http::Method::PATCH,
                 fx_capnp::HttpMethod::Delete => http::Method::DELETE,
             },
-            fetch_request.get_url().unwrap().to_str().unwrap()
+            url
         )
         .headers({
             let mut headers = http::HeaderMap::new();
@@ -338,8 +362,22 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
 
     let request = if let Ok(body) = fetch_request.get_body() {
         let body = fx_common::FxStream { index: body.get_id() as i64 };
-        let stream = data.engine.streams_pool.read(data.engine.clone(), &body).unwrap();
-        request.body(reqwest::Body::wrap_stream(stream.unwrap()))
+        let stream = data.engine.streams_pool.read(data.engine.clone(), &body);
+
+        match stream {
+            Ok(Some(stream)) => {
+                request.body(reqwest::Body::wrap_stream(stream))
+            },
+            Ok(None) => {
+                fetch_response.set_fetch_error("stream not found");
+                return;
+            },
+            Err(err) => {
+                fetch_response.set_fetch_error(format!("failed to read stream: {err:?}"));
+                return;
+            }
+        }
+
     } else {
         request
     };
