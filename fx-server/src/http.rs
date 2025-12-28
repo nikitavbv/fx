@@ -55,7 +55,14 @@ impl<'a> HttpHandlerFuture<'a> {
             let url = req.uri().clone();
             let headers = req.headers().clone();
             let request_id = headers.get("x-request-id").and_then(|v| v.to_str().ok()).map(|v| v.to_owned());
-            let body: BoxStream<'static, Vec<u8>> = BodyStream::new(req.into_body()).map(|v| v.unwrap().into_data().unwrap().to_vec()).boxed();
+
+            let body: BoxStream<'static, Result<Vec<u8>, FxRuntimeError>> = BodyStream::new(req.into_body())
+                .map(|v| v
+                    .map_err(|err| FxRuntimeError::StreamingError { reason: format!("failed to convert body into stream: {err:?}") })
+                    .and_then(|v| v.into_data().map_err(|err| FxRuntimeError::StreamingError { reason: format!("failed to convert body stream into data: {err:?}") }).map(|v| v.to_vec()))
+                )
+                .boxed();
+
             let (fx_response, invocation_event) = match engine.streams_pool.push(body) {
                 Ok(body_stream_index) => {
                     let body_stream_cleanup_guard = StreamPoolCleanupGuard::wrap(engine.clone(), body_stream_index.clone());
@@ -149,7 +156,9 @@ impl StreamPoolCleanupGuard {
 
 impl Drop for StreamPoolCleanupGuard {
     fn drop(&mut self) {
-        self.engine.streams_pool.remove(&self.body_stream_index).unwrap();
+        if let Err(err) = self.engine.streams_pool.remove(&self.body_stream_index) {
+            error!("failed to drop body stream from streams arena: {err:?}");
+        };
     }
 }
 

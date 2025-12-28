@@ -310,7 +310,6 @@ impl Engine {
     }
 
     pub(crate) fn stream_drop(&self, function_id: &FunctionId, index: i64) {
-        info!(stream_index=index, "reading execution contexts");
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
         ctx.streams_to_drop.lock().unwrap().push_back(index);

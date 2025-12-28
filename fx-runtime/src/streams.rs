@@ -19,7 +19,7 @@ pub struct StreamsPool {
 pub struct HostPoolIndex(pub u64);
 
 pub enum FxStream {
-    HostStream(BoxStream<'static, Vec<u8>>),
+    HostStream(BoxStream<'static, Result<Vec<u8>, FxRuntimeError>>),
     FunctionStream(FunctionId),
 }
 
@@ -31,7 +31,7 @@ impl StreamsPool {
     }
 
     // push stream owned by host
-    pub fn push(&self, stream: BoxStream<'static, Vec<u8>>) -> Result<HostPoolIndex, FxRuntimeError> {
+    pub fn push(&self, stream: BoxStream<'static, Result<Vec<u8>, FxRuntimeError>>) -> Result<HostPoolIndex, FxRuntimeError> {
         Ok(self.inner.lock()
             .map_err(|err| FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
             .push(FxStream::HostStream(stream)))
@@ -163,9 +163,8 @@ impl Drop for FxReadableStream {
 }
 
 fn poll_next(engine: Arc<Engine>, index: i64, stream: &mut FxStream, cx: &mut task::Context<'_>) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
-    let function_id = match stream {
-        FxStream::HostStream(stream) => return stream.poll_next_unpin(cx).map(|v| v.map(|v| Ok(v))),
-        FxStream::FunctionStream(function_id) => function_id,
-    };
-    engine.stream_poll_next(function_id, index)
+    match stream {
+        FxStream::HostStream(stream) => stream.poll_next_unpin(cx),
+        FxStream::FunctionStream(function_id) => engine.stream_poll_next(function_id, index),
+    }
 }
