@@ -116,7 +116,7 @@ impl Metrics {
 pub struct FunctionMetrics {
     registry: Registry,
 
-    counters: Arc<RwLock<HashMap<String, IntCounter>>>,
+    counters: Arc<RwLock<HashMap<String, IntCounterVec>>>,
 }
 
 impl FunctionMetrics {
@@ -129,16 +129,18 @@ impl FunctionMetrics {
     }
 
     pub fn counter_increment(&self, function_id: &FunctionId, counter_name: &str, tags: Vec<(String, String)>, delta: u64) {
-        // TODO: apply tags
         let counter_name = format!("{}_{counter_name}", function_id.as_string().replace("-", "_"));
+        let key = format!("{counter_name}_{}", tags.iter().map(|(k, _)| k.clone()).collect::<String>());
         let mut counters = self.counters.write().unwrap();
-        if !counters.contains_key(&counter_name) {
+        if !counters.contains_key(&key) {
             let counter_opts = prometheus::Opts::new(counter_name.clone(), format!("metric exported by {}", function_id.as_string()));
-            let counter = IntCounter::with_opts(counter_opts).unwrap();
+            let tag_names = tags.iter().map(|(k, _v)| k.as_str()).collect::<Vec<&str>>();
+            let counter = IntCounterVec::new(counter_opts, &tag_names).unwrap();
             self.registry.register(Box::new(counter.clone())).unwrap();
-            counters.insert(counter_name.clone(), counter);
+            counters.insert(key.clone(), counter);
         }
-        counters.get(&counter_name).unwrap().inc_by(delta);
+        let tag_values = tags.iter().map(|(_k, v)| v.as_str()).collect::<Vec<&str>>();
+        counters.get(&key).unwrap().with_label_values(&tag_values).inc_by(delta);
     }
 }
 
