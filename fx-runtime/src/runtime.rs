@@ -313,7 +313,6 @@ impl Engine {
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
         ctx.streams_to_drop.lock().unwrap().push_back(index);
-        info!(stream_index=index, "added stream to drop to streams_to_drop");
     }
 
     pub fn log(&self, message: LogMessageEvent) {
