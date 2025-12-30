@@ -51,7 +51,11 @@ pub struct Metrics {
 pub enum MetricsError {
     #[error("failed to collect: {reason}")]
     FailedToCollect {
-        reason: String
+        reason: String,
+    },
+    #[error("failed to register metric")]
+    FailedToRegister {
+        reason: String,
     },
 }
 
@@ -128,19 +132,27 @@ impl FunctionMetrics {
         }
     }
 
-    pub fn counter_increment(&self, function_id: &FunctionId, counter_name: &str, tags: Vec<(String, String)>, delta: u64) {
+    pub fn counter_increment(&self, function_id: &FunctionId, counter_name: &str, tags: Vec<(String, String)>, delta: u64) -> Result<(), MetricsError> {
         let counter_name = format!("{}_{counter_name}", function_id.as_string().replace("-", "_"));
         let key = format!("{counter_name}_{}", tags.iter().map(|(k, _)| k.clone()).collect::<String>());
-        let mut counters = self.counters.write().unwrap();
-        if !counters.contains_key(&key) {
-            let counter_opts = prometheus::Opts::new(counter_name.clone(), format!("metric exported by {}", function_id.as_string()));
-            let tag_names = tags.iter().map(|(k, _v)| k.as_str()).collect::<Vec<&str>>();
-            let counter = IntCounterVec::new(counter_opts, &tag_names).unwrap();
-            self.registry.register(Box::new(counter.clone())).unwrap();
-            counters.insert(key.clone(), counter);
-        }
+        let mut counters = self.counters.write()
+            .map_err(|err| MetricsError::FailedToRegister { reason: format!("failed to acquire counters lock: {err:?}") })?;
         let tag_values = tags.iter().map(|(_k, v)| v.as_str()).collect::<Vec<&str>>();
-        counters.get(&key).unwrap().with_label_values(&tag_values).inc_by(delta);
+
+        match counters.get(&key) {
+            Some(counter) => counter.with_label_values(&tag_values).inc_by(delta),
+            None => {
+                let counter_opts = prometheus::Opts::new(counter_name.clone(), format!("metric exported by {}", function_id.as_string()));
+                let tag_names = tags.iter().map(|(k, _v)| k.as_str()).collect::<Vec<&str>>();
+                let counter = IntCounterVec::new(counter_opts, &tag_names)
+                    .map_err(|err| MetricsError::FailedToRegister { reason: format!("failed to create counter: {err:?}") })?;
+                self.registry.register(Box::new(counter.clone()))
+                    .map_err(|err| MetricsError::FailedToRegister { reason: format!("failed to register counter in registry: {err:?}") })?;
+                counter.with_label_values(&tag_values).inc_by(delta);
+                counters.insert(key.clone(), counter);
+            }
+        }
+        Ok(())
     }
 }
 

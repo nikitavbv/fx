@@ -73,6 +73,8 @@ async fn main() {
     test_log(&fx, logger.clone()).await;
     test_log_span(&fx, logger.clone()).await;
     test_metrics_counter_increment(&fx).await;
+    // TODO: add test that verifies that counter metrics with labels are recorded correctly
+    test_counter_increment_twice_with_tags(&fx).await;
 
     // TODO: sql transactions
     // TODO: test that database can only be accessed by correct binding name
@@ -287,4 +289,9 @@ async fn test_metrics_counter_increment(fx: &FxRuntime) {
     println!("> test_metrics_counter_increment");
     fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
     // TODO: check counter value
+}
+
+async fn test_counter_increment_twice_with_tags(fx: &FxRuntime) {
+    println!("> test_counter_increment_twice_with_tags");
+    fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
 }

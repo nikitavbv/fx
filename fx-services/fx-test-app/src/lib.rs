@@ -184,3 +184,10 @@ pub async fn test_counter_increment(ctx: &FxCtx, _arg: ()) {
     ctx.init_logger();
     Counter::new("test_counter").increment(1);
 }
+
+#[rpc]
+pub async fn test_counter_increment_twice_with_tags(ctx: &FxCtx, _arg: ()) {
+    ctx.init_logger();
+    Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value1".to_owned()], 1);
+    Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value2".to_owned()], 1);
+}

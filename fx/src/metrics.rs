@@ -34,7 +34,7 @@ impl Counter {
         metrics_counter_increment_request.set_delta(delta);
 
         if !values.is_empty() {
-            let kvs = values.into_iter().zip(self.tags.iter()).collect::<Vec<_>>();
+            let kvs = self.tags.iter().zip(values.into_iter()).collect::<Vec<_>>();
             let mut request_tags = metrics_counter_increment_request.init_tags(kvs.len() as u32);
 
             for (index, (name, value)) in kvs.iter().enumerate() {

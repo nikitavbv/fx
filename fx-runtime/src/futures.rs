@@ -2,7 +2,6 @@ use {
     std::{sync::{Arc, RwLock, Mutex}, task::{Poll, Context}, collections::{HashMap, VecDeque}},
     futures::{future::BoxFuture, FutureExt},
     thiserror::Error,
-    tracing::info,
     fx_common::FxFutureError,
 };
 

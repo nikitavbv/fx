@@ -24,8 +24,6 @@ pub(crate) mod unsupported;
 // - no "fx_cloud" namespace, should be just one more binding
 
 pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
-    let function_id = ctx.data().function_id.clone();
-
     let (data, mut store) = ctx.data_and_store_mut();
 
     let memory = data.memory.as_ref().unwrap();
@@ -97,7 +95,7 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
 }
 
 fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_request: fx_capnp::metrics_counter_increment_request::Reader) {
-    data.engine.metrics.function_metrics.counter_increment(
+    let result = data.engine.metrics.function_metrics.counter_increment(
         &data.function_id,
         counter_increment_request.get_counter_name().unwrap().to_str().unwrap(),
         counter_increment_request.get_tags().unwrap()
@@ -106,6 +104,10 @@ fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_reque
             .collect(),
         counter_increment_request.get_delta()
     );
+
+    if let Err(err) = result {
+        error!("failed to increment counter: {err:?}");
+    }
 }
 
 fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {
