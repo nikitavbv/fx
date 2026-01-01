@@ -1,5 +1,6 @@
 use {
     std::{fs, sync::Arc},
+    once_cell::sync::Lazy,
     fx_runtime::{
         FxRuntime,
         kv::{BoxedStorage, SqliteStorage, WithKey, EmptyStorage},
@@ -13,8 +14,7 @@ use {
 
 mod logger;
 
-#[tokio::test]
-async fn simple() {
+static FX_INSTANCE: Lazy<FxRuntime> = Lazy::new(|| {
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
         .with_key(b"test-app-system", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
@@ -33,12 +33,19 @@ async fn simple() {
 
     let logger = Arc::new(TestLogger::new());
 
-    let fx = FxRuntime::new()
+    FxRuntime::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
-        .with_logger(BoxLogger::new(logger.clone()));
+        .with_logger(BoxLogger::new(logger.clone()))
+});
 
-    let result: u32 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0;
-    assert_eq!(52, result);
+#[tokio::test]
+async fn simple() {
+    assert_eq!(52, FX_INSTANCE.invoke_service::<_, u32>(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0);
+}
+
+#[tokio::test]
+async fn sql_simple() {
+    assert_eq!(52, FX_INSTANCE.invoke_service::<_, u32>(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0);
 }
