@@ -8,6 +8,7 @@ use {
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition, RpcDefinition},
         compiler::{BoxedCompiler, MemoizedCompiler, CraneliftCompiler},
         logs::BoxLogger,
+        error::FxRuntimeError,
     },
     crate::logger::TestLogger,
 };
@@ -48,4 +49,14 @@ async fn simple() {
 #[tokio::test]
 async fn sql_simple() {
     assert_eq!(52, FX_INSTANCE.invoke_service::<_, u32>(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0);
+}
+
+#[tokio::test]
+async fn invoke_function_non_existent() {
+    assert_eq!(
+        Err(FxRuntimeError::ModuleCodeNotFound),
+        FX_INSTANCE.invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())
+            .await
+            .map(|v| v.0)
+    )
 }

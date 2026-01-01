@@ -53,7 +53,6 @@ async fn main() {
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(logger.clone()));
 
-    test_invoke_function_non_existent(&fx).await;
     test_invoke_function_non_existent_rpc(&fx).await;
     test_invoke_function_no_module_code(&fx).await;
     test_invoke_function_panic(&fx).await;
@@ -84,12 +83,6 @@ async fn main() {
     // TODO: test compiler error
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
-}
-
-async fn test_invoke_function_non_existent(fx: &FxRuntime) {
-    println!("> test_invoke_function_non_existent");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ()).await.map(|v| v.0);
-    assert_eq!(Err(FxRuntimeError::ModuleCodeNotFound), result);
 }
 
 async fn test_invoke_function_non_existent_rpc(fx: &FxRuntime) {
