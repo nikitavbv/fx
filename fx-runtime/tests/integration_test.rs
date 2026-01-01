@@ -18,6 +18,8 @@ mod logger;
 static FX_INSTANCE: Lazy<FxRuntime> = Lazy::new(|| {
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
+        // separate instance of test app for panic to avoid disrupting other tests:
+        .with_key(b"test-app-for-panic", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
         .with_key(b"test-app-system", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
         .with_key(b"other-app", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap();
 
@@ -59,4 +61,33 @@ async fn invoke_function_non_existent() {
             .await
             .map(|v| v.0)
     )
+}
+
+#[tokio::test]
+async fn invoke_function_non_existent_rpc() {
+    assert_eq!(
+        Err(FxRuntimeError::RpcHandlerNotDefined),
+        FX_INSTANCE.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ())
+            .await
+            .map(|v| v.0)
+    )
+}
+
+#[tokio::test]
+async fn invoke_function_no_module_code() {
+    assert_eq!(
+        Err(FxRuntimeError::ModuleCodeNotFound),
+        FX_INSTANCE.invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ())
+            .await
+            .map(|v| v.0)
+    )
+}
+
+#[tokio::test]
+async fn invoke_function_panic() {
+    let result = FX_INSTANCE.invoke_service::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
+    match result.err().unwrap() {
+        FxRuntimeError::ServiceInternalError { reason: _ } => {},
+        other => panic!("expected service internal error, got: {other:?}"),
+    }
 }

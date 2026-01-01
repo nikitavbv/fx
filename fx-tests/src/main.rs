@@ -53,9 +53,6 @@ async fn main() {
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(logger.clone()));
 
-    test_invoke_function_non_existent_rpc(&fx).await;
-    test_invoke_function_no_module_code(&fx).await;
-    test_invoke_function_panic(&fx).await;
     test_invoke_function_wrong_argument(&fx).await;
     test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
@@ -83,27 +80,6 @@ async fn main() {
     // TODO: test compiler error
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
-}
-
-async fn test_invoke_function_non_existent_rpc(fx: &FxRuntime) {
-    println!("> test_invoke_function_non_existent_rpc");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ()).await.map(|v| v.0);
-    assert_eq!(Err(FxRuntimeError::RpcHandlerNotDefined), result);
-}
-
-async fn test_invoke_function_no_module_code(fx: &FxRuntime) {
-    println!("> test_invoke_function_no_module_code");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ()).await.map(|v| v.0);
-    assert_eq!(Err(FxRuntimeError::ModuleCodeNotFound), result);
-}
-
-async fn test_invoke_function_panic(fx: &FxRuntime) {
-    println!("> test_invoke_function_panic");
-    let result = fx.invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "test_panic", ()).await.map(|v| v.0);
-    match result.err().unwrap() {
-        FxRuntimeError::ServiceInternalError { reason: _ } => {},
-        other => panic!("expected service internal error, got: {other:?}"),
-    }
 }
 
 async fn test_invoke_function_wrong_argument(fx: &FxRuntime) {
