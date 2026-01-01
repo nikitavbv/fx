@@ -1,15 +1,16 @@
 use {
-    std::{fs, sync::Arc},
-    once_cell::sync::Lazy,
+    std::{fs, sync::Arc, time::Instant},
+    fx_common::FxExecutionError,
     fx_runtime::{
-        FxRuntime,
-        kv::{BoxedStorage, SqliteStorage, WithKey, EmptyStorage},
         FunctionId,
-        definition::{DefinitionProvider, FunctionDefinition, KvDefinition, SqlDefinition, RpcDefinition},
-        compiler::{BoxedCompiler, MemoizedCompiler, CraneliftCompiler},
-        logs::BoxLogger,
+        FxRuntime,
+        compiler::{BoxedCompiler, CraneliftCompiler, MemoizedCompiler},
+        definition::{DefinitionProvider, FunctionDefinition, KvDefinition, RpcDefinition, SqlDefinition},
         error::FxRuntimeError,
+        kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
+        logs::BoxLogger,
     },
+    once_cell::sync::Lazy,
     crate::logger::TestLogger,
 };
 
@@ -90,4 +91,26 @@ async fn invoke_function_panic() {
         FxRuntimeError::ServiceInternalError { reason: _ } => {},
         other => panic!("expected service internal error, got: {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn invoke_function_wrong_argument() {
+    let result = FX_INSTANCE.invoke_service::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
+    match result {
+        FxRuntimeError::ServiceExecutionError { error } => match error {
+            FxExecutionError::RpcRequestRead { reason: _ } => {
+                // this error is expected
+            },
+        },
+        other => panic!("unexpected fx error: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn async_handler_simple() {
+    let started_at = Instant::now();
+    let result = FX_INSTANCE.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
+    let total_time = (Instant::now() - started_at).as_secs();
+    assert_eq!(42, result);
+    assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
 }

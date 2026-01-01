@@ -53,8 +53,6 @@ async fn main() {
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(logger.clone()));
 
-    test_invoke_function_wrong_argument(&fx).await;
-    test_async_handler_simple(&fx).await;
     test_async_concurrent(&fx).await;
     test_async_rpc(&fx).await;
     test_rpc_panic(&fx).await;
@@ -80,28 +78,6 @@ async fn main() {
     // TODO: test compiler error
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
-}
-
-async fn test_invoke_function_wrong_argument(fx: &FxRuntime) {
-    println!("> test_invoke_function_wrong_argument");
-    let result = fx.invoke_service::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
-    match result {
-        FxRuntimeError::ServiceExecutionError { error } => match error {
-            FxExecutionError::RpcRequestRead { reason: _ } => {
-                // this error is expected
-            },
-        },
-        other => panic!("unexpected fx error: {other:?}"),
-    }
-}
-
-async fn test_async_handler_simple(fx: &FxRuntime) {
-    println!("> test_async_handler_simple");
-    let started_at = Instant::now();
-    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
-    let total_time = (Instant::now() - started_at).as_secs();
-    assert_eq!(42, result);
-    assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
 }
 
 async fn test_async_concurrent(fx: &FxRuntime) {
