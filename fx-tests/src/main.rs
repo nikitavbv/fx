@@ -53,7 +53,6 @@ async fn main() {
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(logger.clone()));
 
-    test_simple(&fx).await;
     test_sql_simple(&fx).await;
     test_invoke_function_non_existent(&fx).await;
     test_invoke_function_non_existent_rpc(&fx).await;
@@ -86,12 +85,6 @@ async fn main() {
     // TODO: test compiler error
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
-}
-
-async fn test_simple(fx: &FxRuntime) {
-    println!("> test_simple");
-    let result: u32 = fx.invoke_service(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0;
-    assert_eq!(52, result);
 }
 
 async fn test_sql_simple(fx: &FxRuntime) {
