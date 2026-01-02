@@ -24,6 +24,7 @@ use {
     serde::{Serialize, Deserialize},
     futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
+    parking_lot::ReentrantMutex,
     fx_common::{
         LogMessage,
         DatabaseSqlQuery,
@@ -142,6 +143,8 @@ impl Into<String> for &FunctionId {
 }
 
 pub struct Engine {
+    pub global_lock: Arc<ReentrantMutex<()>>, // ensures that runtime is only used from one thread
+
     pub metrics: Metrics,
 
     compiler: RwLock<BoxedCompiler>,
@@ -161,6 +164,8 @@ pub struct Engine {
 impl Engine {
     pub fn new() -> Self {
         Self {
+            global_lock: Arc::new(ReentrantMutex::new(())),
+
             metrics: Metrics::new(),
 
             compiler: RwLock::new(BoxedCompiler::new(CraneliftCompiler::new())),
@@ -178,6 +183,8 @@ impl Engine {
     }
 
     pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FxRuntimeError> {
+        let _lock = engine.global_lock.clone();
+        let _lock = _lock.lock();
         let argument = rmp_serde::to_vec(&argument).unwrap();
         let (response, event) = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
         Ok((rmp_serde::from_slice(&response).unwrap(), event))

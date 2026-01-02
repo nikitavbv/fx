@@ -35,6 +35,7 @@ async-stream = "0.3.6"
 pathdiff = "0.2.3"
 http = "1.4.0"
 once_cell = "1.21.3"
+parking_lot = "0.12.5"
 
 fx-common = { path = "../fx-common" }
 fx-runtime-common = { path = "../fx-runtime-common" }

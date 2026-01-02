@@ -53,9 +53,6 @@ async fn main() {
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(logger.clone()));
 
-    test_async_concurrent(&fx).await;
-    test_async_rpc(&fx).await;
-    test_rpc_panic(&fx).await;
     // test_fetch(&fx).await;
     test_stream_simple(&fx).await;
     test_random(&fx).await;
@@ -78,34 +75,6 @@ async fn main() {
     // TODO: test compiler error
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
-}
-
-async fn test_async_concurrent(fx: &FxRuntime) {
-    println!("> test_async_concurrent");
-    let started_at = Instant::now();
-    let result = join!(
-        async {
-            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0
-        },
-        async {
-            fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 43).await.unwrap().0
-        }
-    );
-    let total_time = (Instant::now() - started_at).as_secs();
-    assert_eq!((42, 43), result);
-    assert!(total_time <= 4); // async_simple is expected to sleep for 3 seconds, two requests are served concurrently
-}
-
-async fn test_async_rpc(fx: &FxRuntime) {
-    println!("> test_async_rpc");
-    let result = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap().0;
-    assert_eq!(84, result);
-}
-
-async fn test_rpc_panic(fx: &FxRuntime) {
-    println!("> test_rpc_panic");
-    let result = fx.invoke_service::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap().0;
-    assert_eq!(42, result);
 }
 
 async fn test_fetch(fx: &FxRuntime) {

@@ -38,7 +38,8 @@ impl FuturePool {
 
     pub fn poll(&self, index: PoolIndex) -> Poll<Vec<u8>> {
         let mut context = Context::from_waker(Waker::noop());
-        let mut pool = self.pool.lock().unwrap();
+        let mut pool = self.pool.lock()
+            .expect("failed to lock future arena when polling future");
         match pool.poll(&index, &mut context) {
             Poll::Ready(v) => {
                 if let Err(err) = pool.remove(&index) {
@@ -78,7 +79,9 @@ impl PoolInner {
     }
 
     pub fn poll(&mut self, index: &PoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
-        self.futures.get_mut(&index.0).as_mut().unwrap().poll_unpin(context)
+        self.futures.get_mut(&index.0).as_mut()
+            .expect("failed to lock futures arena in PoolInner")
+            .poll_unpin(context)
     }
 
     pub fn remove(&mut self, index: &PoolIndex) -> Result<(), FxError> {

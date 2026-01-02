@@ -29,7 +29,8 @@ pub async fn sql_simple(ctx: &FxCtx, _arg: ()) -> u64 {
 }
 
 #[rpc]
-pub async fn async_simple(_ctx: &FxCtx, arg: u64) -> u64 {
+pub async fn async_simple(ctx: &FxCtx, arg: u64) -> u64 {
+    ctx.init_logger();
     sleep(Duration::from_secs(3)).await;
     arg
 }
