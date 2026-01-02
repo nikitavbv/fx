@@ -3,10 +3,12 @@ use {
     once_cell::sync::Lazy,
     tokio::join,
     parking_lot::ReentrantMutex,
+    futures::StreamExt,
     fx_common::FxExecutionError,
     fx_runtime::{
         FunctionId,
         FxRuntime,
+        FxStream,
         compiler::{BoxedCompiler, CraneliftCompiler, MemoizedCompiler},
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, RpcDefinition, SqlDefinition},
         kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
@@ -151,4 +153,30 @@ async fn rpc_panic() {
         42,
         FX_INSTANCE.lock().invoke_service::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap().0
     )
+}
+
+#[tokio::test]
+async fn stream_simple() {
+    let fx = FX_INSTANCE.lock();
+    let stream: FxStream = fx.invoke_service::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap().0;
+    let mut stream = fx.read_stream(&stream).unwrap().unwrap();
+    let started_at = Instant::now();
+    let mut n = 0;
+    while let Some(v) = stream.next().await {
+        let v = v.unwrap();
+        if n != v[0] || v.len() > 1 {
+            panic!("recieved unexpected data in stream: {v:?}");
+        }
+
+        let millis_passed = (Instant::now() - started_at).as_millis();
+        if !(millis_passed >= (n as u128) * 1000 && millis_passed < (n as u128 + 1) * 1000) {
+            panic!("unexpected amount of time passed: {millis_passed}");
+        }
+
+        n += 1;
+    }
+
+    if n != 5 {
+        panic!("unexpected number of items read from stream: {n}");
+    }
 }

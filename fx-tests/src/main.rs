@@ -54,7 +54,6 @@ async fn main() {
         .with_logger(BoxLogger::new(logger.clone()));
 
     // test_fetch(&fx).await;
-    test_stream_simple(&fx).await;
     test_random(&fx).await;
     test_time(&fx).await;
     test_kv_simple(&fx).await;
@@ -82,31 +81,6 @@ async fn test_fetch(fx: &FxRuntime) {
     let result = fx.invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap().0
         .unwrap();
     assert_eq!("hello fx!", &result);
-}
-
-async fn test_stream_simple(fx: &FxRuntime) {
-    println!("> test_stream_simple");
-    let stream: FxStream = fx.invoke_service::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap().0;
-    let mut stream = fx.read_stream(&stream).unwrap().unwrap();
-    let started_at = Instant::now();
-    let mut n = 0;
-    while let Some(v) = stream.next().await {
-        let v = v.unwrap();
-        if n != v[0] || v.len() > 1 {
-            panic!("recieved unexpected data in stream: {v:?}");
-        }
-
-        let millis_passed = (Instant::now() - started_at).as_millis();
-        if !(millis_passed >= (n as u128) * 1000 && millis_passed < (n as u128 + 1) * 1000) {
-            panic!("unexpected amount of time passed: {millis_passed}");
-        }
-
-        n += 1;
-    }
-
-    if n != 5 {
-        panic!("unexpected number of items read from stream: {n}");
-    }
 }
 
 async fn test_random(fx: &FxRuntime) {
