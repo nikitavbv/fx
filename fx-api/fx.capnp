@@ -15,6 +15,9 @@ struct FxApiCall {
         random @10 :RandomRequest;
         time @11 :TimeRequest;
         futurePoll @12 :FuturePollRequest;
+        futureDrop @13 :FutureDropRequest;
+        streamExport @14 :StreamExportRequest;
+        streamPollNext @15 :StreamPollNextRequest;
     }
 }
 
@@ -33,6 +36,9 @@ struct FxApiCallResult {
         random @10 :RandomResponse;
         time @11 :TimeResponse;
         futurePoll @12 :FuturePollResponse;
+        futureDrop @13 :FutureDropResponse;
+        streamExport @14 :StreamExportResponse;
+        streamPollNext @15 :StreamPollNextResponse;
     }
 }
 
@@ -241,5 +247,30 @@ struct FuturePollResponse {
         pending @0 :Void;
         result @1 :Data;
         error @2 :Text;
+    }
+}
+
+struct FutureDropRequest {
+    futureId @0 :UInt64;
+}
+
+struct FutureDropResponse {}
+
+struct StreamExportRequest {
+}
+
+struct StreamExportResponse {
+    data @0 :Data;
+}
+
+struct StreamPollNextRequest {
+    streamId @0 :UInt64;
+}
+
+struct StreamPollNextResponse {
+    response :union {
+        pending @0 :Void;
+        ready @1 :Data;
+        finished @2 :Void;
     }
 }

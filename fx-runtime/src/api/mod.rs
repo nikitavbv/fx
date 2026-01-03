@@ -81,6 +81,15 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         },
         Operation::FuturePoll(v) => {
             handle_future_poll(data, v.unwrap(), response_op.init_future_poll());
+        },
+        Operation::FutureDrop(_) => {
+            unimplemented!("future drop api is not implemented yet")
+        },
+        Operation::StreamExport(_) => {
+            unimplemented!("stream export api is not implemented yet")
+        },
+        Operation::StreamPollNext(_) => {
+            unimplemented!("stream poll next api is not implemented yet")
         }
     };
 
