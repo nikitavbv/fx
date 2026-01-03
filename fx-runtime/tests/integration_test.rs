@@ -222,3 +222,11 @@ async fn kv_simple() {
 async fn kv_wrong_binding_name() {
     FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
 }
+
+#[tokio::test]
+async fn fetch() {
+    let result = FX_INSTANCE.lock()
+        .invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap().0
+        .unwrap();
+    assert_eq!("hello fx!", &result);
+}

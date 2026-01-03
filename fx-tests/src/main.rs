@@ -53,7 +53,6 @@ async fn main() {
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(logger.clone()));
 
-    // test_fetch(&fx).await;
     test_log(&fx, logger.clone()).await;
     test_log_span(&fx, logger.clone()).await;
     test_metrics_counter_increment(&fx).await;
@@ -70,13 +69,6 @@ async fn main() {
     // TODO: test compiler error
 
     println!("all tests passed in {:?}", Instant::now() - started_at);
-}
-
-async fn test_fetch(fx: &FxRuntime) {
-    println!("> test_fetch");
-    let result = fx.invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap().0
-        .unwrap();
-    assert_eq!("hello fx!", &result);
 }
 
 async fn test_log(fx: &FxRuntime, logger: Arc<TestLogger>) {

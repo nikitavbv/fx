@@ -62,7 +62,7 @@ pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FxFutureError> {
                 let fetch_response = v.unwrap();
                 match fetch_response.get_response().which().unwrap() {
                     fx_capnp::fetch_response::response::Which::FutureId(v) => v,
-                    _other => panic!("fetch error"),
+                    fx_capnp::fetch_response::response::Which::FetchError(err) => panic!("fetch error: {}", err.unwrap().to_string().unwrap()),
                 }
             },
             _other => panic!("unexpected response from fetch api"),

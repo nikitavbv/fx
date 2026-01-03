@@ -378,13 +378,8 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
         let stream = data.engine.streams_pool.read(data.engine.clone(), &body);
 
         match stream {
-            Ok(Some(stream)) => {
-                request.body(reqwest::Body::wrap_stream(stream))
-            },
-            Ok(None) => {
-                fetch_response.set_fetch_error("stream not found");
-                return;
-            },
+            Ok(Some(stream)) => request.body(reqwest::Body::wrap_stream(stream)),
+            Ok(None) => request,
             Err(err) => {
                 fetch_response.set_fetch_error(format!("failed to read stream: {err:?}"));
                 return;
