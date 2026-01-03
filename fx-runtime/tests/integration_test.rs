@@ -17,6 +17,14 @@ use {
     },
 };
 
+struct DataCleanupGuard;
+
+impl Drop for DataCleanupGuard {
+    fn drop(&mut self) {
+        fs::remove_file("data/test-kv/test-key").unwrap();
+    }
+}
+
 static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMutex::new({
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
         .with_key(b"test-app", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
@@ -179,4 +187,38 @@ async fn stream_simple() {
     if n != 5 {
         panic!("unexpected number of items read from stream: {n}");
     }
+}
+
+#[tokio::test]
+async fn random() {
+    let random_bytes_0: Vec<u8> = FX_INSTANCE.lock().invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
+    let random_bytes_1: Vec<u8> = FX_INSTANCE.lock().invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
+
+    assert_eq!(32, random_bytes_0.len());
+    assert_eq!(32, random_bytes_1.len());
+    assert!(random_bytes_0 != random_bytes_1);
+}
+
+#[tokio::test]
+async fn time() {
+    let millis = FX_INSTANCE.lock().invoke_service::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
+    assert!((950..=1050).contains(&millis));
+}
+
+#[tokio::test]
+async fn kv_simple() {
+    let _cleanup_guard = DataCleanupGuard;
+
+    let result = FX_INSTANCE.lock().invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0;
+    assert!(result.is_none());
+
+    FX_INSTANCE.lock().invoke_service::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
+
+    let result = FX_INSTANCE.lock().invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0.unwrap();
+    assert_eq!("Hello World!", result);
+}
+
+#[tokio::test]
+async fn kv_wrong_binding_name() {
+    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
 }

@@ -54,10 +54,6 @@ async fn main() {
         .with_logger(BoxLogger::new(logger.clone()));
 
     // test_fetch(&fx).await;
-    test_random(&fx).await;
-    test_time(&fx).await;
-    test_kv_simple(&fx).await;
-    test_kv_wrong_binding_name(&fx).await;
     test_log(&fx, logger.clone()).await;
     test_log_span(&fx, logger.clone()).await;
     test_metrics_counter_increment(&fx).await;
@@ -81,39 +77,6 @@ async fn test_fetch(fx: &FxRuntime) {
     let result = fx.invoke_service::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap().0
         .unwrap();
     assert_eq!("hello fx!", &result);
-}
-
-async fn test_random(fx: &FxRuntime) {
-    println!("> test_random");
-    let random_bytes_0: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
-    let random_bytes_1: Vec<u8> = fx.invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
-
-    assert_eq!(32, random_bytes_0.len());
-    assert_eq!(32, random_bytes_1.len());
-    assert!(random_bytes_0 != random_bytes_1);
-}
-
-async fn test_time(fx: &FxRuntime) {
-    println!("> test_time");
-    let millis = fx.invoke_service::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
-    assert!((950..=1050).contains(&millis));
-}
-
-async fn test_kv_simple(fx: &FxRuntime) {
-    println!("> test_kv_simple");
-
-    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0;
-    assert!(result.is_none());
-
-    fx.invoke_service::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
-
-    let result = fx.invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0.unwrap();
-    assert_eq!("Hello World!", result);
-}
-
-async fn test_kv_wrong_binding_name(fx: &FxRuntime) {
-    println!("> test_kv_wrong_binding_name");
-    fx.invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
 }
 
 async fn test_log(fx: &FxRuntime, logger: Arc<TestLogger>) {
