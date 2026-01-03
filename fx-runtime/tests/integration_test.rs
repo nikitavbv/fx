@@ -12,10 +12,13 @@ use {
         compiler::{BoxedCompiler, CraneliftCompiler, MemoizedCompiler},
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, RpcDefinition, SqlDefinition},
         kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
-        logs::{BoxLogger, StdoutLogger},
+        logs::{BoxLogger, EventFieldValue, LogEventType},
         error::FxRuntimeError,
     },
+    crate::logger::TestLogger,
 };
+
+mod logger;
 
 struct DataCleanupGuard;
 
@@ -24,6 +27,8 @@ impl Drop for DataCleanupGuard {
         fs::remove_file("data/test-kv/test-key").unwrap();
     }
 }
+
+static LOGGER: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 
 static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMutex::new({
     let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
@@ -44,13 +49,11 @@ static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMute
                 .with_rpc(RpcDefinition::new("other-app"))
         );
 
-    let logger = Arc::new(StdoutLogger::new());
-
     FxRuntime::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
         .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
-        .with_logger(BoxLogger::new(logger.clone()))
+        .with_logger(BoxLogger::new(LOGGER.clone()))
 }));
 
 #[tokio::test]
@@ -230,3 +233,67 @@ async fn fetch() {
         .unwrap();
     assert_eq!("hello fx!", &result);
 }
+
+#[tokio::test]
+async fn log() {
+    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();
+
+    assert!(
+        LOGGER.events()
+            .into_iter()
+            .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("this is a test log".to_owned()))
+            .is_some()
+    )
+}
+
+#[tokio::test]
+async fn log_span() {
+    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
+
+    // both events include fields inherited from span
+    let first_message = LOGGER.events()
+        .into_iter()
+        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("first message".to_owned())).unwrap_or(false))
+        .expect("expected first message to be present");
+    let second_message = LOGGER.events()
+        .into_iter()
+        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("second message".to_owned())).unwrap_or(false))
+        .expect("expected second message to be present");
+    assert!(first_message.fields.get("request_id").unwrap() == &EventFieldValue::Text("some-request-id".to_owned()));
+    assert!(second_message.fields.get("request_id").unwrap() == &EventFieldValue::Text("some-request-id".to_owned()));
+
+    // span begin and end are logged
+    assert!(
+        LOGGER.events()
+            .into_iter()
+            .find(|v| v.event_type == LogEventType::Begin && v.fields.get("name").map(|v| v == &EventFieldValue::Text("test_log_span".to_owned())).unwrap_or(false))
+            .is_some()
+    );
+    assert!(
+        LOGGER.events()
+            .into_iter()
+            .find(|v| v.event_type == LogEventType::End && v.fields.get("name").map(|v| v == &EventFieldValue::Text("test_log_span".to_owned())).unwrap_or(false))
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn metrics_counter_increment() {
+    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
+    // todo: check counter value
+}
+
+#[tokio::test]
+async fn metrics_counter_increment_twice_with_tags() {
+    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
+}
+
+// TODO: add test that verifies that counter metrics with labels are recorded correctly
+// TODO: sql transactions
+// TODO: test that database can only be accessed by correct binding name
+// TODO: test sql with all types
+// TODO: test sql with sqlx
+// TODO: test sql with error
+// TODO: test a lot of async calls in a loop with random response times to verify that multiple concurrent requests are handled correctly
+// TODO: test what happens if function responds with incorrect type
+// TODO: test compiler error

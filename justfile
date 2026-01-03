@@ -6,7 +6,6 @@ run: cloud-dashboard app-counter app-hello-world app-rpc-test-service
 
 test:
     cargo build --target wasm32-unknown-unknown -p fx-test-app --release
-    cargo run -p fx-tests --release
     cargo test -p fx-runtime --release
 
 coverage:

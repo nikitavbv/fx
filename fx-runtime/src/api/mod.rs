@@ -385,7 +385,6 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
                 return;
             }
         }
-
     } else {
         request
     };

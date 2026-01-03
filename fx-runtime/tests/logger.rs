@@ -1,16 +1,18 @@
 use {
     std::sync::Mutex,
-    fx_runtime::logs::{Logger, LogMessageEvent},
+    fx_runtime::logs::{Logger, LogMessageEvent, StdoutLogger},
 };
 
 pub struct TestLogger {
     logs: Mutex<Vec<LogMessageEvent>>,
+    inner: StdoutLogger,
 }
 
 impl TestLogger {
     pub fn new() -> Self {
         Self {
             logs: Mutex::new(Vec::new()),
+            inner: StdoutLogger::new(),
         }
     }
 
@@ -21,6 +23,7 @@ impl TestLogger {
 
 impl Logger for TestLogger {
     fn log(&self, message: LogMessageEvent) {
+        self.inner.log(message.clone());
         self.logs.lock().unwrap().push(message);
     }
 }

@@ -1902,16 +1902,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-tests"
-version = "0.1.0"
-dependencies = [
- "futures",
- "fx-common",
- "fx-runtime",
- "tokio",
-]
-
-[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
