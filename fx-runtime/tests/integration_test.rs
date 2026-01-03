@@ -238,12 +238,14 @@ async fn fetch() {
 async fn log() {
     FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();
 
-    assert!(
-        LOGGER.events()
-            .into_iter()
-            .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("this is a test log".to_owned()))
-            .is_some()
-    )
+    let events = LOGGER.events();
+    let found_expected_event = events.iter()
+        .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("this is a test log".to_owned()))
+        .is_some();
+
+    if !found_expected_event {
+        panic!("didn't find expected event. All events: {events:?}");
+    }
 }
 
 #[tokio::test]
