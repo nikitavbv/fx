@@ -62,9 +62,6 @@ unsafe extern "C" {
     pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
     pub(crate) fn send_rpc_response(ptr: i64, len: i64); // TODO: replace with unified api handler in fx sdk
     pub(crate) fn send_error(ptr: i64, len: i64); // TODO: replace with unified api handler in fx sdk
-    pub(crate) fn future_drop(index: i64);
-    pub(crate) fn stream_export(output_ptr: i64);
-    pub(crate) fn stream_poll_next(index: i64, output_ptr: i64) -> i64; // 0 pending, 1 - ready (some), 2 - ready (none)
 }
 
 #[derive(Debug)]

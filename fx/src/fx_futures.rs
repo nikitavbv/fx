@@ -6,7 +6,7 @@ use {
     serde::Serialize,
     fx_common::FxFutureError,
     fx_api::{fx_capnp, capnp},
-    crate::{sys::future_drop, PtrWithLen, error::FxError, invoke_fx_api},
+    crate::{PtrWithLen, error::FxError, invoke_fx_api},
 };
 
 lazy_static! {
@@ -156,8 +156,12 @@ impl Future for FxHostFuture {
 
 impl Drop for FxHostFuture {
     fn drop(&mut self) {
-        unsafe {
-            future_drop(self.index.0 as i64)
-        }
+        let mut message = capnp::message::Builder::new_default();
+        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let op = request.init_op();
+        let mut future_drop_request = op.init_future_drop();
+        future_drop_request.set_future_id(self.index.0);
+
+        let _response = invoke_fx_api(message);
     }
 }
