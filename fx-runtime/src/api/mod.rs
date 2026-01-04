@@ -1,5 +1,8 @@
 use {
-    std::time::{SystemTime, UNIX_EPOCH},
+    std::{
+        time::{SystemTime, UNIX_EPOCH},
+        task::{self, Poll},
+    },
     wasmer::FunctionEnvMut,
     tracing::error,
     futures::FutureExt,
@@ -82,14 +85,14 @@ pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_
         Operation::FuturePoll(v) => {
             handle_future_poll(data, v.unwrap(), response_op.init_future_poll());
         },
-        Operation::FutureDrop(_) => {
-            unimplemented!("future drop api is not implemented yet")
+        Operation::FutureDrop(v) => {
+            handle_future_drop(data, v.unwrap(), response_op.init_future_drop());
         },
-        Operation::StreamExport(_) => {
-            unimplemented!("stream export api is not implemented yet")
+        Operation::StreamExport(v) => {
+            handle_stream_export(data, v.unwrap(), response_op.init_stream_export());
         },
-        Operation::StreamPollNext(_) => {
-            unimplemented!("stream poll next api is not implemented yet")
+        Operation::StreamPollNext(v) => {
+            handle_stream_poll_next(data, v.unwrap(), response_op.init_stream_poll_next());
         }
     };
 
@@ -459,6 +462,53 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
                 Ok(v) => response.set_result(&v),
                 Err(err) => response.set_error(err.to_string()),
             }
+        }
+    }
+}
+
+fn handle_future_drop(data: &ExecutionEnv, future_drop_request: fx_capnp::future_drop_request::Reader, _future_drop_response: fx_capnp::future_drop_response::Builder) {
+    data.engine.futures_pool.remove(&crate::futures::HostPoolIndex(future_drop_request.get_future_id()));
+}
+
+fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: fx_capnp::stream_export_request::Reader, stream_export_response: fx_capnp::stream_export_response::Builder) {
+    let mut response = stream_export_response.init_response();
+
+    match data.engine.streams_pool.push_function_stream(data.function_id.clone()) {
+        Ok(v) => {
+            response.set_stream_id(v.0);
+        },
+        Err(err) => {
+            response.set_error(err.to_string());
+        }
+    }
+}
+
+fn handle_stream_poll_next(data: &ExecutionEnv, stream_poll_next_request: fx_capnp::stream_poll_next_request::Reader, stream_poll_next_response: fx_capnp::stream_poll_next_response::Builder) {
+    let mut response = stream_poll_next_response.init_response();
+
+    let result = data.engine.streams_pool.poll_next(
+        data.engine.clone(),
+        &crate::streams::HostPoolIndex(stream_poll_next_request.get_stream_id()),
+        &mut task::Context::from_waker(data.futures_waker.as_ref().unwrap())
+    );
+
+    match result {
+        Poll::Pending => {
+            response.set_pending(());
+        },
+        Poll::Ready(Some(v)) => {
+            let mut item = response.init_ready().init_item();
+            match v {
+                Ok(v) => {
+                    item.set_result(&v);
+                },
+                Err(err) => {
+                    item.set_error(err.to_string());
+                }
+            }
+        },
+        Poll::Ready(None) => {
+            response.set_finished(());
         }
     }
 }

@@ -1,5 +1,7 @@
 # todo
 
+- rename `...Pool...` to `Arena`
+- is it possible to get rid of messagepack and `serde_rmp`?
 - handle errors everywhere
 - rename "storage" to "kv"
 - `fx-common` should contain types for rpc only, no logic. Actual logic (e.g, functions to construct http requests) should live in `fx`.

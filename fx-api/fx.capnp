@@ -260,7 +260,10 @@ struct StreamExportRequest {
 }
 
 struct StreamExportResponse {
-    data @0 :Data;
+    response :union {
+        streamId @0 :UInt64;
+        error @1 :Text;
+    }
 }
 
 struct StreamPollNextRequest {
@@ -270,7 +273,14 @@ struct StreamPollNextRequest {
 struct StreamPollNextResponse {
     response :union {
         pending @0 :Void;
-        ready @1 :Data;
+        ready @1 :StreamItem;
         finished @2 :Void;
+    }
+
+    struct StreamItem {
+        item :union {
+            result @0 :Data;
+            error @1 :Text;
+        }
     }
 }
