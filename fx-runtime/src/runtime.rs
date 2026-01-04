@@ -5,6 +5,7 @@ use {
         ops::DerefMut,
         task::{self, Poll},
         time::{SystemTime, UNIX_EPOCH, Instant},
+        io::Cursor,
     },
     tracing::{error, info},
     wasmer::{
@@ -40,6 +41,7 @@ use {
         SqlMigrations,
     },
     fx_runtime_common::{LogMessageEvent, LogSource},
+    fx_api::{capnp, fx_capnp},
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
         error::FxRuntimeError,
@@ -656,6 +658,75 @@ impl ExecutionEnv {
     pub fn client_malloc(&self) -> &Function {
         self.instance.as_ref().unwrap().exports.get_function("_fx_malloc").unwrap()
     }
+}
+
+fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Poll<Vec<u8>> {
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let op = request.init_op();
+    let mut rpc_request = op.init_future_poll();
+    rpc_request.set_future_id(future_id);
+
+    let response = invoke_fx_api(ctx, message);
+    let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
+
+    match response.get_op().which().unwrap() {
+        fx_capnp::fx_function_api_call_result::op::Which::FuturePoll(v) => {
+            let future_poll_response = v.unwrap();
+            match future_poll_response.get_response().which().unwrap() {
+                fx_capnp::function_future_poll_response::response::Which::Pending(_) => Poll::Pending,
+                fx_capnp::function_future_poll_response::response::Which::Ready(v) => {
+                    Poll::Ready(v.unwrap().to_vec())
+                }
+            }
+        },
+        _other => panic!("unexpected response from future_poll api"),
+    }
+}
+
+pub(crate) fn invoke_fx_api(
+    ctx: &mut FunctionEnvMut<ExecutionEnv>,
+    message: capnp::message::Builder<capnp::message::HeapAllocator>
+) -> capnp::message::Reader<capnp::serialize::OwnedSegments> {
+    let response_ptr = {
+        let (data, mut store) = ctx.data_and_store_mut();
+
+        let message_size = capnp::serialize::compute_serialized_size_in_words(&message) * 8;
+        let ptr = data.client_malloc().call(&mut store, &[Value::I64(message_size as i64)]).unwrap()[0].i64().unwrap() as usize;
+
+        let memory = data.memory.as_ref().unwrap();
+
+        unsafe {
+            capnp::serialize::write_message(
+                &mut memory.view(&store).data_unchecked_mut()[ptr..ptr+message_size],
+                &message
+            ).unwrap();
+        }
+
+        data.instance.as_ref().unwrap().exports.get_function("_fx_api").unwrap()
+            .call(&mut store, &[Value::I64(ptr as i64), Value::I64(message_size as i64)])
+            .unwrap()[0].i64().unwrap() as usize
+    };
+
+    let view = ctx.data().memory.as_ref().unwrap().view(&ctx);
+    let header_length = 4;
+    let header_bytes = {
+        let response_ptr = response_ptr as u64;
+        view.copy_range_to_vec(response_ptr..response_ptr+header_length).unwrap()
+    };
+    let response_length = u32::from_le_bytes(header_bytes.try_into().unwrap());
+
+    let response = {
+        let response_ptr = response_ptr as u64;
+        let response_length = response_length as u64;
+        view.copy_range_to_vec((response_ptr + header_length)..(response_ptr + header_length + response_length)).unwrap()
+    };
+    let (data, mut store) = ctx.data_and_store_mut();
+    data.instance.as_ref().unwrap().exports.get_function("_fx_dealloc").unwrap()
+        .call(&mut store, &[Value::I64(response_ptr as i64), Value::I64((header_length as u32 + response_length) as i64)])
+        .unwrap()[0].i64().unwrap() as usize;
+
+    capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap()
 }
 
 pub fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {

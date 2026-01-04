@@ -42,6 +42,24 @@ struct FxApiCallResult {
     }
 }
 
+struct FxFunctionApiCall {
+    op :union {
+        futurePoll @0 :FunctionFuturePollRequest;
+        futureDrop @1 :FunctionFutureDropRequest;
+        streamPollNext @2 :FunctionStreamPollNextRequest;
+        streamDrop @3 :FunctionStreamDropRequest;
+    }
+}
+
+struct FxFunctionApiCallResult {
+    op :union {
+        futurePoll @0 :FunctionFuturePollResponse;
+        futureDrop @1 :FunctionFutureDropResponse;
+        streamPollNext @2 :FunctionStreamPollNextResponse;
+        streamDrop @3 :FunctionStreamDropResponse;
+    }
+}
+
 struct MetricsCounterIncrementRequest {
     counterName @0 :Text;
     delta @1 :UInt64;
@@ -284,3 +302,43 @@ struct StreamPollNextResponse {
         }
     }
 }
+
+struct FunctionFuturePollRequest {
+    futureId @0 :UInt64;
+}
+
+struct FunctionFuturePollResponse {
+    response :union {
+        pending @0 :Void;
+        ready @1 :Data;
+    }
+}
+
+struct FunctionFutureDropRequest {
+    futureId @0 :UInt64;
+}
+
+struct FunctionFutureDropResponse {
+    response :union {
+        ok @0 :Void;
+        error @1 :Void;
+    }
+}
+
+struct FunctionStreamPollNextRequest {
+    streamId @0 :UInt64;
+}
+
+struct FunctionStreamPollNextResponse {
+    response :union {
+        pending @0 :Void;
+        ready @1 :Data;
+        finished @2 :Void;
+    }
+}
+
+struct FunctionStreamDropRequest {
+    streamId @0 :UInt64;
+}
+
+struct FunctionStreamDropResponse {}

@@ -35,6 +35,7 @@ pub mod utils;
 pub mod metrics;
 pub mod sql;
 
+mod api;
 mod error;
 mod fx_futures;
 mod fx_streams;

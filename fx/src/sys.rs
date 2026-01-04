@@ -6,14 +6,72 @@ use {
         fx_streams::STREAM_POOL,
         write_rpc_response_raw,
         set_panic_hook,
+        api::handle_future_poll,
     },
 };
 
 // exports:
+// malloc is exported function because it saves roundrip for capnp-based api
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_malloc(size: i64) -> i64 {
     unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) as i64 }
 }
+
+// dealloc is exported function to avoid RPC memory management depend on using capnp-based api
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_dealloc(ptr: i64, size: i64) {
+    unsafe { std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) }
+}
+
+// main entrypoint for capnp-based api
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
+    set_panic_hook();
+
+    let mut message_bytes = unsafe { Vec::from_raw_parts(req_addr as *mut u8, req_len as usize, req_len as usize) };
+    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+    let request = message_reader.get_root::<fx_api::fx_capnp::fx_function_api_call::Reader>().unwrap();
+    let op = request.get_op();
+
+    let mut response_message = capnp::message::Builder::new_default();
+    let response = response_message.init_root::<fx_capnp::fx_function_api_call_result::Builder>();
+    let mut response_op = response.init_op();
+
+    use fx_capnp::fx_function_api_call::op::{Which as Operation};
+    match op.which().unwrap() {
+        Operation::FuturePoll(v) => {
+            handle_future_poll(v.unwrap(), response_op.init_future_poll());
+        },
+        Operation::FutureDrop(_) => {
+            unimplemented!()
+        },
+        Operation::StreamDrop(_) => {
+            unimplemented!()
+        },
+        Operation::StreamPollNext(_) => {
+            unimplemented!()
+        }
+    };
+
+    let response_size = capnp::serialize::compute_serialized_size_in_words(&response_message) * 8;
+    let response_size_bytes = response_size.to_le_bytes();
+
+    let response_header_prefix_size = response_size_bytes.len(); // add header in the front to store response length
+    assert!(response_header_prefix_size == 4);
+
+    let ptr = unsafe { std::alloc::alloc(
+        std::alloc::Layout::from_size_align(response_size as usize + response_header_prefix_size, 1).unwrap()
+    ) };
+    let mut response_slice = unsafe { std::slice::from_raw_parts_mut(ptr, response_size) };
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(response_size_bytes.as_ptr(), ptr, response_header_prefix_size);
+    }
+    capnp::serialize::write_message(&mut response_slice[response_header_prefix_size..], &response_message).unwrap();
+
+    ptr as i64
+}
+
 
 /* returns 0 if pending, 1 if ready */
 #[unsafe(no_mangle)]
