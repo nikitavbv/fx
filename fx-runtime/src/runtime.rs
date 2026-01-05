@@ -300,20 +300,9 @@ impl Engine {
         let mut store_lock = ctx.store.lock().unwrap();
         let store = store_lock.deref_mut();
 
-        let function_stream_next = ctx.instance.exports.get_function("_fx_stream_next").unwrap();
         // TODO: measure points
-        let poll_next = function_stream_next.call(store, &[wasmer::Value::I64(index)]).unwrap()[0].unwrap_i64();
-        match poll_next {
-            0 => Poll::Pending,
-            1 => {
-                let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
-                Poll::Ready(Some(Ok(response)))
-            },
-            2 => Poll::Ready(None),
-            other => Poll::Ready(Some(Err(FxRuntimeError::StreamingError {
-                reason: format!("unexpected repsonse code from _fx_stream_next: {other:?}"),
-            }))),
-        }
+        function_stream_poll_next(&mut ctx.function_env.clone().into_mut(store), index as u64)
+            .map(|v| Ok(v).transpose())
     }
 
     pub(crate) fn stream_drop(&self, function_id: &FunctionId, index: i64) {
@@ -382,34 +371,15 @@ impl Future for FunctionRuntimeFuture {
 
         // cleanup futures
         if let Ok(mut futures_to_drop) = ctx.futures_to_drop.try_lock() {
-            match ctx.instance.exports.get_function("_fx_future_drop") {
-                Ok(function_drop) => {
-                    while let Some(future_to_drop) = futures_to_drop.pop_front() {
-                        match function_drop.call(store, &[Value::I64(future_to_drop)]) {
-                            Ok(v) => {
-                                if v[0].i64().unwrap() != 0 {
-                                    error!("_fx_future_drop returned an error");
-                                }
-                            },
-                            Err(err) => {
-                                error!("failed to call _fx_future_drop: {err:?}");
-                                ctx.needs_recreate.store(true, Ordering::SeqCst);
-                                return std::task::Poll::Ready(Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to call _fx_future_drop: {err:?}") }));
-                            }
-                        }
-                    }
-                },
-                Err(err) => {
-                    error!("_fx_future_drop not available in: {:?}, {err:?}", self.function_id.id);
-                }
+            while let Some(future_to_drop) = futures_to_drop.pop_front() {
+                function_future_drop(&mut ctx.function_env.clone().into_mut(store), future_to_drop as u64);
             }
         }
 
         // cleanup streams
         if let Ok(mut streams_to_drop) = ctx.streams_to_drop.try_lock() {
-            let function_stream_drop = ctx.instance.exports.get_function("_fx_stream_drop").unwrap();
             while let Some(stream_to_drop) = streams_to_drop.pop_front() {
-                function_stream_drop.call(store, &[Value::I64(stream_to_drop)]).unwrap();
+                function_stream_drop(&mut ctx.function_env.clone().into_mut(store), stream_to_drop as u64);
             }
         }
 
@@ -659,8 +629,8 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
-    let mut rpc_request = op.init_future_poll();
-    rpc_request.set_future_id(future_id);
+    let mut future_poll_request = op.init_future_poll();
+    future_poll_request.set_future_id(future_id);
 
     let response = invoke_fx_api(ctx, message)?;
     let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
@@ -677,6 +647,51 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
         },
         _other => panic!("unexpected response from future_poll api"),
     })
+}
+
+fn function_future_drop(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) {
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let op = request.init_op();
+    let mut future_drop_request = op.init_future_drop();
+    future_drop_request.set_future_id(future_id);
+
+    let _response = invoke_fx_api(ctx, message).unwrap();
+}
+
+fn function_stream_poll_next(ctx: &mut FunctionEnvMut<ExecutionEnv>, stream_id: u64) -> Poll<Option<Vec<u8>>> {
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let op = request.init_op();
+    let mut stream_poll_next_request = op.init_stream_poll_next();
+    stream_poll_next_request.set_stream_id(stream_id);
+
+    let response = invoke_fx_api(ctx, message).unwrap();
+    let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
+
+    match response.get_op().which().unwrap() {
+        fx_capnp::fx_function_api_call_result::op::Which::StreamPollNext(v) => {
+            let stream_poll_next_response = v.unwrap();
+            match stream_poll_next_response.get_response().which().unwrap() {
+                fx_capnp::function_stream_poll_next_response::response::Which::Pending(_) => Poll::Pending,
+                fx_capnp::function_stream_poll_next_response::response::Which::Ready(v) => {
+                    Poll::Ready(Some(v.unwrap().to_vec()))
+                },
+                fx_capnp::function_stream_poll_next_response::response::Which::Finished(_) => Poll::Ready(None),
+            }
+        },
+        _other => panic!("unexpected response from stream_poll_next api"),
+    }
+}
+
+fn function_stream_drop(ctx: &mut FunctionEnvMut<ExecutionEnv>, stream_id: u64) {
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let op = request.init_op();
+    let mut stream_drop_request = op.init_stream_drop();
+    stream_drop_request.set_stream_id(stream_id);
+
+    let _response = invoke_fx_api(ctx, message).unwrap();
 }
 
 pub(crate) fn invoke_fx_api(

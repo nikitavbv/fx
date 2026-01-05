@@ -6,7 +6,7 @@ use {
         fx_streams::STREAM_POOL,
         write_rpc_response_raw,
         set_panic_hook,
-        api::handle_future_poll,
+        api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next},
     },
 };
 
@@ -42,14 +42,14 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
         Operation::FuturePoll(v) => {
             handle_future_poll(v.unwrap(), response_op.init_future_poll());
         },
-        Operation::FutureDrop(_) => {
-            unimplemented!()
+        Operation::FutureDrop(v) => {
+            handle_future_drop(v.unwrap(), response_op.init_future_drop());
         },
-        Operation::StreamDrop(_) => {
-            unimplemented!()
+        Operation::StreamDrop(v) => {
+            handle_stream_drop(v.unwrap(), response_op.init_stream_drop());
         },
-        Operation::StreamPollNext(_) => {
-            unimplemented!()
+        Operation::StreamPollNext(v) => {
+            handle_stream_poll_next(v.unwrap(), response_op.init_stream_poll_next());
         }
     };
 
@@ -71,34 +71,6 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
     capnp::serialize::write_message(&mut response_slice[response_header_prefix_size..], &response_message).unwrap();
 
     ptr as i64
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_future_drop(future_index: i64) -> i64 {
-    set_panic_hook();
-    match FUTURE_POOL.remove(PoolIndex(future_index as u64)) {
-        Ok(_) => 0,
-        Err(_) => -1,
-    }
-}
-
-/* returns 0 if pending, 1 if ready (some), 2 if ready (none) */
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_stream_next(stream_index: i64) -> i64 {
-    set_panic_hook();
-    match STREAM_POOL.next(stream_index) {
-        Poll::Pending => 0,
-        Poll::Ready(Some(v)) => {
-            write_rpc_response_raw(v);
-            1
-        },
-        Poll::Ready(None) => 2,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_stream_drop(stream_index: i64) {
-    STREAM_POOL.remove(stream_index as u64);
 }
 
 // imports:
