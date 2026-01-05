@@ -4,7 +4,6 @@ use {
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
-        write_rpc_response_raw,
         set_panic_hook,
         api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next},
     },
@@ -77,7 +76,6 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
     pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
-    pub(crate) fn send_rpc_response(ptr: i64, len: i64); // TODO: replace with unified api handler in fx sdk
     pub(crate) fn send_error(ptr: i64, len: i64); // TODO: replace with unified api handler in fx sdk
 }
 

@@ -321,14 +321,6 @@ pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> 
         .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize: {err:?}") })
 }
 
-pub fn write_rpc_response<T: serde::ser::Serialize>(response: T) {
-    write_rpc_response_raw(rmp_serde::to_vec(&response).unwrap());
-}
-
-pub fn write_rpc_response_raw(response: Vec<u8>) {
-    unsafe { sys::send_rpc_response(response.as_ptr() as i64, response.len() as i64) };
-}
-
 pub fn write_error(error: FxExecutionError) {
     let error = rmp_serde::to_vec(&error).unwrap();
     unsafe { sys::send_error(error.as_ptr() as i64, error.len() as i64); }
