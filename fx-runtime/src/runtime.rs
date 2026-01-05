@@ -414,27 +414,21 @@ impl Future for FunctionRuntimeFuture {
         }
 
         // poll this future
-        let function_poll = ctx.instance.exports.get_function("_fx_future_poll").unwrap();
-
         if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
             // TODO: measure points
-            let poll_is_ready = function_poll.call(store, &[Value::I64(*rpc_future_index_value)])
-                .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
-                .unwrap_i64();
-            let result = if poll_is_ready == 1 {
-                let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
-                *rpc_future_index = None;
-                let compiler_metadata = ctx.function_env.as_ref(store).compiler_metadata.clone();
-                drop(store_lock);
-                self.record_function_invocation();
-                std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
-                    compiler_metadata,
-                })))
-            } else {
-                std::task::Poll::Pending
-            };
-
-            result
+            let mut function_env_mut = ctx.function_env.clone().into_mut(store);
+            match function_future_poll(&mut function_env_mut, *rpc_future_index_value as u64)? {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(response) => {
+                    *rpc_future_index = None;
+                    let compiler_metadata = ctx.function_env.as_ref(store).compiler_metadata.clone();
+                    drop(store_lock);
+                    self.record_function_invocation();
+                    Poll::Ready(Ok((response, FunctionInvocationEvent {
+                        compiler_metadata,
+                    })))
+                }
+            }
         } else {
             ctx.function_env.as_mut(store).futures_waker = Some(cx.waker().clone());
 
@@ -475,23 +469,24 @@ impl Future for FunctionRuntimeFuture {
                 }
             };
 
-            let poll_is_ready = function_poll.call(store, &[Value::I64(future_index as i64)])
-                .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
-            let poll_is_ready = match poll_is_ready {
-                Ok(v) => v[0].unwrap_i64(),
+            let mut function_env_mut = ctx.function_env.clone().into_mut(store);
+            let result = match function_future_poll(&mut function_env_mut, future_index as u64) {
+                Ok(v) => v,
                 Err(err) => {
                     ctx.needs_recreate.store(true, Ordering::SeqCst);
                     return std::task::Poll::Ready(Err(err));
                 }
             };
-            let result = if poll_is_ready == 1 {
-                let response = ctx.function_env.as_ref(store).rpc_response.as_ref().unwrap().clone();
-                std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
-                    compiler_metadata: ctx.function_env.as_ref(store).compiler_metadata.clone(),
-                })))
-            } else {
-                *rpc_future_index = Some(future_index);
-                std::task::Poll::Pending
+            let result = match result {
+                Poll::Pending => {
+                    *rpc_future_index = Some(future_index);
+                    std::task::Poll::Pending
+                },
+                Poll::Ready(response) => {
+                    std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
+                        compiler_metadata: ctx.function_env.as_ref(store).compiler_metadata.clone(),
+                    })))
+                }
             };
 
             // TODO: record points used
@@ -660,17 +655,17 @@ impl ExecutionEnv {
     }
 }
 
-fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Poll<Vec<u8>> {
+fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FxRuntimeError> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
     let mut rpc_request = op.init_future_poll();
     rpc_request.set_future_id(future_id);
 
-    let response = invoke_fx_api(ctx, message);
+    let response = invoke_fx_api(ctx, message)?;
     let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
 
-    match response.get_op().which().unwrap() {
+    Ok(match response.get_op().which().unwrap() {
         fx_capnp::fx_function_api_call_result::op::Which::FuturePoll(v) => {
             let future_poll_response = v.unwrap();
             match future_poll_response.get_response().which().unwrap() {
@@ -681,13 +676,13 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
             }
         },
         _other => panic!("unexpected response from future_poll api"),
-    }
+    })
 }
 
 pub(crate) fn invoke_fx_api(
     ctx: &mut FunctionEnvMut<ExecutionEnv>,
     message: capnp::message::Builder<capnp::message::HeapAllocator>
-) -> capnp::message::Reader<capnp::serialize::OwnedSegments> {
+) -> Result<capnp::message::Reader<capnp::serialize::OwnedSegments>, FxRuntimeError> {
     let response_ptr = {
         let (data, mut store) = ctx.data_and_store_mut();
 
@@ -705,7 +700,8 @@ pub(crate) fn invoke_fx_api(
 
         data.instance.as_ref().unwrap().exports.get_function("_fx_api").unwrap()
             .call(&mut store, &[Value::I64(ptr as i64), Value::I64(message_size as i64)])
-            .unwrap()[0].i64().unwrap() as usize
+            .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
+            .i64().unwrap() as usize
     };
 
     let view = ctx.data().memory.as_ref().unwrap().view(&ctx);
@@ -724,9 +720,9 @@ pub(crate) fn invoke_fx_api(
     let (data, mut store) = ctx.data_and_store_mut();
     data.instance.as_ref().unwrap().exports.get_function("_fx_dealloc").unwrap()
         .call(&mut store, &[Value::I64(response_ptr as i64), Value::I64((header_length as u32 + response_length) as i64)])
-        .unwrap()[0].i64().unwrap() as usize;
+        .unwrap();
 
-    capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap()
+    Ok(capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap())
 }
 
 pub fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {

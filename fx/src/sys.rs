@@ -62,7 +62,8 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
     let ptr = unsafe { std::alloc::alloc(
         std::alloc::Layout::from_size_align(response_size as usize + response_header_prefix_size, 1).unwrap()
     ) };
-    let mut response_slice = unsafe { std::slice::from_raw_parts_mut(ptr, response_size) };
+    let mut response_slice = unsafe { std::slice::from_raw_parts_mut(ptr, response_size + response_header_prefix_size) };
+    assert!(response_slice.len() == response_size + response_header_prefix_size);
 
     unsafe {
         std::ptr::copy_nonoverlapping(response_size_bytes.as_ptr(), ptr, response_header_prefix_size);
@@ -70,20 +71,6 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
     capnp::serialize::write_message(&mut response_slice[response_header_prefix_size..], &response_message).unwrap();
 
     ptr as i64
-}
-
-
-/* returns 0 if pending, 1 if ready */
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_future_poll(future_index: i64) -> i64 {
-    set_panic_hook();
-    match FUTURE_POOL.poll(PoolIndex(future_index as u64)) {
-        Poll::Pending => 0,
-        Poll::Ready(v) => {
-            write_rpc_response_raw(v);
-            1
-        }
-    }
 }
 
 #[unsafe(no_mangle)]
