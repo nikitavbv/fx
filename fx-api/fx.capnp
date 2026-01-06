@@ -48,6 +48,7 @@ struct FxFunctionApiCall {
         futureDrop @1 :FunctionFutureDropRequest;
         streamPollNext @2 :FunctionStreamPollNextRequest;
         streamDrop @3 :FunctionStreamDropRequest;
+        invoke @4 :FunctionInvokeRequest;
     }
 }
 
@@ -57,6 +58,7 @@ struct FxFunctionApiCallResult {
         futureDrop @1 :FunctionFutureDropResponse;
         streamPollNext @2 :FunctionStreamPollNextResponse;
         streamDrop @3 :FunctionStreamDropResponse;
+        invoke @4 :FunctionInvokeResponse;
     }
 }
 
@@ -342,3 +344,15 @@ struct FunctionStreamDropRequest {
 }
 
 struct FunctionStreamDropResponse {}
+
+struct FunctionInvokeRequest {
+    method @0 :Text;
+    payload @1 :Data;
+}
+
+struct FunctionInvokeResponse {
+    result :union {
+        ok @0 :Data;
+        error @1 :Data;
+    }
+}

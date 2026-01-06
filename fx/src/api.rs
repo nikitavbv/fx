@@ -54,3 +54,10 @@ pub(crate) fn handle_stream_drop(
 ) {
     STREAM_POOL.remove(stream_drop_request.get_stream_id());
 }
+
+pub(crate) fn handle_invoke(
+    invoke_request: fx_capnp::function_invoke_request::Reader,
+    invoke_response: fx_capnp::function_invoke_response::Builder
+) {
+    // TODO
+}

@@ -5,7 +5,7 @@ use {
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
         set_panic_hook,
-        api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next},
+        api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next, handle_invoke},
     },
 };
 
@@ -49,6 +49,9 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
         },
         Operation::StreamPollNext(v) => {
             handle_stream_poll_next(v.unwrap(), response_op.init_stream_poll_next());
+        },
+        Operation::Invoke(v) => {
+            handle_invoke(v.unwrap(), response_op.init_invoke());
         }
     };
 
