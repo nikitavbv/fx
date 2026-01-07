@@ -40,6 +40,7 @@ mod error;
 mod fx_futures;
 mod fx_streams;
 mod http;
+mod invoke;
 mod logging;
 mod sys;
 
