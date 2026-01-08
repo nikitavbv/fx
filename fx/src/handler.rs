@@ -28,13 +28,13 @@ pub trait IntoHandler<Args>: Sized + Copy + Send + Sync + 'static {
 impl<F, Fut, R> IntoHandler<()> for F
 where
     F: Fn() -> Fut + Copy + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    Fut: Future<Output = Result<R, FxError>> + Send + 'static,
     R: Serialize + 'static,
 {
     fn call(&self, _args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> {
         let future = self();
         Box::pin(async move {
-            let result = future.await;
+            let result = future.await?;
             serialize(result)
         })
     }
@@ -43,7 +43,7 @@ where
 impl<F, Fut, T1, R> IntoHandler<(T1,)> for F
 where
     F: Fn(T1) -> Fut + Copy + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    Fut: Future<Output = Result<R, FxError>> + Send + 'static,
     T1: DeserializeOwned + Send + 'static,
     R: Serialize + 'static,
 {
@@ -51,7 +51,7 @@ where
         let f = *self;
         let arg: Result<T1, FxError> = deserialize(args);
         Box::pin(async move {
-            let result = f(arg?).await;
+            let result = f(arg?).await?;
             serialize(result)
         })
     }
@@ -60,7 +60,7 @@ where
 impl<F, Fut, T1, T2, R> IntoHandler<(T1, T2)> for F
 where
     F: Fn(T1, T2) -> Fut + Copy + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    Fut: Future<Output = Result<R, FxError>> + Send + 'static,
     T1: DeserializeOwned + Send + 'static,
     T2: DeserializeOwned + Send + 'static,
     R: Serialize + 'static,
@@ -70,7 +70,7 @@ where
         let args: Result<(T1, T2), FxError> = deserialize(args);
         Box::pin(async move {
             let (arg1, arg2) = args?;
-            let result = f(arg1, arg2).await;
+            let result = f(arg1, arg2).await?;
             serialize(result)
         })
     }
@@ -84,8 +84,8 @@ pub fn deserialize<T: DeserializeOwned>(data: Vec<u8>) -> Result<T, FxError> {
     Ok(rmp_serde::from_slice(&data).unwrap())
 }
 
-async fn test_function(arg: u32) -> u32 {
-    arg + 1
+async fn test_function(arg: u32) -> Result<u32, FxError> {
+    Ok(arg + 1)
 }
 
 inventory::submit! {
