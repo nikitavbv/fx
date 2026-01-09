@@ -4,6 +4,7 @@ use {
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
+        handler::HANDLERS,
     },
 };
 
@@ -59,5 +60,7 @@ pub(crate) fn handle_invoke(
     invoke_request: fx_capnp::function_invoke_request::Reader,
     invoke_response: fx_capnp::function_invoke_response::Builder
 ) {
+    let handler = HANDLERS.get(&invoke_request.get_method().unwrap().to_str().unwrap()).unwrap();
+    let handler_future = handler(invoke_request.get_payload().unwrap().to_vec());
     // TODO
 }

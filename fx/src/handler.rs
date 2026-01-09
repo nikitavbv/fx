@@ -1,14 +1,30 @@
 use {
-    std::{pin::Pin, future::Future},
+    std::{pin::Pin, future::Future, collections::HashMap},
     serde::{de::DeserializeOwned, Serialize},
+    lazy_static::lazy_static,
     crate::error::FxError,
 };
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
+type HandlerFunction = Box<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> + Send + Sync>;
+
+lazy_static! {
+    pub static ref HANDLERS: HashMap<&'static str, HandlerFunction> = collect_handlers();
+}
+
+fn collect_handlers() -> HashMap<&'static str, HandlerFunction> {
+    let mut handlers = HashMap::new();
+
+    for handler in inventory::iter::<Handler>() {
+        handlers.insert(handler.name, (handler.make_handler)());
+    }
+
+    handlers
+}
 
 pub struct Handler {
     pub name: &'static str,
-    pub make_handler: fn() -> Box<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> + Send + Sync>,
+    pub make_handler: fn() -> HandlerFunction,
 }
 inventory::collect!(Handler);
 
