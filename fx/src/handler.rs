@@ -23,12 +23,19 @@ fn collect_handlers() -> HashMap<&'static str, HandlerFunction> {
 }
 
 pub struct Handler {
-    pub name: &'static str,
-    pub make_handler: fn() -> HandlerFunction,
+    name: &'static str,
+    make_handler: fn() -> HandlerFunction,
 }
 inventory::collect!(Handler);
 
 impl Handler {
+    pub fn new(name: &'static str, make_handler: fn() -> HandlerFunction) -> Self {
+        Self {
+            name,
+            make_handler,
+        }
+    }
+
     pub fn invoke(&self, args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> {
         (self.make_handler)()(args)
     }

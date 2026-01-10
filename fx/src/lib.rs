@@ -13,12 +13,14 @@ pub use {
     },
     fx_macro::rpc,
     futures::FutureExt,
+    inventory,
     crate::{
         sys::{PtrWithLen},
         fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
         http::{FxHttpRequest, fetch},
+        handler::{Handler, IntoHandler},
     },
 };
 
