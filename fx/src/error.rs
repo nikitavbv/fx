@@ -1,5 +1,6 @@
 use thiserror::Error;
 
+// legacy errors:
 #[derive(Error, Debug, Eq, PartialEq)]
 pub enum FxError {
     #[error("deserialization error")]

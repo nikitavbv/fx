@@ -7,7 +7,7 @@ use {
 
 #[derive(Clone)]
 pub struct FuturesPool {
-    pool: Arc<RwLock<HashMap<u64, Arc<Mutex<BoxFuture<'static, Result<Vec<u8>, FxFutureError>>>>>>>,
+    pool: Arc<RwLock<HashMap<u64, Arc<Mutex<BoxFuture<'static, Result<Vec<u8>, HostFutureError>>>>>>>,
     futures_to_drop: Arc<Mutex<VecDeque<u64>>>,
     counter: Arc<Mutex<u64>>,
 }
@@ -15,6 +15,46 @@ pub struct FuturesPool {
 #[derive(Debug)]
 pub struct HostPoolIndex(pub u64);
 
+/// Error returned by host future when you poll it
+#[derive(Error, Debug)]
+pub enum HostFutureError {
+    #[error("temporary placeholder to make host future error non-empty")]
+    Placeholder,
+}
+
+/// Error returned by futures runtime when you try to poll host future.
+/// Polling can fail because of error in surrounding infrastructure or if the future itself returned an error.
+#[derive(Error, Debug)]
+pub enum HostFuturePollError {
+    /// Error caused by runtime implementation of the futures. Should never happen unless there is a bug somewhere
+    #[error("error in runtime implementation of the futures: {0:?}")]
+    Runtime(#[from] HostFutureRuntimeError),
+
+    /// Future with this ID is not present in the arena.
+    #[error("future not found")]
+    NotFound,
+
+    /// Future itself returned an error
+    #[error("future error: {0:?}")]
+    FutureError(#[from] HostFutureError),
+}
+
+/// Error in the runtime implementation of the futures.
+/// Should never happen. If you see this error it means there is a bug somewhere.
+#[derive(Error, Debug)]
+pub enum HostFutureRuntimeError {
+    #[error("failed to acquire lock for futures arena: {reason:?}")]
+    ArenaFailedToLock {
+        reason: String,
+    },
+
+    #[error("failed to acquire lock for specific future in the arena: {reason:?}")]
+    FutureFailedToLock {
+        reason: String,
+    },
+}
+
+/// legacy error
 #[derive(Error, Debug)]
 pub enum FuturesError {
     #[error("failed to acquire arena lock: {reason:?}")]
@@ -32,7 +72,7 @@ impl FuturesPool {
         }
     }
 
-    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FxFutureError>>) -> Result<HostPoolIndex, FxFutureError> {
+    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, HostFutureError>>) -> Result<HostPoolIndex, FxFutureError> {
         let counter = {
             let mut counter = self.counter.try_lock()
                 .map_err(|err| FxFutureError::FxRuntimeError {
@@ -49,20 +89,20 @@ impl FuturesPool {
         Ok(HostPoolIndex(counter))
     }
 
-    pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxFutureError>> {
+    pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, HostFuturePollError>> {
         let future = self.pool.try_read()
-            .map_err(|err| FxFutureError::FxRuntimeError {
-                reason: format!("failed to acquire lock for futures arena: {err:?}")
+            .map_err(|err| HostFutureRuntimeError::ArenaFailedToLock {
+                reason: err.to_string(),
             })?
             .get(&index.0)
-            .ok_or(FxFutureError::FxRuntimeError { reason: "future not found".to_owned() })?
+            .ok_or(HostFuturePollError::NotFound)?
             .clone();
         let mut future = match future.try_lock() {
             Ok(v) => v,
             Err(err) => {
-                return Poll::Ready(Err(FxFutureError::FxRuntimeError {
-                    reason: format!("failed to acquire future lock: {err:?}"),
-                }))
+                return Poll::Ready(Err(HostFuturePollError::from(HostFutureRuntimeError::FutureFailedToLock {
+                    reason: err.to_string(),
+                })))
             },
         };
 
@@ -82,16 +122,16 @@ impl FuturesPool {
                         }
                     },
                     Err(err) => {
-                        return Poll::Ready(Err(FxFutureError::FxRuntimeError {
-                            reason: format!("failed to acquire futures arena lock: {err:?}"),
-                        }));
+                        return Poll::Ready(Err(HostFuturePollError::from(HostFutureRuntimeError::ArenaFailedToLock {
+                            reason: err.to_string(),
+                        })));
                     }
                 };
                 Poll::Ready(result)
             }
         };
 
-        result
+        result.map_err(|err| HostFuturePollError::from(err))
     }
 
     pub fn remove(&self, index: &HostPoolIndex) {

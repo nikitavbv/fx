@@ -1,13 +1,30 @@
 use {
     std::{sync::{Mutex, Arc}, task::{Context, Poll, Waker}, collections::HashMap},
     tracing::{info, error},
+    thiserror::Error,
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
-    fx_common::FxFutureError,
     fx_api::{fx_capnp, capnp},
     crate::{PtrWithLen, error::FxError, invoke_fx_api},
 };
+
+/// Errors that may be returned by a function future when you poll it
+#[derive(Error, Debug)]
+pub enum FunctionFutureError {
+    /// error produced by user's implementation of the handler
+    #[error("user application error: {description}")]
+    UserApplicationError {
+        description: String,
+    }
+}
+
+/// Errors that may be returned by a future imported from the host when you poll it
+#[derive(Error, Debug)]
+pub enum HostFutureError {
+    #[error("placeholder error to make HostFutureError non-empty")]
+    PlaceholderError,
+}
 
 lazy_static! {
     pub(crate) static ref FUTURE_POOL: FuturePool = FuturePool::new();
@@ -18,7 +35,7 @@ pub(crate) struct FuturePool {
 }
 
 struct PoolInner {
-    futures: HashMap<u64, BoxFuture<'static, Result<Vec<u8>, FxError>>>,
+    futures: HashMap<u64, BoxFuture<'static, Result<Vec<u8>, FunctionFutureError>>>,
     index: u64,
 }
 
@@ -32,11 +49,11 @@ impl FuturePool {
         }
     }
 
-    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FxError>>) -> PoolIndex {
+    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FunctionFutureError>>) -> PoolIndex {
         self.pool.lock().unwrap().push(future)
     }
 
-    pub fn poll(&self, index: PoolIndex) -> Poll<Result<Vec<u8>, FxError>> {
+    pub fn poll(&self, index: PoolIndex) -> Poll<Result<Vec<u8>, FunctionFutureError>> {
         let mut context = Context::from_waker(Waker::noop());
         let mut pool = self.pool.lock()
             .expect("failed to lock future arena when polling future");
@@ -71,14 +88,14 @@ impl PoolInner {
         }
     }
 
-    pub fn push(&mut self, future: BoxFuture<'static, Result<Vec<u8>, FxError>>) -> PoolIndex {
+    pub fn push(&mut self, future: BoxFuture<'static, Result<Vec<u8>, FunctionFutureError>>) -> PoolIndex {
         let index = self.index;
         self.index += 1;
         self.futures.insert(index, future);
         PoolIndex(index)
     }
 
-    pub fn poll(&mut self, index: &PoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxError>> {
+    pub fn poll(&mut self, index: &PoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FunctionFutureError>> {
         self.futures.get_mut(&index.0).as_mut()
             .expect("failed to lock futures arena in PoolInner")
             .poll_unpin(context)
@@ -101,7 +118,7 @@ pub struct FxFuture {
 }
 
 impl FxFuture {
-    pub fn wrap(inner: impl Future<Output = Result<Vec<u8>, FxError>> + Send + 'static) -> Self {
+    pub fn wrap(inner: impl Future<Output = Result<Vec<u8>, FunctionFutureError>> + Send + 'static) -> Self {
         let inner = inner.boxed();
         let index = FUTURE_POOL.push(inner);
         Self {
@@ -129,7 +146,7 @@ impl FxHostFuture {
 }
 
 impl Future for FxHostFuture {
-    type Output = Result<Vec<u8>, FxFutureError>;
+    type Output = Result<Vec<u8>, HostFutureError>;
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
@@ -146,7 +163,13 @@ impl Future for FxHostFuture {
                 match future_poll_response.get_response().which().unwrap() {
                     fx_capnp::future_poll_response::response::Which::Pending(_) => Poll::Pending,
                     fx_capnp::future_poll_response::response::Which::Result(v) => Poll::Ready(Ok(v.unwrap().to_vec())),
-                    fx_capnp::future_poll_response::response::Which::Error(err) => Poll::Ready(Err(FxFutureError::FxRuntimeError { reason: err.unwrap().to_string().unwrap() })),
+                    fx_capnp::future_poll_response::response::Which::Error(error) => Poll::Ready(Err({
+                        let error = error.unwrap();
+                        match error.get_error().which().unwrap() {
+                            fx_capnp::future_poll_error::error::Which::Placeholder0(_) => HostFutureError::PlaceholderError,
+                            fx_capnp::future_poll_error::error::Which::Placeholder1(_) => HostFutureError::PlaceholderError,
+                        }
+                    })),
                 }
             },
             _other => panic!("unexpected response from future_poll api"),

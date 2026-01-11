@@ -44,7 +44,7 @@ use {
     fx_api::{capnp, fx_capnp},
     crate::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
-        error::FxRuntimeError,
+        error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
         sql::{self, SqlDatabase},
         compiler::{Compiler, BoxedCompiler, CraneliftCompiler, CompilerMetadata},
         futures::FuturesPool,
@@ -190,13 +190,15 @@ impl Engine {
         Ok((rmp_serde::from_slice(&response).unwrap(), event))
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
         let need_to_create_context = {
             let execution_contexts = match self.execution_contexts.read() {
                 Ok(v) => v,
                 Err(err) => {
                     error!("failed to lock execution contexts: {err:?}");
-                    return Err(FxRuntimeError::ExecutionContextRuntimeError { reason: format!("failed to lock execution contexts: {err:?}") });
+                    return Err(FunctionInvokeError::from(
+                        FunctionInvokeInternalRuntimeError::ExecutionContextsFailedToLock { reason: err.to_string() }
+                    ));
                 }
             };
             if let Some(context) = execution_contexts.get(&function_id) {
@@ -656,13 +658,14 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
                 },
                 fx_capnp::function_future_poll_response::response::Which::Error(error) => {
                     let error = error.unwrap();
+                    // TODO: refactor FxRuntimeError into something more granular
                     return Err(match error.get_error().which().unwrap() {
-                        fx_capnp::function_future_poll_error::error::Which::ApiError(_v) => FxRuntimeError::ServiceExecutionError {
-                            error: FxExecutionError::RpcRequestRead { reason: "will test pass?".to_owned() }
-                        },
                         fx_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FxRuntimeError::ServiceInternalError {
                             reason: "unknown".to_owned(),
-                        }
+                        },
+                        fx_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FxRuntimeError::ServiceInternalError {
+                            reason: "unknown2".to_owned(),
+                        },
                     });
                 }
             }

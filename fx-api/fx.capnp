@@ -266,7 +266,14 @@ struct FuturePollResponse {
     response :union {
         pending @0 :Void;
         result @1 :Data;
-        error @2 :Text;
+        error @2 :FuturePollError;
+    }
+}
+
+struct FuturePollError {
+    error :union {
+        placeholder0 @0 :Void;
+        placeholder1 @1 :Void;
     }
 }
 
@@ -319,8 +326,8 @@ struct FunctionFuturePollResponse {
 
 struct FunctionFuturePollError {
     error :union {
-        apiError @0 :Text;
-        internalRuntimeError @1 :Void;
+        internalRuntimeError @0 :Void;
+        userApplicationError @1 :Text;
     }
 }
 

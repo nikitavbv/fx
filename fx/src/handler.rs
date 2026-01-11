@@ -1,12 +1,46 @@
 use {
     std::{pin::Pin, future::Future, collections::HashMap},
+    thiserror::Error,
     serde::{de::DeserializeOwned, Serialize},
     lazy_static::lazy_static,
-    crate::error::FxError,
+    crate::fx_futures::FunctionFutureError,
 };
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
-type HandlerFunction = Box<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> + Send + Sync>;
+type HandlerFunction = Box<dyn Fn(Vec<u8>) -> HandlerResult + Send + Sync>;
+
+// error type for user application errors + surrounding infrastructure errors
+#[derive(Error, Debug)]
+pub enum HandlerError {
+    /// error produced by user's implementation of the handler
+    #[error("user application error: {description}")]
+    UserApplicationError {
+        description: String,
+    }
+}
+
+impl From<anyhow::Error> for HandlerError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::UserApplicationError { description: format!("{err:?}") }
+    }
+}
+
+/// when function future is pushed into futures arena, its error type
+/// should be converted into a more generic FxFutureError, that combines
+/// all cases where a function future can fail.
+impl From<HandlerError> for FunctionFutureError {
+    fn from(value: HandlerError) -> Self {
+        match value {
+            HandlerError::UserApplicationError { description } => Self::UserApplicationError { description },
+        }
+    }
+}
+
+// result type for user's implementation of the handler + runtime infrastructure like serialization, etc.
+pub type HandlerResult = BoxFuture<Result<Vec<u8>, HandlerError>>;
+
+// result type for user's implementation of the handler
+type UserHandlerResult<T: Serialize + 'static> = anyhow::Result<T>;
 
 lazy_static! {
     pub static ref HANDLERS: HashMap<&'static str, HandlerFunction> = collect_handlers();
@@ -36,14 +70,14 @@ impl Handler {
         }
     }
 
-    pub fn invoke(&self, args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> {
+    pub fn invoke(&self, args: Vec<u8>) -> HandlerResult {
         (self.make_handler)()(args)
     }
 }
 
 pub trait IntoHandler<Args>: Sized + Copy + Send + Sync + 'static {
-    fn call(&self, args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>>;
-    fn into_boxed(self) -> Box<dyn Fn(Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> + Send + Sync> {
+    fn call(&self, args: Vec<u8>) -> HandlerResult;
+    fn into_boxed(self) -> HandlerFunction {
         Box::new(move |args| self.call(args))
     }
 }
@@ -51,10 +85,10 @@ pub trait IntoHandler<Args>: Sized + Copy + Send + Sync + 'static {
 impl<F, Fut, R> IntoHandler<()> for F
 where
     F: Fn() -> Fut + Copy + Send + Sync + 'static,
-    Fut: Future<Output = Result<R, FxError>> + Send + 'static,
+    Fut: Future<Output = UserHandlerResult<R>> + Send + 'static,
     R: Serialize + 'static,
 {
-    fn call(&self, _args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> {
+    fn call(&self, _args: Vec<u8>) -> HandlerResult {
         let future = self();
         Box::pin(async move {
             let result = future.await?;

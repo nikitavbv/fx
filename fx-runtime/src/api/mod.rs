@@ -460,7 +460,11 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
         Poll::Ready(res) => {
             match res {
                 Ok(v) => response.set_result(&v),
-                Err(err) => response.set_error(err.to_string()),
+                Err(error) => {
+                    let mut response_error = response.init_error().init_error();
+                    match error {
+                    }
+                },
             }
         }
     }

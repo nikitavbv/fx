@@ -1,8 +1,9 @@
 use {
     std::task::Poll,
     fx_api::{capnp, fx_capnp},
+    futures::TryFutureExt,
     crate::{
-        fx_futures::{FUTURE_POOL, PoolIndex, FxFuture},
+        fx_futures::{FUTURE_POOL, PoolIndex, FxFuture, FunctionFutureError},
         fx_streams::STREAM_POOL,
         handler::HANDLERS,
         error::FxError,
@@ -25,7 +26,7 @@ pub(crate) fn handle_future_poll(
         Poll::Ready(Err(err)) => {
             let mut error = response.init_error().init_error();
             match err {
-                FxError::DeserializationError { reason } => error.set_api_error(format!("failed to deserialize: {reason}")),
+                FunctionFutureError::UserApplicationError { description } => error.set_user_application_error(description),
                 _other => error.set_internal_runtime_error(()),
             }
         }
@@ -97,6 +98,9 @@ pub(crate) fn handle_invoke(
     };
 
     let handler_future = handler(invoke_request.get_payload().unwrap().to_vec());
-    let handler_future = FxFuture::wrap(handler_future);
+    let handler_future = FxFuture::wrap(
+        handler_future
+            .map_err(|err| FunctionFutureError::from(err))
+    );
     result.set_future_id(handler_future.future_index());
 }

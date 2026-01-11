@@ -3,6 +3,28 @@ use {
     fx_common::FxExecutionError,
 };
 
+/// Error that may be returned when function is invoked by the runtime.
+#[derive(Error, Debug)]
+pub enum FunctionInvokeError {
+    /// Failed to invoke function because of internal error in runtime implementation.
+    /// Should never happen. If you get this error, there is a bug somewhere in the
+    /// fx runtime implementation.
+    #[error("runtime internal error: {0:?}")]
+    RuntimeError(#[from] FunctionInvokeInternalRuntimeError),
+}
+
+/// Failed to invoke function because of internal error in runtime implementation.
+/// Should never happen. If you get this error, there is a bug somewhere in the
+/// fx runtime implementation.
+#[derive(Error, Debug)]
+pub enum FunctionInvokeInternalRuntimeError {
+    #[error("failed to lock execution contexts: {reason:?}")]
+    ExecutionContextsFailedToLock {
+        reason: String,
+    }
+}
+
+// legacy errors:
 #[derive(Error, Debug, Eq, PartialEq)]
 pub enum FxRuntimeError {
     #[error("service not found")]
