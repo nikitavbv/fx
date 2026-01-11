@@ -14,13 +14,10 @@ use {
 mod cloud_api;
 mod components;
 mod database;
-mod events;
 mod icons;
 
 #[rpc]
-pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
-    ctx.init_logger();
-
+pub async fn http(req: HttpRequest) -> Result<HttpResponse, fx::FxError> {
     let database = Database::new(ctx.sql("dashboard")).await;
     database.run_migrations();
 

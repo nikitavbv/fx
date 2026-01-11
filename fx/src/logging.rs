@@ -1,11 +1,31 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, sync::Once, panic},
     tracing::{Subscriber, Event, field::{Field, Visit}, span::Attributes, Id},
     tracing_subscriber::{Layer, layer},
     fx_common::{LogMessage, LogLevel, LogEventType},
     fx_api::{capnp, fx_capnp},
     crate::invoke_fx_api,
 };
+
+pub fn panic_hook(info: &panic::PanicHookInfo) {
+    let payload = info.payload().downcast_ref::<&str>()
+        .map(|v| v.to_owned().to_owned())
+        .or(info.payload().downcast_ref::<String>().map(|v| v.to_owned()));
+    tracing::error!("fx module panic: {info:?}, payload: {payload:?}");
+}
+
+pub fn set_panic_hook() {
+    static SET_HOOK: Once = Once::new();
+    SET_HOOK.call_once(|| { std::panic::set_hook(Box::new(panic_hook)); });
+}
+
+pub fn init_logger() {
+    static LOGGER_INIT: Once = Once::new();
+    LOGGER_INIT.call_once(|| {
+        use tracing_subscriber::prelude::*;
+        tracing::subscriber::set_global_default(tracing_subscriber::Registry::default().with(FxLoggingLayer)).unwrap();
+    });
+}
 
 pub struct FxLoggingLayer;
 

@@ -4,7 +4,7 @@ use {
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
-        set_panic_hook,
+        logging::{set_panic_hook, init_logger},
         api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next, handle_invoke},
     },
 };
@@ -26,6 +26,7 @@ pub extern "C" fn _fx_dealloc(ptr: i64, size: i64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
     set_panic_hook();
+    init_logger();
 
     let mut message_bytes = unsafe { Vec::from_raw_parts(req_addr as *mut u8, req_len as usize, req_len as usize) };
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes.as_slice(), capnp::message::ReaderOptions::default()).unwrap();

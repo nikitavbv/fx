@@ -29,7 +29,7 @@ pub struct Handler {
 inventory::collect!(Handler);
 
 impl Handler {
-    pub fn new(name: &'static str, make_handler: fn() -> HandlerFunction) -> Self {
+    pub const fn new(name: &'static str, make_handler: fn() -> HandlerFunction) -> Self {
         Self {
             name,
             make_handler,

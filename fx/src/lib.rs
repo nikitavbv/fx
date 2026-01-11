@@ -25,7 +25,7 @@ pub use {
 };
 
 use {
-    std::{sync::{atomic::{AtomicBool, Ordering}, Once}, panic, time::Duration, ops::Sub},
+    std::{sync::Once, panic, time::Duration, ops::Sub},
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
@@ -51,23 +51,12 @@ lazy_static! {
 }
 
 pub struct FxCtx {
-    logger_init: AtomicBool,
 }
 
 impl FxCtx {
     pub fn new() -> Self {
         Self {
-            logger_init: AtomicBool::new(false),
         }
-    }
-
-    pub fn init_logger(&self) {
-        if self.logger_init.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_err() {
-            return;
-        }
-
-        use tracing_subscriber::prelude::*;
-        tracing::subscriber::set_global_default(tracing_subscriber::Registry::default().with(FxLoggingLayer)).unwrap();
     }
 
     pub fn kv(&self, namespace: impl Into<String>) -> KvStore {
@@ -327,18 +316,6 @@ pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> 
 pub fn write_error(error: FxExecutionError) {
     let error = rmp_serde::to_vec(&error).unwrap();
     unsafe { sys::send_error(error.as_ptr() as i64, error.len() as i64); }
-}
-
-pub fn panic_hook(info: &panic::PanicHookInfo) {
-    let payload = info.payload().downcast_ref::<&str>()
-        .map(|v| v.to_owned().to_owned())
-        .or(info.payload().downcast_ref::<String>().map(|v| v.to_owned()));
-    tracing::error!("fx module panic: {info:?}, payload: {payload:?}");
-}
-
-pub fn set_panic_hook() {
-    static SET_HOOK: Once = Once::new();
-    SET_HOOK.call_once(|| { std::panic::set_hook(Box::new(panic_hook)); });
 }
 
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {
