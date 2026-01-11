@@ -33,13 +33,13 @@ pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
 }
 
 #[rpc]
-pub fn hello_cron() -> fx::Result<()> {
+pub async fn hello_cron() -> fx::Result<()> {
     info!("hello from cron!");
     Ok(())
 }
 
 #[rpc]
-pub fn example() -> fx::Result<()> {
+pub async fn example() -> fx::Result<()> {
     info!("hello from fx!");
     Ok(())
 }

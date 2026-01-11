@@ -313,6 +313,14 @@ struct FunctionFuturePollResponse {
     response :union {
         pending @0 :Void;
         ready @1 :Data;
+        error @2 :FunctionFuturePollError;
+    }
+}
+
+struct FunctionFuturePollError {
+    error :union {
+        apiError @0 :Text;
+        internalRuntimeError @1 :Void;
     }
 }
 
@@ -352,7 +360,15 @@ struct FunctionInvokeRequest {
 
 struct FunctionInvokeResponse {
     result :union {
-        ok @0 :Data;
-        error @1 :Data;
+        futureId @0 :UInt64;
+        error @1 :FunctionInvokeError;
+    }
+}
+
+struct FunctionInvokeError {
+    error :union {
+        badRequest @0 :Void;
+        handlerNotFound @1 :Void;
+        internalRuntimeError @2 :Void;
     }
 }

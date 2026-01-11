@@ -409,33 +409,14 @@ impl Future for FunctionRuntimeFuture {
             ctx.function_env.as_mut(store).instance = Some(ctx.instance.clone());
             ctx.function_env.as_mut(store).memory = Some(memory.clone());
 
-            let client_malloc = ctx.instance.exports.get_function("_fx_malloc").unwrap();
-            let target_addr = client_malloc.call(store, &[Value::I64(argument.len() as i64)]).unwrap()[0].unwrap_i64() as u64;
-            memory.view(store).write(target_addr, &argument).unwrap();
-
-            let function = ctx.instance.exports.get_function(&format!("_fx_rpc_{function_name}"))
-                .map_err(|err| match err {
-                   ExportError::Missing(_) => FxRuntimeError::RpcHandlerNotDefined,
-                   ExportError::IncompatibleType => FxRuntimeError::RpcHandlerIncompatibleType,
-                })?;
-
-            ctx.function_env.as_mut(store).execution_error = None;
-
-            // TODO: errors like this should be reported to some data stream
-            let future_index = function.call(store, &[Value::I64(target_addr as i64), Value::I64(argument.len() as i64)])
-                .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("rpc call failed: {err:?}") });
-
-            if let Some(execution_error) = ctx.function_env.as_ref(store).execution_error.as_ref() {
-                let execution_error: FxExecutionError = rmp_serde::from_slice(execution_error.as_slice()).unwrap();
-                ctx.needs_recreate.store(true, Ordering::SeqCst);
-                return Poll::Ready(Err(FxRuntimeError::ServiceExecutionError { error: execution_error }));
-            }
-
-            let future_index = match future_index {
-                Ok(v) => v[0].unwrap_i64(),
+            // TODO: fx api instead of all of this
+            let mut function_env_mut = ctx.function_env.clone().into_mut(store);
+            let future_index = match function_invoke(&mut function_env_mut, function_name, argument) {
+                Ok(v) => v,
                 Err(err) => {
+                    error!("error when executing function: {err:?}");
                     ctx.needs_recreate.store(true, Ordering::SeqCst);
-                    return std::task::Poll::Ready(Err(err));
+                    return Poll::Ready(Err(err));
                 }
             };
 
@@ -449,7 +430,7 @@ impl Future for FunctionRuntimeFuture {
             };
             let result = match result {
                 Poll::Pending => {
-                    *rpc_future_index = Some(future_index);
+                    *rpc_future_index = Some(future_index as i64);
                     std::task::Poll::Pending
                 },
                 Poll::Ready(response) => {
@@ -625,6 +606,36 @@ impl ExecutionEnv {
     }
 }
 
+fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FxRuntimeError> {
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let op = request.init_op();
+    let mut function_invoke_request = op.init_invoke();
+    function_invoke_request.set_method(handler);
+    function_invoke_request.set_payload(&payload);
+
+    let response = invoke_fx_api(ctx, message)?;
+    let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
+    match response.get_op().which().unwrap() {
+        fx_capnp::fx_function_api_call_result::op::Which::Invoke(v) => {
+            let invoke_response = v.unwrap();
+            match invoke_response.get_result().which().unwrap() {
+                fx_capnp::function_invoke_response::result::Which::FutureId(v) => {
+                    Ok(v)
+                },
+                fx_capnp::function_invoke_response::result::Which::Error(err) => {
+                    let err = err.unwrap().get_error();
+                    match err.which().unwrap() {
+                        fx_capnp::function_invoke_error::error::Which::HandlerNotFound(_v) => Err(FxRuntimeError::RpcHandlerNotDefined),
+                        _other => panic!("error when invoking function"),
+                    }
+                }
+            }
+        }
+        _other => panic!("unexpected response from function invoke api"),
+    }
+}
+
 fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FxRuntimeError> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
@@ -642,6 +653,17 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
                 fx_capnp::function_future_poll_response::response::Which::Pending(_) => Poll::Pending,
                 fx_capnp::function_future_poll_response::response::Which::Ready(v) => {
                     Poll::Ready(v.unwrap().to_vec())
+                },
+                fx_capnp::function_future_poll_response::response::Which::Error(error) => {
+                    let error = error.unwrap();
+                    return Err(match error.get_error().which().unwrap() {
+                        fx_capnp::function_future_poll_error::error::Which::ApiError(_v) => FxRuntimeError::ServiceExecutionError {
+                            error: FxExecutionError::RpcRequestRead { reason: "will test pass?".to_owned() }
+                        },
+                        fx_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FxRuntimeError::ServiceInternalError {
+                            reason: "unknown".to_owned(),
+                        }
+                    });
                 }
             }
         },

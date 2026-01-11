@@ -18,7 +18,7 @@ pub(crate) struct FuturePool {
 }
 
 struct PoolInner {
-    futures: HashMap<u64, BoxFuture<'static, Vec<u8>>>,
+    futures: HashMap<u64, BoxFuture<'static, Result<Vec<u8>, FxError>>>,
     index: u64,
 }
 
@@ -32,11 +32,11 @@ impl FuturePool {
         }
     }
 
-    pub fn push(&self, future: BoxFuture<'static, Vec<u8>>) -> PoolIndex {
+    pub fn push(&self, future: BoxFuture<'static, Result<Vec<u8>, FxError>>) -> PoolIndex {
         self.pool.lock().unwrap().push(future)
     }
 
-    pub fn poll(&self, index: PoolIndex) -> Poll<Vec<u8>> {
+    pub fn poll(&self, index: PoolIndex) -> Poll<Result<Vec<u8>, FxError>> {
         let mut context = Context::from_waker(Waker::noop());
         let mut pool = self.pool.lock()
             .expect("failed to lock future arena when polling future");
@@ -71,14 +71,14 @@ impl PoolInner {
         }
     }
 
-    pub fn push(&mut self, future: BoxFuture<'static, Vec<u8>>) -> PoolIndex {
+    pub fn push(&mut self, future: BoxFuture<'static, Result<Vec<u8>, FxError>>) -> PoolIndex {
         let index = self.index;
         self.index += 1;
         self.futures.insert(index, future);
         PoolIndex(index)
     }
 
-    pub fn poll(&mut self, index: &PoolIndex, context: &mut Context<'_>) -> Poll<Vec<u8>> {
+    pub fn poll(&mut self, index: &PoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, FxError>> {
         self.futures.get_mut(&index.0).as_mut()
             .expect("failed to lock futures arena in PoolInner")
             .poll_unpin(context)
@@ -101,7 +101,7 @@ pub struct FxFuture {
 }
 
 impl FxFuture {
-    pub fn wrap(inner: impl Future<Output = Vec<u8>> + Send + 'static) -> Self {
+    pub fn wrap(inner: impl Future<Output = Result<Vec<u8>, FxError>> + Send + 'static) -> Self {
         let inner = inner.boxed();
         let index = FUTURE_POOL.push(inner);
         Self {

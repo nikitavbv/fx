@@ -104,16 +104,6 @@ pub fn serialize<T: Serialize>(data: T) -> Result<Vec<u8>, FxError> {
 }
 
 pub fn deserialize<T: DeserializeOwned>(data: Vec<u8>) -> Result<T, FxError> {
-    Ok(rmp_serde::from_slice(&data).unwrap())
-}
-
-async fn test_function(arg: u32) -> Result<u32, FxError> {
-    Ok(arg + 1)
-}
-
-inventory::submit! {
-    Handler {
-        name: "test_function",
-        make_handler: || { IntoHandler::into_boxed(test_function) }
-    }
+    rmp_serde::from_slice(&data)
+        .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize function argument: {err:?}") })
 }

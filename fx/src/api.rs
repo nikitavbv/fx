@@ -2,9 +2,10 @@ use {
     std::task::Poll,
     fx_api::{capnp, fx_capnp},
     crate::{
-        fx_futures::{FUTURE_POOL, PoolIndex},
+        fx_futures::{FUTURE_POOL, PoolIndex, FxFuture},
         fx_streams::STREAM_POOL,
         handler::HANDLERS,
+        error::FxError,
     },
 };
 
@@ -18,8 +19,15 @@ pub(crate) fn handle_future_poll(
         Poll::Pending => {
             response.set_pending(());
         },
-        Poll::Ready(v) => {
+        Poll::Ready(Ok(v)) => {
             response.set_ready(&v);
+        },
+        Poll::Ready(Err(err)) => {
+            let mut error = response.init_error().init_error();
+            match err {
+                FxError::DeserializationError { reason } => error.set_api_error(format!("failed to deserialize: {reason}")),
+                _other => error.set_internal_runtime_error(()),
+            }
         }
     }
 }
@@ -60,7 +68,35 @@ pub(crate) fn handle_invoke(
     invoke_request: fx_capnp::function_invoke_request::Reader,
     invoke_response: fx_capnp::function_invoke_response::Builder
 ) {
-    let handler = HANDLERS.get(&invoke_request.get_method().unwrap().to_str().unwrap()).unwrap();
+    let mut result = invoke_response.init_result();
+
+    let handler_name = match invoke_request.get_method() {
+        Ok(v) => v,
+        Err(_err) => {
+            let mut error = result.init_error().init_error();
+            error.set_internal_runtime_error(());
+            return;
+        }
+    };
+    let handler_name = match handler_name.to_str() {
+        Ok(v) => v,
+        Err(_err) => {
+            let mut error = result.init_error().init_error();
+            error.set_bad_request(());
+            return;
+        }
+    };
+
+    let handler = match HANDLERS.get(&handler_name) {
+        Some(v) => v,
+        None => {
+            let mut error = result.init_error().init_error();
+            error.set_handler_not_found(());
+            return;
+        }
+    };
+
     let handler_future = handler(invoke_request.get_payload().unwrap().to_vec());
-    // TODO
+    let handler_future = FxFuture::wrap(handler_future);
+    result.set_future_id(handler_future.future_index());
 }

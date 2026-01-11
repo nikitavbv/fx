@@ -14,7 +14,7 @@ pub struct RpcResponse {
 }
 
 #[rpc]
-pub fn hello(req: RpcRequest) -> fx::Result<RpcResponse> {
+pub async fn hello(req: RpcRequest) -> fx::Result<RpcResponse> {
     tracing::info!("hello from rpc service! {req:?}");
     Ok(RpcResponse { number: req.number * 2 })
 }
