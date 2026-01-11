@@ -519,7 +519,7 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
                                         }
                                     },
                                     HostFutureAsyncApiError::Fetch(error) => {
-                                        let mut response_fetch_error = response_async_api_error.init_fetch().init_error();
+                                        let mut response_fetch_error = response_async_api_error.init_fetch();
                                         match error {
                                             RpcFetchAsyncError::NetworkRequestFailed(error) => response_fetch_error.set_network_error(format!("{error:?}")),
                                         }

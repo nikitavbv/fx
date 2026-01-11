@@ -106,11 +106,11 @@ impl FxRuntime {
     }
 
     #[allow(dead_code)]
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FxRuntimeError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
         self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
     }
 
-    pub fn invoke_service_raw(&self, service: &FunctionId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FxRuntimeError> {
+    pub fn invoke_service_raw(&self, service: &FunctionId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
         self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
     }
 
@@ -185,9 +185,24 @@ impl Engine {
         }
     }
 
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FxRuntimeError> {
+    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
         let argument = rmp_serde::to_vec(&argument).unwrap();
-        let (response, event) = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)?.await?;
+        let (response, event) = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)
+            .map_err(|err| match err {
+                FunctionInvokeError::RuntimeError(err) => {
+                    error!("runtime error when invoking function: {err:?}");
+                    FunctionInvokeAndExecuteError::RuntimeError
+                }
+            })?
+            .await
+            .map_err(|err| match err {
+                FunctionExecutionError::RuntimeError(err) => {
+                    error!("runtime error when executing function: {err:?}");
+                    FunctionInvokeAndExecuteError::RuntimeError
+                }
+                FunctionExecutionError::HandlerNotDefined => FunctionInvokeAndExecuteError::HandlerNotDefined,
+                FunctionExecutionError::UserApplicationError { description } => FunctionInvokeAndExecuteError::UserApplicationError { description },
+            })?;
         Ok((rmp_serde::from_slice(&response).unwrap(), event))
     }
 
@@ -317,6 +332,24 @@ impl Engine {
     pub fn log(&self, message: LogMessageEvent) {
         self.logger.read().unwrap().log(message);
     }
+}
+
+#[derive(Error, Debug)]
+pub enum FunctionInvokeAndExecuteError {
+    /// Failed to invoke function because of internal error in runtime implementation.
+    /// Should never happen. Getting this error means there is a bug somewhere.
+    #[error("runtime internal error")]
+    RuntimeError,
+
+    /// Failed to execute function because of user application error.
+    #[error("user application error: {description:?}")]
+    UserApplicationError {
+        description: String,
+    },
+
+    /// Failed to execute function because handler with this name is not defined.
+    #[error("handler with this name is not defined")]
+    HandlerNotDefined,
 }
 
 pub struct FunctionRuntimeFuture {
