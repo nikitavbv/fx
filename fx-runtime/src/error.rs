@@ -7,15 +7,13 @@ use {
 #[derive(Error, Debug)]
 pub enum FunctionInvokeError {
     /// Failed to invoke function because of internal error in runtime implementation.
-    /// Should never happen. If you get this error, there is a bug somewhere in the
-    /// fx runtime implementation.
+    /// Should never happen. Getting this error means there is a bug somewhere.
     #[error("runtime internal error: {0:?}")]
     RuntimeError(#[from] FunctionInvokeInternalRuntimeError),
 }
 
 /// Failed to invoke function because of internal error in runtime implementation.
-/// Should never happen. If you get this error, there is a bug somewhere in the
-/// fx runtime implementation.
+/// Should never happen. Getting this error means there is a bug somewhere.
 #[derive(Error, Debug)]
 pub enum FunctionInvokeInternalRuntimeError {
     #[error("failed to lock execution contexts: {reason:?}")]

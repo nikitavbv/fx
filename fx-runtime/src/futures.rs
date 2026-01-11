@@ -18,7 +18,7 @@ pub struct HostPoolIndex(pub u64);
 /// Error returned by host future when you poll it
 #[derive(Error, Debug)]
 pub enum HostFutureError {
-    #[error("temporary placeholder to make host future error non-empty")]
+    #[error("placeholder to make it non-empty")]
     Placeholder,
 }
 

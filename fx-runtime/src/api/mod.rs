@@ -12,6 +12,7 @@ use {
     crate::{
         runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId},
         kv::KVStorage,
+        error::FunctionInvokeError,
         logs,
     },
 };
@@ -141,7 +142,15 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
                 reason: err.to_string(),
             })
         ).boxed(),
-        Err(err) => std::future::ready(Err(FxFutureError::RpcError { reason: err.to_string() })).boxed(),
+        Err(err) => {
+            match err {
+                FunctionInvokeError::RuntimeError(runtime_error) => {
+                    error!("failed to execute rpc api because of internal error: {runtime_error:?}");
+                    rpc_response.set_runtime_error(());
+                    return;
+                }
+            }
+        },
     };
     let response_future = match data.engine.futures_pool.push(response_future.boxed()) {
         Ok(v) => v,

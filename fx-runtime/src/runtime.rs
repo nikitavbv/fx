@@ -26,6 +26,7 @@ use {
     futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
     parking_lot::ReentrantMutex,
+    thiserror::Error,
     fx_common::{
         LogMessage,
         DatabaseSqlQuery,
@@ -326,6 +327,23 @@ pub struct FunctionRuntimeFuture {
     rpc_future_index: Arc<Mutex<Option<i64>>>,
 }
 
+/// Error that may be returned when function is being executed (i.e, when FunctionRuntimeFuture is being polled)
+#[derive(Error, Debug)]
+pub enum FunctionExecutionError {
+    /// Failed to execute function because of internal error in runtime implementation.
+    /// Should never happen. Getting this error means there is a bug somewhere.
+    #[error("runtime internal error: {0:?}")]
+    RuntimeError(#[from] FunctionExecutionInternalRuntimeError),
+}
+
+/// Failed to execute function because of internal error in runtime implementation.
+/// Should never happen. Getting this error means there is a bug somewhere.
+#[derive(Error, Debug)]
+pub enum FunctionExecutionInternalRuntimeError {
+    #[error("failed to lock function store")]
+    StoreFailedToLock,
+}
+
 impl FunctionRuntimeFuture {
     fn record_function_invocation(&self) {
         /*let engine = self.engine.clone();
@@ -339,7 +357,7 @@ impl FunctionRuntimeFuture {
 }
 
 impl Future for FunctionRuntimeFuture {
-    type Output = Result<(Vec<u8>, FunctionInvocationEvent), FxRuntimeError>;
+    type Output = Result<(Vec<u8>, FunctionInvocationEvent), FunctionExecutionError>;
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let started_at = Instant::now();
 
@@ -356,9 +374,9 @@ impl Future for FunctionRuntimeFuture {
             Ok(v) => v,
             Err(err) => {
                 error!("failed to lock ctx.store: {err:?}");
-                return std::task::Poll::Ready(Err(FxRuntimeError::ExecutionContextRuntimeError {
-                    reason: format!("failed to lock ctx.store when polling FunctionRuntimeFuture."),
-                }));
+                return std::task::Poll::Ready(Err(FunctionExecutionError::from(
+                    FunctionExecutionInternalRuntimeError::StoreFailedToLock
+                )));
             }
         };
         let store = store_lock.deref_mut();
@@ -638,7 +656,17 @@ fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payl
     }
 }
 
-fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FxRuntimeError> {
+/// Error that occured while calling future_poll api of the function
+#[derive(Error, Debug)]
+enum FunctionFuturePollApiError {
+    /// When future was polled, an error was returned by the user application code
+    #[error("user application error: {description}")]
+    UserApplicationError {
+        description: String,
+    }
+}
+
+fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -663,8 +691,8 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
                         fx_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FxRuntimeError::ServiceInternalError {
                             reason: "unknown".to_owned(),
                         },
-                        fx_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FxRuntimeError::ServiceInternalError {
-                            reason: "unknown2".to_owned(),
+                        fx_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FunctionFuturePollApiError::UserApplicationError {
+                            description: v.unwrap().to_string().unwrap(),
                         },
                     });
                 }
