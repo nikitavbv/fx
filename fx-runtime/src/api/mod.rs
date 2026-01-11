@@ -3,17 +3,19 @@ use {
         time::{SystemTime, UNIX_EPOCH},
         task::{self, Poll},
     },
-    wasmer::FunctionEnvMut,
     tracing::error,
+    thiserror::Error,
+    wasmer::FunctionEnvMut,
     futures::FutureExt,
     rand::TryRngCore,
     fx_api::{capnp, fx_capnp},
     fx_common::FxFutureError,
     crate::{
-        runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId},
+        runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId, FunctionExecutionError},
         kv::KVStorage,
         error::FunctionInvokeError,
         logs,
+        futures::{HostFutureError, HostFuturePollError},
     },
 };
 
@@ -26,6 +28,18 @@ pub(crate) mod unsupported;
 // - permissions - based on capabilities
 // - metrics - counters per syscall type
 // - no "fx_cloud" namespace, should be just one more binding
+
+/// Error returned by an async api that is then wrapped by HostFuture
+#[derive(Error, Debug)]
+pub enum HostFutureAsyncApiError {
+    /// Error caused by rpc api that is being wrapped
+    #[error("rpc api error: {0:?}")]
+    Rpc(#[from] RpcApiAsyncError),
+
+    /// Error caused by fetch api that is being wrapped
+    #[error("fetch api error: {0:?}")]
+    Fetch(#[from] RpcFetchAsyncError),
+}
 
 pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
     let (data, mut store) = ctx.data_and_store_mut();
@@ -123,6 +137,12 @@ fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_reque
     }
 }
 
+#[derive(Error, Debug)]
+enum RpcApiAsyncError {
+    #[error("failed to execute function: {0:?}")]
+    FunctionInvocation(#[from] FunctionExecutionError),
+}
+
 fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {
     let mut rpc_response = rpc_response.init_response();
 
@@ -138,10 +158,10 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
     let response_future = match engine.clone().invoke_service_raw(engine.clone(), function_id.clone(), method_name.to_owned(), argument.to_vec()) {
         Ok(response_future) => response_future.map(|v| v
             .map(|v| v.0)
-            .map_err(|err| FxFutureError::RpcError {
-                reason: err.to_string(),
-            })
-        ).boxed(),
+            .map_err(RpcApiAsyncError::from)
+            .map_err(HostFutureAsyncApiError::from)
+            .map_err(HostFutureError::from)
+        ),
         Err(err) => {
             match err {
                 FunctionInvokeError::RuntimeError(runtime_error) => {
@@ -152,6 +172,7 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
             }
         },
     };
+
     let response_future = match data.engine.futures_pool.push(response_future.boxed()) {
         Ok(v) => v,
         Err(err) => {
@@ -343,6 +364,12 @@ fn handle_log(data: &ExecutionEnv, log_request: fx_capnp::log_request::Reader, _
     ).into());
 }
 
+#[derive(Error, Debug)]
+enum RpcFetchAsyncError {
+    #[error("network request failed: {0:?}")]
+    NetworkRequestFailed(#[from] reqwest::Error),
+}
+
 fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Reader, fetch_response: fx_capnp::fetch_response::Builder) {
     let mut fetch_response = fetch_response.init_response();
 
@@ -422,9 +449,9 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
                 }).unwrap())
             })
             .await
-            .map_err(|err| FxFutureError::FetchError {
-                reason: format!("request failed: {err:?}"),
-            })
+            .map_err(RpcFetchAsyncError::from)
+            .map_err(HostFutureAsyncApiError::from)
+            .map_err(HostFutureError::from)
     }.boxed();
 
     let index = data.engine.futures_pool.push(request_future).unwrap();
@@ -472,6 +499,34 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
                 Err(error) => {
                     let mut response_error = response.init_error().init_error();
                     match error {
+                        HostFuturePollError::NotFound => response_error.set_not_found(()),
+                        HostFuturePollError::Runtime(err) => {
+                            error!("runtime error when handling host future poll api: {err:?}");
+                            response_error.set_runtime_error(());
+                        },
+                        HostFuturePollError::FutureError(error) => match error {
+                            HostFutureError::AsyncApiError(async_api_error) => {
+                                let mut response_async_api_error = response_error.init_async_api_error().init_op();
+                                match async_api_error {
+                                    HostFutureAsyncApiError::Rpc(error) => {
+                                        let mut response_rpc_error = response_async_api_error.init_rpc().init_error();
+                                        match error {
+                                            RpcApiAsyncError::FunctionInvocation(error) => match error {
+                                                FunctionExecutionError::RuntimeError(_) => response_rpc_error.set_runtime_error(()),
+                                                FunctionExecutionError::UserApplicationError { description } => response_rpc_error.set_user_application_error(description),
+                                                FunctionExecutionError::HandlerNotDefined => response_rpc_error.set_handler_not_found(()),
+                                            }
+                                        }
+                                    },
+                                    HostFutureAsyncApiError::Fetch(error) => {
+                                        let mut response_fetch_error = response_async_api_error.init_fetch().init_error();
+                                        match error {
+                                            RpcFetchAsyncError::NetworkRequestFailed(error) => response_fetch_error.set_network_error(format!("{error:?}")),
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
             }

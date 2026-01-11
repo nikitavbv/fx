@@ -3,6 +3,7 @@ use {
     futures::{future::BoxFuture, FutureExt},
     thiserror::Error,
     fx_common::FxFutureError,
+    crate::api::HostFutureAsyncApiError,
 };
 
 #[derive(Clone)]
@@ -18,17 +19,19 @@ pub struct HostPoolIndex(pub u64);
 /// Error returned by host future when you poll it
 #[derive(Error, Debug)]
 pub enum HostFutureError {
-    #[error("placeholder to make it non-empty")]
-    Placeholder,
+    /// Error returned by an async api that this future wraps.
+    #[error("async api error: {0:?}")]
+    AsyncApiError(#[from] HostFutureAsyncApiError),
 }
 
 /// Error returned by futures runtime when you try to poll host future.
 /// Polling can fail because of error in surrounding infrastructure or if the future itself returned an error.
 #[derive(Error, Debug)]
 pub enum HostFuturePollError {
-    /// Error caused by runtime implementation of the futures. Should never happen unless there is a bug somewhere
+    /// Error caused by runtime implementation of the futures.
+    /// Should never happen. If you see this error it means there is a bug somewhere.
     #[error("error in runtime implementation of the futures: {0:?}")]
-    Runtime(#[from] HostFutureRuntimeError),
+    Runtime(#[from] HostFuturePollRuntimeError),
 
     /// Future with this ID is not present in the arena.
     #[error("future not found")]
@@ -42,7 +45,7 @@ pub enum HostFuturePollError {
 /// Error in the runtime implementation of the futures.
 /// Should never happen. If you see this error it means there is a bug somewhere.
 #[derive(Error, Debug)]
-pub enum HostFutureRuntimeError {
+pub enum HostFuturePollRuntimeError {
     #[error("failed to acquire lock for futures arena: {reason:?}")]
     ArenaFailedToLock {
         reason: String,
@@ -91,7 +94,7 @@ impl FuturesPool {
 
     pub fn poll(&self, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Result<Vec<u8>, HostFuturePollError>> {
         let future = self.pool.try_read()
-            .map_err(|err| HostFutureRuntimeError::ArenaFailedToLock {
+            .map_err(|err| HostFuturePollRuntimeError::ArenaFailedToLock {
                 reason: err.to_string(),
             })?
             .get(&index.0)
@@ -100,7 +103,7 @@ impl FuturesPool {
         let mut future = match future.try_lock() {
             Ok(v) => v,
             Err(err) => {
-                return Poll::Ready(Err(HostFuturePollError::from(HostFutureRuntimeError::FutureFailedToLock {
+                return Poll::Ready(Err(HostFuturePollError::from(HostFuturePollRuntimeError::FutureFailedToLock {
                     reason: err.to_string(),
                 })))
             },
@@ -122,7 +125,7 @@ impl FuturesPool {
                         }
                     },
                     Err(err) => {
-                        return Poll::Ready(Err(HostFuturePollError::from(HostFutureRuntimeError::ArenaFailedToLock {
+                        return Poll::Ready(Err(HostFuturePollError::from(HostFuturePollRuntimeError::ArenaFailedToLock {
                             reason: err.to_string(),
                         })));
                     }

@@ -334,6 +334,16 @@ pub enum FunctionExecutionError {
     /// Should never happen. Getting this error means there is a bug somewhere.
     #[error("runtime internal error: {0:?}")]
     RuntimeError(#[from] FunctionExecutionInternalRuntimeError),
+
+    /// Failed to execute function because of user application error.
+    #[error("user application error: {description:?}")]
+    UserApplicationError {
+        description: String,
+    },
+
+    /// Failed to execute function because handler with this name is not defined.
+    #[error("handler with this name is not defined")]
+    HandlerNotDefined,
 }
 
 /// Failed to execute function because of internal error in runtime implementation.
@@ -433,19 +443,22 @@ impl Future for FunctionRuntimeFuture {
             let mut function_env_mut = ctx.function_env.clone().into_mut(store);
             let future_index = match function_invoke(&mut function_env_mut, function_name, argument) {
                 Ok(v) => v,
-                Err(err) => {
-                    error!("error when executing function: {err:?}");
-                    ctx.needs_recreate.store(true, Ordering::SeqCst);
-                    return Poll::Ready(Err(err));
+                Err(err) => match err {
+                    FunctionInvokeApiError::HandlerNotDefined => {
+                        // recreating context would not help in this case, so we are not doing that
+                        return Poll::Ready(Err(FunctionExecutionError::HandlerNotDefined));
+                    }
                 }
             };
 
             let mut function_env_mut = ctx.function_env.clone().into_mut(store);
             let result = match function_future_poll(&mut function_env_mut, future_index as u64) {
                 Ok(v) => v,
-                Err(err) => {
-                    ctx.needs_recreate.store(true, Ordering::SeqCst);
-                    return std::task::Poll::Ready(Err(err));
+                Err(err) => match err {
+                    FunctionFuturePollApiError::UserApplicationError { description } => {
+                        // user application error is recoverable, no need to re-create context
+                        return std::task::Poll::Ready(Err(FunctionExecutionError::UserApplicationError { description }));
+                    }
                 }
             };
             let result = match result {
@@ -626,7 +639,15 @@ impl ExecutionEnv {
     }
 }
 
-fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FxRuntimeError> {
+/// Error that occured while calling invoke api of the function
+#[derive(Error, Debug)]
+enum FunctionInvokeApiError {
+    /// Handler with this name is not defined in the function
+    #[error("handler with this name is not defined")]
+    HandlerNotDefined,
+}
+
+fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -646,7 +667,7 @@ fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payl
                 fx_capnp::function_invoke_response::result::Which::Error(err) => {
                     let err = err.unwrap().get_error();
                     match err.which().unwrap() {
-                        fx_capnp::function_invoke_error::error::Which::HandlerNotFound(_v) => Err(FxRuntimeError::RpcHandlerNotDefined),
+                        fx_capnp::function_invoke_error::error::Which::HandlerNotFound(_v) => Err(FunctionInvokeApiError::HandlerNotDefined),
                         _other => panic!("error when invoking function"),
                     }
                 }

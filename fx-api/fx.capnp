@@ -268,12 +268,35 @@ struct FuturePollResponse {
         result @1 :Data;
         error @2 :FuturePollError;
     }
-}
 
-struct FuturePollError {
-    error :union {
-        placeholder0 @0 :Void;
-        placeholder1 @1 :Void;
+    struct FuturePollError {
+        error :union {
+            notFound @0 :Void;
+            runtimeError @1 :Void;
+            asyncApiError @2 :AsyncApiError;
+        }
+
+        struct AsyncApiError {
+            op :union {
+                rpc @0 :RpcApiError;
+                fetch @1 :FetchApiError;
+            }
+        }
+
+        struct RpcApiError {
+            error :union {
+                # rpc request failed because of a bug in runtime implementation
+                runtimeError @0 :Void;
+                # rpc request failed because the function being invoked returned an error
+                userApplicationError @1 :Text;
+                # handler not found in the function being invoked
+                handlerNotFound @2 :Void;
+            }
+        }
+
+        struct FetchApiError {
+            networkError @0 :Text;
+        }
     }
 }
 
