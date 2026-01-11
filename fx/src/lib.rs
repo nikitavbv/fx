@@ -21,6 +21,7 @@ pub use {
         error::FxError,
         http::{FxHttpRequest, fetch},
         handler::{Handler, IntoHandler},
+        FxResult as Result,
     },
 };
 
@@ -46,82 +47,60 @@ mod http;
 mod logging;
 mod sys;
 
-lazy_static! {
-    pub static ref CTX: FxCtx = FxCtx::new();
+pub type FxResult<T, E = FxError> = std::result::Result<T, E>;
+
+pub fn random(len: u64) -> Vec<u8> {
+    let mut message = capnp::message::Builder::new_default();
+    let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+    let op = request.init_op();
+    let mut random_request = op.init_random();
+    random_request.set_length(len);
+
+    let response = invoke_fx_api(message);
+    let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+
+    match response.get_op().which().unwrap() {
+        fx_capnp::fx_api_call_result::op::Which::Random(v) => v.unwrap().get_data().unwrap().to_vec(),
+        _other => panic!("unexpected response from random api"),
+    }
 }
 
-pub struct FxCtx {
+pub fn now() -> FxInstant {
+    FxInstant::now()
 }
 
-impl FxCtx {
-    pub fn new() -> Self {
-        Self {
-        }
-    }
+pub fn kv(namespace: impl Into<String>) -> KvStore {
+    KvStore::new(namespace)
+}
 
-    pub fn kv(&self, namespace: impl Into<String>) -> KvStore {
-        KvStore::new(namespace)
-    }
+pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(function_id: impl Into<String>, method: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
+    let future_index = {
+        let arg = rmp_serde::to_vec(&arg).unwrap();
 
-    pub fn sql(&self, name: impl Into<String>) -> SqlDatabase {
-        SqlDatabase::new(name.into())
-    }
-
-    pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(&self, function_id: impl Into<String>, method: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
-        let future_index = {
-            let arg = rmp_serde::to_vec(&arg).unwrap();
-
-            let mut message = capnp::message::Builder::new_default();
-            let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
-            let op = request.init_op();
-            let mut rpc_request = op.init_rpc();
-            rpc_request.set_function_id(function_id.into());
-            rpc_request.set_method_name(method.into());
-            rpc_request.set_argument(&arg);
-            let response = invoke_fx_api(message);
-            let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
-
-            match response.get_op().which().unwrap() {
-                fx_capnp::fx_api_call_result::op::Which::Rpc(v) => {
-                    let rpc_response = v.unwrap();
-                    match rpc_response.get_response().which().unwrap() {
-                        fx_capnp::rpc_call_response::response::Which::FutureId(v) => v,
-                        _other => panic!("unexpected rpc response"),
-                    }
-                },
-                _other => panic!("unexpected response from rpc api"),
-            }
-        };
-
-        let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
-        Ok(rmp_serde::from_slice(&response).unwrap())
-    }
-
-    pub fn random(&self, len: u64) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
         let op = request.init_op();
-        let mut random_request = op.init_random();
-        random_request.set_length(len);
-
+        let mut rpc_request = op.init_rpc();
+        rpc_request.set_function_id(function_id.into());
+        rpc_request.set_method_name(method.into());
+        rpc_request.set_argument(&arg);
         let response = invoke_fx_api(message);
         let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::Random(v) => v.unwrap().get_data().unwrap().to_vec(),
-            _other => panic!("unexpected response from random api"),
+            fx_capnp::fx_api_call_result::op::Which::Rpc(v) => {
+                let rpc_response = v.unwrap();
+                match rpc_response.get_response().which().unwrap() {
+                    fx_capnp::rpc_call_response::response::Which::FutureId(v) => v,
+                    _other => panic!("unexpected rpc response"),
+                }
+            },
+            _other => panic!("unexpected response from rpc api"),
         }
-    }
+    };
 
-    pub fn now(&self) -> FxInstant {
-        FxInstant::now()
-    }
-}
-
-impl Default for FxCtx {
-    fn default() -> Self {
-        Self::new()
-    }
+    let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
+    Ok(rmp_serde::from_slice(&response).unwrap())
 }
 
 pub struct KvStore {
@@ -180,6 +159,10 @@ impl KvStore {
             _other => panic!("unexpected response from kv_set api"),
         }
     }
+}
+
+pub fn sql(name: impl Into<String>) -> SqlDatabase {
+    SqlDatabase::new(name.into())
 }
 
 #[derive(Error, Debug, Eq, PartialEq)]

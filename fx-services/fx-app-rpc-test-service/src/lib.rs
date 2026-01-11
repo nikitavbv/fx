@@ -1,5 +1,5 @@
 use {
-    fx::{FxCtx, rpc},
+    fx::rpc,
     serde::{Serialize, Deserialize},
 };
 
@@ -14,8 +14,7 @@ pub struct RpcResponse {
 }
 
 #[rpc]
-pub fn hello(ctx: &FxCtx, req: RpcRequest) -> RpcResponse {
-    ctx.init_logger();
+pub fn hello(req: RpcRequest) -> fx::Result<RpcResponse> {
     tracing::info!("hello from rpc service! {req:?}");
-    RpcResponse { number: req.number * 2 }
+    Ok(RpcResponse { number: req.number * 2 })
 }

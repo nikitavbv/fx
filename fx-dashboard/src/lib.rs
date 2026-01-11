@@ -1,6 +1,6 @@
 use {
     std::collections::HashMap,
-    fx::{FxCtx, HttpRequest, HttpResponse, rpc, utils::axum::handle_request},
+    fx::{HttpRequest, HttpResponse, rpc, utils::axum::handle_request},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
     crate::{
@@ -18,7 +18,7 @@ mod icons;
 
 #[rpc]
 pub async fn http(req: HttpRequest) -> Result<HttpResponse, fx::FxError> {
-    let database = Database::new(ctx.sql("dashboard")).await;
+    let database = Database::new(fx::sql("dashboard")).await;
     database.run_migrations();
 
     let app = Router::new()
@@ -26,7 +26,7 @@ pub async fn http(req: HttpRequest) -> Result<HttpResponse, fx::FxError> {
         .layer(Extension(FxCloudClient::new()))
         .layer(Extension(database));
 
-    handle_request(app, req).await
+    Ok(handle_request(app, req).await)
 }
 
 #[derive(Clone)]

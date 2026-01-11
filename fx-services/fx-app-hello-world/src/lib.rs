@@ -1,13 +1,11 @@
 use {
-    fx::{FxCtx, HttpRequest, HttpResponse, rpc, SqlQuery, fetch},
+    fx::{HttpRequest, HttpResponse, rpc, SqlQuery, fetch},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
 
 #[rpc]
-pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
-    ctx.init_logger();
-
+pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     info!("hello from wasm service!");
 
     // let kv = ctx.kv("demo");
@@ -18,32 +16,32 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
     let instance = "demo";
 
     if req.url == "/test-rpc" {
-        let response: RpcResponse = ctx.rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await.unwrap();
-        return HttpResponse::new().with_body(format!("rpc demo returned a response: {response:?}\n"));
+        let response: RpcResponse = fx::rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await.unwrap();
+        return Ok(HttpResponse::new().with_body(format!("rpc demo returned a response: {response:?}\n")));
     } else if req.url == "/test-fetch" {
         let res = fetch(HttpRequest::get("http://httpbin.org/get".to_owned()).unwrap()).await.unwrap();
-        return HttpResponse::new().with_body(String::from_utf8(res.body).unwrap());
+        return Ok(HttpResponse::new().with_body(String::from_utf8(res.body).unwrap()));
     } else if req.url == "/test-sql" {
-        let database = ctx.sql("test-db");
+        let database = fx::sql("test-db");
         database.exec(SqlQuery::new("create table if not exists hello_table (v integer not null)")).unwrap();
         database.exec(SqlQuery::new("insert into hello_table (v) values (?)").bind(42)).unwrap();
         let result = database.exec(SqlQuery::new("select sum(v) as total from hello_table")).unwrap();
-        return HttpResponse::new().with_body(format!("hello sql! x={:?}", result.into_rows()[0].columns[0]));
+        return Ok(HttpResponse::new().with_body(format!("hello sql! x={:?}", result.into_rows()[0].columns[0])));
     }
 
-    HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url))
+    Ok(HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url)))
 }
 
 #[rpc]
-pub fn hello_cron(ctx: &FxCtx, _req: ()) {
-    ctx.init_logger();
+pub fn hello_cron() -> fx::Result<()> {
     info!("hello from cron!");
+    Ok(())
 }
 
 #[rpc]
-pub fn example(ctx: &FxCtx, _req: ()) {
-    ctx.init_logger();
+pub fn example() -> fx::Result<()> {
     info!("hello from fx!");
+    Ok(())
 }
 
 #[derive(Serialize)]
