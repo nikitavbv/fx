@@ -163,7 +163,7 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
             .map_err(HostFutureError::from)
         ),
         Err(err) => {
-            let mut error_response = err.init_error().init_error();
+            let mut error_response = rpc_response.init_error().init_error();
 
             match err {
                 FunctionInvokeError::RuntimeError(runtime_error) => {
@@ -526,7 +526,13 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
                                         match error {
                                             RpcApiAsyncError::FunctionInvocation(error) => match error {
                                                 FunctionExecutionError::RuntimeError(_) => response_rpc_error.set_runtime_error(()),
+                                                FunctionExecutionError::FunctionRuntimeError => response_rpc_error.set_function_runtime_error(()),
                                                 FunctionExecutionError::UserApplicationError { description } => response_rpc_error.set_user_application_error(description),
+                                                FunctionExecutionError::FunctionPanicked { message: _ } => {
+                                                    // TODO: message has to be reported somewhere?
+                                                    // called does not have to know message of function panic
+                                                    response_rpc_error.set_function_panicked(());
+                                                },
                                                 FunctionExecutionError::HandlerNotDefined => response_rpc_error.set_handler_not_found(()),
                                             }
                                         }

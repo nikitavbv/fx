@@ -75,7 +75,7 @@ impl Compiler for CraneliftCompiler {
     fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
-            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map_err(|err| CompilerError::FailedToCompile(err))
             .map(|module| (store, module, CompilerMetadata {
                 backend: "cranelift".to_owned(),
             }))
@@ -111,7 +111,7 @@ impl MemoizedCompiler {
             .map(|compiled_module| {
                 let store = self.create_store();
                 let module = unsafe { Module::deserialize(&store, compiled_module) };
-                module.map_err(|err| CompilerError::FailedToDeserialize { reason: err.to_string() })
+                module.map_err(|err| CompilerError::FailedToDeserialize(err))
                     .map(|module| (store, module, CompilerMetadata {
                         backend: "unknown".to_owned(),
                     }))

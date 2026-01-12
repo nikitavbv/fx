@@ -89,7 +89,7 @@ struct RpcCallResponse {
     struct RpcCallError {
         error :union {
             runtimeError @0 :Void;
-            instantionError @1 :Void;
+            instantiationError @1 :Void;
         }
     }
 }
@@ -298,6 +298,10 @@ struct FuturePollResponse {
                 userApplicationError @1 :Text;
                 # handler not found in the function being invoked
                 handlerNotFound @2 :Void;
+                # rpc request failed because the function being invoked panicked
+                functionPanicked @3 :Void;
+                # rpc request failed because there is a bug in runtime implementation within target function (or it is not behaving properly)
+                functionRuntimeError @4 :Void;
             }
         }
 

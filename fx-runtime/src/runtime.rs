@@ -44,14 +44,14 @@ use {
     fx_runtime_common::{LogMessageEvent, LogSource},
     fx_api::{capnp, fx_capnp},
     crate::{
-        kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage},
+        kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
         error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
         sql::{self, SqlDatabase},
-        compiler::{Compiler, BoxedCompiler, CraneliftCompiler, CompilerMetadata},
+        compiler::{Compiler, BoxedCompiler, CraneliftCompiler, CompilerMetadata, CompilerError},
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
-        definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition},
+        definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition, DefinitionError},
         logs::{self, Logger, BoxLogger, StdoutLogger},
     },
 };
@@ -192,7 +192,12 @@ impl Engine {
                 FunctionInvokeError::RuntimeError(err) => {
                     error!("runtime error when invoking function: {err:?}");
                     FunctionInvokeAndExecuteError::RuntimeError
-                }
+                },
+                FunctionInvokeError::DefinitionMissing(err) => FunctionInvokeAndExecuteError::DefinitionMissing(err),
+                FunctionInvokeError::CodeFailedToLoad(err) => FunctionInvokeAndExecuteError::CodeFailedToLoad(err),
+                FunctionInvokeError::CodeNotFound => FunctionInvokeAndExecuteError::CodeNotFound,
+                FunctionInvokeError::FailedToCompile(err) => FunctionInvokeAndExecuteError::FailedToCompile(err),
+                FunctionInvokeError::InstantionError(err) => FunctionInvokeAndExecuteError::InstantionError(err),
             })?
             .await
             .map_err(|err| match err {
@@ -202,6 +207,7 @@ impl Engine {
                 }
                 FunctionExecutionError::HandlerNotDefined => FunctionInvokeAndExecuteError::HandlerNotDefined,
                 FunctionExecutionError::UserApplicationError { description } => FunctionInvokeAndExecuteError::UserApplicationError { description },
+                FunctionExecutionError::FunctionPanicked { message } => FunctionInvokeAndExecuteError::FunctionPanicked { message },
             })?;
         Ok((rmp_serde::from_slice(&response).unwrap(), event))
     }
@@ -351,9 +357,36 @@ pub enum FunctionInvokeAndExecuteError {
         description: String,
     },
 
+    /// Failed to execute function because user code panicked during execution.
+    #[error("function panicked: {message:?}")]
+    FunctionPanicked {
+        message: String,
+    },
+
     /// Failed to execute function because handler with this name is not defined.
     #[error("handler with this name is not defined")]
     HandlerNotDefined,
+
+    /// Definitions are required in order to create an instance of function, so invocation
+    /// will fail if definition failed to load.
+    #[error("failed to get definition: {0:?}")]
+    DefinitionMissing(DefinitionError),
+
+    /// Function cannot be invoked if runtime failed to load its code
+    #[error("failed to load code: {0:?}")]
+    CodeFailedToLoad(StorageError),
+
+    /// Function cannot be invoked if runtime could not find its code in storage
+    #[error("code not found")]
+    CodeNotFound,
+
+    /// Function cannot be invoked if it failed to compile
+    #[error("failed to compile: {0:?}")]
+    FailedToCompile(CompilerError),
+
+    /// WASM engine could not create instance
+    #[error("failed to create instance: {0:?}")]
+    InstantionError(wasmer::InstantiationError),
 }
 
 pub struct FunctionRuntimeFuture {
@@ -372,10 +405,22 @@ pub enum FunctionExecutionError {
     #[error("runtime internal error: {0:?}")]
     RuntimeError(#[from] FunctionExecutionInternalRuntimeError),
 
+    /// Failed to execute function because of internal error in runtime implementation on function side.
+    /// Should not happen normally. Getting this error could mean there is a bug in function's sdk or
+    /// that the function does not behave properly.
+    #[error("function runtime internal error: {0:?}")]
+    FunctionRuntimeError,
+
     /// Failed to execute function because of user application error.
     #[error("user application error: {description:?}")]
     UserApplicationError {
         description: String,
+    },
+
+    /// panic in user code interrupted the execution
+    #[error("function panicked")]
+    FunctionPanicked {
+        message: String,
     },
 
     /// Failed to execute function because handler with this name is not defined.
@@ -454,7 +499,13 @@ impl Future for FunctionRuntimeFuture {
         if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
             // TODO: measure points
             let mut function_env_mut = ctx.function_env.clone().into_mut(store);
-            match function_future_poll(&mut function_env_mut, *rpc_future_index_value as u64)? {
+            let future_poll_result = function_future_poll(&mut function_env_mut, *rpc_future_index_value as u64)
+                .map_err(|err| match err {
+                    FunctionFuturePollApiError::FunctionRuntimeError => FunctionExecutionError::FunctionRuntimeError,
+                    FunctionFuturePollApiError::UserApplicationError { description } => FunctionExecutionError::UserApplicationError { description },
+                    FunctionFuturePollApiError::FunctionPanicked { message } => FunctionExecutionError::FunctionPanicked { message },
+                })?;
+            match future_poll_result {
                 Poll::Pending => Poll::Pending,
                 Poll::Ready(response) => {
                     *rpc_future_index = None;
@@ -480,23 +531,35 @@ impl Future for FunctionRuntimeFuture {
             let mut function_env_mut = ctx.function_env.clone().into_mut(store);
             let future_index = match function_invoke(&mut function_env_mut, function_name, argument) {
                 Ok(v) => v,
-                Err(err) => match err {
+                Err(err) => return Poll::Ready(Err(match err {
                     FunctionInvokeApiError::HandlerNotDefined => {
                         // recreating context would not help in this case, so we are not doing that
-                        return Poll::Ready(Err(FunctionExecutionError::HandlerNotDefined));
+                        FunctionExecutionError::HandlerNotDefined
+                    },
+                    FunctionInvokeApiError::FunctionPanicked { message } => {
+                        // panics are usually not recoverable, so we need to re-create context or following
+                        // invocations will also fail
+                        ctx.needs_recreate.store(true, Ordering::SeqCst);
+                        FunctionExecutionError::FunctionPanicked { message }
                     }
-                }
+                })),
             };
 
             let mut function_env_mut = ctx.function_env.clone().into_mut(store);
             let result = match function_future_poll(&mut function_env_mut, future_index as u64) {
                 Ok(v) => v,
-                Err(err) => match err {
+                Err(err) => return std::task::Poll::Ready(Err(match err {
                     FunctionFuturePollApiError::UserApplicationError { description } => {
                         // user application error is recoverable, no need to re-create context
-                        return std::task::Poll::Ready(Err(FunctionExecutionError::UserApplicationError { description }));
+                        FunctionExecutionError::UserApplicationError { description }
+                    },
+                    FunctionFuturePollApiError::FunctionPanicked { message } => {
+                        // panics are usually not recoverable, so we need to re-create context or following
+                        // invocations will also fail
+                        ctx.needs_recreate.store(true, Ordering::SeqCst);
+                        FunctionExecutionError::FunctionPanicked { message }
                     }
-                }
+                }))
             };
             let result = match result {
                 Poll::Pending => {
@@ -555,6 +618,7 @@ pub(crate) struct ExecutionContext {
     pub(crate) instance: Instance,
     pub(crate) store: Arc<Mutex<Store>>,
     pub(crate) function_env: FunctionEnv<ExecutionEnv>,
+    // TODO: regular boolean can probably be used here
     needs_recreate: Arc<AtomicBool>,
     futures_to_drop: Arc<Mutex<VecDeque<i64>>>,
     streams_to_drop: Arc<Mutex<VecDeque<i64>>>,
@@ -682,6 +746,12 @@ enum FunctionInvokeApiError {
     /// Handler with this name is not defined in the function
     #[error("handler with this name is not defined")]
     HandlerNotDefined,
+
+    /// Failed to invoke function because it panicked
+    #[error("function panicked: {message}")]
+    FunctionPanicked {
+        message: String
+    },
 }
 
 fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
@@ -692,7 +762,10 @@ fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payl
     function_invoke_request.set_method(handler);
     function_invoke_request.set_payload(&payload);
 
-    let response = invoke_fx_api(ctx, message)?;
+    let response = invoke_fx_api(ctx, message)
+        .map_err(|err| match err {
+            FunctionApiError::FunctionPanicked { message } => FunctionInvokeApiError::FunctionPanicked { message },
+        })?;
     let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
     match response.get_op().which().unwrap() {
         fx_capnp::fx_function_api_call_result::op::Which::Invoke(v) => {
@@ -714,14 +787,26 @@ fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payl
     }
 }
 
-/// Error that occured while calling future_poll api of the function
+/// Error that occurred while calling future_poll api of the function
 #[derive(Error, Debug)]
 enum FunctionFuturePollApiError {
+    /// Failed to poll future because of internal error in runtime implementation within function.
+    /// Getting this error could mean there is a bug in function's sdk or that the function does not
+    /// behave properly.
+    #[error("function runtime internal error")]
+    FunctionRuntimeError,
+
     /// When future was polled, an error was returned by the user application code
     #[error("user application error: {description}")]
     UserApplicationError {
         description: String,
-    }
+    },
+
+    /// Failed to poll future because function panicked
+    #[error("function panicked: {message}")]
+    FunctionPanicked {
+        message: String
+    },
 }
 
 fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
@@ -731,7 +816,10 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
     let mut future_poll_request = op.init_future_poll();
     future_poll_request.set_future_id(future_id);
 
-    let response = invoke_fx_api(ctx, message)?;
+    let response = invoke_fx_api(ctx, message)
+        .map_err(|err| match err {
+            FunctionApiError::FunctionPanicked { message } => FunctionFuturePollApiError::FunctionPanicked { message },
+        })?;
     let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
 
     Ok(match response.get_op().which().unwrap() {
@@ -746,9 +834,7 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
                     let error = error.unwrap();
                     // TODO: refactor FxRuntimeError into something more granular
                     return Err(match error.get_error().which().unwrap() {
-                        fx_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FxRuntimeError::ServiceInternalError {
-                            reason: "unknown".to_owned(),
-                        },
+                        fx_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FunctionFuturePollApiError::FunctionRuntimeError,
                         fx_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FunctionFuturePollApiError::UserApplicationError {
                             description: v.unwrap().to_string().unwrap(),
                         },
@@ -805,10 +891,20 @@ fn function_stream_drop(ctx: &mut FunctionEnvMut<ExecutionEnv>, stream_id: u64) 
     let _response = invoke_fx_api(ctx, message).unwrap();
 }
 
+/// Error that occurred while communicating with function api
+#[derive(Error, Debug)]
+enum FunctionApiError {
+    /// Api request failed because function code panicked
+    #[error("function panicked: {message:?}")]
+    FunctionPanicked {
+        message: String,
+    },
+}
+
 pub(crate) fn invoke_fx_api(
     ctx: &mut FunctionEnvMut<ExecutionEnv>,
     message: capnp::message::Builder<capnp::message::HeapAllocator>
-) -> Result<capnp::message::Reader<capnp::serialize::OwnedSegments>, FxRuntimeError> {
+) -> Result<capnp::message::Reader<capnp::serialize::OwnedSegments>, FunctionApiError> {
     let response_ptr = {
         let (data, mut store) = ctx.data_and_store_mut();
 
@@ -826,7 +922,9 @@ pub(crate) fn invoke_fx_api(
 
         data.instance.as_ref().unwrap().exports.get_function("_fx_api").unwrap()
             .call(&mut store, &[Value::I64(ptr as i64), Value::I64(message_size as i64)])
-            .map_err(|err| FxRuntimeError::ServiceInternalError { reason: format!("failed when polling future: {err:?}") })?[0]
+            .map_err(|err| FunctionApiError::FunctionPanicked {
+                message: err.message(),
+            })?[0]
             .i64().unwrap() as usize
     };
 
