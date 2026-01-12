@@ -230,7 +230,7 @@ impl Engine {
             let ctx = execution_contexts.get(&function_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
                 let definition = self.definition_provider.read().unwrap().definition_for_function(&function_id)
-                    .map_err(|err| FxRuntimeError::DefinitionError { reason: err.to_string() })?;
+                    .map_err(|err| FunctionInvokeError::DefinitionMissing(err))?;
                 execution_contexts.insert(function_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, definition)?));
             }
         }
@@ -255,23 +255,28 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FxRuntimeError> {
+    fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FunctionInvokeError> {
         let memory_tracker = crate::profiling::init_memory_tracker();
 
-        let module_code = self.module_code_storage.read().unwrap().get(function_id.id.as_bytes())?;
+        let module_code = self.module_code_storage.read().unwrap().get(function_id.id.as_bytes())
+            .map_err(|err| FunctionInvokeError::CodeFailedToLoad(err))?;
         let module_code = match module_code {
             Some(v) => v,
-            None => return Err(FxRuntimeError::ModuleCodeNotFound),
+            None => return Err(FunctionInvokeError::CodeNotFound),
         };
 
+        // TODO: kv should not be created here. Instead, it should be lazily created when a KV api call is made.
+        // main reasoning for that is if we failed to connect to storage, we should continue with function
+        // initialization. Then function can handle binding errors on its own.
         let mut kv = HashMap::new();
         for kv_definition in definition.kv {
             kv.insert(
                 kv_definition.id,
-                BoxedStorage::new(FsStorage::new(kv_definition.path.into())?),
+                BoxedStorage::new(FsStorage::new(kv_definition.path.into()).unwrap()),
             );
         }
 
+        // TODO: sql should be created lazily. See comment above for reasoning
         let mut sql = HashMap::new();
         for sql_definition in definition.sql {
             sql.insert(
@@ -279,13 +284,12 @@ impl Engine {
                 match sql_definition.storage {
                     SqlStorageDefinition::InMemory => SqlDatabase::in_memory().unwrap(), // TODO: function crashes, all data is lost
                     SqlStorageDefinition::Path(path) => SqlDatabase::new(path)
-                        .map_err(|err| FxRuntimeError::ExecutionContextInitError {
-                            reason: format!("failed to init SqlDatabase: {err:?}"),
-                        })?,
+                        .unwrap()
                 },
             );
         }
 
+        // TODO: creating a list of rpc bindings like this is probably not needed
         let mut rpc = HashMap::new();
         for rpc_definition in definition.rpc {
             rpc.insert(
@@ -566,9 +570,9 @@ impl ExecutionContext {
         module_code: Vec<u8>,
         allow_fetch: bool,
         allow_log: bool
-    ) -> Result<Self, FxRuntimeError> {
+    ) -> Result<Self, FunctionInvokeError> {
         let (mut store, module, compiler_metadata) = engine.compiler.read().unwrap().compile(&function_id, module_code)
-            .map_err(|err| FxRuntimeError::CompilationError { reason: err.to_string() })?;
+            .map_err(|err| FunctionInvokeError::FailedToCompile(err))?;
 
         let function_env = FunctionEnv::new(
             &mut store,
@@ -600,7 +604,7 @@ impl ExecutionContext {
         }
 
         let instance = Instance::new(&mut store, &module, &import_object)
-            .map_err(|err| FxRuntimeError::CompilationError { reason: format!("failed to create wasm instance: {err:?}") })?;
+            .map_err(|err| FunctionInvokeError::InstantionError(err))?;
 
         Ok(Self {
             instance,

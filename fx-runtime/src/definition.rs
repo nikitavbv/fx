@@ -3,7 +3,7 @@ use {
     serde::Deserialize,
     thiserror::Error,
     crate::{
-        kv::{BoxedStorage, KVStorage},
+        kv::{BoxedStorage, KVStorage, StorageError},
         runtime::FunctionId,
     },
 };
@@ -119,7 +119,7 @@ impl DefinitionProvider {
         }
 
         Ok(self.storage.get(<&FunctionId as Into<String>>::into(id).as_bytes())
-            .map_err(|err| DefinitionError::LoadError { reason: format!("failed to get definition from storage: {err:?}") })?
+            .map_err(|err| DefinitionError::LoadError(err))?
             .map(|v| definition_from_config(v))
             .transpose()?
             .unwrap_or(FunctionDefinition::default()))
@@ -128,7 +128,7 @@ impl DefinitionProvider {
 
 fn definition_from_config(config: Vec<u8>) -> Result<FunctionDefinition, DefinitionError> {
     let config: FunctionConfig = serde_yml::from_slice(&config)
-        .map_err(|err| DefinitionError::ParseError { reason: format!("failed to load yaml file: {err:?}") })?;
+        .map_err(|err| DefinitionError::ParseError(err))?;
     Ok(FunctionDefinition {
         kv: config.kv.unwrap_or(Vec::new())
             .into_iter()
@@ -191,10 +191,10 @@ pub struct CronTaskConfig {
 
 #[derive(Error, Debug)]
 pub enum DefinitionError {
-    #[error("failed to parse definition: {reason}")]
-    ParseError { reason: String },
-    #[error("failed to load definition: {reason}")]
-    LoadError { reason: String },
+    #[error("failed to load definition: {0:?}")]
+    LoadError(StorageError),
+    #[error("failed to parse definition: {0:?}")]
+    ParseError(serde_yml::Error),
 }
 
 pub fn load_cron_task_from_config(config: Vec<u8>) -> CronConfig {

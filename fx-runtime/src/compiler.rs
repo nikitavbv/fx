@@ -27,11 +27,11 @@ pub struct CompilerMetadata {
 
 #[derive(Error, Debug)]
 pub enum CompilerError {
-    #[error("failed to compile: {reason}")]
-    FailedToCompile { reason: String },
+    #[error("failed to compile: {0:?}")]
+    FailedToCompile(wasmer::CompileError),
 
-    #[error("failed to deserialize: {reason}")]
-    FailedToDeserialize { reason: String },
+    #[error("failed to deserialize: {0:?}")]
+    FailedToDeserialize(wasmer::DeserializeError),
 }
 
 #[derive(Clone)]

@@ -1,6 +1,11 @@
 use {
     thiserror::Error,
     fx_common::FxExecutionError,
+    crate::{
+        definition::DefinitionError,
+        kv::StorageError,
+        compiler::CompilerError,
+    },
 };
 
 /// Error that may be returned when function is invoked by the runtime.
@@ -10,6 +15,27 @@ pub enum FunctionInvokeError {
     /// Should never happen. Getting this error means there is a bug somewhere.
     #[error("runtime internal error: {0:?}")]
     RuntimeError(#[from] FunctionInvokeInternalRuntimeError),
+
+    /// Definitions are required in order to create an instance of function, so invocation
+    /// will fail if definition failed to load.
+    #[error("failed to get definition: {0:?}")]
+    DefinitionMissing(DefinitionError),
+
+    /// Function cannot be invoked if runtime failed to load its code
+    #[error("failed to load code: {0:?}")]
+    CodeFailedToLoad(StorageError),
+
+    /// Function cannot be invoked if runtime could not find its code in storage
+    #[error("code not found")]
+    CodeNotFound,
+
+    /// Function cannot be invoked if it failed to compile
+    #[error("failed to compile: {0:?}")]
+    FailedToCompile(CompilerError),
+
+    /// WASM engine could not create instance
+    #[error("failed to create instance: {0:?}")]
+    InstantionError(wasmer::InstantiationError),
 }
 
 /// Failed to invoke function because of internal error in runtime implementation.
