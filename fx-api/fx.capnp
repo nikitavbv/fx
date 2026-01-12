@@ -83,7 +83,14 @@ struct RpcCallResponse {
     response :union {
         futureId @0 :UInt64;
         bindingNotFound @1 :Void;
-        runtimeError @2 :Void;
+        error @2 :RpcCallError;
+    }
+
+    struct RpcCallError {
+        error :union {
+            runtimeError @0 :Void;
+            instantionError @1 :Void;
+        }
     }
 }
 

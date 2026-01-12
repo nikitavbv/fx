@@ -163,12 +163,25 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
             .map_err(HostFutureError::from)
         ),
         Err(err) => {
+            let mut error_response = err.init_error().init_error();
+
             match err {
                 FunctionInvokeError::RuntimeError(runtime_error) => {
                     error!("failed to execute rpc api because of internal error: {runtime_error:?}");
-                    rpc_response.set_runtime_error(());
+                    error_response.set_runtime_error(());
                     return;
-                }
+                },
+                // this class of errors can be groupped under "instantiation" error. Caller does not need to know specific reason
+                FunctionInvokeError::DefinitionMissing(_)
+                | FunctionInvokeError::CodeFailedToLoad(_)
+                | FunctionInvokeError::CodeNotFound
+                | FunctionInvokeError::FailedToCompile(_)
+                | FunctionInvokeError::InstantionError(_) => {
+                    // TODO: probably there should be some reporting for this?
+                    error!("failed to execute rpc api because failed to instantiate target function");
+                    error_response.set_instantiation_error(());
+                    return;
+                },
             }
         },
     };
@@ -177,7 +190,7 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
         Ok(v) => v,
         Err(err) => {
             error!("failed to push future to futures arena: {err:?}");
-            rpc_response.set_runtime_error(());
+            rpc_response.init_error().init_error().set_runtime_error(());
             return;
         }
     };
