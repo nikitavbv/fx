@@ -1,6 +1,6 @@
 pub use {
     fx_common::FxStream,
-    crate::runtime::{FxRuntime, FunctionId},
+    crate::runtime::{FxRuntime, FunctionId, FunctionInvokeAndExecuteError},
 };
 
 mod api;

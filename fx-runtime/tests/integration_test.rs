@@ -14,6 +14,7 @@ use {
         kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
         logs::{BoxLogger, EventFieldValue, LogEventType},
         error::FxRuntimeError,
+        FunctionInvokeAndExecuteError,
     },
     crate::logger::TestLogger,
 };
@@ -68,39 +69,43 @@ async fn sql_simple() {
 
 #[tokio::test]
 async fn invoke_function_non_existent() {
-    assert_eq!(
-        Err(FxRuntimeError::ModuleCodeNotFound),
-        FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())
-            .await
-            .map(|v| v.0)
-    )
+    let err = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())
+        .await
+        .map(|v| v.0)
+        .err()
+        .unwrap();
+
+    match err {
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[tokio::test]
 async fn invoke_function_non_existent_rpc() {
-    assert_eq!(
-        Err(FxRuntimeError::RpcHandlerNotDefined),
-        FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ())
-            .await
-            .map(|v| v.0)
-    )
+    let err = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ())
+        .await
+        .map(|v| v.0);
+
+    match err {
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[tokio::test]
 async fn invoke_function_no_module_code() {
-    assert_eq!(
-        Err(FxRuntimeError::ModuleCodeNotFound),
-        FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ())
-            .await
-            .map(|v| v.0)
-    )
+    let err = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ())
+        .await
+        .map(|v| v.0);
+
+    match err {
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
 
 #[tokio::test]
 async fn invoke_function_panic() {
     let result = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
     match result.err().unwrap() {
-        FxRuntimeError::ServiceInternalError { reason: _ } => {},
         other => panic!("expected service internal error, got: {other:?}"),
     }
 }
@@ -109,11 +114,6 @@ async fn invoke_function_panic() {
 async fn invoke_function_wrong_argument() {
     let result = FX_INSTANCE.lock().invoke_service::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
     match result {
-        FxRuntimeError::ServiceExecutionError { error } => match error {
-            FxExecutionError::RpcRequestRead { reason: _ } => {
-                // this error is expected
-            },
-        },
         other => panic!("unexpected fx error: {other:?}"),
     }
 }
