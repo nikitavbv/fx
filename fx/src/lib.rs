@@ -26,12 +26,16 @@ pub use {
 };
 
 use {
-    std::{sync::Once, panic, time::Duration, ops::Sub},
+    std::{sync::Once, panic, time::Duration, ops::Sub, result::Result as StdResult},
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
     fx_api::{capnp, fx_capnp},
-    crate::{sys::{read_memory_owned, invoke_fx_api}, logging::FxLoggingLayer, fx_futures::{FxHostFuture, PoolIndex}},
+    crate::{
+        sys::{read_memory_owned, invoke_fx_api},
+        logging::FxLoggingLayer,
+        fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError, RpcApiAsyncError},
+    },
 };
 
 pub mod utils;
@@ -47,7 +51,7 @@ mod http;
 mod logging;
 mod sys;
 
-pub type FxResult<T, E = FxError> = std::result::Result<T, E>;
+pub type FxResult<T> = anyhow::Result<T>;
 
 pub fn random(len: u64) -> Vec<u8> {
     let mut message = capnp::message::Builder::new_default();
@@ -73,7 +77,44 @@ pub fn kv(namespace: impl Into<String>) -> KvStore {
     KvStore::new(namespace)
 }
 
-pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(function_id: impl Into<String>, method: impl Into<String>, arg: T) -> Result<R, FxFutureError> {
+#[derive(Error, Debug)]
+pub enum RpcError {
+    /// rpc error failed because of error in runtime implementation
+    /// Should never happen. If you see this error it means there is a bug somewhere.
+    #[error("error in runtime implementation: {0:?}")]
+    RuntimeError(RpcRuntimeError),
+
+    /// Function being invoked returned an error
+    #[error("received application error when invoked target function: {message:?}")]
+    UserApplicationError {
+        message: String,
+    },
+
+    /// Function being invoked panicked
+    #[error("target function panicked")]
+    FunctionPanicked,
+
+    /// Handler not found within the function being invoked
+    #[error("target function does not contain handler with this name")]
+    HandlerNotFound,
+}
+
+#[derive(Error, Debug)]
+pub enum RpcRuntimeError {
+    #[error("failed to poll future: {0:?}")]
+    FutureError(HostFuturePollRuntimeError),
+
+    #[error("received unexpected async api response")]
+    UnexpectedAsyncApiError,
+
+    #[error("runtime error in rpc implementation on host side")]
+    RpcRuntimeError,
+
+    #[error("runtime error in rpc implementation on target function side (or it is not behaving properly)")]
+    FunctionRuntimeError,
+}
+
+pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(function_id: impl Into<String>, method: impl Into<String>, arg: T) -> StdResult<R, RpcError> {
     let future_index = {
         let arg = rmp_serde::to_vec(&arg).unwrap();
 
@@ -99,7 +140,20 @@ pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(funct
         }
     };
 
-    let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
+    let response = FxHostFuture::new(PoolIndex(future_index as u64)).await
+        .map_err(|err| match err {
+            HostFutureError::RuntimeError(err) => RpcError::RuntimeError(RpcRuntimeError::FutureError(err)),
+            HostFutureError::AsyncApiError(err) => match err {
+                HostFutureAsyncApiError::Rpc(err) => match err {
+                    RpcApiAsyncError::RuntimeError => RpcError::RuntimeError(RpcRuntimeError::RpcRuntimeError),
+                    RpcApiAsyncError::FunctionRuntimeError => RpcError::RuntimeError(RpcRuntimeError::FunctionRuntimeError),
+                    RpcApiAsyncError::UserApplicationError { message } => RpcError::UserApplicationError { message },
+                    RpcApiAsyncError::FunctionPanicked => RpcError::FunctionPanicked,
+                    RpcApiAsyncError::HandlerNotFound => RpcError::HandlerNotFound,
+                },
+                _ => RpcError::RuntimeError(RpcRuntimeError::UnexpectedAsyncApiError),
+            }
+        })?;
     Ok(rmp_serde::from_slice(&response).unwrap())
 }
 
@@ -114,7 +168,7 @@ impl KvStore {
         }
     }
 
-    pub fn get(&self, key: &str) -> Result<Option<Vec<u8>>, KvError> {
+    pub fn get(&self, key: &str) -> StdResult<Option<Vec<u8>>, KvError> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
         let op = request.init_op();
@@ -137,7 +191,7 @@ impl KvStore {
         }
     }
 
-    pub fn set(&self, key: &str, value: &[u8]) -> Result<(), KvError> {
+    pub fn set(&self, key: &str, value: &[u8]) -> StdResult<(), KvError> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
         let op = request.init_op();
@@ -184,7 +238,7 @@ impl SqlDatabase {
         Self { name }
     }
 
-    pub fn exec(&self, query: SqlQuery) -> Result<sql::SqlResult, FxSqlError> {
+    pub fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
         let op = request.init_op();
@@ -223,7 +277,7 @@ impl SqlDatabase {
         }
     }
 
-    pub fn batch(&self, queries: Vec<SqlQuery>) -> Result<(), FxSqlError> {
+    pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
         let op = request.init_op();
@@ -291,7 +345,7 @@ pub async fn sleep(duration: Duration) {
     FxHostFuture::new(PoolIndex(future_id)).await.unwrap();
 }
 
-pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> Result<T, FxError> {
+pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> StdResult<T, FxError> {
     rmp_serde::from_slice(&read_memory_owned(addr, len))
         .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize: {err:?}") })
 }

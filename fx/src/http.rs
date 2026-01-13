@@ -2,9 +2,10 @@ use {
     fx_common::{HttpRequest, HttpResponse, FxStream, FxFutureError, HttpRequestError},
     fx_api::{capnp, fx_capnp},
     axum::http,
+    thiserror::Error,
     crate::{
         fx_streams::FxStreamExport,
-        fx_futures::{FxHostFuture, PoolIndex},
+        fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
         sys,
         invoke_fx_api,
     },
@@ -32,7 +33,28 @@ impl FxHttpRequest for HttpRequest {
     }
 }
 
-pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FxFutureError> {
+#[derive(Error, Debug)]
+pub enum FetchError {
+    /// fetch failed because of error in runtime implementation
+    /// Should never happen. If you see this error it means there is a bug somewhere.
+    #[error("error in runtime implementation: {0:?}")]
+    RuntimeError(#[from] FetchRuntimeError),
+
+    /// Problems with network connection caused this request to fail
+    #[error("network error")]
+    NetworkError,
+}
+
+#[derive(Error, Debug)]
+pub enum FetchRuntimeError {
+    #[error("failed to poll future: {0:?}")]
+    FutureError(HostFuturePollRuntimeError),
+
+    #[error("received unexpected async api response")]
+    UnexpectedAsyncApiError,
+}
+
+pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FetchError> {
     let future_index = {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
@@ -69,6 +91,13 @@ pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FxFutureError> {
         }
     };
 
-    let response = FxHostFuture::new(PoolIndex(future_index as u64)).await?;
+    let response = FxHostFuture::new(PoolIndex(future_index as u64)).await
+        .map_err(|err| match err {
+            HostFutureError::RuntimeError(err) => FetchError::RuntimeError(FetchRuntimeError::FutureError(err)),
+            HostFutureError::AsyncApiError(err) => match err {
+                HostFutureAsyncApiError::Fetch(_) => FetchError::NetworkError,
+                _ => FetchError::RuntimeError(FetchRuntimeError::UnexpectedAsyncApiError),
+            }
+        })?;
     Ok(rmp_serde::from_slice(&response).unwrap())
 }

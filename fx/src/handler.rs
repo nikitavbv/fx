@@ -16,7 +16,13 @@ pub enum HandlerError {
     #[error("user application error: {description}")]
     UserApplicationError {
         description: String,
-    }
+    },
+
+    /// Failed to deserialize function argument
+    #[error("failed to deserialize function argument: {reason:?}")]
+    ArgumentDeserializationError {
+        reason: String,
+    },
 }
 
 impl From<anyhow::Error> for HandlerError {
@@ -32,6 +38,7 @@ impl From<HandlerError> for FunctionFutureError {
     fn from(value: HandlerError) -> Self {
         match value {
             HandlerError::UserApplicationError { description } => Self::UserApplicationError { description },
+            HandlerError::ArgumentDeserializationError { reason } => Self::FunctionArgumentDeserializationError { reason },
         }
     }
 }
@@ -100,13 +107,13 @@ where
 impl<F, Fut, T1, R> IntoHandler<(T1,)> for F
 where
     F: Fn(T1) -> Fut + Copy + Send + Sync + 'static,
-    Fut: Future<Output = Result<R, FxError>> + Send + 'static,
+    Fut: Future<Output = UserHandlerResult<R>> + Send + 'static,
     T1: DeserializeOwned + Send + 'static,
     R: Serialize + 'static,
 {
-    fn call(&self, args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> {
+    fn call(&self, args: Vec<u8>) -> HandlerResult {
         let f = *self;
-        let arg: Result<T1, FxError> = deserialize(args);
+        let arg: Result<T1, HandlerError> = deserialize(args);
         Box::pin(async move {
             let result = f(arg?).await?;
             serialize(result)
@@ -117,14 +124,14 @@ where
 impl<F, Fut, T1, T2, R> IntoHandler<(T1, T2)> for F
 where
     F: Fn(T1, T2) -> Fut + Copy + Send + Sync + 'static,
-    Fut: Future<Output = Result<R, FxError>> + Send + 'static,
+    Fut: Future<Output = UserHandlerResult<R>> + Send + 'static,
     T1: DeserializeOwned + Send + 'static,
     T2: DeserializeOwned + Send + 'static,
     R: Serialize + 'static,
 {
-    fn call(&self, args: Vec<u8>) -> BoxFuture<Result<Vec<u8>, FxError>> {
+    fn call(&self, args: Vec<u8>) -> HandlerResult {
         let f = *self;
-        let args: Result<(T1, T2), FxError> = deserialize(args);
+        let args: Result<(T1, T2), HandlerError> = deserialize(args);
         Box::pin(async move {
             let (arg1, arg2) = args?;
             let result = f(arg1, arg2).await?;
@@ -133,11 +140,13 @@ where
     }
 }
 
-pub fn serialize<T: Serialize>(data: T) -> Result<Vec<u8>, FxError> {
+pub fn serialize<T: Serialize>(data: T) -> Result<Vec<u8>, HandlerError> {
     Ok(rmp_serde::to_vec(&data).unwrap())
 }
 
-pub fn deserialize<T: DeserializeOwned>(data: Vec<u8>) -> Result<T, FxError> {
+pub fn deserialize<T: DeserializeOwned>(data: Vec<u8>) -> Result<T, HandlerError> {
     rmp_serde::from_slice(&data)
-        .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize function argument: {err:?}") })
+        .map_err(|err| HandlerError::ArgumentDeserializationError {
+            reason: err.to_string(),
+        })
 }

@@ -17,7 +17,7 @@ mod database;
 mod icons;
 
 #[rpc]
-pub async fn http(req: HttpRequest) -> Result<HttpResponse, fx::FxError> {
+pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     let database = Database::new(fx::sql("dashboard")).await;
     database.run_migrations();
 

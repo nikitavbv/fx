@@ -13,10 +13,16 @@ use {
 #[derive(Error, Debug)]
 pub enum FunctionFutureError {
     /// error produced by user's implementation of the handler
-    #[error("user application error: {description}")]
+    #[error("user application error: {description:?}")]
     UserApplicationError {
         description: String,
-    }
+    },
+
+    /// failed to deserialize function argument
+    #[error("failed to deserialize function argument: {reason:?}")]
+    FunctionArgumentDeserializationError {
+        reason: String,
+    },
 }
 
 /// Errors that may be returned by a future imported from the host when you poll it
@@ -39,6 +45,10 @@ pub enum HostFuturePollRuntimeError {
     /// Unknown runtime error on the host side.
     #[error("runtime error on the host side")]
     HostRuntimeError,
+
+    /// Failed to poll the future because it was not found on host side
+    #[error("future not found on host side")]
+    FutureNotFound,
 }
 
 /// Error returned by an async api that is then wrapped by HostFuture
@@ -61,8 +71,24 @@ pub enum FetchApiAsyncError {
 
 #[derive(Error, Debug)]
 pub enum RpcApiAsyncError {
-    #[error("failed to execute target function")]
-    TargetFunctionExecutionError,
+    /// RPC api call can fail because of a bug in host runtime implementation
+    #[error("internal runtime error")]
+    RuntimeError,
+    /// RPC request can fail bacause of a bug in runtime implementation within target function
+    /// (or it is not behaving properly)
+    #[error("target function runtime error")]
+    FunctionRuntimeError,
+    /// Function being invoked returned an error
+    #[error("received application error when invoked target function: {message:?}")]
+    UserApplicationError {
+        message: String,
+    },
+    /// Function being invoked panicked
+    #[error("target function panicked")]
+    FunctionPanicked,
+    /// Handler not found within the function being invoked
+    #[error("target function does not contain handler with this name")]
+    HandlerNotFound,
 }
 
 lazy_static! {
@@ -214,13 +240,22 @@ impl Future for FxHostFuture {
                                         HostFutureAsyncApiError::Fetch(FetchApiAsyncError::NetworkError)
                                     },
                                     fx_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Rpc(err) => {
+                                        use fx_capnp::future_poll_response::future_poll_error::rpc_api_error::error::Which as ResponseRpcApiError;
                                         HostFutureAsyncApiError::Rpc(match err.unwrap().get_error().which().unwrap() {
-                                            // TODO: add all variants
+                                            ResponseRpcApiError::RuntimeError(_) => RpcApiAsyncError::RuntimeError,
+                                            ResponseRpcApiError::FunctionRuntimeError(_) => RpcApiAsyncError::FunctionRuntimeError,
+                                            ResponseRpcApiError::UserApplicationError(err) => RpcApiAsyncError::UserApplicationError {
+                                                message: err.unwrap().to_string().unwrap(),
+                                            },
+                                            ResponseRpcApiError::HandlerNotFound(_) => RpcApiAsyncError::HandlerNotFound,
+                                            ResponseRpcApiError::FunctionPanicked(_) => RpcApiAsyncError::FunctionPanicked,
                                         })
                                     },
                                 })
                             },
-                            fx_capnp::future_poll_response::future_poll_error::error::Which::NotFound(_) => {},
+                            fx_capnp::future_poll_response::future_poll_error::error::Which::NotFound(_) => HostFutureError::RuntimeError(
+                                HostFuturePollRuntimeError::FutureNotFound,
+                            ),
                         }
                     })),
                 }

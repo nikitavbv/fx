@@ -38,7 +38,7 @@ pub enum HostFutureAsyncApiError {
 
     /// Error caused by fetch api that is being wrapped
     #[error("fetch api error: {0:?}")]
-    Fetch(#[from] RpcFetchAsyncError),
+    Fetch(#[from] FetchApiAsyncError),
 }
 
 pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
@@ -378,7 +378,7 @@ fn handle_log(data: &ExecutionEnv, log_request: fx_capnp::log_request::Reader, _
 }
 
 #[derive(Error, Debug)]
-enum RpcFetchAsyncError {
+enum FetchApiAsyncError {
     #[error("network request failed: {0:?}")]
     NetworkRequestFailed(#[from] reqwest::Error),
 }
@@ -462,7 +462,7 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
                 }).unwrap())
             })
             .await
-            .map_err(RpcFetchAsyncError::from)
+            .map_err(FetchApiAsyncError::from)
             .map_err(HostFutureAsyncApiError::from)
             .map_err(HostFutureError::from)
     }.boxed();
@@ -540,7 +540,7 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
                                     HostFutureAsyncApiError::Fetch(error) => {
                                         let mut response_fetch_error = response_async_api_error.init_fetch();
                                         match error {
-                                            RpcFetchAsyncError::NetworkRequestFailed(error) => response_fetch_error.set_network_error(format!("{error:?}")),
+                                            FetchApiAsyncError::NetworkRequestFailed(error) => response_fetch_error.set_network_error(format!("{error:?}")),
                                         }
                                     }
                                 }
