@@ -934,7 +934,7 @@ pub(crate) fn invoke_fx_api(
         data.instance.as_ref().unwrap().exports.get_function("_fx_api").unwrap()
             .call(&mut store, &[Value::I64(ptr as i64), Value::I64(message_size as i64)])
             .map_err(|err| FunctionApiError::FunctionPanicked {
-                message: err.message(),
+                message: format!("{err:?}"),
             })?[0]
             .i64().unwrap() as usize
     };

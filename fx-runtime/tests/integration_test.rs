@@ -76,7 +76,8 @@ async fn invoke_function_non_existent() {
         .unwrap();
 
     match err {
-        other => panic!("unexpected error: {other:?}"),
+        FunctionInvokeAndExecuteError::CodeNotFound => {}
+        other => panic!("unexpected error: {other:?}, expected CodeNotFound"),
     }
 }
 
@@ -87,7 +88,8 @@ async fn invoke_function_non_existent_rpc() {
         .map(|v| v.0);
 
     match err {
-        other => panic!("unexpected error: {other:?}"),
+        Err(FunctionInvokeAndExecuteError::HandlerNotDefined) => {}
+        other => panic!("unexpected error: {other:?}, expected HandlerNotDefined"),
     }
 }
 
@@ -98,7 +100,8 @@ async fn invoke_function_no_module_code() {
         .map(|v| v.0);
 
     match err {
-        other => panic!("unexpected error: {other:?}"),
+        Err(FunctionInvokeAndExecuteError::CodeNotFound) => {}
+        other => panic!("unexpected error: {other:?}, expected CodeNotFound"),
     }
 }
 
@@ -106,7 +109,8 @@ async fn invoke_function_no_module_code() {
 async fn invoke_function_panic() {
     let result = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
     match result.err().unwrap() {
-        other => panic!("expected service internal error, got: {other:?}"),
+        FunctionInvokeAndExecuteError::FunctionPanicked { message: _ } => {}
+        other => panic!("expected function panicked error, got: {other:?}"),
     }
 }
 
@@ -114,6 +118,7 @@ async fn invoke_function_panic() {
 async fn invoke_function_wrong_argument() {
     let result = FX_INSTANCE.lock().invoke_service::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
     match result {
+        FunctionInvokeAndExecuteError::FunctionRuntimeError => {}
         other => panic!("unexpected fx error: {other:?}"),
     }
 }
