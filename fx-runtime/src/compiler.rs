@@ -28,7 +28,7 @@ pub struct CompilerMetadata {
 #[derive(Error, Debug)]
 pub enum CompilerError {
     #[error("failed to compile: {0:?}")]
-    FailedToCompile(wasmer::CompileError),
+    FailedToCompile(#[from] wasmer::CompileError),
 
     #[error("failed to deserialize: {0:?}")]
     FailedToDeserialize(wasmer::DeserializeError),

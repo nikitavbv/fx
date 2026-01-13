@@ -7,7 +7,7 @@ use {
     tokio::time::timeout,
     fx_common::{HttpResponse, HttpRequest, FxStream},
     fx_runtime_common::{FunctionInvokeEvent, events::InvocationTimings},
-    fx_runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::Engine},
+    fx_runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::{Engine, FunctionInvokeAndExecuteError}},
 };
 
 #[derive(Clone)]
@@ -84,11 +84,29 @@ impl<'a> HttpHandlerFuture<'a> {
                         Ok(v) => match v {
                             Ok(v) => (v.0, Some(v.1)),
                             Err(err) => (match err {
-                                FxRuntimeError::ServiceNotFound => response_service_not_found(),
-                                other => {
-                                    error!("internal error while serving request: {other:?}");
+                                FunctionInvokeAndExecuteError::RuntimeError
+                                | FunctionInvokeAndExecuteError::FunctionRuntimeError => {
                                     response_internal_error()
                                 },
+                                FunctionInvokeAndExecuteError::UserApplicationError { description: _ }
+                                | FunctionInvokeAndExecuteError::FunctionPanicked { message: _ }=> {
+                                    response_application_error()
+                                },
+                                FunctionInvokeAndExecuteError::DefinitionMissing(_)
+                                | FunctionInvokeAndExecuteError::HandlerNotDefined => response_function_misconfigured(),
+                                FunctionInvokeAndExecuteError::CodeNotFound => response_service_not_found(),
+                                FunctionInvokeAndExecuteError::CodeFailedToLoad(err) => {
+                                    error!("failed to load function code while serving request: {err:?}");
+                                    response_internal_error()
+                                },
+                                FunctionInvokeAndExecuteError::FailedToCompile(err) => {
+                                    error!("failed to compile function while serving request: {err:?}");
+                                    response_internal_error()
+                                },
+                                FunctionInvokeAndExecuteError::InstantionError(err) => {
+                                    error!("failed to instantiate function while serving request: {err:?}");
+                                    response_internal_error()
+                                }
                             }, None)
                         },
                         Err(err) => {
@@ -184,4 +202,12 @@ fn response_service_not_found() -> HttpResponse {
 
 fn response_internal_error() -> HttpResponse {
     HttpResponse::new().with_status(StatusCode::INTERNAL_SERVER_ERROR).with_body("fx: internal runtime error.\n")
+}
+
+fn response_application_error() -> HttpResponse {
+    HttpResponse::new().with_status(StatusCode::BAD_GATEWAY).with_body("fx: function error.\n")
+}
+
+fn response_function_misconfigured() -> HttpResponse {
+    HttpResponse::new().with_status(StatusCode::BAD_GATEWAY).with_body("fx: function misconfigured.\n")
 }

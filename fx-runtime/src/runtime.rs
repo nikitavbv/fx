@@ -205,6 +205,7 @@ impl Engine {
                     error!("runtime error when executing function: {err:?}");
                     FunctionInvokeAndExecuteError::RuntimeError
                 }
+                FunctionExecutionError::FunctionRuntimeError => FunctionInvokeAndExecuteError::FunctionRuntimeError,
                 FunctionExecutionError::HandlerNotDefined => FunctionInvokeAndExecuteError::HandlerNotDefined,
                 FunctionExecutionError::UserApplicationError { description } => FunctionInvokeAndExecuteError::UserApplicationError { description },
                 FunctionExecutionError::FunctionPanicked { message } => FunctionInvokeAndExecuteError::FunctionPanicked { message },
@@ -351,6 +352,12 @@ pub enum FunctionInvokeAndExecuteError {
     #[error("runtime internal error")]
     RuntimeError,
 
+    /// Failed to poll future because of internal error in runtime implementation within function.
+    /// Getting this error could mean there is a bug in function's sdk or that the function does not
+    /// behave properly.
+    #[error("function runtime internal error")]
+    FunctionRuntimeError,
+
     /// Failed to execute function because of user application error.
     #[error("user application error: {description:?}")]
     UserApplicationError {
@@ -408,7 +415,7 @@ pub enum FunctionExecutionError {
     /// Failed to execute function because of internal error in runtime implementation on function side.
     /// Should not happen normally. Getting this error could mean there is a bug in function's sdk or
     /// that the function does not behave properly.
-    #[error("function runtime internal error: {0:?}")]
+    #[error("function runtime internal error")]
     FunctionRuntimeError,
 
     /// Failed to execute function because of user application error.
@@ -549,6 +556,10 @@ impl Future for FunctionRuntimeFuture {
             let result = match function_future_poll(&mut function_env_mut, future_index as u64) {
                 Ok(v) => v,
                 Err(err) => return std::task::Poll::Ready(Err(match err {
+                    FunctionFuturePollApiError::FunctionRuntimeError => {
+                        // recoverable error, internal runtime error does not mean that function crashed
+                        FunctionExecutionError::FunctionRuntimeError
+                    },
                     FunctionFuturePollApiError::UserApplicationError { description } => {
                         // user application error is recoverable, no need to re-create context
                         FunctionExecutionError::UserApplicationError { description }

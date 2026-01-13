@@ -44,7 +44,7 @@ impl Compiler for LLVMCompiler {
     fn compile(&self, _function_id: &FunctionId, bytes: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &bytes)
-            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map_err(CompilerError::from)
             .map(|module| (store, module, CompilerMetadata {
                 backend: "llvm".to_owned(),
             }))
@@ -69,7 +69,7 @@ impl Compiler for SinglepassCompiler {
     fn compile(&self, _function_id: &FunctionId, module_code: Vec<u8>) -> Result<(Store, Module, CompilerMetadata), CompilerError> {
         let store = self.create_store();
         Module::new(&store, &module_code)
-            .map_err(|err| CompilerError::FailedToCompile { reason: err.to_string() })
+            .map_err(CompilerError::from)
             .map(|module| (store, module, CompilerMetadata {
                 backend: "singlepass".to_owned(),
             }))

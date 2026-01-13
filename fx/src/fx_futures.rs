@@ -22,8 +22,47 @@ pub enum FunctionFutureError {
 /// Errors that may be returned by a future imported from the host when you poll it
 #[derive(Error, Debug)]
 pub enum HostFutureError {
-    #[error("placeholder error to make HostFutureError non-empty")]
-    PlaceholderError,
+    /// Error caused by runtime implementation of futures.
+    /// Should never happen. If you see this error it means there is a bug somewhere.
+    #[error("error in runtime implementation of the futures: {0:?}")]
+    RuntimeError(#[from] HostFuturePollRuntimeError),
+
+    /// Error returned by an async api that host future wraps.
+    #[error("async api error: {0:?}")]
+    AsyncApiError(#[from] HostFutureAsyncApiError),
+}
+
+/// Error in the runtime implementation of the futures.
+/// Should never happen. If you see this error it means there is a bug somewhere.
+#[derive(Error, Debug)]
+pub enum HostFuturePollRuntimeError {
+    /// Unknown runtime error on the host side.
+    #[error("runtime error on the host side")]
+    HostRuntimeError,
+}
+
+/// Error returned by an async api that is then wrapped by HostFuture
+#[derive(Error, Debug)]
+pub enum HostFutureAsyncApiError {
+    /// Error in "fetch" async api
+    #[error("fetch api error: {0:?}")]
+    Fetch(FetchApiAsyncError),
+
+    /// Error in "rcp" async api
+    #[error("rpc api error: {0:?}")]
+    Rpc(RpcApiAsyncError),
+}
+
+#[derive(Error, Debug)]
+pub enum FetchApiAsyncError {
+    #[error("network error")]
+    NetworkError,
+}
+
+#[derive(Error, Debug)]
+pub enum RpcApiAsyncError {
+    #[error("failed to execute target function")]
+    TargetFunctionExecutionError,
 }
 
 lazy_static! {
@@ -166,8 +205,22 @@ impl Future for FxHostFuture {
                     fx_capnp::future_poll_response::response::Which::Error(error) => Poll::Ready(Err({
                         let error = error.unwrap();
                         match error.get_error().which().unwrap() {
-                            fx_capnp::future_poll_error::error::Which::Placeholder0(_) => HostFutureError::PlaceholderError,
-                            fx_capnp::future_poll_error::error::Which::Placeholder1(_) => HostFutureError::PlaceholderError,
+                            fx_capnp::future_poll_response::future_poll_error::error::Which::RuntimeError(_) => HostFutureError::RuntimeError(
+                                HostFuturePollRuntimeError::HostRuntimeError
+                            ),
+                            fx_capnp::future_poll_response::future_poll_error::error::Which::AsyncApiError(async_api_error) => {
+                                HostFutureError::AsyncApiError(match async_api_error.unwrap().get_op().which().unwrap() {
+                                    fx_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Fetch(_) => {
+                                        HostFutureAsyncApiError::Fetch(FetchApiAsyncError::NetworkError)
+                                    },
+                                    fx_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Rpc(err) => {
+                                        HostFutureAsyncApiError::Rpc(match err.unwrap().get_error().which().unwrap() {
+                                            // TODO: add all variants
+                                        })
+                                    },
+                                })
+                            },
+                            fx_capnp::future_poll_response::future_poll_error::error::Which::NotFound(_) => {},
                         }
                     })),
                 }
