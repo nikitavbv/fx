@@ -11,7 +11,7 @@ pub use {
         FxSqlError,
         QueueMessage,
     },
-    fx_macro::rpc,
+    fx_macro::handler,
     futures::FutureExt,
     inventory,
     crate::{

@@ -1,9 +1,9 @@
 use {
-    fx::{HttpRequest, HttpResponse, rpc, utils::axum::handle_request},
+    fx::{HttpRequest, HttpResponse, handler, utils::axum::handle_request},
     axum::{Router, routing::get},
 };
 
-#[rpc]
+#[handler]
 pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     Ok(handle_request(
         Router::new()

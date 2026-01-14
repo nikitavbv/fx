@@ -1,11 +1,11 @@
 use {
     std::sync::atomic::{AtomicI64, Ordering},
-    fx::{rpc, Result},
+    fx::{handler, Result},
 };
 
 static COUNTER: AtomicI64 = AtomicI64::new(0);
 
-#[rpc]
+#[handler]
 pub async fn incr() -> Result<i64> {
     Ok(COUNTER.fetch_add(1, Ordering::SeqCst))
 }

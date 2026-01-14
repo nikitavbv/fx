@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    fx::{rpc, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
+    fx::{handler, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
     fx_runtime_common::FunctionInvokeEvent,
     lazy_static::lazy_static,
 };
@@ -11,12 +11,12 @@ lazy_static! {
     static ref INVOCATION_COUNT: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
 }
 
-#[rpc]
+#[handler]
 pub async fn simple(arg: u32) -> fx::Result<u32> {
     Ok(arg + 42)
 }
 
-#[rpc]
+#[handler]
 pub async fn sql_simple() -> fx::Result<u64> {
     let database = fx::sql("app");
     database.exec(SqlQuery::new("create table test_sql_simple (v integer not null)")).unwrap();
@@ -27,35 +27,35 @@ pub async fn sql_simple() -> fx::Result<u64> {
     Ok(res)
 }
 
-#[rpc]
+#[handler]
 pub async fn async_simple(arg: u64) -> fx::Result<u64> {
     sleep(Duration::from_secs(3)).await;
     Ok(arg)
 }
 
-#[rpc]
+#[handler]
 pub async fn rpc_responder(arg: u64) -> fx::Result<u64> {
     sleep(Duration::from_secs(1)).await;
     Ok(arg * 2)
 }
 
-#[rpc]
+#[handler]
 pub async fn call_rpc(arg: u64) -> fx::Result<u64> {
     Ok(fx::rpc("other-app", "rpc_responder", arg).await.unwrap())
 }
 
-#[rpc]
+#[handler]
 pub async fn rpc_responder_panic() -> fx::Result<u64> {
     panic!("test panic");
 }
 
-#[rpc]
+#[handler]
 pub async fn rpc_responder_panic_async() -> fx::Result<u64> {
     sleep(Duration::from_secs(1)).await;
     panic!("test panic");
 }
 
-#[rpc]
+#[handler]
 pub async fn call_rpc_panic() -> fx::Result<i64> {
     let res0 = match fx::rpc::<(), u64>("other-app", "rpc_responder_panic", ()).await {
         Ok(_) => panic!("didn't expect test rpc call not to fail"),
@@ -69,7 +69,7 @@ pub async fn call_rpc_panic() -> fx::Result<i64> {
     Ok(42 + res0 as i64 + res1 as i64)
 }
 
-#[rpc]
+#[handler]
 pub async fn test_fetch() -> fx::Result<Result<String, String>> {
     let response = fetch(
         HttpRequest::get("https://fx.nikitavbv.com/api/mock/get").unwrap()
@@ -82,24 +82,24 @@ pub async fn test_fetch() -> fx::Result<Result<String, String>> {
     Ok(Ok(String::from_utf8(response.body).unwrap()))
 }
 
-#[rpc]
+#[handler]
 pub async fn global_counter_inc() -> fx::Result<u64> {
     let mut counter = COUNTER.lock().unwrap();
     *counter += 1;
     Ok(*counter)
 }
 
-#[rpc]
+#[handler]
 pub async fn get_invoke_count(function_id: String) -> fx::Result<u64> {
     Ok(*INVOCATION_COUNT.lock().unwrap().get(&function_id).unwrap_or(&0))
 }
 
-#[rpc]
+#[handler]
 pub async fn test_panic() -> fx::Result<()> {
     panic!("test panic");
 }
 
-#[rpc]
+#[handler]
 pub async fn test_stream_simple() -> fx::Result<FxStream> {
     let stream = async_stream::stream! {
         for i in 0..5 {
@@ -110,32 +110,32 @@ pub async fn test_stream_simple() -> fx::Result<FxStream> {
     Ok(FxStream::wrap(stream).unwrap())
 }
 
-#[rpc]
+#[handler]
 pub async fn test_random(len: u64) -> fx::Result<Vec<u8>> {
     Ok(fx::random(len))
 }
 
-#[rpc]
+#[handler]
 pub async fn test_time() -> fx::Result<u64> {
     let started_at = fx::now();
     sleep(Duration::from_secs(1)).await;
     Ok((fx::now() - started_at).as_millis() as u64)
 }
 
-#[rpc]
+#[handler]
 pub async fn test_kv_set(value: String) -> fx::Result<()> {
     let kv = fx::kv("test-kv");
     kv.set("test-key", value.as_bytes()).unwrap();
     Ok(())
 }
 
-#[rpc]
+#[handler]
 pub async fn test_kv_get() -> fx::Result<Option<String>> {
     let kv = fx::kv("test-kv");
     Ok(kv.get("test-key").unwrap().map(|v| String::from_utf8(v).unwrap()))
 }
 
-#[rpc]
+#[handler]
 pub async fn test_kv_wrong_binding_name() -> fx::Result<()> {
     let kv = fx::kv("test-kv-wrong");
     let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
@@ -143,13 +143,13 @@ pub async fn test_kv_wrong_binding_name() -> fx::Result<()> {
     Ok(())
 }
 
-#[rpc]
+#[handler]
 pub async fn test_log() -> fx::Result<()> {
     info!("this is a test log");
     Ok(())
 }
 
-#[rpc]
+#[handler]
 pub async fn test_log_span() -> fx::Result<()> {
     let span = tracing::info_span!("test_log_span", request_id="some-request-id");
     let _guard = span.enter();
@@ -160,13 +160,13 @@ pub async fn test_log_span() -> fx::Result<()> {
     Ok(())
 }
 
-#[rpc]
+#[handler]
 pub async fn test_counter_increment() -> fx::Result<()> {
     Counter::new("test_counter").increment(1);
     Ok(())
 }
 
-#[rpc]
+#[handler]
 pub async fn test_counter_increment_twice_with_tags() -> fx::Result<()> {
     Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value1".to_owned()], 1);
     Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value2".to_owned()], 1);

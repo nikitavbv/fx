@@ -1,10 +1,10 @@
 use {
-    fx::{HttpRequest, HttpResponse, rpc, SqlQuery, fetch},
+    fx::{HttpRequest, HttpResponse, handler, SqlQuery, fetch},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
 
-#[rpc]
+#[handler]
 pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     info!("hello from wasm service!");
 
@@ -32,13 +32,13 @@ pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     Ok(HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url)))
 }
 
-#[rpc]
+#[handler]
 pub async fn hello_cron() -> fx::Result<()> {
     info!("hello from cron!");
     Ok(())
 }
 
-#[rpc]
+#[handler]
 pub async fn example() -> fx::Result<()> {
     info!("hello from fx!");
     Ok(())

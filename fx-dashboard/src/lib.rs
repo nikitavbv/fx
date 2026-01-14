@@ -1,6 +1,6 @@
 use {
     std::collections::HashMap,
-    fx::{HttpRequest, HttpResponse, rpc, utils::axum::handle_request},
+    fx::{HttpRequest, HttpResponse, handler, utils::axum::handle_request},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
     crate::{
@@ -16,7 +16,7 @@ mod components;
 mod database;
 mod icons;
 
-#[rpc]
+#[handler]
 pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     let database = Database::new(fx::sql("dashboard")).await;
     database.run_migrations();

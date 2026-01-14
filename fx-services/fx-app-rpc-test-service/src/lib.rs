@@ -1,5 +1,5 @@
 use {
-    fx::rpc,
+    fx::handler,
     serde::{Serialize, Deserialize},
 };
 
@@ -13,7 +13,7 @@ pub struct RpcResponse {
     number: i64,
 }
 
-#[rpc]
+#[handler]
 pub async fn hello(req: RpcRequest) -> fx::Result<RpcResponse> {
     tracing::info!("hello from rpc service! {req:?}");
     Ok(RpcResponse { number: req.number * 2 })
