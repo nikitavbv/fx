@@ -657,18 +657,13 @@ impl ExecutionContext {
         let mut import_object = imports! {
             "fx" => {
                 "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
-                "send_rpc_response" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_rpc_response),
-                "send_error" => Function::new_typed_with_env(&mut store, &function_env, crate::api::rpc::handle_send_error),
             },
-            "fx_cloud" => {
-                "list_functions" => Function::new_typed_with_env(&mut store, &function_env, api_list_functions),
-            }
         };
 
         // some libraries, like leptos, have wbidgen imports, but do not use them. Let's add them here so that module can be linked
         for import in module.imports().into_iter() {
             let module = import.module();
-            if module != "fx" && module != "fx_cloud" {
+            if module != "fx" {
                 match import.ty() {
                     wasmer::ExternType::Function(f) => {
                         import_object.define(module, import.name(), Function::new_with_env(&mut store, &function_env, f, crate::api::unsupported::handle_unsupported));

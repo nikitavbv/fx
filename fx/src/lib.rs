@@ -345,16 +345,6 @@ pub async fn sleep(duration: Duration) {
     FxHostFuture::new(PoolIndex(future_id)).await.unwrap();
 }
 
-pub fn read_rpc_request<T: serde::de::DeserializeOwned>(addr: i64, len: i64) -> StdResult<T, FxError> {
-    rmp_serde::from_slice(&read_memory_owned(addr, len))
-        .map_err(|err| FxError::DeserializationError { reason: format!("failed to deserialize: {err:?}") })
-}
-
-pub fn write_error(error: FxExecutionError) {
-    let error = rmp_serde::to_vec(&error).unwrap();
-    unsafe { sys::send_error(error.as_ptr() as i64, error.len() as i64); }
-}
-
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {
     rmp_serde::to_vec(&v).unwrap()
 }
