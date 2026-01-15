@@ -150,6 +150,8 @@ impl Into<String> for &FunctionId {
 }
 
 pub struct Engine {
+    wasmtime: wasmtime::Engine,
+
     pub metrics: Metrics,
 
     compiler: RwLock<BoxedCompiler>,
@@ -169,6 +171,8 @@ pub struct Engine {
 impl Engine {
     pub fn new() -> Self {
         Self {
+            wasmtime: wasmtime::Engine::default(),
+
             metrics: Metrics::new(),
 
             compiler: RwLock::new(BoxedCompiler::new(CraneliftCompiler::new())),
@@ -628,7 +632,7 @@ impl Drop for FunctionRuntimeFuture {
 pub(crate) struct ExecutionContext {
     pub(crate) instance: Instance,
     pub(crate) store: Arc<Mutex<Store>>,
-    pub(crate) function_env: FunctionEnv<ExecutionEnv>,
+    // pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     // TODO: regular boolean can probably be used here
     needs_recreate: Arc<AtomicBool>,
     futures_to_drop: Arc<Mutex<VecDeque<i64>>>,
@@ -646,22 +650,22 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FunctionInvokeError> {
-        let (mut store, module, compiler_metadata) = engine.compiler.read().unwrap().compile(&function_id, module_code)
-            .map_err(|err| FunctionInvokeError::FailedToCompile(err))?;
+        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log, CompilerMetadata {
+            backend: "cranelift".to_owned(),
+        });
 
-        let function_env = FunctionEnv::new(
-            &mut store,
-            ExecutionEnv::new(engine, function_id, storage, sql, rpc, allow_fetch, allow_log, compiler_metadata)
-        );
+        let wasmtime_module = wasmtime::Module::new(&engine.wasmtime, &module_code).unwrap();
+        let mut linker = wasmtime::Linker::new(&engine.wasmtime);
+        linker.func_wrap("fx", "fx_api", crate::api::fx_api_handler).unwrap();
 
-        let mut import_object = imports! {
-            "fx" => {
-                "fx_api" => Function::new_typed_with_env(&mut store, &function_env, crate::api::fx_api_handler),
-            },
-        };
+        let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
+        let instance = linker.instantiate(&mut store, &wasmtime_module).unwrap();
+
+        let memory = instance.get_memory(&mut store, "memory").unwrap();
+        store.data_mut().memory = Some(memory.clone());
 
         // some libraries, like leptos, have wbidgen imports, but do not use them. Let's add them here so that module can be linked
-        for import in module.imports().into_iter() {
+        /*for import in module.imports().into_iter() {
             let module = import.module();
             if module != "fx" {
                 match import.ty() {
@@ -671,15 +675,11 @@ impl ExecutionContext {
                     other => panic!("unexpected import type: {other:?}"),
                 }
             }
-        }
-
-        let instance = Instance::new(&mut store, &module, &import_object)
-            .map_err(|err| FunctionInvokeError::InstantionError(err))?;
+        }*/
 
         Ok(Self {
             instance,
             store: Arc::new(Mutex::new(store)),
-            function_env,
             needs_recreate: Arc::new(AtomicBool::new(false)),
             futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
             streams_to_drop: Arc::new(Mutex::new(VecDeque::new())),
@@ -695,7 +695,7 @@ pub(crate) struct ExecutionEnv {
 
     pub(crate) engine: Arc<Engine>,
     instance: Option<Instance>,
-    pub(crate) memory: Option<Memory>,
+    pub(crate) memory: Option<wasmtime::Memory>,
     pub(crate) execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
@@ -1003,6 +1003,7 @@ pub(crate) struct PtrWithLen {
     pub len: i64,
 }
 
+#[derive(Clone)]
 pub(crate) struct RpcBinding {}
 
 pub struct FunctionInvocationEvent {

@@ -5,8 +5,8 @@ use {
     },
     tracing::error,
     thiserror::Error,
-    wasmer::FunctionEnvMut,
     futures::FutureExt,
+    wasmtime::AsContextMut,
     rand::TryRngCore,
     fx_api::{capnp, fx_capnp},
     fx_common::FxFutureError,
@@ -41,11 +41,10 @@ pub enum HostFutureAsyncApiError {
     Fetch(#[from] FetchApiAsyncError),
 }
 
-pub fn fx_api_handler(mut ctx: FunctionEnvMut<ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
-    let (data, mut store) = ctx.data_and_store_mut();
+pub fn fx_api_handler(caller: wasmtime::Caller<'_, crate::runtime::ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
 
-    let memory = data.memory.as_ref().unwrap();
-    let view = memory.view(&store);
+    let view = memory.data(&caller.as_context_mut());
     let req_addr = req_addr as usize;
     let req_len = req_len as usize;
 
