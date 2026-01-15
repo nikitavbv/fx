@@ -6,6 +6,7 @@ use {
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::Full,
     thiserror::Error,
+    wasmtime::{AsContext, AsContextMut},
     prometheus::{
         TextEncoder,
         Registry,
@@ -220,18 +221,18 @@ async fn collect_metrics(engine: Arc<Engine>) {
         match engine.execution_contexts.read() {
             Ok(execution_contexts) => for (function_id, execution_env) in execution_contexts.iter() {
                 let function_id = function_id.as_string();
-                let store = match execution_env.store.try_lock() {
+                let mut store = match execution_env.store.try_lock() {
                     Ok(v) => v,
                     Err(err) => {
                         warn!("failed to lock execution env to collect metrics: {err:?}");
                         continue;
                     }
                 };
-                let memory = execution_env.function_env.as_ref(&store).memory.as_ref();
+                let memory = execution_env.instance.get_memory(store.as_context_mut(), "memory");
                 if let Some(memory) = memory.as_ref() {
-                    let data_size = memory.view(&store).data_size();
+                    let data_size = memory.data_size(store.as_context());
                     metrics.function_memory_size.with_label_values(&[function_id.clone()]).set(data_size as i64);
-                    metrics.function_memory_pages.with_label_values(&[function_id.clone()]).set(memory.size(&store).0 as i64);
+                    metrics.function_memory_pages.with_label_values(&[function_id.clone()]).set(memory.size(store.as_context()) as i64);
                 }
             },
             Err(err) => error!("failed to read execution contexts when collecting metrics: {err:?}"),

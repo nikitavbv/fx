@@ -8,20 +8,7 @@ use {
         io::Cursor,
     },
     tracing::{error, info},
-    wasmer::{
-        wasmparser::Operator,
-        sys::{Cranelift, CompilerConfig, EngineBuilder},
-        Store,
-        FunctionEnv,
-        FunctionEnvMut,
-        Memory,
-        Instance,
-        Function,
-        Value,
-        imports,
-        ExportError,
-    },
-    wasmer_middlewares::{Metering, metering::{get_remaining_points, set_remaining_points, MeteringPoints}},
+    wasmtime::{Instance, Store},
     serde::{Serialize, Deserialize},
     futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
@@ -47,7 +34,6 @@ use {
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
         error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
         sql::{self, SqlDatabase},
-        compiler::{Compiler, BoxedCompiler, CraneliftCompiler, CompilerMetadata, CompilerError},
         futures::FuturesPool,
         streams::StreamsPool,
         metrics::Metrics,
@@ -84,15 +70,6 @@ impl FxRuntime {
         {
             let mut definition_provider = self.engine.definition_provider.write().unwrap();
             *definition_provider = new_definition_provider;
-        }
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn with_compiler(self, new_compiler: BoxedCompiler) -> Self {
-        {
-            let mut compiler = self.engine.compiler.write().unwrap();
-            *compiler = new_compiler;
         }
         self
     }
@@ -154,8 +131,6 @@ pub struct Engine {
 
     pub metrics: Metrics,
 
-    compiler: RwLock<BoxedCompiler>,
-
     pub execution_contexts: RwLock<HashMap<FunctionId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
@@ -174,8 +149,6 @@ impl Engine {
             wasmtime: wasmtime::Engine::default(),
 
             metrics: Metrics::new(),
-
-            compiler: RwLock::new(BoxedCompiler::new(CraneliftCompiler::new())),
 
             execution_contexts: RwLock::new(HashMap::new()),
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
@@ -201,7 +174,7 @@ impl Engine {
                 FunctionInvokeError::CodeFailedToLoad(err) => FunctionInvokeAndExecuteError::CodeFailedToLoad(err),
                 FunctionInvokeError::CodeNotFound => FunctionInvokeAndExecuteError::CodeNotFound,
                 FunctionInvokeError::FailedToCompile(err) => FunctionInvokeAndExecuteError::FailedToCompile(err),
-                FunctionInvokeError::InstantionError(err) => FunctionInvokeAndExecuteError::InstantionError(err),
+                // FunctionInvokeError::InstantionError(err) => FunctionInvokeAndExecuteError::InstantionError(err),
             })?
             .await
             .map_err(|err| match err {
@@ -331,10 +304,9 @@ impl Engine {
         let ctxs = self.execution_contexts.read().unwrap();
         let ctx = ctxs.get(function_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
-        let store = store_lock.deref_mut();
 
         // TODO: measure points
-        function_stream_poll_next(&mut ctx.function_env.clone().into_mut(store), index as u64)
+        function_stream_poll_next(store_lock.data(), index as u64)
             .map(|v| Ok(v).transpose())
     }
 
@@ -394,10 +366,6 @@ pub enum FunctionInvokeAndExecuteError {
     /// Function cannot be invoked if it failed to compile
     #[error("failed to compile: {0:?}")]
     FailedToCompile(CompilerError),
-
-    /// WASM engine could not create instance
-    #[error("failed to create instance: {0:?}")]
-    InstantionError(wasmer::InstantiationError),
 }
 
 pub struct FunctionRuntimeFuture {
@@ -473,7 +441,7 @@ impl Future for FunctionRuntimeFuture {
             let ctxs = self.engine.execution_contexts.read().unwrap();
             ctxs.get(&self.function_id).unwrap().clone()
         };
-        let mut store_lock = match ctx.store.lock() {
+        let mut store = match ctx.store.lock() {
             Ok(v) => v,
             Err(err) => {
                 error!("failed to lock ctx.store: {err:?}");
@@ -482,10 +450,9 @@ impl Future for FunctionRuntimeFuture {
                 )));
             }
         };
-        let store = store_lock.deref_mut();
 
         {
-            let function_env = ctx.function_env.as_ref(store);
+            let function_env = store.data();
             if function_env.execution_context.read().unwrap().is_none() {
                 let mut f_env_execution_context = function_env.execution_context.write().unwrap();
                 *f_env_execution_context = Some(ctx.clone());
@@ -631,7 +598,7 @@ impl Drop for FunctionRuntimeFuture {
 
 pub(crate) struct ExecutionContext {
     pub(crate) instance: Instance,
-    pub(crate) store: Arc<Mutex<Store>>,
+    pub(crate) store: Arc<Mutex<Store<ExecutionEnv>>>,
     // pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     // TODO: regular boolean can probably be used here
     needs_recreate: Arc<AtomicBool>,
@@ -694,7 +661,7 @@ pub(crate) struct ExecutionEnv {
     pub(crate) futures_waker: Option<std::task::Waker>,
 
     pub(crate) engine: Arc<Engine>,
-    instance: Option<Instance>,
+    pub(crate) instance: Option<Instance>,
     pub(crate) memory: Option<wasmtime::Memory>,
     pub(crate) execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
@@ -963,8 +930,8 @@ pub fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64
     view.copy_range_to_vec(addr..addr+len).unwrap()
 }
 
-pub fn write_memory_obj<T: Sized>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, obj: T) {
-    write_memory(ctx, addr, unsafe { std::slice::from_raw_parts(&obj as *const T as *const u8, std::mem::size_of_val(&obj)) });
+pub fn write_memory_obj<T: Sized>(memory: &mut [u8], addr: i64, obj: T) {
+    write_memory(memory, addr, unsafe { std::slice::from_raw_parts(&obj as *const T as *const u8, std::mem::size_of_val(&obj)) });
 }
 
 pub fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
@@ -1009,3 +976,6 @@ pub(crate) struct RpcBinding {}
 pub struct FunctionInvocationEvent {
     pub compiler_metadata: CompilerMetadata,
 }
+
+#[derive(Error, Debug)]
+pub enum CompilerError {}

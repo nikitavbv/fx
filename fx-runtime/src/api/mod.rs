@@ -6,7 +6,7 @@ use {
     tracing::error,
     thiserror::Error,
     futures::FutureExt,
-    wasmtime::AsContextMut,
+    wasmtime::{AsContext, AsContextMut},
     rand::TryRngCore,
     fx_api::{capnp, fx_capnp},
     fx_common::FxFutureError,
@@ -18,10 +18,6 @@ use {
         futures::{HostFutureError, HostFuturePollError},
     },
 };
-
-// TODO: see rpc and refactor all other api calls similarly
-pub(crate) mod rpc;
-pub(crate) mod unsupported;
 
 // TODO:
 // - rate limiting - use governor crate and have a set of rate limits defined in FunctionDefinition
@@ -41,14 +37,15 @@ pub enum HostFutureAsyncApiError {
     Fetch(#[from] FetchApiAsyncError),
 }
 
-pub fn fx_api_handler(caller: wasmtime::Caller<'_, crate::runtime::ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
+pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
 
-    let view = memory.data(&caller.as_context_mut());
+    let context = caller.as_context();
+    let view = memory.data(&context);
     let req_addr = req_addr as usize;
     let req_len = req_len as usize;
 
-    let mut message_bytes = unsafe { &view.data_unchecked_mut()[req_addr..req_addr+req_len] };
+    let mut message_bytes = &view[req_addr..req_addr+req_len];
     let message_reader = fx_api::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_api::capnp::message::ReaderOptions::default()).unwrap();
     let request = message_reader.get_root::<fx_api::fx_capnp::fx_api_call::Reader>().unwrap();
     let op = request.get_op();
@@ -60,35 +57,35 @@ pub fn fx_api_handler(caller: wasmtime::Caller<'_, crate::runtime::ExecutionEnv>
     use fx_api::fx_capnp::fx_api_call::op::{Which as Operation};
     match op.which().unwrap() {
         Operation::MetricsCounterIncrement(v) => {
-            handle_metrics_counter_increment(data, v.unwrap());
+            handle_metrics_counter_increment(caller.data(), v.unwrap());
             response_op.set_metrics_counter_increment(());
         },
         Operation::Rpc(v) => {
-            handle_rpc(data, v.unwrap(), response_op.init_rpc());
+            handle_rpc(caller.data(), v.unwrap(), response_op.init_rpc());
         },
         Operation::KvGet(v) => {
-            handle_kv_get(data, v.unwrap(), response_op.init_kv_get());
+            handle_kv_get(caller.data(), v.unwrap(), response_op.init_kv_get());
         },
         Operation::KvSet(v) => {
-            handle_kv_set(data, v.unwrap(), response_op.init_kv_set());
+            handle_kv_set(caller.data(), v.unwrap(), response_op.init_kv_set());
         },
         Operation::SqlExec(v) => {
-            handle_sql_exec(data, v.unwrap(), response_op.init_sql_exec());
+            handle_sql_exec(caller.data(), v.unwrap(), response_op.init_sql_exec());
         },
         Operation::SqlBatch(v) => {
-            handle_sql_batch(data, v.unwrap(), response_op.init_sql_batch());
+            handle_sql_batch(caller.data(), v.unwrap(), response_op.init_sql_batch());
         },
         Operation::SqlMigrate(v) => {
-            handle_sql_migrate(data, v.unwrap(), response_op.init_sql_migrate());
+            handle_sql_migrate(caller.data(), v.unwrap(), response_op.init_sql_migrate());
         },
         Operation::Log(v) => {
-            handle_log(data, v.unwrap(), response_op.init_log());
+            handle_log(caller.data(), v.unwrap(), response_op.init_log());
         },
         Operation::Fetch(v) => {
-            handle_fetch(data, v.unwrap(), response_op.init_fetch());
+            handle_fetch(caller.data(), v.unwrap(), response_op.init_fetch());
         },
         Operation::Sleep(v) => {
-            handle_sleep(data, v.unwrap(), response_op.init_sleep());
+            handle_sleep(caller.data(), v.unwrap(), response_op.init_sleep());
         },
         Operation::Random(v) => {
             handle_random(v.unwrap(), response_op.init_random());
@@ -97,27 +94,34 @@ pub fn fx_api_handler(caller: wasmtime::Caller<'_, crate::runtime::ExecutionEnv>
             handle_time(response_op.init_time());
         },
         Operation::FuturePoll(v) => {
-            handle_future_poll(data, v.unwrap(), response_op.init_future_poll());
+            handle_future_poll(caller.data(), v.unwrap(), response_op.init_future_poll());
         },
         Operation::FutureDrop(v) => {
-            handle_future_drop(data, v.unwrap(), response_op.init_future_drop());
+            handle_future_drop(caller.data(), v.unwrap(), response_op.init_future_drop());
         },
         Operation::StreamExport(v) => {
-            handle_stream_export(data, v.unwrap(), response_op.init_stream_export());
+            handle_stream_export(caller.data(), v.unwrap(), response_op.init_stream_export());
         },
         Operation::StreamPollNext(v) => {
-            handle_stream_poll_next(data, v.unwrap(), response_op.init_stream_poll_next());
+            handle_stream_poll_next(caller.data(), v.unwrap(), response_op.init_stream_poll_next());
         }
     };
 
     let response_size = capnp::serialize::compute_serialized_size_in_words(&response_message) * 8;
-    let ptr = data.client_malloc().call(&mut store, &[wasmer::Value::I64(response_size as i64)]).unwrap()[0].i64().unwrap() as usize;
+
+    let fx_malloc = caller.data().instance.as_ref().unwrap().clone();
+
+    let ptr = fx_malloc.get_typed_func::<i64, i64>(caller.as_context_mut(), "_fx_malloc").unwrap()
+        .call(caller.as_context_mut(), response_size as i64)
+        .unwrap() as usize;
+
+    let view = memory.data_mut(caller.as_context_mut());
 
     unsafe {
-        capnp::serialize::write_message(&mut memory.view(&store).data_unchecked_mut()[ptr..ptr+response_size], &response_message).unwrap();
+        capnp::serialize::write_message(&mut view[ptr..ptr+response_size], &response_message).unwrap();
     }
 
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr: ptr as i64, len: response_size as i64 });
+    write_memory_obj(view, output_ptr, PtrWithLen { ptr: ptr as i64, len: response_size as i64 });
 }
 
 fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_request: fx_capnp::metrics_counter_increment_request::Reader) {
@@ -174,8 +178,8 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
                 FunctionInvokeError::DefinitionMissing(_)
                 | FunctionInvokeError::CodeFailedToLoad(_)
                 | FunctionInvokeError::CodeNotFound
-                | FunctionInvokeError::FailedToCompile(_)
-                | FunctionInvokeError::InstantionError(_) => {
+                | FunctionInvokeError::FailedToCompile(_) => {
+                //| FunctionInvokeError::InstantionError(_) => {
                     // TODO: probably there should be some reporting for this?
                     error!("failed to execute rpc api because failed to instantiate target function");
                     error_response.set_instantiation_error(());

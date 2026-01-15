@@ -4,7 +4,7 @@ use {
     crate::{
         definition::DefinitionError,
         kv::StorageError,
-        compiler::CompilerError,
+        runtime::CompilerError,
     },
 };
 
@@ -32,10 +32,6 @@ pub enum FunctionInvokeError {
     /// Function cannot be invoked if it failed to compile
     #[error("failed to compile: {0:?}")]
     FailedToCompile(CompilerError),
-
-    /// WASM engine could not create instance
-    #[error("failed to create instance: {0:?}")]
-    InstantionError(wasmer::InstantiationError),
 }
 
 /// Failed to invoke function because of internal error in runtime implementation.
