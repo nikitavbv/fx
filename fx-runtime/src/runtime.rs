@@ -8,7 +8,7 @@ use {
         io::Cursor,
     },
     tracing::{error, info},
-    wasmtime::{Instance, Store},
+    wasmtime::{AsContext, AsContextMut, Instance, Store},
     serde::{Serialize, Deserialize},
     futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
@@ -306,7 +306,7 @@ impl Engine {
         let mut store_lock = ctx.store.lock().unwrap();
 
         // TODO: measure points
-        function_stream_poll_next(store_lock.data(), index as u64)
+        function_stream_poll_next(&mut store_lock, index as u64)
             .map(|v| Ok(v).transpose())
     }
 
@@ -462,22 +462,21 @@ impl Future for FunctionRuntimeFuture {
         // cleanup futures
         if let Ok(mut futures_to_drop) = ctx.futures_to_drop.try_lock() {
             while let Some(future_to_drop) = futures_to_drop.pop_front() {
-                function_future_drop(&mut ctx.function_env.clone().into_mut(store), future_to_drop as u64);
+                function_future_drop(&mut store, future_to_drop as u64);
             }
         }
 
         // cleanup streams
         if let Ok(mut streams_to_drop) = ctx.streams_to_drop.try_lock() {
             while let Some(stream_to_drop) = streams_to_drop.pop_front() {
-                function_stream_drop(&mut ctx.function_env.clone().into_mut(store), stream_to_drop as u64);
+                function_stream_drop(&mut store, stream_to_drop as u64);
             }
         }
 
         // poll this future
         if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
             // TODO: measure points
-            let mut function_env_mut = ctx.function_env.clone().into_mut(store);
-            let future_poll_result = function_future_poll(&mut function_env_mut, *rpc_future_index_value as u64)
+            let future_poll_result = function_future_poll(&mut store, *rpc_future_index_value as u64)
                 .map_err(|err| match err {
                     FunctionFuturePollApiError::FunctionRuntimeError => FunctionExecutionError::FunctionRuntimeError,
                     FunctionFuturePollApiError::UserApplicationError { description } => FunctionExecutionError::UserApplicationError { description },
@@ -487,27 +486,20 @@ impl Future for FunctionRuntimeFuture {
                 Poll::Pending => Poll::Pending,
                 Poll::Ready(response) => {
                     *rpc_future_index = None;
-                    let compiler_metadata = ctx.function_env.as_ref(store).compiler_metadata.clone();
-                    drop(store_lock);
                     self.record_function_invocation();
                     Poll::Ready(Ok((response, FunctionInvocationEvent {
-                        compiler_metadata,
                     })))
                 }
             }
         } else {
-            ctx.function_env.as_mut(store).futures_waker = Some(cx.waker().clone());
+            store.data_mut().futures_waker = Some(cx.waker().clone());
+            store.data_mut().instance = Some(ctx.instance.clone());
 
             let points_before = u64::MAX;
-            set_remaining_points(store, &ctx.instance, points_before);
-
-            let memory = ctx.instance.exports.get_memory("memory").unwrap();
-            ctx.function_env.as_mut(store).instance = Some(ctx.instance.clone());
-            ctx.function_env.as_mut(store).memory = Some(memory.clone());
+            // store.set_fuel(points_before).unwrap();
 
             // TODO: fx api instead of all of this
-            let mut function_env_mut = ctx.function_env.clone().into_mut(store);
-            let future_index = match function_invoke(&mut function_env_mut, function_name, argument) {
+            let future_index = match function_invoke(&mut store, function_name, argument) {
                 Ok(v) => v,
                 Err(err) => return Poll::Ready(Err(match err {
                     FunctionInvokeApiError::HandlerNotDefined => {
@@ -523,8 +515,7 @@ impl Future for FunctionRuntimeFuture {
                 })),
             };
 
-            let mut function_env_mut = ctx.function_env.clone().into_mut(store);
-            let result = match function_future_poll(&mut function_env_mut, future_index as u64) {
+            let result = match function_future_poll(&mut store, future_index as u64) {
                 Ok(v) => v,
                 Err(err) => return std::task::Poll::Ready(Err(match err {
                     FunctionFuturePollApiError::FunctionRuntimeError => {
@@ -550,18 +541,12 @@ impl Future for FunctionRuntimeFuture {
                 },
                 Poll::Ready(response) => {
                     std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
-                        compiler_metadata: ctx.function_env.as_ref(store).compiler_metadata.clone(),
                     })))
                 }
             };
 
-            // TODO: record points used
-            let _points_used = points_before - match get_remaining_points(store, &ctx.instance) {
-                MeteringPoints::Remaining(v) => v,
-                MeteringPoints::Exhausted => panic!("didn't expect that"),
-            };
+            // TODO: record fuel used
 
-            drop(store_lock);
             if result.is_ready() {
                 self.record_function_invocation();
             }
@@ -617,9 +602,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FunctionInvokeError> {
-        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log, CompilerMetadata {
-            backend: "cranelift".to_owned(),
-        });
+        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log);
 
         let wasmtime_module = wasmtime::Module::new(&engine.wasmtime, &module_code).unwrap();
         let mut linker = wasmtime::Linker::new(&engine.wasmtime);
@@ -656,7 +639,6 @@ impl ExecutionContext {
 
 pub(crate) struct ExecutionEnv {
     execution_context: RwLock<Option<Arc<ExecutionContext>>>,
-    compiler_metadata: CompilerMetadata,
 
     pub(crate) futures_waker: Option<std::task::Waker>,
 
@@ -687,11 +669,9 @@ impl ExecutionEnv {
         rpc: HashMap<String, RpcBinding>,
         allow_fetch: bool,
         allow_log: bool,
-        compiler_metadata: CompilerMetadata,
     ) -> Self {
         Self {
             execution_context: RwLock::new(None),
-            compiler_metadata,
             futures_waker: None,
             engine,
             instance: None,
@@ -706,10 +686,6 @@ impl ExecutionEnv {
             allow_log,
             fetch_client: reqwest::Client::new(),
         }
-    }
-
-    pub fn client_malloc(&self) -> &Function {
-        self.instance.as_ref().unwrap().exports.get_function("_fx_malloc").unwrap()
     }
 }
 
@@ -727,7 +703,7 @@ enum FunctionInvokeApiError {
     },
 }
 
-fn function_invoke(ctx: &mut FunctionEnvMut<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
+fn function_invoke(ctx: &mut Store<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -782,7 +758,7 @@ enum FunctionFuturePollApiError {
     },
 }
 
-fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
+fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -819,7 +795,7 @@ fn function_future_poll(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
     })
 }
 
-fn function_future_drop(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) {
+fn function_future_drop(ctx: &mut Store<ExecutionEnv>, future_id: u64) {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -829,7 +805,7 @@ fn function_future_drop(ctx: &mut FunctionEnvMut<ExecutionEnv>, future_id: u64) 
     let _response = invoke_fx_api(ctx, message).unwrap();
 }
 
-fn function_stream_poll_next(ctx: &mut FunctionEnvMut<ExecutionEnv>, stream_id: u64) -> Poll<Option<Vec<u8>>> {
+fn function_stream_poll_next(ctx: &mut Store<ExecutionEnv>, stream_id: u64) -> Poll<Option<Vec<u8>>> {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -854,7 +830,7 @@ fn function_stream_poll_next(ctx: &mut FunctionEnvMut<ExecutionEnv>, stream_id: 
     }
 }
 
-fn function_stream_drop(ctx: &mut FunctionEnvMut<ExecutionEnv>, stream_id: u64) {
+fn function_stream_drop(ctx: &mut Store<ExecutionEnv>, stream_id: u64) {
     let mut message = capnp::message::Builder::new_default();
     let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
@@ -875,93 +851,62 @@ enum FunctionApiError {
 }
 
 pub(crate) fn invoke_fx_api(
-    ctx: &mut FunctionEnvMut<ExecutionEnv>,
+    ctx: &mut Store<ExecutionEnv>,
     message: capnp::message::Builder<capnp::message::HeapAllocator>
 ) -> Result<capnp::message::Reader<capnp::serialize::OwnedSegments>, FunctionApiError> {
+    let instance = ctx.data().instance.as_ref().unwrap().clone();
+    let memory = instance.get_memory(ctx.as_context_mut(), "memory").unwrap();
+
     let response_ptr = {
-        let (data, mut store) = ctx.data_and_store_mut();
-
         let message_size = capnp::serialize::compute_serialized_size_in_words(&message) * 8;
-        let ptr = data.client_malloc().call(&mut store, &[Value::I64(message_size as i64)]).unwrap()[0].i64().unwrap() as usize;
+        let ptr = instance.get_typed_func::<i64, i64>(ctx.as_context_mut(), "_fx_malloc").unwrap()
+            .call(ctx.as_context_mut(), message_size as i64)
+            .unwrap() as usize;
 
-        let memory = data.memory.as_ref().unwrap();
+        let view = memory.data_mut(ctx.as_context_mut());
 
         unsafe {
             capnp::serialize::write_message(
-                &mut memory.view(&store).data_unchecked_mut()[ptr..ptr+message_size],
+                &mut view[ptr..ptr+message_size],
                 &message
             ).unwrap();
         }
 
-        data.instance.as_ref().unwrap().exports.get_function("_fx_api").unwrap()
-            .call(&mut store, &[Value::I64(ptr as i64), Value::I64(message_size as i64)])
-            .map_err(|err| FunctionApiError::FunctionPanicked {
-                message: format!("{err:?}"),
-            })?[0]
-            .i64().unwrap() as usize
+        instance.get_typed_func::<(i64, i64), i64>(ctx.as_context_mut(), "_fx_api").unwrap()
+            .call(ctx.as_context_mut(), (ptr as i64, message_size as i64))
+            .unwrap() as usize
     };
 
-    let view = ctx.data().memory.as_ref().unwrap().view(&ctx);
     let header_length = 4;
-    let header_bytes = {
-        let response_ptr = response_ptr as u64;
-        view.copy_range_to_vec(response_ptr..response_ptr+header_length).unwrap()
-    };
-    let response_length = u32::from_le_bytes(header_bytes.try_into().unwrap());
+    let (response, response_length) = {
+        let view = memory.data(ctx.as_context());
+        let header_bytes = {
+            &view[response_ptr..response_ptr+header_length]
+        };
+        let response_length = u32::from_le_bytes(header_bytes.try_into().unwrap());
 
-    let response = {
-        let response_ptr = response_ptr as u64;
-        let response_length = response_length as u64;
-        view.copy_range_to_vec((response_ptr + header_length)..(response_ptr + header_length + response_length)).unwrap()
+        let response = {
+            let response_length = response_length as usize;
+            &view[(response_ptr + header_length)..(response_ptr + header_length + response_length)]
+        };
+
+        (response.to_vec(), response_length)
     };
-    let (data, mut store) = ctx.data_and_store_mut();
-    data.instance.as_ref().unwrap().exports.get_function("_fx_dealloc").unwrap()
-        .call(&mut store, &[Value::I64(response_ptr as i64), Value::I64((header_length as u32 + response_length) as i64)])
+
+    instance.get_typed_func::<(i64, i64), ()>(ctx.as_context_mut(), "_fx_dealloc").unwrap()
+        .call(ctx.as_context_mut(), (response_ptr as i64, (header_length + response_length as usize) as i64))
         .unwrap();
 
     Ok(capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap())
-}
-
-pub fn read_memory_owned(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Vec<u8> {
-    let memory = ctx.data().memory.as_ref().unwrap();
-    let view = memory.view(&ctx);
-    let addr = addr as u64;
-    let len = len as u64;
-    view.copy_range_to_vec(addr..addr+len).unwrap()
 }
 
 pub fn write_memory_obj<T: Sized>(memory: &mut [u8], addr: i64, obj: T) {
     write_memory(memory, addr, unsafe { std::slice::from_raw_parts(&obj as *const T as *const u8, std::mem::size_of_val(&obj)) });
 }
 
-pub fn write_memory(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, value: &[u8]) {
-    let memory = ctx.data().memory.as_ref().unwrap();
-    let view = memory.view(&ctx);
-    view.write(addr as u64, value).unwrap();
-}
-
-pub fn decode_memory<T: serde::de::DeserializeOwned>(ctx: &FunctionEnvMut<ExecutionEnv>, addr: i64, len: i64) -> Result<T, FxRuntimeError> {
-    let memory = read_memory_owned(&ctx, addr, len);
-    rmp_serde::from_slice(&memory)
-        .map_err(|err| FxRuntimeError::SerializationError { reason: format!("failed to decode memory: {err:?}") })
-}
-
-fn api_list_functions(mut ctx: FunctionEnvMut<ExecutionEnv>, output_ptr: i64) {
-    // TODO: permissions check
-    let functions: Vec<_> = ctx.data().engine.execution_contexts.read().unwrap()
-        .iter()
-        .map(|(function_id, _function)| fx_runtime_common::Function {
-            id: function_id.id.clone(),
-        })
-        .collect();
-
-    let (data, mut store) = ctx.data_and_store_mut();
-    let res = rmp_serde::to_vec(&functions).unwrap();
-    let len = res.len() as i64;
-    let ptr = data.client_malloc().call(&mut store, &[Value::I64(len)]).unwrap()[0].i64().unwrap();
-    write_memory(&ctx, ptr, &res);
-
-    write_memory_obj(&ctx, output_ptr, PtrWithLen { ptr, len });
+pub fn write_memory(ctx: &mut [u8], addr: i64, value: &[u8]) {
+    let start = addr as usize;
+    ctx[start..start + value.len()].copy_from_slice(value);
 }
 
 #[repr(C)]
@@ -974,7 +919,6 @@ pub(crate) struct PtrWithLen {
 pub(crate) struct RpcBinding {}
 
 pub struct FunctionInvocationEvent {
-    pub compiler_metadata: CompilerMetadata,
 }
 
 #[derive(Error, Debug)]

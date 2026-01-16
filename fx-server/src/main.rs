@@ -20,18 +20,15 @@ use {
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
         metrics::run_metrics_server,
         logs::{BoxLogger, StdoutLogger},
-        compiler::{BoxedCompiler, MemoizedCompiler},
     },
     crate::{
         cron::{CronRunner, CronTaskDefinition},
         http::HttpHandler,
         consumer::RabbitMqConsumer,
         logs::RabbitMqLogger,
-        compiler::{LLVMCompiler, TieredCompiler, SinglepassCompiler},
     },
 };
 
-mod compiler;
 mod consumer;
 mod cron;
 mod http;
@@ -136,23 +133,9 @@ async fn main() {
     let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
     let definition_provider = DefinitionProvider::new(definition_storage.clone());
 
-    let fast_compiler = BoxedCompiler::new(SinglepassCompiler::new());
-    let tiered_compiler = LLVMCompiler::new()
-        .map(|llvm| {
-            let llvm = BoxedCompiler::new(llvm);
-            let memoized_llvm = MemoizedCompiler::new(BoxedStorage::new(SqliteStorage::in_memory().unwrap()), llvm);
-            TieredCompiler::new(fast_compiler.clone(), memoized_llvm)
-        });
-    let tiered_compiler_optimizations_consumer = tiered_compiler.as_ref().map(|v| v.consume_optimizations());
-
-    let compiler = tiered_compiler
-        .map(BoxedCompiler::new)
-        .unwrap_or(fast_compiler);
-
     let fx_runtime = FxRuntime::new()
         .with_code_storage(code_storage.clone())
-        .with_definition_provider(definition_provider)
-        .with_compiler(compiler);
+        .with_definition_provider(definition_provider);
 
     let fx_runtime = if let Some(logger) = args.logger {
         fx_runtime.with_logger(match logger {
@@ -192,9 +175,6 @@ async fn main() {
     tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
     tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), code_storage));
     tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), definition_storage));
-    if let Some(tiered_compiler_optimizations_consumer) = tiered_compiler_optimizations_consumer {
-        tokio::spawn(reload_on_optimizations(fx_runtime.engine.clone(), tiered_compiler_optimizations_consumer));
-    }
 
     run_command(fx_runtime, args.command).await;
 }

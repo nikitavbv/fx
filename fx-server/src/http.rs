@@ -103,10 +103,10 @@ impl<'a> HttpHandlerFuture<'a> {
                                     error!("failed to compile function while serving request: {err:?}");
                                     response_internal_error()
                                 },
-                                FunctionInvokeAndExecuteError::InstantionError(err) => {
+                                /*FunctionInvokeAndExecuteError::InstantionError(err) => {
                                     error!("failed to instantiate function while serving request: {err:?}");
                                     response_internal_error()
-                                }
+                                }*/
                             }, None)
                         },
                         Err(err) => {
@@ -137,7 +137,7 @@ impl<'a> HttpHandlerFuture<'a> {
                 timings: InvocationTimings {
                     total_time_millis: (Instant::now() - started_at).as_millis() as u64,
                 },
-                compiler_backend: invocation_event.map(|v| v.compiler_metadata.backend),
+                compiler_backend: None,
             }.into());
 
             Ok(response)

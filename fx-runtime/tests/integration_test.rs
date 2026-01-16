@@ -9,7 +9,6 @@ use {
         FunctionId,
         FxRuntime,
         FxStream,
-        compiler::{BoxedCompiler, CraneliftCompiler, MemoizedCompiler},
         definition::{DefinitionProvider, FunctionDefinition, KvDefinition, RpcDefinition, SqlDefinition},
         kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
         logs::{BoxLogger, EventFieldValue, LogEventType},
@@ -53,7 +52,6 @@ static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMute
     FxRuntime::new()
         .with_code_storage(storage_code)
         .with_definition_provider(definitions)
-        .with_compiler(BoxedCompiler::new(MemoizedCompiler::new(storage_compiler, BoxedCompiler::new(CraneliftCompiler::new()))))
         .with_logger(BoxLogger::new(LOGGER.clone()))
 }));
 
