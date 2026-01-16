@@ -243,7 +243,7 @@ async fn log() {
 
     let events = LOGGER.events();
     let found_expected_event = events.iter()
-        .find(|v| v.fields.get("message").unwrap() == &EventFieldValue::Text("this is a test log".to_owned()))
+        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("this is a test log".to_owned())).unwrap_or(false))
         .is_some();
 
     if !found_expected_event {
