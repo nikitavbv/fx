@@ -107,7 +107,7 @@ async fn invoke_function_no_module_code() {
 async fn invoke_function_panic() {
     let result = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
     match result.err().unwrap() {
-        FunctionInvokeAndExecuteError::FunctionPanicked { message: _ } => {}
+        FunctionInvokeAndExecuteError::FunctionPanicked => {}
         other => panic!("expected function panicked error, got: {other:?}"),
     }
 }

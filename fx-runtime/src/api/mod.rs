@@ -531,11 +531,7 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
                                                 FunctionExecutionError::RuntimeError(_) => response_rpc_error.set_runtime_error(()),
                                                 FunctionExecutionError::FunctionRuntimeError => response_rpc_error.set_function_runtime_error(()),
                                                 FunctionExecutionError::UserApplicationError { description } => response_rpc_error.set_user_application_error(description),
-                                                FunctionExecutionError::FunctionPanicked { message: _ } => {
-                                                    // TODO: message has to be reported somewhere?
-                                                    // called does not have to know message of function panic
-                                                    response_rpc_error.set_function_panicked(());
-                                                },
+                                                FunctionExecutionError::FunctionPanicked => response_rpc_error.set_function_panicked(()),
                                                 FunctionExecutionError::HandlerNotDefined => response_rpc_error.set_handler_not_found(()),
                                             }
                                         }

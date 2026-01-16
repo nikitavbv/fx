@@ -185,7 +185,7 @@ impl Engine {
                 FunctionExecutionError::FunctionRuntimeError => FunctionInvokeAndExecuteError::FunctionRuntimeError,
                 FunctionExecutionError::HandlerNotDefined => FunctionInvokeAndExecuteError::HandlerNotDefined,
                 FunctionExecutionError::UserApplicationError { description } => FunctionInvokeAndExecuteError::UserApplicationError { description },
-                FunctionExecutionError::FunctionPanicked { message } => FunctionInvokeAndExecuteError::FunctionPanicked { message },
+                FunctionExecutionError::FunctionPanicked => FunctionInvokeAndExecuteError::FunctionPanicked,
             })?;
         Ok((rmp_serde::from_slice(&response).unwrap(), event))
     }
@@ -341,10 +341,8 @@ pub enum FunctionInvokeAndExecuteError {
     },
 
     /// Failed to execute function because user code panicked during execution.
-    #[error("function panicked: {message:?}")]
-    FunctionPanicked {
-        message: String,
-    },
+    #[error("function panicked")]
+    FunctionPanicked,
 
     /// Failed to execute function because handler with this name is not defined.
     #[error("handler with this name is not defined")]
@@ -398,9 +396,7 @@ pub enum FunctionExecutionError {
 
     /// panic in user code interrupted the execution
     #[error("function panicked")]
-    FunctionPanicked {
-        message: String,
-    },
+    FunctionPanicked,
 
     /// Failed to execute function because handler with this name is not defined.
     #[error("handler with this name is not defined")]
@@ -480,7 +476,7 @@ impl Future for FunctionRuntimeFuture {
                 .map_err(|err| match err {
                     FunctionFuturePollApiError::FunctionRuntimeError => FunctionExecutionError::FunctionRuntimeError,
                     FunctionFuturePollApiError::UserApplicationError { description } => FunctionExecutionError::UserApplicationError { description },
-                    FunctionFuturePollApiError::FunctionPanicked { message } => FunctionExecutionError::FunctionPanicked { message },
+                    FunctionFuturePollApiError::FunctionPanicked => FunctionExecutionError::FunctionPanicked,
                 })?;
             match future_poll_result {
                 Poll::Pending => Poll::Pending,
@@ -506,11 +502,11 @@ impl Future for FunctionRuntimeFuture {
                         // recreating context would not help in this case, so we are not doing that
                         FunctionExecutionError::HandlerNotDefined
                     },
-                    FunctionInvokeApiError::FunctionPanicked { message } => {
+                    FunctionInvokeApiError::FunctionPanicked => {
                         // panics are usually not recoverable, so we need to re-create context or following
                         // invocations will also fail
                         ctx.needs_recreate.store(true, Ordering::SeqCst);
-                        FunctionExecutionError::FunctionPanicked { message }
+                        FunctionExecutionError::FunctionPanicked
                     }
                 })),
             };
@@ -526,11 +522,11 @@ impl Future for FunctionRuntimeFuture {
                         // user application error is recoverable, no need to re-create context
                         FunctionExecutionError::UserApplicationError { description }
                     },
-                    FunctionFuturePollApiError::FunctionPanicked { message } => {
+                    FunctionFuturePollApiError::FunctionPanicked => {
                         // panics are usually not recoverable, so we need to re-create context or following
                         // invocations will also fail
                         ctx.needs_recreate.store(true, Ordering::SeqCst);
-                        FunctionExecutionError::FunctionPanicked { message }
+                        FunctionExecutionError::FunctionPanicked
                     }
                 }))
             };
@@ -697,10 +693,8 @@ enum FunctionInvokeApiError {
     HandlerNotDefined,
 
     /// Failed to invoke function because it panicked
-    #[error("function panicked: {message}")]
-    FunctionPanicked {
-        message: String
-    },
+    #[error("function panicked")]
+    FunctionPanicked
 }
 
 fn function_invoke(ctx: &mut Store<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
@@ -713,7 +707,7 @@ fn function_invoke(ctx: &mut Store<ExecutionEnv>, handler: String, payload: Vec<
 
     let response = invoke_fx_api(ctx, message)
         .map_err(|err| match err {
-            FunctionApiError::FunctionPanicked { message } => FunctionInvokeApiError::FunctionPanicked { message },
+            FunctionApiError::FunctionPanicked => FunctionInvokeApiError::FunctionPanicked,
         })?;
     let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
     match response.get_op().which().unwrap() {
@@ -752,10 +746,8 @@ enum FunctionFuturePollApiError {
     },
 
     /// Failed to poll future because function panicked
-    #[error("function panicked: {message}")]
-    FunctionPanicked {
-        message: String
-    },
+    #[error("function panicked")]
+    FunctionPanicked,
 }
 
 fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
@@ -767,7 +759,7 @@ fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result
 
     let response = invoke_fx_api(ctx, message)
         .map_err(|err| match err {
-            FunctionApiError::FunctionPanicked { message } => FunctionFuturePollApiError::FunctionPanicked { message },
+            FunctionApiError::FunctionPanicked => FunctionFuturePollApiError::FunctionPanicked,
         })?;
     let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
 
@@ -844,10 +836,8 @@ fn function_stream_drop(ctx: &mut Store<ExecutionEnv>, stream_id: u64) {
 #[derive(Error, Debug)]
 enum FunctionApiError {
     /// Api request failed because function code panicked
-    #[error("function panicked: {message:?}")]
-    FunctionPanicked {
-        message: String,
-    },
+    #[error("function panicked")]
+    FunctionPanicked,
 }
 
 pub(crate) fn invoke_fx_api(
@@ -874,7 +864,13 @@ pub(crate) fn invoke_fx_api(
 
         instance.get_typed_func::<(i64, i64), i64>(ctx.as_context_mut(), "_fx_api").unwrap()
             .call(ctx.as_context_mut(), (ptr as i64, message_size as i64))
-            .unwrap() as usize
+            .map_err(|err| {
+                let trap = err.downcast::<wasmtime::Trap>().unwrap();
+                match trap {
+                    wasmtime::Trap::UnreachableCodeReached => FunctionApiError::FunctionPanicked,
+                    other => panic!("unexpected trap: {other:?}"),
+                }
+            })? as usize
     };
 
     let header_length = 4;

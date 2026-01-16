@@ -89,7 +89,7 @@ impl<'a> HttpHandlerFuture<'a> {
                                     response_internal_error()
                                 },
                                 FunctionInvokeAndExecuteError::UserApplicationError { description: _ }
-                                | FunctionInvokeAndExecuteError::FunctionPanicked { message: _ }=> {
+                                | FunctionInvokeAndExecuteError::FunctionPanicked => {
                                     response_application_error()
                                 },
                                 FunctionInvokeAndExecuteError::DefinitionMissing(_)
