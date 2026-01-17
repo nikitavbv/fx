@@ -46,9 +46,9 @@ fortunes-baseline-server: fortunes-env-setup
 
 fortunes-benchmark:
     # first, warmup
-    curl -s http://localhost:8080/ > /dev/null
+    wrk -t4 -c10 -d5s http://localhost:8080/fortunes > /dev/null
     # run the benchmark
-    wrk -t4 -c256 -d15s http://localhost:8080/fortunes
+    wrk -t4 -c10 -d60s http://localhost:8080/fortunes
 
 local-http: cloud-dashboard
     cargo run -p fx-cloud --release -- --functions-dir local/functions http dashboard
