@@ -10,6 +10,7 @@ pub use {
         FxFutureError,
         FxSqlError,
         QueueMessage,
+        HeaderValue,
     },
     fx_macro::handler,
     futures::FutureExt,

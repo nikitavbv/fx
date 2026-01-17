@@ -1,8 +1,10 @@
+pub use http::HeaderValue;
+
 use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
     thiserror::Error,
-    http::{HeaderMap, header::{IntoHeaderName, HeaderValue}, StatusCode, Method as HttpMethod, Uri},
+    http::{HeaderMap, header::IntoHeaderName, StatusCode, Method as HttpMethod, Uri},
 };
 
 pub mod api;

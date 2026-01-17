@@ -13,5 +13,6 @@ members = [
     "apps/fx-app-hello-world",
     "apps/fx-app-mocks",
     "apps/fx-app-rpc-test-service",
+    "apps/fx-fortunes",
     "apps/fx-test-app"
 ]
