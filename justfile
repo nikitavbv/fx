@@ -26,6 +26,17 @@ app-hello-world:
 app-rpc-test-service:
     cargo build --target wasm32-unknown-unknown -p fx-app-rpc-test-service --release
 
+app-fortunes:
+    cargo build --target wasm32-unknown-unknown -p fx-fortunes --release
+
+fortunes-server: app-fortunes
+    mkdir -p local/fortunes
+    rm local/fortunes/fortunes.sqlite || true
+    sqlite3 local/fortunes/fortunes.sqlite < apps/fx-fortunes/fortunes.sql
+    cp apps/fx-fortunes/fortunes.fx.yaml local/fortunes/fortunes.fx.yaml
+    cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/fortunes/fortunes.wasm
+    cargo run -p fx-server --release -- --functions-dir local/fortunes http fortunes --port 8080
+
 local-http: cloud-dashboard
     cargo run -p fx-cloud --release -- --functions-dir local/functions http dashboard
 

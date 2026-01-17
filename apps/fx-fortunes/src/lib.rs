@@ -15,7 +15,7 @@ pub struct FortunesTemplate<'a> {
 }
 
 #[handler]
-pub async fn fortunes(req: HttpRequest) -> fx::Result<HttpResponse> {
+pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     let db = fx::sql("fortunes");
     let mut fortunes = db.exec(SqlQuery::new("select id, message from fortune"))
         .unwrap()
