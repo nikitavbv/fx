@@ -1,8 +1,17 @@
-use fx::{handler, HttpRequest, SqlQuery, HttpResponse, HeaderValue};
+use {
+    fx::{handler, HttpRequest, SqlQuery, HttpResponse, HeaderValue},
+    yarte::Template,
+};
 
 struct Fortune {
     id: u64,
     message: String,
+}
+
+#[derive(Template)]
+#[template(path = "fortunes.html.hbs")]
+pub struct FortunesTemplate<'a> {
+    pub fortunes: &'a Vec<Fortune>,
 }
 
 #[handler]
@@ -28,5 +37,5 @@ pub async fn fortunes(req: HttpRequest) -> fx::Result<HttpResponse> {
 }
 
 fn render_html(fortunes: &Vec<Fortune>) -> String {
-    "".to_owned()
+    FortunesTemplate { fortunes }.call().unwrap()
 }
