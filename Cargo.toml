@@ -6,13 +6,13 @@ members = [
     "fx-runtime",
     "fx-runtime-common",
     "fx-server",
-    "fx-dashboard",
     "fx-common",
     "fx-macro",
     "apps/fx-app-counter",
     "apps/fx-app-hello-world",
     "apps/fx-app-mocks",
     "apps/fx-app-rpc-test-service",
+    "apps/fx-dashboard",
     "apps/fx-fortunes",
     "apps/fx-test-app"
 ]

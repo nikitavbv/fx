@@ -12,5 +12,5 @@ tokio = { version = "1.44.2", default-features = false }
 tracing = "0.1.41"
 leptos = { version = "0.7.8", features = ["ssr"], default-features = false }
 
-fx = { path = "../fx" }
-fx-runtime-common = { path = "../fx-runtime-common" }
+fx = { path = "../../fx" }
+fx-runtime-common = { path = "../../fx-runtime-common" }
