@@ -37,6 +37,9 @@ fortunes-server: app-fortunes
     cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/fortunes/fortunes.wasm
     cargo run -p fx-server --release -- --functions-dir local/fortunes http fortunes --port 8080
 
+fortunes-benchmark:
+    wrk -t4 -c256 -d15s http://localhost:8080/fortunes
+
 local-http: cloud-dashboard
     cargo run -p fx-cloud --release -- --functions-dir local/functions http dashboard
 
