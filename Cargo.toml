@@ -9,9 +9,9 @@ members = [
     "fx-dashboard",
     "fx-common",
     "fx-macro",
-    "fx-services/fx-app-counter",
-    "fx-services/fx-app-hello-world",
-    "fx-services/fx-app-mocks",
-    "fx-services/fx-app-rpc-test-service",
-    "fx-services/fx-test-app"
+    "apps/fx-app-counter",
+    "apps/fx-app-hello-world",
+    "apps/fx-app-mocks",
+    "apps/fx-app-rpc-test-service",
+    "apps/fx-test-app"
 ]
