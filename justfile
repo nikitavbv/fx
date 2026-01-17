@@ -38,6 +38,9 @@ fortunes-server: app-fortunes
     cargo run -p fx-server --release -- --functions-dir local/fortunes --logger noop http fortunes --port 8080
 
 fortunes-benchmark:
+    # first, warmup
+    curl -s http://localhost:8080/ > /dev/null
+    # run the benchmark
     wrk -t4 -c256 -d15s http://localhost:8080/fortunes
 
 local-http: cloud-dashboard
