@@ -1,0 +1,12 @@
+{
+  "name": "benchmark-baseline-node",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "handlebars": "^4.7.8"
+  }
+}

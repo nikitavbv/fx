@@ -43,7 +43,7 @@ Transfer/sec:     22.53MB
 ## comparing with axum
 
 ```
-just fortunes-baseline-server
+just fortunes-baseline-axum
 
 # then, in a different tmux tab, run the benchmark itself:
 just fortunes-benchmark
@@ -59,4 +59,25 @@ Running 1m test @ http://localhost:8080/fortunes
   2281525 requests in 1.00m, 2.87GB read
 Requests/sec:  37962.62
 Transfer/sec:     48.88MB
+```
+
+## comparing with nodejs
+
+```
+just fortunes-baseline-nodejs
+
+# then, in a different tmux tab, run the benchmark itself:
+just fortunes-benchmark
+```
+
+nodejs results:
+```
+Running 1m test @ http://localhost:8080/fortunes
+  4 threads and 10 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   465.46us  186.65us   4.17ms   82.20%
+    Req/Sec     4.33k     0.94k    9.55k    70.77%
+  1033741 requests in 1.00m, 1.36GB read
+Requests/sec:  17200.48
+Transfer/sec:     23.13MB
 ```

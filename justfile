@@ -39,10 +39,13 @@ fortunes-env-setup: app-fortunes
 fortunes-server: fortunes-env-setup
     cargo run -p fx-server --release -- --functions-dir local/fortunes --logger noop http fortunes --port 8080
 
-fortunes-baseline-server: fortunes-env-setup
+fortunes-baseline-axum: fortunes-env-setup
     cd extra/benchmark-baseline-axum && cargo build --release && cd ../..
     cp extra/benchmark-baseline-axum/target/release/benchmark-baseline-axum local/fortunes/benchmark-baseline-axum
     ./local/fortunes/benchmark-baseline-axum
+
+fortunes-baseline-nodejs: fortunes-env-setup
+    cd extra/benchmark-baseline-node && npm install && node server.js
 
 fortunes-benchmark:
     # first, warmup
