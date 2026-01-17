@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 [dependencies]
 fx = { path = "../../fx" }
 yarte = "0.15.7"
+tracing = "0.1.44"

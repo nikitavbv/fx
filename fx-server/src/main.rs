@@ -19,7 +19,7 @@ use {
         sql::SqlDatabase,
         definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
         metrics::run_metrics_server,
-        logs::{BoxLogger, StdoutLogger},
+        logs::{BoxLogger, StdoutLogger, NoopLogger},
     },
     crate::{
         cron::{CronRunner, CronTaskDefinition},
@@ -65,17 +65,19 @@ struct Args {
 #[derive(Debug, Clone)]
 pub enum ArgsLogger {
     Stdout,
+    Noop,
     RabbitMq,
 }
 
 impl ValueEnum for ArgsLogger {
     fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Stdout, Self::RabbitMq]
+        &[Self::Stdout, Self::Noop, Self::RabbitMq]
     }
 
     fn to_possible_value(&self) -> Option<PossibleValue> {
         Some(match self {
             Self::Stdout => PossibleValue::new("stdout").help("write logs to stdout"),
+            Self::Noop => PossibleValue::new("noop").help("do not write logs anywhere"),
             Self::RabbitMq => PossibleValue::new("rabbitmq").help("write logs to rabbitmq exchange"),
         })
     }
@@ -140,6 +142,7 @@ async fn main() {
     let fx_runtime = if let Some(logger) = args.logger {
         fx_runtime.with_logger(match logger {
             ArgsLogger::Stdout => BoxLogger::new(StdoutLogger::new()),
+            ArgsLogger::Noop => BoxLogger::new(NoopLogger::new()),
             ArgsLogger::RabbitMq => {
                 let uri = match args.logger_rabbitmq_uri {
                     Some(v) => v,

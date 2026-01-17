@@ -35,7 +35,7 @@ fortunes-server: app-fortunes
     sqlite3 local/fortunes/fortunes.sqlite < apps/fx-fortunes/fortunes.sql
     cp apps/fx-fortunes/fortunes.fx.yaml local/fortunes/fortunes.fx.yaml
     cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/fortunes/fortunes.wasm
-    cargo run -p fx-server --release -- --functions-dir local/fortunes http fortunes --port 8080
+    cargo run -p fx-server --release -- --functions-dir local/fortunes --logger noop http fortunes --port 8080
 
 fortunes-benchmark:
     wrk -t4 -c256 -d15s http://localhost:8080/fortunes

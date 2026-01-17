@@ -128,6 +128,19 @@ impl Logger for StdoutLogger {
     }
 }
 
+pub struct NoopLogger {}
+
+impl NoopLogger {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Logger for NoopLogger {
+    fn log(&self, _message: LogMessageEvent) {
+    }
+}
+
 impl<T: Logger> Logger for Arc<T> {
     fn log(&self, message: LogMessageEvent) {
         self.as_ref().log(message);
