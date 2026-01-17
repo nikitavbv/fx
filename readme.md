@@ -14,7 +14,7 @@ building something similar to [workerd](https://github.com/cloudflare/workerd) f
 - `log`, `fetch`, `random`, `time` apis.
 - livereload functions.
 
-still, note that this is a toy project with a lot of apis missing. it is also missing handling for various edge cases/errors. do not expect it to handle any significant rps as well at this moment.
+still, note that this is a toy project with a lot of apis missing. it is also missing handling for various edge cases/errors.
 
 ## example function
 
@@ -30,6 +30,18 @@ pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
 ```
 
 see [fx-services](./fx-services) for more examples.
+
+## performance
+
+fx performs on par with Node.js and at 46% of native Rust.
+
+| Runtime | Requests/sec | Latency |
+|---------|-------------|---------|
+| fx | 17,499 | 455μs |
+| axum (native Rust) | 37,963 | 221μs |
+| Node.js | 17,200 | 465μs |
+
+Benchmark: TechEmpower Fortunes on Hetzner CCX23. See [docs/benchmarking.md](docs/benchmarking.md) for details.
 
 ## usage
 
