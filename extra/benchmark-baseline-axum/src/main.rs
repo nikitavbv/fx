@@ -12,7 +12,7 @@ struct Fortune {
 #[derive(Template)]
 #[template(path = "fortunes.html.hbs")]
 pub struct FortunesTemplate<'a> {
-    pub fortunes: &'a Vec<Fortune>,
+    fortunes: &'a Vec<Fortune>,
 }
 
 type Db = Arc<Mutex<Connection>>;
@@ -31,7 +31,8 @@ async fn main() {
 }
 
 async fn fortunes(State(db): State<Db>) -> Html<String> {
-    let mut fortunes: Vec<Fortune> = {
+    let db = db.clone();
+    let mut fortunes: Vec<Fortune> = tokio::task::spawn_blocking(move || {
         let conn = db.lock().unwrap();
         let mut stmt = conn.prepare("SELECT id, message FROM fortune").unwrap();
         stmt.query_map([], |row| {
@@ -43,7 +44,7 @@ async fn fortunes(State(db): State<Db>) -> Html<String> {
         .unwrap()
         .map(|r| r.unwrap())
         .collect()
-    };
+    }).await.unwrap();
 
     fortunes.push(Fortune {
         id: 0,
