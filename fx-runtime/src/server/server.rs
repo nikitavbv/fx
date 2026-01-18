@@ -1,11 +1,13 @@
 use {
-    std::{sync::Arc, path::PathBuf, collections::HashMap, net::SocketAddr},
+    std::{sync::Arc, path::{PathBuf, Path}, collections::HashMap, net::SocketAddr},
     tokio::{
+        fs,
         sync::{Mutex, RwLock, mpsc},
         net::TcpListener,
     },
     tracing::{info, warn, error},
     walkdir::WalkDir,
+    notify::Watcher,
     crate::{
         runtime::{FxRuntime, FunctionId},
         server::config::{ServerConfig, FunctionConfig},
@@ -145,22 +147,65 @@ impl DefinitionsMonitor {
             }
 
             let entry_path = entry.path();
-
-            let function_id = entry_path.strip_prefix(root).unwrap().to_str().unwrap();
-            let function_id = &function_id[0..function_id.len() - DEFINITION_FILE_SUFFIX.len()];
-            let function_id = FunctionId::new(function_id);
+            let function_id = self.path_to_function_id(entry_path);
             let function_config = FunctionConfig::load(entry_path).await;
-            let prev_function_config = self.functions_configs.lock().await.get(&function_id).unwrap_or(&EMPTY_FUNCTION_CONFIG).clone();
+            let prev_function_config = self.functions_configs.lock().await.insert(
+                function_id.clone(),
+                function_config.clone(),
+            ).unwrap_or_else(|| EMPTY_FUNCTION_CONFIG.clone());
+
+            self.apply_config(
+                function_id,
+                prev_function_config,
+                function_config.clone(),
+                &mut definition_http,
+            ).await;
+        }
+
+        info!("listening for definition changes...");
+
+        let (tx, mut rx) = mpsc::channel(1024);
+        let event_fn = {
+            move |res: notify::Result<notify::Event>| {
+                let res = res.unwrap();
+
+                match res.kind {
+                    notify::EventKind::Access(_) => {},
+                    _other => {
+                        for changed_path in res.paths {
+                            tx.blocking_send(changed_path).unwrap();
+                        }
+                    }
+                }
+            }
+        };
+        let mut watcher = notify::recommended_watcher(event_fn).unwrap();
+        watcher.watch(&root, notify::RecursiveMode::Recursive).unwrap();
+
+        while let Some(path) = rx.recv().await {
+            let metadata = tokio::fs::metadata(&path).await.unwrap();
+            if !metadata.is_file() {
+                continue;
+            }
+
+            if !path.file_name().unwrap().to_str().unwrap().ends_with(DEFINITION_FILE_SUFFIX) {
+                continue;
+            }
+
+            let function_id = self.path_to_function_id(&path);
+            let function_config = FunctionConfig::load(&path).await;
+            let prev_function_config = self.functions_configs.lock().await.insert(
+                function_id.clone(),
+                function_config.clone(),
+            ).unwrap_or_else(|| EMPTY_FUNCTION_CONFIG.clone());
 
             self.apply_config(
                 function_id,
                 prev_function_config,
                 function_config,
-                &mut definition_http,
+                &mut definition_http
             ).await;
         }
-
-        // TODO: listen on fs changes
     }
 
     async fn apply_config(
@@ -209,5 +254,11 @@ impl DefinitionsMonitor {
         }
 
         // TODO: update definitions and send event
+    }
+
+    fn path_to_function_id(&self, path: &Path) -> FunctionId {
+        let function_id = path.strip_prefix(&self.functions_directory).unwrap().to_str().unwrap();
+        let function_id = &function_id[0..function_id.len() - DEFINITION_FILE_SUFFIX.len()];
+        FunctionId::new(function_id)
     }
 }
