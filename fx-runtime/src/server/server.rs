@@ -5,12 +5,17 @@ use {
         sync::{Mutex, RwLock, mpsc},
         net::TcpListener,
     },
+    hyper::server::conn::http1,
+    hyper_util::rt::{TokioIo, TokioTimer},
     tracing::{info, warn, error},
     walkdir::WalkDir,
     notify::Watcher,
     crate::{
         runtime::{FxRuntime, FunctionId},
-        server::config::{ServerConfig, FunctionConfig},
+        server::{
+            config::{ServerConfig, FunctionConfig},
+            http::HttpHandler,
+        },
     },
 };
 
@@ -89,6 +94,8 @@ impl FxServer {
                     continue;
                 }
             };
+            let graceful = hyper_util::server::graceful::GracefulShutdown::new();
+            let http_handler = HttpHandler::new(self.runtime.clone(), server_function.clone());
 
             info!("started http server on {addr:?}");
             loop {
@@ -97,7 +104,31 @@ impl FxServer {
                         panic!("new definition");
                     },
                     connection = listener.accept() => {
-                        panic!("new connection")
+                        let (tcp, _) = match connection {
+                            Ok(v) => v,
+                            Err(err) => {
+                                error!("failed to accept http connection: {err:?}");
+                                continue;
+                            }
+                        };
+                        let io = TokioIo::new(tcp);
+
+                        let http_handler = http_handler.clone();
+                        let conn = http1::Builder::new()
+                            .timer(TokioTimer::new())
+                            .serve_connection(io, http_handler);
+                        let fut = graceful.watch(conn);
+                        tokio::task::spawn(async move {
+                            if let Err(err) = fut.await {
+                                if err.is_timeout() {
+                                    // ignore timeouts, because those can be caused by client
+                                } else if err.is_incomplete_message() {
+                                    // ignore incomplete messages, because those are caused by client
+                                } else {
+                                    error!("error while handling http request: {err:?}"); // incomplete message should be fine
+                                }
+                            }
+                        });
                     }
                 }
             }

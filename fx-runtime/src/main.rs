@@ -211,7 +211,7 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
                     exit(-1);
                 }
             };
-            let http_handler = HttpHandler::new(fx_runtime, FunctionId::new(function));
+            let http_handler = HttpHandler::new(Arc::new(fx_runtime), FunctionId::new(function));
             info!("running http server on {addr:?}");
             loop {
                 let (tcp, _) = match listener.accept().await {

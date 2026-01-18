@@ -44,7 +44,8 @@ use {
 
 #[derive(Clone)]
 pub struct FxRuntime {
-    _force_single_thread: std::marker::PhantomData<std::cell::Cell<()>>, // fx is designed to be single-threaded.
+    // TODO: re-enable forcing single thread later
+    // _force_single_thread: std::marker::PhantomData<std::cell::Cell<()>>, // fx is designed to be single-threaded.
 
     pub engine: Arc<Engine>,
 }
@@ -52,7 +53,8 @@ pub struct FxRuntime {
 impl FxRuntime {
     pub fn new() -> Self {
         Self {
-            _force_single_thread: std::marker::PhantomData,
+            // TODO: re-enable forcing single thread later
+            // _force_single_thread: std::marker::PhantomData,
 
             engine: Arc::new(Engine::new()),
         }

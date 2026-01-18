@@ -12,13 +12,13 @@ use {
 
 #[derive(Clone)]
 pub struct HttpHandler {
-    fx: FxRuntime,
+    fx: Arc<FxRuntime>,
     service_id: FunctionId,
 }
 
 impl HttpHandler {
     #[allow(dead_code)]
-    pub fn new(fx: FxRuntime, service_id: FunctionId) -> Self {
+    pub fn new(fx: Arc<FxRuntime>, service_id: FunctionId) -> Self {
         Self {
             fx,
             service_id,
