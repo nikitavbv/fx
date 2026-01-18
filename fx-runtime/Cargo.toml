@@ -38,6 +38,7 @@ parking_lot = "0.12.5"
 lapin = "2.5.3"
 serde_json = "1.0.143"
 walkdir = "2.5.0"
+arc-swap = "1.8.0"
 
 fx-common = { path = "../extra/fx-common" }
 fx-types = { path = "../fx-types" }

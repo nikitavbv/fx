@@ -5,24 +5,28 @@ use {
     http_body_util::{Full, BodyStream},
     futures::{StreamExt, stream::BoxStream, future::BoxFuture, FutureExt},
     tokio::time::timeout,
+    arc_swap::ArcSwap,
     fx_common::{HttpResponse, HttpRequest, FxStream},
     crate::common::{FunctionInvokeEvent, events::InvocationTimings},
     crate::runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::{Engine, FunctionInvokeAndExecuteError}},
 };
 
-#[derive(Clone)]
 pub struct HttpHandler {
     fx: Arc<FxRuntime>,
-    service_id: FunctionId,
+    function_id: ArcSwap<FunctionId>,
 }
 
 impl HttpHandler {
     #[allow(dead_code)]
-    pub fn new(fx: Arc<FxRuntime>, service_id: FunctionId) -> Self {
+    pub fn new(fx: Arc<FxRuntime>, function_id: FunctionId) -> Self {
         Self {
             fx,
-            service_id,
+            function_id: ArcSwap::from_pointee(function_id),
         }
+    }
+
+    pub fn update_target_function(&self, function_id: FunctionId) {
+        self.function_id.store(Arc::new(function_id));
     }
 }
 
@@ -32,7 +36,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
-        Box::pin(HttpHandlerFuture::new(self.fx.engine.clone(), self.service_id.clone(), req))
+        Box::pin(HttpHandlerFuture::new(self.fx.engine.clone(), self.function_id.load().clone(), req))
     }
 }
 
@@ -41,7 +45,7 @@ struct HttpHandlerFuture<'a> {
 }
 
 impl<'a> HttpHandlerFuture<'a> {
-    fn new(engine: Arc<Engine>, service_id: FunctionId, req: hyper::Request<hyper::body::Incoming>) -> Self {
+    fn new(engine: Arc<Engine>, service_id: Arc<FunctionId>, req: hyper::Request<hyper::body::Incoming>) -> Self {
         let started_at = Instant::now();
 
         engine.metrics.http_requests_in_flight.inc();

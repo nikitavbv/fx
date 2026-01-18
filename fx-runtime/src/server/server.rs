@@ -95,7 +95,8 @@ impl FxServer {
                 }
             };
             let graceful = hyper_util::server::graceful::GracefulShutdown::new();
-            let http_handler = HttpHandler::new(self.runtime.clone(), server_function.clone());
+
+            let http_handler = Arc::new(HttpHandler::new(self.runtime.clone(), server_function.clone()));
 
             info!("started http server on {addr:?}");
             loop {
@@ -109,7 +110,7 @@ impl FxServer {
                         };
 
                         if let Some(new_target_function) = new_definition.function {
-                            unimplemented!("don't know how to switch target function yet");
+                            http_handler.update_target_function(new_target_function);
                         } else {
                             info!("no http listener is set - stopping http server.");
                             drop(listener);
