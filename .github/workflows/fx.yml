@@ -73,7 +73,7 @@ jobs:
         target: aarch64-unknown-linux-musl
     - uses: Swatinem/rust-cache@v2
     - run: sudo apt update
-    - run: sudo apt install gcc-aarch64-linux-gnu
+    - run: sudo apt install gcc-aarch64-linux-gnu capnproto
     - run: |
         if ! command -v just cross /dev/null
         then
