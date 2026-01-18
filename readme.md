@@ -4,7 +4,7 @@ building something similar to [workerd](https://github.com/cloudflare/workerd) f
 
 ## features
 
-- deploy functions written in Rust (see `fx` for sdk and `fx-services` for examples) compiled to wasm (`wasm32-unknown-unknown`).
+- deploy functions written in Rust (see `fx-sdk` for sdk and `apps` for examples) compiled to wasm (`wasm32-unknown-unknown`).
 - functions can be triggered by http requests, messages from Kafka topics or by cron schedule.
 - functions are async and can handle requests concurrently.
 - function input and output can be a stream.
@@ -19,17 +19,16 @@ still, note that this is a toy project with a lot of apis missing. it is also mi
 ## example function
 
 ```rust
-use { fx::{FxCtx, HttpRequest, HttpResponse, rpc}, tracing::info };
+use { fx_sdk::{self as fx, handler, HttpRequest, HttpResponse}, tracing::info };
 
-#[rpc]
-pub async fn http(ctx: &FxCtx, req: HttpRequest) -> HttpResponse {
-    ctx.init_logger();
+#[handler]
+pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     info!("this function is compiled to wasm and is running within fx: {}", req.url);
-    HttpResponse::new().body("hello fx!\n")
+    Ok(HttpResponse::new().body("hello fx!\n"))
 }
 ```
 
-see [fx-services](./fx-services) for more examples.
+see [apps](./apps) for more examples.
 
 ## performance
 
@@ -54,7 +53,7 @@ just app-hello-world
 
 then run function using fx:
 ```bash
-cargo run -p fx-server -- run target/wasm32-unknown-unknown/release/fx_app_hello_world example
+cargo run -p fx-runtime -- run target/wasm32-unknown-unknown/release/fx_app_hello_world example
 ```
 
 expected output:
