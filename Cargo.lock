@@ -1668,6 +1668,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "walkdir",
  "wasmtime",
 ]
 

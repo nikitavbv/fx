@@ -1,5 +1,5 @@
 use {
-    std::path::PathBuf,
+    std::path::{PathBuf, Path},
     tokio::fs,
     serde::Deserialize,
 };
@@ -17,5 +17,26 @@ impl ServerConfig {
         let mut config: Self = serde_yml::from_slice(&fs::read(&file_path).await.unwrap()).unwrap();
         config.config_path = Some(file_path);
         config
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionConfig {
+    pub triggers: Option<FunctionTriggersConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionTriggersConfig {
+    pub http: Vec<FunctionHttpEndpointConfig>,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionHttpEndpointConfig {
+    pub handler: String,
+}
+
+impl FunctionConfig {
+    pub async fn load(file_path: &Path) -> Self {
+        serde_yml::from_slice(&fs::read(&file_path).await.unwrap()).unwrap()
     }
 }
