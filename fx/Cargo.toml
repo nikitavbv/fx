@@ -20,5 +20,5 @@ inventory = "0.3.21"
 anyhow = "1.0.100"
 
 fx-common = { path = "../fx-common" }
-fx-macro = { path = "../fx-macro" }
+fx-macro = { path = "../extra/fx-macro" }
 fx-api = { path = "../fx-api" }
