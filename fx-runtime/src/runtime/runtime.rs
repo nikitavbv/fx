@@ -283,6 +283,10 @@ impl Engine {
         }
     }
 
+    pub(crate) fn compile_module(&self, module_code: &[u8]) -> wasmtime::Module {
+        wasmtime::Module::new(&self.wasmtime, module_code).unwrap()
+    }
+
     fn create_execution_context(
         &self,
         engine: Arc<Engine>,

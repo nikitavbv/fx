@@ -261,6 +261,22 @@ impl DefinitionsMonitor {
     ) {
         info!("applying config for {:?}", function_id.as_string());
 
+        // first, precompile module:
+        let module_code = self.function_id_to_path(&function_id).with_added_extension("wasm");
+        let module_code = fs::read(&module_code).await.unwrap();
+        let runtime = self.runtime.clone();
+        let compiled_module = {
+            let function_id = function_id.clone();
+
+            tokio::task::spawn_blocking(move || {
+                info!("compiling {function_id:?}");
+                let module = runtime.engine.compile_module(&module_code);
+                info!("finished compiling {function_id:?}");
+                module
+            }).await.unwrap()
+        };
+
+        // second, configure triggers:
         fn extract_http(config: &FunctionConfig) -> bool {
             config.triggers.as_ref()
                 .map(|triggers| !triggers.http.is_empty())
@@ -305,5 +321,9 @@ impl DefinitionsMonitor {
         let function_id = path.strip_prefix(&self.functions_directory).unwrap().to_str().unwrap();
         let function_id = &function_id[0..function_id.len() - DEFINITION_FILE_SUFFIX.len()];
         FunctionId::new(function_id)
+    }
+
+    fn function_id_to_path(&self, function_id: &FunctionId) -> PathBuf {
+        self.functions_directory.join(function_id.as_string())
     }
 }
