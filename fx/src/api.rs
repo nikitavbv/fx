@@ -1,6 +1,6 @@
 use {
     std::task::Poll,
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     futures::TryFutureExt,
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex, FxFuture, FunctionFutureError},

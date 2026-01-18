@@ -1,6 +1,6 @@
 use {
     fx_common::{SqlMigrations, FxSqlError},
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     crate::{SqlDatabase, sys::{self, invoke_fx_api}},
 };
 

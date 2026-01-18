@@ -1,6 +1,6 @@
 use {
     fx_common::{HttpRequest, HttpResponse, FxStream, FxFutureError, HttpRequestError},
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     axum::http,
     thiserror::Error,
     crate::{

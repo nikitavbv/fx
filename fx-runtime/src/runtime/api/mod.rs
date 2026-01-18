@@ -8,7 +8,7 @@ use {
     futures::FutureExt,
     wasmtime::{AsContext, AsContextMut},
     rand::TryRngCore,
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     fx_common::FxFutureError,
     crate::runtime::{
         runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId, FunctionExecutionError},
@@ -46,15 +46,15 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
     let req_len = req_len as usize;
 
     let mut message_bytes = &view[req_addr..req_addr+req_len];
-    let message_reader = fx_api::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_api::capnp::message::ReaderOptions::default()).unwrap();
-    let request = message_reader.get_root::<fx_api::fx_capnp::fx_api_call::Reader>().unwrap();
+    let message_reader = fx_types::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_types::capnp::message::ReaderOptions::default()).unwrap();
+    let request = message_reader.get_root::<fx_types::fx_capnp::fx_api_call::Reader>().unwrap();
     let op = request.get_op();
 
     let mut response_message = capnp::message::Builder::new_default();
     let response = response_message.init_root::<fx_capnp::fx_api_call_result::Builder>();
     let mut response_op = response.init_op();
 
-    use fx_api::fx_capnp::fx_api_call::op::{Which as Operation};
+    use fx_types::fx_capnp::fx_api_call::op::{Which as Operation};
     match op.which().unwrap() {
         Operation::MetricsCounterIncrement(v) => {
             handle_metrics_counter_increment(caller.data(), v.unwrap());

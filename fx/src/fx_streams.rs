@@ -4,7 +4,7 @@ use {
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
     fx_common::FxStreamError,
-    fx_api::{fx_capnp, capnp},
+    fx_types::{fx_capnp, capnp},
     crate::{
         sys::{self, PtrWithLen},
         invoke_fx_api,

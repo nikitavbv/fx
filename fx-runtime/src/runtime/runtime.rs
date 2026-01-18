@@ -29,7 +29,7 @@ use {
         SqlMigrations,
     },
     crate::common::{LogMessageEvent, LogSource},
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     crate::runtime::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
         error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},

@@ -1531,9 +1531,9 @@ dependencies = [
  "axum",
  "chrono",
  "futures",
- "fx-api",
  "fx-common",
  "fx-macro",
+ "fx-types",
  "inventory",
  "lazy_static",
  "once_cell",
@@ -1544,14 +1544,6 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "fx-api"
-version = "0.1.0"
-dependencies = [
- "capnp",
- "capnpc",
 ]
 
 [[package]]
@@ -1639,8 +1631,8 @@ dependencies = [
  "cron",
  "crossbeam",
  "futures",
- "fx-api",
  "fx-common",
+ "fx-types",
  "http",
  "http-body-util",
  "hyper",
@@ -1681,6 +1673,14 @@ dependencies = [
  "lazy_static",
  "sqlx",
  "tracing",
+]
+
+[[package]]
+name = "fx-types"
+version = "0.1.0"
+dependencies = [
+ "capnp",
+ "capnpc",
 ]
 
 [[package]]

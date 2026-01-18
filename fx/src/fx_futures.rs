@@ -5,7 +5,7 @@ use {
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
-    fx_api::{fx_capnp, capnp},
+    fx_types::{fx_capnp, capnp},
     crate::{PtrWithLen, error::FxError, invoke_fx_api},
 };
 

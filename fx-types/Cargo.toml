@@ -1,5 +1,5 @@
 [package]
-name = "fx-api"
+name = "fx-types"
 version = "0.1.0"
 edition = "2024"
 

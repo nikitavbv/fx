@@ -40,7 +40,7 @@ serde_json = "1.0.143"
 walkdir = "2.5.0"
 
 fx-common = { path = "../extra/fx-common" }
-fx-api = { path = "../fx-api" }
+fx-types = { path = "../fx-types" }
 
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]
 tikv-jemallocator = "0.6.0"

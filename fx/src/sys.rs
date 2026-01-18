@@ -1,6 +1,6 @@
 use {
     std::{task::Poll, io::Cursor},
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
@@ -30,7 +30,7 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
 
     let mut message_bytes = unsafe { Vec::from_raw_parts(req_addr as *mut u8, req_len as usize, req_len as usize) };
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-    let request = message_reader.get_root::<fx_api::fx_capnp::fx_function_api_call::Reader>().unwrap();
+    let request = message_reader.get_root::<fx_types::fx_capnp::fx_function_api_call::Reader>().unwrap();
     let op = request.get_op();
 
     let mut response_message = capnp::message::Builder::new_default();

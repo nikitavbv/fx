@@ -31,7 +31,7 @@ use {
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    fx_api::{capnp, fx_capnp},
+    fx_types::{capnp, fx_capnp},
     crate::{
         sys::{read_memory_owned, invoke_fx_api},
         logging::FxLoggingLayer,
