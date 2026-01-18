@@ -1,6 +1,6 @@
 use {
     std::{
-        sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, Ordering}},
+        sync::{Arc, Mutex, RwLock, atomic::{AtomicBool, AtomicU64, Ordering}},
         collections::{HashMap, VecDeque},
         ops::DerefMut,
         task::{self, Poll},
@@ -14,6 +14,7 @@ use {
     rand::TryRngCore,
     parking_lot::ReentrantMutex,
     thiserror::Error,
+    arc_swap::ArcSwap,
     fx_common::{
         LogMessage,
         DatabaseSqlQuery,
@@ -28,17 +29,19 @@ use {
         FxSqlError,
         SqlMigrations,
     },
-    crate::common::{LogMessageEvent, LogSource},
     fx_types::{capnp, fx_capnp},
-    crate::runtime::{
-        kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
-        error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
-        sql::{self, SqlDatabase},
-        futures::FuturesPool,
-        streams::StreamsPool,
-        metrics::Metrics,
-        definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition, DefinitionError},
-        logs::{self, Logger, BoxLogger, StdoutLogger},
+    crate::{
+        common::{LogMessageEvent, LogSource},
+        runtime::{
+            kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
+            error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
+            sql::{self, SqlDatabase},
+            futures::FuturesPool,
+            streams::StreamsPool,
+            metrics::Metrics,
+            definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition, DefinitionError},
+            logs::{self, Logger, BoxLogger, StdoutLogger},
+        },
     },
 };
 
@@ -128,12 +131,28 @@ impl Into<String> for &FunctionId {
     }
 }
 
+/// There can be multiple instances of the same function (e.g, during redeploys).
+/// ExecutionContext is "instance". FunctionId is "service name".
+/// FunctionId points to one of execution contexts.
+#[derive(Hash, Eq, PartialEq, Clone)]
+pub struct ExecutionContextId {
+    id: u64,
+}
+
+impl ExecutionContextId {
+    pub fn new(id: u64) -> Self {
+        Self { id }
+    }
+}
+
 pub struct Engine {
     wasmtime: wasmtime::Engine,
 
     pub metrics: Metrics,
 
-    pub execution_contexts: RwLock<HashMap<FunctionId, Arc<ExecutionContext>>>,
+    deployed_functions: RwLock<HashMap<FunctionId, ArcSwap<ExecutionContextId>>>,
+    execution_context_id_counter: AtomicU64,
+    pub execution_contexts: RwLock<HashMap<ExecutionContextId, Arc<ExecutionContext>>>,
     definition_provider: RwLock<DefinitionProvider>,
 
     // internal storage where .wasm is loaded from:
@@ -152,6 +171,8 @@ impl Engine {
 
             metrics: Metrics::new(),
 
+            deployed_functions: RwLock::new(HashMap::new()),
+            execution_context_id_counter: AtomicU64::new(0),
             execution_contexts: RwLock::new(HashMap::new()),
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
 
@@ -193,6 +214,9 @@ impl Engine {
     }
 
     pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
+        // TODO: will be able to remove this once switched to new server?
+        let context_id = self.resolve_context_id_for_function(&function_id);
+
         let need_to_create_context = {
             let execution_contexts = match self.execution_contexts.read() {
                 Ok(v) => v,
@@ -203,7 +227,7 @@ impl Engine {
                     ));
                 }
             };
-            if let Some(context) = execution_contexts.get(&function_id) {
+            if let Some(context) = execution_contexts.get(&context_id) {
                 context.needs_recreate.load(Ordering::SeqCst)
             } else {
                 true
@@ -213,11 +237,12 @@ impl Engine {
         if need_to_create_context {
             // need to create execution context first
             let mut execution_contexts = self.execution_contexts.write().unwrap();
-            let ctx = execution_contexts.get(&function_id);
+            let ctx = execution_contexts.get(&context_id);
             if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
+                // TODO: will be able to remove this once switched to new server?
                 let definition = self.definition_provider.read().unwrap().definition_for_function(&function_id)
                     .map_err(|err| FunctionInvokeError::DefinitionMissing(err))?;
-                execution_contexts.insert(function_id.clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, definition)?));
+                execution_contexts.insert((*context_id).clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, definition)?));
             }
         }
 
@@ -225,7 +250,8 @@ impl Engine {
     }
 
     pub fn reload(&self, function_id: &FunctionId) {
-        if let Some(execution_context) = self.execution_contexts.read().unwrap().get(function_id) {
+        let context_id = self.resolve_context_id_for_function(function_id);
+        if let Some(execution_context) = self.execution_contexts.read().unwrap().get(&context_id) {
             println!("reloading {}", function_id.id);
             execution_context.needs_recreate.store(true, Ordering::SeqCst);
         }
@@ -238,6 +264,21 @@ impl Engine {
             function_name: function_name.to_owned(),
             argument: argument.to_owned(),
             rpc_future_index: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn resolve_context_id_for_function(&self, function_id: &FunctionId) -> Arc<ExecutionContextId> {
+        if let Some(context_id) = self.deployed_functions.read().unwrap().get(&function_id) {
+            context_id.load().clone()
+        } else {
+            let mut deployed_functions = self.deployed_functions.write().unwrap();
+            if let Some(context_id) = deployed_functions.get(&function_id) {
+                context_id.load().clone()
+            } else {
+                let context_id = Arc::new(ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst)));
+                deployed_functions.insert(function_id.clone(), ArcSwap::from(context_id.clone()));
+                context_id
+            }
         }
     }
 
@@ -580,6 +621,7 @@ impl Drop for FunctionRuntimeFuture {
 }
 
 pub(crate) struct ExecutionContext {
+    pub(crate) function_id: FunctionId,
     pub(crate) instance: Instance,
     pub(crate) store: Arc<Mutex<Store<ExecutionEnv>>>,
     // pub(crate) function_env: FunctionEnv<ExecutionEnv>,

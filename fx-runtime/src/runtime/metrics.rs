@@ -219,8 +219,8 @@ async fn collect_metrics(engine: Arc<Engine>) {
         }
 
         match engine.execution_contexts.read() {
-            Ok(execution_contexts) => for (function_id, execution_env) in execution_contexts.iter() {
-                let function_id = function_id.as_string();
+            Ok(execution_contexts) => for (_execution_context_id, execution_env) in execution_contexts.iter() {
+                let function_id = execution_env.function_id.as_string();
                 let mut store = match execution_env.store.try_lock() {
                     Ok(v) => v,
                     Err(err) => {
