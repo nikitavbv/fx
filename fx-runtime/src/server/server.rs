@@ -34,7 +34,6 @@ pub struct FxServer {
 struct DefinitionsMonitor {
     runtime: Arc<FxRuntime>,
     functions_directory: PathBuf,
-    functions_configs: Arc<Mutex<HashMap<FunctionId, FunctionConfig>>>,
 
     http_definition_tx: Arc<Mutex<mpsc::Sender<HttpListenerDefinition>>>,
 }
@@ -160,7 +159,6 @@ impl DefinitionsMonitor {
         Self {
             runtime,
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
-            functions_configs: Arc::new(Mutex::new(HashMap::new())),
             http_definition_tx: Arc::new(Mutex::new(http_definition_tx)),
         }
     }
@@ -193,15 +191,10 @@ impl DefinitionsMonitor {
             let entry_path = entry.path();
             let function_id = self.path_to_function_id(entry_path);
             let function_config = FunctionConfig::load(entry_path).await;
-            let prev_function_config = self.functions_configs.lock().await.insert(
-                function_id.clone(),
-                function_config.clone(),
-            ).unwrap_or_else(|| EMPTY_FUNCTION_CONFIG.clone());
 
             self.apply_config(
                 function_id,
-                prev_function_config,
-                function_config.clone(),
+                function_config,
                 &mut definition_http,
             ).await;
         }
@@ -238,14 +231,9 @@ impl DefinitionsMonitor {
 
             let function_id = self.path_to_function_id(&path);
             let function_config = FunctionConfig::load(&path).await;
-            let prev_function_config = self.functions_configs.lock().await.insert(
-                function_id.clone(),
-                function_config.clone(),
-            ).unwrap_or_else(|| EMPTY_FUNCTION_CONFIG.clone());
 
             self.apply_config(
                 function_id,
-                prev_function_config,
                 function_config,
                 &mut definition_http
             ).await;
@@ -255,8 +243,7 @@ impl DefinitionsMonitor {
     async fn apply_config(
         &self,
         function_id: FunctionId,
-        prev_config: FunctionConfig,
-        new_config: FunctionConfig,
+        config: FunctionConfig,
         definition_http: &mut HttpListenerDefinition,
     ) {
         info!("applying config for {:?}", function_id.as_string());
@@ -275,44 +262,42 @@ impl DefinitionsMonitor {
                 module
             }).await.unwrap()
         };
-
-        // second, configure triggers:
-        fn extract_http(config: &FunctionConfig) -> bool {
-            config.triggers.as_ref()
-                .map(|triggers| !triggers.http.is_empty())
-                .unwrap_or(false)
+        let execution_context = self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module);
+        let prev_execution_context = self.runtime.engine.update_function_execution_context(function_id.clone(), execution_context);
+        if let Some(prev_execution_context) = prev_execution_context {
+            self.runtime.engine.remove_execution_context(&prev_execution_context);
         }
 
-        // TODO: do not diff old/new config, just construct new config for http server
-        let prev_http = extract_http(&prev_config);
-        let new_http = extract_http(&new_config);
+        // second, configure triggers:
+        let http_trigger_enabled = config.triggers.as_ref()
+            .map(|triggers| !triggers.http.is_empty())
+            .unwrap_or(false);
 
-        if prev_http != new_http {
-            if new_http {
-                if let Some(existing_handler) = definition_http.function.as_ref() {
-                    if existing_handler != &function_id {
-                        panic!("http listener already set to a different function: {:?}", existing_handler.as_string());
-                    } else {
-                        // same listener as current, nothing to do
-                    }
+        if http_trigger_enabled {
+            if let Some(existing_handler) = definition_http.function.as_ref() {
+                if existing_handler != &function_id {
+                    panic!("http listener already set to a different function: {:?}", existing_handler.as_string());
                 } else {
-                    // no http listener configured, let's set one
-                    definition_http.function = Some(function_id.clone());
+                    // same listener as current, nothing to do
+                }
+            } else {
+                // no http listener configured, let's set one
+                definition_http.function = Some(function_id.clone());
+                self.http_definition_tx.lock().await.send(definition_http.clone()).await.unwrap();
+            }
+        } else {
+            if let Some(existing_handler) = definition_http.function.as_ref() {
+                if existing_handler != &function_id {
+                    // existing handler set to a different function, nothing to do
+                } else {
+                    definition_http.function = None;
                     self.http_definition_tx.lock().await.send(definition_http.clone()).await.unwrap();
                 }
             } else {
-                if let Some(existing_handler) = definition_http.function.as_ref() {
-                    if existing_handler != &function_id {
-                        // existing handler set to a different function, nothing to do
-                    } else {
-                        definition_http.function = None;
-                        self.http_definition_tx.lock().await.send(definition_http.clone()).await.unwrap();
-                    }
-                } else {
-                    // no http listener configured, nothing to do
-                }
+                // no http listener configured, nothing to do
             }
         }
+
 
         // TODO: update definitions and send event
     }

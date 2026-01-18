@@ -287,6 +287,52 @@ impl Engine {
         wasmtime::Module::new(&self.wasmtime, module_code).unwrap()
     }
 
+    pub(crate) fn create_execution_context_v2(
+        &self,
+        engine: Arc<Engine>,
+        function_id: FunctionId,
+        function_module: wasmtime::Module,
+    ) -> ExecutionContextId {
+        let execution_context_id = ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst));
+
+        let execution_context = ExecutionContext::new(
+            engine,
+            function_id,
+            execution_context_id.clone(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            function_module,
+            true,
+            true
+        ).unwrap();
+        self.execution_contexts.write().unwrap().insert(execution_context_id.clone(), Arc::new(execution_context));
+
+        execution_context_id
+    }
+
+    pub(crate) fn remove_execution_context(&self, execution_context: &ExecutionContextId) {
+        self.execution_contexts.write().unwrap().remove(execution_context);
+    }
+
+    pub(crate) fn update_function_execution_context(
+        &self,
+        function_id: FunctionId,
+        execution_context_id: ExecutionContextId,
+    ) -> Option<ExecutionContextId> {
+        if let Some(target_context) = self.deployed_functions.read().unwrap().get(&function_id) {
+            return Some(ExecutionContextId::new(target_context.swap(Arc::new(execution_context_id)).id));
+        }
+
+        let mut deployed_functions = self.deployed_functions.write().unwrap();
+        if let Some(target_context) = deployed_functions.get(&function_id) {
+            return Some(ExecutionContextId::new(target_context.swap(Arc::new(execution_context_id)).id));
+        } else {
+            deployed_functions.insert(function_id, ArcSwap::from_pointee(execution_context_id));
+            return None;
+        }
+    }
+
     fn create_execution_context(
         &self,
         engine: Arc<Engine>,
@@ -343,7 +389,7 @@ impl Engine {
             kv,
             sql,
             rpc,
-            module_code,
+            self.compile_module(&module_code),
             true, // TODO: permissions
             true, // TODO: permissions
         );
@@ -652,18 +698,17 @@ impl ExecutionContext {
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
-        module_code: Vec<u8>,
+        module: wasmtime::Module,
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FunctionInvokeError> {
         let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), execution_context_id, storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log);
 
-        let wasmtime_module = wasmtime::Module::new(&engine.wasmtime, &module_code).unwrap();
         let mut linker = wasmtime::Linker::new(&engine.wasmtime);
         linker.func_wrap("fx", "fx_api", crate::runtime::api::fx_api_handler).unwrap();
 
         let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
-        let instance = linker.instantiate(&mut store, &wasmtime_module).unwrap();
+        let instance = linker.instantiate(&mut store, &module).unwrap();
 
         let memory = instance.get_memory(&mut store, "memory").unwrap();
         store.data_mut().memory = Some(memory.clone());
