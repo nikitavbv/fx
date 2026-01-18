@@ -99,7 +99,7 @@ impl FxRuntime {
     }
 }
 
-#[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize, Debug)]
 pub struct FunctionId {
     id: String,
 }

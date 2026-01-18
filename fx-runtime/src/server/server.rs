@@ -39,7 +39,7 @@ struct DefinitionsMonitor {
     http_definition_tx: Arc<Mutex<mpsc::Sender<HttpListenerDefinition>>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct HttpListenerDefinition {
     function: Option<FunctionId>,
 }
@@ -101,7 +101,20 @@ impl FxServer {
             loop {
                 tokio::select! {
                     new_definition = http_definition_tx.recv() => {
-                        panic!("new definition");
+                        let new_definition = match new_definition {
+                            Some(v) => v,
+                            None => {
+                                continue
+                            }
+                        };
+
+                        if let Some(new_target_function) = new_definition.function {
+                            unimplemented!("don't know how to switch target function yet");
+                        } else {
+                            info!("no http listener is set - stopping http server.");
+                            drop(listener);
+                            break;
+                        }
                     },
                     connection = listener.accept() => {
                         let (tcp, _) = match connection {
@@ -132,8 +145,7 @@ impl FxServer {
                     }
                 }
             }
-
-            unimplemented!("oops, time to start http server: {}", server_function.as_string());
+            info!("stopped http server.");
         }
     }
 }
