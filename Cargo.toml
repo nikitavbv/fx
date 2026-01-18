@@ -4,7 +4,10 @@ members = [
     "fx",
     "fx-api",
     "fx-runtime",
-    "fx-common",
+
+    "extra/fx-macro",
+    "extra/fx-common",
+
     "apps/fx-app-counter",
     "apps/fx-app-hello-world",
     "apps/fx-app-mocks",
@@ -12,5 +15,4 @@ members = [
     "apps/fx-dashboard",
     "apps/fx-fortunes",
     "apps/fx-test-app",
-    "extra/fx-macro"
 ]

@@ -19,6 +19,6 @@ tower = "0.5.2"
 inventory = "0.3.21"
 anyhow = "1.0.100"
 
-fx-common = { path = "../fx-common" }
+fx-common = { path = "../extra/fx-common" }
 fx-macro = { path = "../extra/fx-macro" }
 fx-api = { path = "../fx-api" }
