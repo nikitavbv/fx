@@ -559,7 +559,7 @@ fn handle_future_drop(data: &ExecutionEnv, future_drop_request: fx_capnp::future
 fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: fx_capnp::stream_export_request::Reader, stream_export_response: fx_capnp::stream_export_response::Builder) {
     let mut response = stream_export_response.init_response();
 
-    match data.engine.streams_pool.push_function_stream(data.function_id.clone()) {
+    match data.engine.streams_pool.push_function_stream(data.execution_context_id.clone()) {
         Ok(v) => {
             response.set_stream_id(v.0);
         },

@@ -242,11 +242,11 @@ impl Engine {
                 // TODO: will be able to remove this once switched to new server?
                 let definition = self.definition_provider.read().unwrap().definition_for_function(&function_id)
                     .map_err(|err| FunctionInvokeError::DefinitionMissing(err))?;
-                execution_contexts.insert((*context_id).clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, definition)?));
+                execution_contexts.insert((*context_id).clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, (*context_id).clone(), definition)?));
             }
         }
 
-        Ok(self.run_service(engine, function_id.clone(), &function_name, argument))
+        Ok(self.run_service(engine, function_id.clone(), (*context_id).clone(), &function_name, argument))
     }
 
     pub fn reload(&self, function_id: &FunctionId) {
@@ -257,10 +257,11 @@ impl Engine {
         }
     }
 
-    fn run_service(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+    fn run_service(&self, engine: Arc<Engine>, function_id: FunctionId, execution_context_id: ExecutionContextId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             engine,
             function_id,
+            execution_context_id,
             function_name: function_name.to_owned(),
             argument: argument.to_owned(),
             rpc_future_index: Arc::new(Mutex::new(None)),
@@ -282,7 +283,13 @@ impl Engine {
         }
     }
 
-    fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FunctionInvokeError> {
+    fn create_execution_context(
+        &self,
+        engine: Arc<Engine>,
+        function_id: &FunctionId,
+        execution_context_id: ExecutionContextId,
+        definition: FunctionDefinition,
+    ) -> Result<ExecutionContext, FunctionInvokeError> {
         let memory_tracker = crate::runtime::profiling::init_memory_tracker();
 
         let module_code = self.module_code_storage.read().unwrap().get(function_id.id.as_bytes())
@@ -328,6 +335,7 @@ impl Engine {
         let execution_context = ExecutionContext::new(
             engine.clone(),
             function_id.clone(),
+            execution_context_id,
             kv,
             sql,
             rpc,
@@ -343,9 +351,9 @@ impl Engine {
         execution_context
     }
 
-    pub(crate) fn stream_poll_next(&self, function_id: &FunctionId, index: i64) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
+    pub(crate) fn stream_poll_next(&self, execution_context_id: &ExecutionContextId, index: i64) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
         let ctxs = self.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(function_id).unwrap();
+        let ctx = ctxs.get(execution_context_id).unwrap();
         let mut store_lock = ctx.store.lock().unwrap();
 
         // TODO: measure points
@@ -353,9 +361,9 @@ impl Engine {
             .map(|v| Ok(v).transpose())
     }
 
-    pub(crate) fn stream_drop(&self, function_id: &FunctionId, index: i64) {
+    pub(crate) fn stream_drop(&self, execution_context_id: &ExecutionContextId, index: i64) {
         let ctxs = self.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(function_id).unwrap();
+        let ctx = ctxs.get(execution_context_id).unwrap();
         ctx.streams_to_drop.lock().unwrap().push_back(index);
     }
 
@@ -409,14 +417,6 @@ pub enum FunctionInvokeAndExecuteError {
     FailedToCompile(CompilerError),
 }
 
-pub struct FunctionRuntimeFuture {
-    engine: Arc<Engine>,
-    function_id: FunctionId,
-    function_name: String,
-    argument: Vec<u8>,
-    rpc_future_index: Arc<Mutex<Option<i64>>>,
-}
-
 /// Error that may be returned when function is being executed (i.e, when FunctionRuntimeFuture is being polled)
 #[derive(Error, Debug)]
 pub enum FunctionExecutionError {
@@ -454,6 +454,15 @@ pub enum FunctionExecutionInternalRuntimeError {
     StoreFailedToLock,
 }
 
+pub struct FunctionRuntimeFuture {
+    engine: Arc<Engine>,
+    function_id: FunctionId,
+    execution_context_id: ExecutionContextId,
+    function_name: String,
+    argument: Vec<u8>,
+    rpc_future_index: Arc<Mutex<Option<i64>>>,
+}
+
 impl FunctionRuntimeFuture {
     fn record_function_invocation(&self) {
         /*let engine = self.engine.clone();
@@ -478,7 +487,7 @@ impl Future for FunctionRuntimeFuture {
         let function_name = self.function_name.clone();
         let ctx = {
             let ctxs = self.engine.execution_contexts.read().unwrap();
-            ctxs.get(&self.function_id).unwrap().clone()
+            ctxs.get(&self.execution_context_id).unwrap().clone()
         };
         let mut store = match ctx.store.lock() {
             Ok(v) => v,
@@ -614,7 +623,7 @@ impl Drop for FunctionRuntimeFuture {
 
         let ctx = {
             let ctxs = self.engine.execution_contexts.try_read().unwrap();
-            ctxs.get(&self.function_id).unwrap().clone()
+            ctxs.get(&self.execution_context_id).unwrap().clone()
         };
         ctx.futures_to_drop.lock().unwrap().push_back(*rpc_future_index);
     }
@@ -635,6 +644,7 @@ impl ExecutionContext {
     pub fn new(
         engine: Arc<Engine>,
         function_id: FunctionId,
+        execution_context_id: ExecutionContextId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
@@ -642,7 +652,7 @@ impl ExecutionContext {
         allow_fetch: bool,
         allow_log: bool
     ) -> Result<Self, FunctionInvokeError> {
-        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log);
+        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), execution_context_id, storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log);
 
         let wasmtime_module = wasmtime::Module::new(&engine.wasmtime, &module_code).unwrap();
         let mut linker = wasmtime::Linker::new(&engine.wasmtime);
@@ -668,6 +678,7 @@ impl ExecutionContext {
         }*/
 
         Ok(Self {
+            function_id,
             instance,
             store: Arc::new(Mutex::new(store)),
             needs_recreate: Arc::new(AtomicBool::new(false)),
@@ -679,6 +690,7 @@ impl ExecutionContext {
 
 pub(crate) struct ExecutionEnv {
     execution_context: RwLock<Option<Arc<ExecutionContext>>>,
+    pub(crate) execution_context_id: ExecutionContextId,
 
     pub(crate) futures_waker: Option<std::task::Waker>,
 
@@ -704,6 +716,7 @@ impl ExecutionEnv {
     pub fn new(
         engine: Arc<Engine>,
         function_id: FunctionId,
+        execution_context_id: ExecutionContextId,
         storage: HashMap<String, BoxedStorage>,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
@@ -712,6 +725,7 @@ impl ExecutionEnv {
     ) -> Self {
         Self {
             execution_context: RwLock::new(None),
+            execution_context_id,
             futures_waker: None,
             engine,
             instance: None,

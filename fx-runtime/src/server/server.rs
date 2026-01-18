@@ -267,6 +267,7 @@ impl DefinitionsMonitor {
                 .unwrap_or(false)
         }
 
+        // TODO: do not diff old/new config, just construct new config for http server
         let prev_http = extract_http(&prev_config);
         let new_http = extract_http(&new_config);
 

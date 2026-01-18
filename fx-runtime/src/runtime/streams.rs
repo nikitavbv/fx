@@ -2,7 +2,7 @@ use {
     std::{sync::{Arc, Mutex}, collections::HashMap, pin::Pin, task::{self, Poll, Context}},
     futures::{stream::BoxStream, StreamExt},
     crate::runtime::{
-        runtime::{FxRuntime, FunctionId, Engine},
+        runtime::{FxRuntime, ExecutionContextId, Engine},
         error::FxRuntimeError,
     },
 };
@@ -20,7 +20,7 @@ pub struct HostPoolIndex(pub u64);
 
 pub enum FxStream {
     HostStream(BoxStream<'static, Result<Vec<u8>, FxRuntimeError>>),
-    FunctionStream(FunctionId),
+    FunctionStream(ExecutionContextId),
 }
 
 impl StreamsPool {
@@ -38,10 +38,10 @@ impl StreamsPool {
     }
 
     // push stream owned by function
-    pub fn push_function_stream(&self, function_id: FunctionId) -> Result<HostPoolIndex, FxRuntimeError> {
+    pub fn push_function_stream(&self, execution_context_id: ExecutionContextId) -> Result<HostPoolIndex, FxRuntimeError> {
         Ok(self.inner.lock()
             .map_err(|err| FxRuntimeError::StreamingError { reason: format!("lock is poisoned: {err:?}") })?
-            .push(FxStream::FunctionStream(function_id)))
+            .push(FxStream::FunctionStream(execution_context_id)))
     }
 
     pub fn poll_next(&self, engine: Arc<Engine>, index: &HostPoolIndex, context: &mut Context<'_>) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
@@ -155,8 +155,8 @@ impl Drop for FxReadableStream {
             FxStream::HostStream(_) => {
                 // nothing to do, memory on host will be free-d automatically
             },
-            FxStream::FunctionStream(function_id) => {
-                self.engine.stream_drop(function_id, self.index);
+            FxStream::FunctionStream(context_id) => {
+                self.engine.stream_drop(context_id, self.index);
             }
         }
     }
