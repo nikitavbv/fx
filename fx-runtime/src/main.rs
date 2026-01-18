@@ -27,6 +27,8 @@ use {
             http::HttpHandler,
             consumer::RabbitMqConsumer,
             logs::RabbitMqLogger,
+            server::FxServer,
+            config::ServerConfig,
         },
     },
 };
@@ -105,6 +107,9 @@ enum Command {
 
         #[arg(long)]
         amqp_addr: String,
+    },
+    Serve {
+        config_file: String,
     },
 }
 
@@ -284,6 +289,14 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
                 .collect::<Vec<_>>();
 
             join_all(consumers).await;
+        },
+        Command::Serve { config_file } => {
+            FxServer::new(
+                ServerConfig::load(std::env::current_dir().unwrap().join(config_file)).await,
+                fx_runtime,
+            )
+                .serve()
+                .await
         },
     }
 }
