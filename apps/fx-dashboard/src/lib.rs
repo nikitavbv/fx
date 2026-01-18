@@ -1,6 +1,6 @@
 use {
     std::collections::HashMap,
-    fx::{HttpRequest, HttpResponse, handler, utils::axum::handle_request},
+    fx_sdk::{self as fx, HttpRequest, HttpResponse, handler, utils::axum::handle_request},
     axum::{Router, routing::get, response::{Response, IntoResponse}, Extension},
     leptos::prelude::*,
     crate::{

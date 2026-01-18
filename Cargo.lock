@@ -1524,40 +1524,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "chrono",
- "futures",
- "fx-common",
- "fx-macro",
- "fx-types",
- "inventory",
- "lazy_static",
- "once_cell",
- "rmp-serde",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "fx-app-counter"
 version = "0.1.0"
 dependencies = [
- "fx",
+ "fx-sdk",
 ]
 
 [[package]]
 name = "fx-app-hello-world"
 version = "0.1.0"
 dependencies = [
- "fx",
+ "fx-sdk",
  "serde",
  "tracing",
 ]
@@ -1567,14 +1544,14 @@ name = "fx-app-mocks"
 version = "0.1.0"
 dependencies = [
  "axum",
- "fx",
+ "fx-sdk",
 ]
 
 [[package]]
 name = "fx-app-rpc-test-service"
 version = "0.1.0"
 dependencies = [
- "fx",
+ "fx-sdk",
  "serde",
  "tracing",
 ]
@@ -1596,7 +1573,7 @@ name = "fx-dashboard"
 version = "0.1.0"
 dependencies = [
  "axum",
- "fx",
+ "fx-sdk",
  "leptos",
  "tokio",
  "tracing",
@@ -1606,7 +1583,7 @@ dependencies = [
 name = "fx-fortunes"
 version = "0.1.0"
 dependencies = [
- "fx",
+ "fx-sdk",
  "tracing",
  "yarte",
 ]
@@ -1665,11 +1642,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum",
+ "chrono",
+ "futures",
+ "fx-common",
+ "fx-macro",
+ "fx-types",
+ "inventory",
+ "lazy_static",
+ "once_cell",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "fx-test-app"
 version = "0.1.0"
 dependencies = [
  "async-stream",
- "fx",
+ "fx-sdk",
  "lazy_static",
  "sqlx",
  "tracing",

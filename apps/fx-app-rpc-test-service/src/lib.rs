@@ -1,5 +1,5 @@
 use {
-    fx::handler,
+    fx_sdk::{self as fx, handler},
     serde::{Serialize, Deserialize},
 };
 

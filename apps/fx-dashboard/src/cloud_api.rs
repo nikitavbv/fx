@@ -1,4 +1,4 @@
-use fx::PtrWithLen;
+use fx_sdk::PtrWithLen;
 
 #[derive(Clone)]
 pub struct FxCloudClient {}

@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    fx::{handler, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
+    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
     lazy_static::lazy_static,
 };
 

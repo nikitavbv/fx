@@ -1,6 +1,6 @@
 use {
     std::sync::atomic::{AtomicI64, Ordering},
-    fx::{handler, Result},
+    fx_sdk::{handler, Result},
 };
 
 static COUNTER: AtomicI64 = AtomicI64::new(0);

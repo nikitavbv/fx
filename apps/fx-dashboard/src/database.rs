@@ -1,5 +1,5 @@
 use {
-    fx::{SqlDatabase, SqlQuery, SqlValue},
+    fx_sdk::{SqlDatabase, SqlQuery, SqlValue},
 };
 
 #[derive(Clone)]

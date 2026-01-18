@@ -10,4 +10,4 @@ crate-type = ["cdylib"]
 tracing = "0.1.41"
 serde = { version = "1.0.219", features = ["derive"] }
 
-fx = { path = "../../fx" }
+fx-sdk = { path = "../../fx-sdk" }

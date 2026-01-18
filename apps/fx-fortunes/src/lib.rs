@@ -1,5 +1,5 @@
 use {
-    fx::{handler, HttpRequest, SqlQuery, HttpResponse, HeaderValue},
+    fx_sdk::{self as fx, handler, HttpRequest, SqlQuery, HttpResponse, HeaderValue},
     yarte::Template,
 };
 

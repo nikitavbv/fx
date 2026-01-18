@@ -10,8 +10,8 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let fn_name = &input_fn.sig.ident;
     let ffi_fn = quote! {
-        ::fx::inventory::submit! {
-            ::fx::Handler::new(stringify!(#fn_name), || { ::fx::IntoHandler::into_boxed(#fn_name) })
+        ::fx_sdk::inventory::submit! {
+            ::fx_sdk::Handler::new(stringify!(#fn_name), || { ::fx_sdk::IntoHandler::into_boxed(#fn_name) })
         }
     };
 

@@ -9,4 +9,4 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 axum = { version = "0.8.4", default-features = false }
 
-fx = { path = "../../fx" }
+fx-sdk = { path = "../../fx-sdk" }

@@ -1,5 +1,5 @@
 use {
-    fx::{HttpRequest, HttpResponse, handler, SqlQuery, fetch},
+    fx_sdk::{self as fx, HttpRequest, HttpResponse, handler, SqlQuery, fetch},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
