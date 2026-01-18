@@ -4,8 +4,6 @@ members = [
     "fx",
     "fx-api",
     "fx-runtime",
-    "fx-runtime-common",
-    "fx-server",
     "fx-common",
     "fx-macro",
     "apps/fx-app-counter",

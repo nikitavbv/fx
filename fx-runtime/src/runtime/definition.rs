@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     serde::Deserialize,
     thiserror::Error,
-    crate::{
+    crate::runtime::{
         kv::{BoxedStorage, KVStorage, StorageError},
         runtime::FunctionId,
     },

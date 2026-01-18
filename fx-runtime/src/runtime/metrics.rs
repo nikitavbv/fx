@@ -19,7 +19,7 @@ use {
         register_int_counter_with_registry,
         register_int_counter_vec_with_registry,
     },
-    crate::runtime::{Engine, FunctionId},
+    crate::runtime::runtime::{Engine, FunctionId},
 };
 
 #[derive(Clone)]

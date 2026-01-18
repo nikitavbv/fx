@@ -1,7 +1,7 @@
 use {
     std::collections::HashMap,
     serde::{Serialize, Deserialize},
-    crate::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, utils::object_to_event_fields},
+    crate::common::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, utils::object_to_event_fields},
 };
 
 #[derive(Serialize, Deserialize)]

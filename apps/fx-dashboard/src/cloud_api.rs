@@ -21,12 +21,13 @@ pub mod list_functions {
         pub fn list_functions(&self) -> Vec<Function> {
             let ptr_and_len = PtrWithLen::new();
             unsafe { sys::list_functions(ptr_and_len.ptr_to_self()) };
-            ptr_and_len.read_decode::<Vec<fx_runtime_common::Function>>()
+            /*ptr_and_len.read_decode::<Vec<fx_runtime_common::Function>>()
                 .into_iter()
                 .map(|v| Function {
                     id: v.id,
                 })
-                .collect()
+                .collect()*/
+                unimplemented!()
         }
     }
 }

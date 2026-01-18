@@ -5,7 +5,7 @@ use {
     parking_lot::ReentrantMutex,
     futures::StreamExt,
     fx_common::FxExecutionError,
-    fx_runtime::{
+    fx_runtime::runtime::{
         FunctionId,
         FxRuntime,
         FxStream,

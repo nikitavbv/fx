@@ -10,7 +10,7 @@ use {
     rand::TryRngCore,
     fx_api::{capnp, fx_capnp},
     fx_common::FxFutureError,
-    crate::{
+    crate::runtime::{
         runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId, FunctionExecutionError},
         kv::KVStorage,
         error::FunctionInvokeError,
@@ -37,7 +37,7 @@ pub enum HostFutureAsyncApiError {
     Fetch(#[from] FetchApiAsyncError),
 }
 
-pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
+pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
 
     let context = caller.as_context();
@@ -279,11 +279,11 @@ fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: fx_capnp::sql_exec_req
         for (column_index, value) in result_row.columns.into_iter().enumerate() {
             let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
             match value {
-                crate::sql::Value::Null => response_value.set_null(()),
-                crate::sql::Value::Integer(v) => response_value.set_integer(v),
-                crate::sql::Value::Real(v) => response_value.set_real(v),
-                crate::sql::Value::Text(v) => response_value.set_text(v),
-                crate::sql::Value::Blob(v) => response_value.set_blob(&v),
+                crate::runtime::sql::Value::Null => response_value.set_null(()),
+                crate::runtime::sql::Value::Integer(v) => response_value.set_integer(v),
+                crate::runtime::sql::Value::Real(v) => response_value.set_real(v),
+                crate::runtime::sql::Value::Text(v) => response_value.set_text(v),
+                crate::runtime::sql::Value::Blob(v) => response_value.set_blob(&v),
             }
         }
     }
@@ -319,17 +319,17 @@ fn handle_sql_batch(data: &ExecutionEnv, sql_batch_request: fx_capnp::sql_batch_
     }
 }
 
-fn sql_query_from_reader(request_query: fx_capnp::sql_query::Reader<'_>) -> crate::sql::Query {
-    let mut query = crate::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
+fn sql_query_from_reader(request_query: fx_capnp::sql_query::Reader<'_>) -> crate::runtime::sql::Query {
+    let mut query = crate::runtime::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
     for param in request_query.get_params().unwrap().into_iter() {
         use fx_capnp::sql_value::value::{Which as SqlValue};
 
         query = query.with_param(match param.get_value().which().unwrap() {
-            SqlValue::Null(_) => crate::sql::Value::Null,
-            SqlValue::Integer(v) => crate::sql::Value::Integer(v),
-            SqlValue::Real(v) => crate::sql::Value::Real(v),
-            SqlValue::Text(v) => crate::sql::Value::Text(v.unwrap().to_string().unwrap()),
-            SqlValue::Blob(v) => crate::sql::Value::Blob(v.unwrap().to_vec()),
+            SqlValue::Null(_) => crate::runtime::sql::Value::Null,
+            SqlValue::Integer(v) => crate::runtime::sql::Value::Integer(v),
+            SqlValue::Real(v) => crate::runtime::sql::Value::Real(v),
+            SqlValue::Text(v) => crate::runtime::sql::Value::Text(v.unwrap().to_string().unwrap()),
+            SqlValue::Blob(v) => crate::runtime::sql::Value::Blob(v.unwrap().to_vec()),
         })
     }
     query
@@ -503,7 +503,7 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
 
     let mut response = future_poll_response.init_response();
 
-    let result = data.engine.futures_pool.poll(&crate::futures::HostPoolIndex(future_poll_request.get_future_id()), &mut futures::task::Context::from_waker(data.futures_waker.as_ref().unwrap()));
+    let result = data.engine.futures_pool.poll(&crate::runtime::futures::HostPoolIndex(future_poll_request.get_future_id()), &mut futures::task::Context::from_waker(data.futures_waker.as_ref().unwrap()));
 
     match result {
         Poll::Pending => {
@@ -553,7 +553,7 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
 }
 
 fn handle_future_drop(data: &ExecutionEnv, future_drop_request: fx_capnp::future_drop_request::Reader, _future_drop_response: fx_capnp::future_drop_response::Builder) {
-    data.engine.futures_pool.remove(&crate::futures::HostPoolIndex(future_drop_request.get_future_id()));
+    data.engine.futures_pool.remove(&crate::runtime::futures::HostPoolIndex(future_drop_request.get_future_id()));
 }
 
 fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: fx_capnp::stream_export_request::Reader, stream_export_response: fx_capnp::stream_export_response::Builder) {
@@ -574,7 +574,7 @@ fn handle_stream_poll_next(data: &ExecutionEnv, stream_poll_next_request: fx_cap
 
     let result = data.engine.streams_pool.poll_next(
         data.engine.clone(),
-        &crate::streams::HostPoolIndex(stream_poll_next_request.get_stream_id()),
+        &crate::runtime::streams::HostPoolIndex(stream_poll_next_request.get_stream_id()),
         &mut task::Context::from_waker(data.futures_waker.as_ref().unwrap())
     );
 

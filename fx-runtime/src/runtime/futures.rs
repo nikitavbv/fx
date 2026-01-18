@@ -3,7 +3,7 @@ use {
     futures::{future::BoxFuture, FutureExt},
     thiserror::Error,
     fx_common::FxFutureError,
-    crate::api::HostFutureAsyncApiError,
+    crate::runtime::api::HostFutureAsyncApiError,
 };
 
 #[derive(Clone)]

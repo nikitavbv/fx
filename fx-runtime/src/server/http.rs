@@ -6,8 +6,8 @@ use {
     futures::{StreamExt, stream::BoxStream, future::BoxFuture, FutureExt},
     tokio::time::timeout,
     fx_common::{HttpResponse, HttpRequest, FxStream},
-    fx_runtime_common::{FunctionInvokeEvent, events::InvocationTimings},
-    fx_runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::{Engine, FunctionInvokeAndExecuteError}},
+    crate::common::{FunctionInvokeEvent, events::InvocationTimings},
+    crate::runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::{Engine, FunctionInvokeAndExecuteError}},
 };
 
 #[derive(Clone)]
@@ -160,11 +160,11 @@ impl<'a> Future for HttpHandlerFuture<'a> {
 // for simplicity, this wrapper will cleanup stream from arena. Ideally, items in arena would have reference count.
 struct StreamPoolCleanupGuard {
     engine: Arc<Engine>,
-    body_stream_index: fx_runtime::streams::HostPoolIndex,
+    body_stream_index: crate::runtime::streams::HostPoolIndex,
 }
 
 impl StreamPoolCleanupGuard {
-    fn wrap(engine: Arc<Engine>, body_stream_index: fx_runtime::streams::HostPoolIndex) -> Self {
+    fn wrap(engine: Arc<Engine>, body_stream_index: crate::runtime::streams::HostPoolIndex) -> Self {
         Self {
             engine,
             body_stream_index,

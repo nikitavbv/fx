@@ -6,7 +6,7 @@ use {
     futures::{stream::{self, BoxStream, empty as empty_stream}, StreamExt},
     tokio::sync::mpsc,
     notify::Watcher,
-    crate::error::{FxRuntimeError, KVWatchError},
+    crate::runtime::error::{FxRuntimeError, KVWatchError},
 };
 
 pub trait KVStorage {

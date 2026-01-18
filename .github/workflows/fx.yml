@@ -32,8 +32,8 @@ jobs:
         sudo apt install libpolly-18-dev
     - run: sudo apt install capnproto
     - run: just test
-  server-build:
-    name: server build
+  runtime-build:
+    name: runtime build
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: test
@@ -53,13 +53,13 @@ jobs:
     - uses: actions-rs/cargo@v1
       with:
         command: build
-        args: -p fx-server --release
+        args: -p fx-runtime --release
     - uses: actions/upload-artifact@v4
       with:
-        name: fx-server-amd64
-        path: target/release/fx-server
-  server-build-arm64:
-    name: server build arm64
+        name: fx-runtime-amd64
+        path: target/release/fx-runtime
+  runtime-build-arm64:
+    name: runtime build arm64
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: test
@@ -79,18 +79,18 @@ jobs:
         then
           cargo install cross --git https://github.com/cross-rs/cross
         fi
-    - run: cross build -p fx-server --release --target aarch64-unknown-linux-musl
+    - run: cross build -p fx-runtime --release --target aarch64-unknown-linux-musl
     - uses: actions/upload-artifact@v4
       with:
-        name: fx-server-arm64
-        path: target/aarch64-unknown-linux-musl/release/fx-server
+        name: fx-runtime-arm64
+        path: target/aarch64-unknown-linux-musl/release/fx-runtime
   docker:
     name: build and publish docker image
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
-    - server-build
-    - server-build-arm64
+    - runtime-build
+    - runtime-build-arm64
     steps:
     - uses: actions/checkout@v2
     - uses: docker/setup-buildx-action@v2
@@ -102,12 +102,12 @@ jobs:
     - name: download amd64 build
       uses: actions/download-artifact@v4
       with:
-        name: fx-server-amd64
+        name: fx-runtime-amd64
         path: ./build/amd64/
     - name: download arm64 build
       uses: actions/download-artifact@v4
       with:
-        name: fx-server-arm64
+        name: fx-runtime-arm64
         path: ./build/arm64/
     - run: ls build
     - run: ls build/amd64

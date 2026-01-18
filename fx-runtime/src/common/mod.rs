@@ -3,7 +3,7 @@ use {
     serde::{Serialize, Deserialize},
 };
 
-pub use crate::events::FunctionInvokeEvent;
+pub use crate::common::events::FunctionInvokeEvent;
 
 pub mod events;
 pub mod utils;

@@ -2,7 +2,7 @@ use {
     std::collections::HashMap,
     serde::Serialize,
     serde_json::Value,
-    crate::EventFieldValue,
+    crate::common::EventFieldValue,
 };
 
 pub fn object_to_event_fields<T: Serialize>(object: T) -> Option<HashMap<String, EventFieldValue>> {

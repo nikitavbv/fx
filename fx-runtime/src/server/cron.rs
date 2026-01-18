@@ -4,7 +4,7 @@ use {
     chrono::{DateTime, Utc, NaiveDateTime},
     tokio::time::sleep,
     cron as cron_utils,
-    fx_runtime::{sql::{SqlDatabase, Query, Value}, FunctionId, runtime::Engine, error::FxRuntimeError},
+    crate::runtime::{sql::{SqlDatabase, Query, Value}, FunctionId, runtime::Engine, error::FxRuntimeError},
 };
 
 const DATE_TIME_FORMAT: &str = "%F %T%.f";

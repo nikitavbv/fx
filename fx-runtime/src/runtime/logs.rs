@@ -4,16 +4,16 @@ use {
     tokio::sync::mpsc,
     serde::Serialize,
     tokio::time::sleep,
-    fx_runtime_common::{
+    crate::common::{
         LogSource as LogMessageEventLogSource,
         LogEventType as LogMessageEventLogEventType,
         LogEventLevel as LogMessageLogEventLevel,
         utils::object_to_event_fields,
     },
-    crate::{runtime::FunctionId, error::LoggerError},
+    crate::runtime::{runtime::FunctionId, error::LoggerError},
 };
 
-pub use fx_runtime_common::{LogMessageEvent, EventFieldValue, LogEventType};
+pub use crate::common::{LogMessageEvent, EventFieldValue, LogEventType};
 
 pub struct LogMessage {
     source: LogSource,

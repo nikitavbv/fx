@@ -2,11 +2,11 @@ use {
     std::time::Duration,
     tracing::{info, error},
     tokio::{sync::mpsc, time::sleep},
-    fx_runtime_common::{
+    crate::common::{
         LogMessageEvent,
         LogSource as LogMessageEventLogSource,
     },
-    fx_runtime::{
+    crate::runtime::{
         error::LoggerError,
         logs::Logger,
     },

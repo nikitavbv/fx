@@ -28,9 +28,9 @@ use {
         FxSqlError,
         SqlMigrations,
     },
-    fx_runtime_common::{LogMessageEvent, LogSource},
+    crate::common::{LogMessageEvent, LogSource},
     fx_api::{capnp, fx_capnp},
-    crate::{
+    crate::runtime::{
         kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
         error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
         sql::{self, SqlDatabase},
@@ -240,7 +240,7 @@ impl Engine {
     }
 
     fn create_execution_context(&self, engine: Arc<Engine>, function_id: &FunctionId, definition: FunctionDefinition) -> Result<ExecutionContext, FunctionInvokeError> {
-        let memory_tracker = crate::profiling::init_memory_tracker();
+        let memory_tracker = crate::runtime::profiling::init_memory_tracker();
 
         let module_code = self.module_code_storage.read().unwrap().get(function_id.id.as_bytes())
             .map_err(|err| FunctionInvokeError::CodeFailedToLoad(err))?;
@@ -602,7 +602,7 @@ impl ExecutionContext {
 
         let wasmtime_module = wasmtime::Module::new(&engine.wasmtime, &module_code).unwrap();
         let mut linker = wasmtime::Linker::new(&engine.wasmtime);
-        linker.func_wrap("fx", "fx_api", crate::api::fx_api_handler).unwrap();
+        linker.func_wrap("fx", "fx_api", crate::runtime::api::fx_api_handler).unwrap();
 
         let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
         let instance = linker.instantiate(&mut store, &wasmtime_module).unwrap();

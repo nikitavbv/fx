@@ -13,26 +13,27 @@ use {
     hyper_util::rt::{TokioIo, TokioTimer},
     clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all},
-    fx_runtime::{
-        runtime::{FxRuntime, FunctionId, Engine},
-        kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
-        sql::SqlDatabase,
-        definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
-        metrics::run_metrics_server,
-        logs::{BoxLogger, StdoutLogger, NoopLogger},
-    },
     crate::{
-        cron::{CronRunner, CronTaskDefinition},
-        http::HttpHandler,
-        consumer::RabbitMqConsumer,
-        logs::RabbitMqLogger,
+        runtime::{
+            runtime::{FxRuntime, FunctionId, Engine},
+            kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
+            sql::SqlDatabase,
+            definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
+            metrics::run_metrics_server,
+            logs::{BoxLogger, StdoutLogger, NoopLogger},
+        },
+        server::{
+            cron::{CronRunner, CronTaskDefinition},
+            http::HttpHandler,
+            consumer::RabbitMqConsumer,
+            logs::RabbitMqLogger,
+        },
     },
 };
 
-mod consumer;
-mod cron;
-mod http;
-mod logs;
+mod common;
+mod runtime;
+mod server;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
 const FILE_EXTENSION_DEFINITION: &str = ".fx.yaml";

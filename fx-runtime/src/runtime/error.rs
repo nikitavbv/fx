@@ -1,7 +1,7 @@
 use {
     thiserror::Error,
     fx_common::FxExecutionError,
-    crate::{
+    crate::runtime::{
         definition::DefinitionError,
         kv::StorageError,
         runtime::CompilerError,

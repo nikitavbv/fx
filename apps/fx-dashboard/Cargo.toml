@@ -13,4 +13,3 @@ tracing = "0.1.41"
 leptos = { version = "0.7.8", features = ["ssr"], default-features = false }
 
 fx = { path = "../../fx" }
-fx-runtime-common = { path = "../../fx-runtime-common" }

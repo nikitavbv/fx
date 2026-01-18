@@ -12,4 +12,3 @@ tracing = "0.1.41"
 lazy_static = "1.5.0"
 async-stream = "0.3.6"
 fx = { path = "../../fx"}
-fx-runtime-common = { path = "../../fx-runtime-common" }
