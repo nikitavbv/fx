@@ -44,3 +44,9 @@ fx-api = { path = "../fx-api" }
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
+
+[package.metadata.cross.target.aarch64-unknown-linux-musl]
+pre-build = [
+    "apt update",
+    "apt install -y capnproto"
+]
