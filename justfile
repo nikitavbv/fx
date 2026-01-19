@@ -16,7 +16,7 @@ apps: cloud-dashboard app-counter app-hello-world app-rpc-test-service
 demo: app-demo run
 
 app-demo: app-hello-world
-    cp target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm local/functions/hello-world
+    cp target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm local/functions/hello-world.wasm
     cp apps/fx-app-hello-world/hello-world.fx.yaml local/functions/hello-world.fx.yaml
 
 cloud-dashboard:
