@@ -4,7 +4,7 @@ struct FxLogEvent {
     source @0 :LogSource;
     eventType @1 :LogEventType;
     level @2 :LogLevel;
-    # TODO: add fields
+    fields @3 :List(LogEventField);
 }
 
 struct LogSource {
@@ -26,4 +26,15 @@ enum LogLevel {
     info @2;
     warn @3;
     error @4;
+}
+
+struct LogEventField {
+    key @0 :Text;
+    value :union {
+        text @1 :Text;
+        u64 @2 :UInt64;
+        i64 @3 :Int64;
+        f64 @4 :Float64;
+        object @5 :List(LogEventField);
+    }
 }
