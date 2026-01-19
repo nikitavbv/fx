@@ -1,3 +1,4 @@
-sql:
-- id: fortunes
-  path: ./fortunes.sqlite
+bindings:
+  sql:
+  - id: fortunes
+    path: ./fortunes.sqlite

@@ -149,9 +149,13 @@ enum RpcApiAsyncError {
 fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {
     let mut rpc_response = rpc_response.init_response();
 
-    let function_id = FunctionId::new(rpc_request.get_function_id().unwrap().to_string().unwrap());
-    if data.rpc.get(&function_id.as_string()).is_none() {
-        rpc_response.set_binding_not_found(());
+    let binding_id = rpc_request.get_function_id().unwrap().to_string().unwrap();
+    let function_id = match data.rpc.get(&binding_id) {
+        Some(v) => v.target_function.clone(),
+        None => {
+            rpc_response.set_binding_not_found(());
+            return;
+        }
     };
 
     let method_name = rpc_request.get_method_name().unwrap().to_str().unwrap();

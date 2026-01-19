@@ -11,7 +11,7 @@ use {
     walkdir::WalkDir,
     notify::Watcher,
     crate::{
-        runtime::{FxRuntime, FunctionId, sql::SqlDatabase},
+        runtime::{FxRuntime, FunctionId, sql::SqlDatabase, runtime::RpcBinding},
         server::{
             config::{ServerConfig, FunctionConfig},
             http::HttpHandler,
@@ -263,12 +263,19 @@ impl DefinitionsMonitor {
 
         // TODO: bindings should be lazy
         let mut sql = HashMap::new();
-        for binding in config.sql.unwrap_or(Vec::new()) {
+        for binding in config.bindings.as_ref().and_then(|v| v.sql.as_ref()).unwrap_or(&Vec::new()) {
             let path = config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.path);
-            sql.insert(binding.id, SqlDatabase::new(path).unwrap());
+            sql.insert(binding.id.clone(), SqlDatabase::new(path).unwrap());
         }
 
-        let execution_context = self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql);
+        let mut rpc = HashMap::new();
+        for binding in config.bindings.as_ref().and_then(|v| v.rpc.as_ref()).unwrap_or(&Vec::new()) {
+            let function_path = config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.function);
+            let function_id = self.path_to_function_id(&function_path);
+            rpc.insert(binding.id.clone(), RpcBinding::new(function_id));
+        }
+
+        let execution_context = self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc);
         let prev_execution_context = self.runtime.engine.update_function_execution_context(function_id.clone(), execution_context);
         if let Some(prev_execution_context) = prev_execution_context {
             // TODO: graceful drain - cleanup in background job?

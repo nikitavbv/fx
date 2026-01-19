@@ -26,8 +26,7 @@ pub struct FunctionConfig {
     pub config_path: Option<PathBuf>,
 
     pub triggers: Option<FunctionTriggersConfig>,
-
-    pub sql: Option<Vec<SqlBindingConfig>>,
+    pub bindings: Option<FunctionBindingsConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -41,9 +40,21 @@ pub struct FunctionHttpEndpointConfig {
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionBindingsConfig {
+    pub sql: Option<Vec<SqlBindingConfig>>,
+    pub rpc: Option<Vec<RpcBindingConfig>>,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct SqlBindingConfig {
     pub id: String,
     pub path: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct RpcBindingConfig {
+    pub id: String,
+    pub function: String,
 }
 
 impl FunctionConfig {

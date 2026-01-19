@@ -293,6 +293,7 @@ impl Engine {
         function_id: FunctionId,
         function_module: wasmtime::Module,
         sql: HashMap<String, SqlDatabase>,
+        rpc: HashMap<String, RpcBinding>,
     ) -> ExecutionContextId {
         let execution_context_id = ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst));
 
@@ -302,7 +303,7 @@ impl Engine {
             execution_context_id.clone(),
             HashMap::new(),
             sql,
-            HashMap::new(),
+            rpc,
             function_module,
             true,
             true
@@ -378,8 +379,10 @@ impl Engine {
         let mut rpc = HashMap::new();
         for rpc_definition in definition.rpc {
             rpc.insert(
-                rpc_definition.id,
-                RpcBinding {},
+                rpc_definition.id.clone(),
+                RpcBinding {
+                    target_function: FunctionId::new(rpc_definition.id),
+                },
             );
         }
 
@@ -1020,7 +1023,15 @@ pub(crate) struct PtrWithLen {
 }
 
 #[derive(Clone)]
-pub(crate) struct RpcBinding {}
+pub(crate) struct RpcBinding {
+    pub(crate) target_function: FunctionId,
+}
+
+impl RpcBinding {
+    pub fn new(target_function: FunctionId) -> Self {
+        Self { target_function }
+    }
+}
 
 pub struct FunctionInvocationEvent {
 }
