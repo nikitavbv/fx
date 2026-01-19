@@ -20,6 +20,8 @@ app-demo: app-hello-world app-fortunes
     cp apps/fx-app-hello-world/hello-world.fx.yaml local/functions/hello-world.fx.yaml
 
     cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/functions/fortunes.wasm
+    rm local/functions/fortunes.sqlite || true
+    sqlite3 local/functions/fortunes.sqlite < apps/fx-fortunes/fortunes.sql
     cp apps/fx-fortunes/fortunes.fx.yaml local/functions/fortunes.fx.yaml
 
 cloud-dashboard:

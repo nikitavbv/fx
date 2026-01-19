@@ -11,7 +11,7 @@ use {
     walkdir::WalkDir,
     notify::Watcher,
     crate::{
-        runtime::{FxRuntime, FunctionId},
+        runtime::{FxRuntime, FunctionId, sql::SqlDatabase},
         server::{
             config::{ServerConfig, FunctionConfig},
             http::HttpHandler,
@@ -20,9 +20,6 @@ use {
 };
 
 const DEFINITION_FILE_SUFFIX: &str = ".fx.yaml";
-const EMPTY_FUNCTION_CONFIG: FunctionConfig = FunctionConfig {
-    triggers: None,
-};
 
 pub struct FxServer {
     runtime: Arc<FxRuntime>,
@@ -85,6 +82,7 @@ impl FxServer {
                 }
             };
 
+            // TODO: take port from config
             let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
             let listener = match TcpListener::bind(addr).await {
                 Ok(v) => v,
@@ -190,7 +188,7 @@ impl DefinitionsMonitor {
 
             let entry_path = entry.path();
             let function_id = self.path_to_function_id(entry_path);
-            let function_config = FunctionConfig::load(entry_path).await;
+            let function_config = FunctionConfig::load(entry_path.to_path_buf()).await;
 
             self.apply_config(
                 function_id,
@@ -230,7 +228,7 @@ impl DefinitionsMonitor {
             }
 
             let function_id = self.path_to_function_id(&path);
-            let function_config = FunctionConfig::load(&path).await;
+            let function_config = FunctionConfig::load(path.to_path_buf()).await;
 
             self.apply_config(
                 function_id,
@@ -262,9 +260,18 @@ impl DefinitionsMonitor {
                 module
             }).await.unwrap()
         };
-        let execution_context = self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module);
+
+        // TODO: bindings should be lazy
+        let mut sql = HashMap::new();
+        for binding in config.sql.unwrap_or(Vec::new()) {
+            let path = config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.path);
+            sql.insert(binding.id, SqlDatabase::new(path).unwrap());
+        }
+
+        let execution_context = self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql);
         let prev_execution_context = self.runtime.engine.update_function_execution_context(function_id.clone(), execution_context);
         if let Some(prev_execution_context) = prev_execution_context {
+            // TODO: graceful drain - cleanup in background job?
             self.runtime.engine.remove_execution_context(&prev_execution_context);
         }
 

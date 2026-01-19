@@ -292,6 +292,7 @@ impl Engine {
         engine: Arc<Engine>,
         function_id: FunctionId,
         function_module: wasmtime::Module,
+        sql: HashMap<String, SqlDatabase>,
     ) -> ExecutionContextId {
         let execution_context_id = ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst));
 
@@ -300,7 +301,7 @@ impl Engine {
             function_id,
             execution_context_id.clone(),
             HashMap::new(),
-            HashMap::new(),
+            sql,
             HashMap::new(),
             function_module,
             true,
