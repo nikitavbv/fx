@@ -15,9 +15,12 @@ apps: cloud-dashboard app-counter app-hello-world app-rpc-test-service
 
 demo: app-demo run
 
-app-demo: app-hello-world
+app-demo: app-hello-world app-fortunes
     cp target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm local/functions/hello-world.wasm
     cp apps/fx-app-hello-world/hello-world.fx.yaml local/functions/hello-world.fx.yaml
+
+    cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/functions/fortunes.wasm
+    cp apps/fx-fortunes/fortunes.fx.yaml local/functions/fortunes.fx.yaml
 
 cloud-dashboard:
     cargo build --target wasm32-unknown-unknown -p fx-cloud-dashboard --release
