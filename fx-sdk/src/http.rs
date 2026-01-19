@@ -1,6 +1,6 @@
 use {
     fx_common::{HttpRequest, HttpResponse, FxStream, FxFutureError, HttpRequestError},
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     axum::http,
     thiserror::Error,
     crate::{
@@ -57,16 +57,16 @@ pub enum FetchRuntimeError {
 pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FetchError> {
     let future_index = {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut fetch_request = op.init_fetch();
 
         fetch_request.set_method(match req.method {
-            http::Method::GET => fx_capnp::HttpMethod::Get,
-            http::Method::POST => fx_capnp::HttpMethod::Post,
-            http::Method::PUT => fx_capnp::HttpMethod::Put,
-            http::Method::PATCH => fx_capnp::HttpMethod::Patch,
-            http::Method::DELETE => fx_capnp::HttpMethod::Delete,
+            http::Method::GET => abi_capnp::HttpMethod::Get,
+            http::Method::POST => abi_capnp::HttpMethod::Post,
+            http::Method::PUT => abi_capnp::HttpMethod::Put,
+            http::Method::PATCH => abi_capnp::HttpMethod::Patch,
+            http::Method::DELETE => abi_capnp::HttpMethod::Delete,
             _ => panic!("this http method is not supported"),
         });
 
@@ -78,13 +78,13 @@ pub async fn fetch(req: HttpRequest) -> Result<HttpResponse, FetchError> {
         }
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::Fetch(v) => {
+            abi_capnp::fx_api_call_result::op::Which::Fetch(v) => {
                 let fetch_response = v.unwrap();
                 match fetch_response.get_response().which().unwrap() {
-                    fx_capnp::fetch_response::response::Which::FutureId(v) => v,
-                    fx_capnp::fetch_response::response::Which::FetchError(err) => panic!("fetch error: {}", err.unwrap().to_string().unwrap()),
+                    abi_capnp::fetch_response::response::Which::FutureId(v) => v,
+                    abi_capnp::fetch_response::response::Which::FetchError(err) => panic!("fetch error: {}", err.unwrap().to_string().unwrap()),
                 }
             },
             _other => panic!("unexpected response from fetch api"),

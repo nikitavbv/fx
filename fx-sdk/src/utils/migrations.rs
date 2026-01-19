@@ -1,6 +1,6 @@
 use {
     fx_common::{SqlMigrations, FxSqlError},
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     crate::{SqlDatabase, sys::{self, invoke_fx_api}},
 };
 
@@ -22,7 +22,7 @@ impl Migrations {
 
     pub fn run(&self, database: &SqlDatabase) -> Result<(), FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut sql_migrate_request = op.init_sql_migrate();
         sql_migrate_request.set_database(&database.name);
@@ -33,13 +33,13 @@ impl Migrations {
         }
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::SqlMigrate(v) => {
+            abi_capnp::fx_api_call_result::op::Which::SqlMigrate(v) => {
                 let migrate_response = v.unwrap();
 
-                use fx_capnp::sql_migrate_response::response::Which;
+                use abi_capnp::sql_migrate_response::response::Which;
                 match migrate_response.get_response().which().unwrap() {
                     Which::Ok(_) => Ok(()),
                     Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),

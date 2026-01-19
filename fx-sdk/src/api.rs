@@ -1,6 +1,6 @@
 use {
     std::task::Poll,
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     futures::TryFutureExt,
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex, FxFuture, FunctionFutureError},
@@ -11,8 +11,8 @@ use {
 };
 
 pub(crate) fn handle_future_poll(
-    future_poll_request: fx_capnp::function_future_poll_request::Reader,
-    future_poll_response: fx_capnp::function_future_poll_response::Builder
+    future_poll_request: abi_capnp::function_future_poll_request::Reader,
+    future_poll_response: abi_capnp::function_future_poll_response::Builder
 ) {
     let mut response = future_poll_response.init_response();
 
@@ -34,8 +34,8 @@ pub(crate) fn handle_future_poll(
 }
 
 pub(crate) fn handle_future_drop(
-    future_drop_request: fx_capnp::function_future_drop_request::Reader,
-    future_drop_response: fx_capnp::function_future_drop_response::Builder
+    future_drop_request: abi_capnp::function_future_drop_request::Reader,
+    future_drop_response: abi_capnp::function_future_drop_response::Builder
 ) {
     let mut response = future_drop_response.init_response();
 
@@ -46,8 +46,8 @@ pub(crate) fn handle_future_drop(
 }
 
 pub(crate) fn handle_stream_poll_next(
-    stream_next_request: fx_capnp::function_stream_poll_next_request::Reader,
-    stream_next_response: fx_capnp::function_stream_poll_next_response::Builder
+    stream_next_request: abi_capnp::function_stream_poll_next_request::Reader,
+    stream_next_response: abi_capnp::function_stream_poll_next_response::Builder
 ) {
     let mut response = stream_next_response.init_response();
 
@@ -59,15 +59,15 @@ pub(crate) fn handle_stream_poll_next(
 }
 
 pub(crate) fn handle_stream_drop(
-    stream_drop_request: fx_capnp::function_stream_drop_request::Reader,
-    _stream_drop_response: fx_capnp::function_stream_drop_response::Builder
+    stream_drop_request: abi_capnp::function_stream_drop_request::Reader,
+    _stream_drop_response: abi_capnp::function_stream_drop_response::Builder
 ) {
     STREAM_POOL.remove(stream_drop_request.get_stream_id());
 }
 
 pub(crate) fn handle_invoke(
-    invoke_request: fx_capnp::function_invoke_request::Reader,
-    invoke_response: fx_capnp::function_invoke_response::Builder
+    invoke_request: abi_capnp::function_invoke_request::Reader,
+    invoke_response: abi_capnp::function_invoke_response::Builder
 ) {
     let mut result = invoke_response.init_result();
 

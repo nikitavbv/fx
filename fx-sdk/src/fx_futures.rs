@@ -5,7 +5,7 @@ use {
     futures::{FutureExt, future::BoxFuture},
     lazy_static::lazy_static,
     serde::Serialize,
-    fx_types::{fx_capnp, capnp},
+    fx_types::{abi_capnp, capnp},
     crate::{PtrWithLen, error::FxError, invoke_fx_api},
 };
 
@@ -214,33 +214,33 @@ impl Future for FxHostFuture {
     type Output = Result<Vec<u8>, HostFutureError>;
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut future_poll_request = op.init_future_poll();
         future_poll_request.set_future_id(self.index.0);
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::FuturePoll(v) => {
+            abi_capnp::fx_api_call_result::op::Which::FuturePoll(v) => {
                 let future_poll_response = v.unwrap();
                 match future_poll_response.get_response().which().unwrap() {
-                    fx_capnp::future_poll_response::response::Which::Pending(_) => Poll::Pending,
-                    fx_capnp::future_poll_response::response::Which::Result(v) => Poll::Ready(Ok(v.unwrap().to_vec())),
-                    fx_capnp::future_poll_response::response::Which::Error(error) => Poll::Ready(Err({
+                    abi_capnp::future_poll_response::response::Which::Pending(_) => Poll::Pending,
+                    abi_capnp::future_poll_response::response::Which::Result(v) => Poll::Ready(Ok(v.unwrap().to_vec())),
+                    abi_capnp::future_poll_response::response::Which::Error(error) => Poll::Ready(Err({
                         let error = error.unwrap();
                         match error.get_error().which().unwrap() {
-                            fx_capnp::future_poll_response::future_poll_error::error::Which::RuntimeError(_) => HostFutureError::RuntimeError(
+                            abi_capnp::future_poll_response::future_poll_error::error::Which::RuntimeError(_) => HostFutureError::RuntimeError(
                                 HostFuturePollRuntimeError::HostRuntimeError
                             ),
-                            fx_capnp::future_poll_response::future_poll_error::error::Which::AsyncApiError(async_api_error) => {
+                            abi_capnp::future_poll_response::future_poll_error::error::Which::AsyncApiError(async_api_error) => {
                                 HostFutureError::AsyncApiError(match async_api_error.unwrap().get_op().which().unwrap() {
-                                    fx_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Fetch(_) => {
+                                    abi_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Fetch(_) => {
                                         HostFutureAsyncApiError::Fetch(FetchApiAsyncError::NetworkError)
                                     },
-                                    fx_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Rpc(err) => {
-                                        use fx_capnp::future_poll_response::future_poll_error::rpc_api_error::error::Which as ResponseRpcApiError;
+                                    abi_capnp::future_poll_response::future_poll_error::async_api_error::op::Which::Rpc(err) => {
+                                        use abi_capnp::future_poll_response::future_poll_error::rpc_api_error::error::Which as ResponseRpcApiError;
                                         HostFutureAsyncApiError::Rpc(match err.unwrap().get_error().which().unwrap() {
                                             ResponseRpcApiError::RuntimeError(_) => RpcApiAsyncError::RuntimeError,
                                             ResponseRpcApiError::FunctionRuntimeError(_) => RpcApiAsyncError::FunctionRuntimeError,
@@ -253,7 +253,7 @@ impl Future for FxHostFuture {
                                     },
                                 })
                             },
-                            fx_capnp::future_poll_response::future_poll_error::error::Which::NotFound(_) => HostFutureError::RuntimeError(
+                            abi_capnp::future_poll_response::future_poll_error::error::Which::NotFound(_) => HostFutureError::RuntimeError(
                                 HostFuturePollRuntimeError::FutureNotFound,
                             ),
                         }
@@ -268,7 +268,7 @@ impl Future for FxHostFuture {
 impl Drop for FxHostFuture {
     fn drop(&mut self) {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut future_drop_request = op.init_future_drop();
         future_drop_request.set_future_id(self.index.0);

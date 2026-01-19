@@ -1,6 +1,7 @@
 fn main() {
     ::capnpc::CompilerCommand::new()
-        .file("fx.capnp")
+        .file("abi.capnp")
+        .file("events.capnp")
         .run()
         .expect("compiling schema");
 }

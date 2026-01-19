@@ -15,14 +15,14 @@ impl From<fx_common::SqlResult> for SqlResult {
     }
 }
 
-impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::fx_capnp::sql_result_row::Owned>> for SqlResult {
-    fn from(value: fx_types::capnp::struct_list::Reader<'_, fx_types::fx_capnp::sql_result_row::Owned>) -> Self {
+impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_capnp::sql_result_row::Owned>> for SqlResult {
+    fn from(value: fx_types::capnp::struct_list::Reader<'_, fx_types::abi_capnp::sql_result_row::Owned>) -> Self {
         let rows = value.into_iter()
             .map(|v| SqlResultRow {
                 columns: v.get_columns().unwrap()
                     .into_iter()
                     .map(|v| {
-                        use fx_types::fx_capnp::sql_value::value::{Which as ProtocolValue};
+                        use fx_types::abi_capnp::sql_value::value::{Which as ProtocolValue};
 
                         match v.get_value().which().unwrap() {
                             ProtocolValue::Null(_) => SqlValue::Null,

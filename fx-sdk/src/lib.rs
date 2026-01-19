@@ -31,7 +31,7 @@ use {
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     crate::{
         sys::{read_memory_owned, invoke_fx_api},
         logging::FxLoggingLayer,
@@ -56,16 +56,16 @@ pub type FxResult<T> = anyhow::Result<T>;
 
 pub fn random(len: u64) -> Vec<u8> {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
     let op = request.init_op();
     let mut random_request = op.init_random();
     random_request.set_length(len);
 
     let response = invoke_fx_api(message);
-    let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+    let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
     match response.get_op().which().unwrap() {
-        fx_capnp::fx_api_call_result::op::Which::Random(v) => v.unwrap().get_data().unwrap().to_vec(),
+        abi_capnp::fx_api_call_result::op::Which::Random(v) => v.unwrap().get_data().unwrap().to_vec(),
         _other => panic!("unexpected response from random api"),
     }
 }
@@ -120,20 +120,20 @@ pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(funct
         let arg = rmp_serde::to_vec(&arg).unwrap();
 
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut rpc_request = op.init_rpc();
         rpc_request.set_function_id(function_id.into());
         rpc_request.set_method_name(method.into());
         rpc_request.set_argument(&arg);
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::Rpc(v) => {
+            abi_capnp::fx_api_call_result::op::Which::Rpc(v) => {
                 let rpc_response = v.unwrap();
                 match rpc_response.get_response().which().unwrap() {
-                    fx_capnp::rpc_call_response::response::Which::FutureId(v) => v,
+                    abi_capnp::rpc_call_response::response::Which::FutureId(v) => v,
                     _other => panic!("unexpected rpc response"),
                 }
             },
@@ -171,21 +171,21 @@ impl KvStore {
 
     pub fn get(&self, key: &str) -> StdResult<Option<Vec<u8>>, KvError> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut kv_get_request = op.init_kv_get();
         kv_get_request.set_key(key.as_bytes());
         kv_get_request.set_binding_id(self.binding.as_str());
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::KvGet(v) => {
+            abi_capnp::fx_api_call_result::op::Which::KvGet(v) => {
                 let kv_get_response = v.unwrap();
                 match kv_get_response.get_response().which().unwrap() {
-                    fx_capnp::kv_get_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
-                    fx_capnp::kv_get_response::response::Which::KeyNotFound(_) => Ok(None),
-                    fx_capnp::kv_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
+                    abi_capnp::kv_get_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
+                    abi_capnp::kv_get_response::response::Which::KeyNotFound(_) => Ok(None),
+                    abi_capnp::kv_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
                 }
             },
             _other => panic!("unexpected response from kv_get api"),
@@ -194,21 +194,21 @@ impl KvStore {
 
     pub fn set(&self, key: &str, value: &[u8]) -> StdResult<(), KvError> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut kv_set_request = op.init_kv_set();
         kv_set_request.set_binding_id(self.binding.as_str());
         kv_set_request.set_key(key.as_bytes());
         kv_set_request.set_value(value);
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::KvSet(v) => {
+            abi_capnp::fx_api_call_result::op::Which::KvSet(v) => {
                 let kv_set_response = v.unwrap();
                 match kv_set_response.get_response().which().unwrap() {
-                    fx_capnp::kv_set_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
-                    fx_capnp::kv_set_response::response::Which::Ok(_) => Ok(()),
+                    abi_capnp::kv_set_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
+                    abi_capnp::kv_set_response::response::Which::Ok(_) => Ok(()),
                 }
             },
             _other => panic!("unexpected response from kv_set api"),
@@ -241,7 +241,7 @@ impl SqlDatabase {
 
     pub fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut sql_exec_request = op.init_sql_exec();
         sql_exec_request.set_database(&self.name);
@@ -260,15 +260,15 @@ impl SqlDatabase {
         }
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::SqlExec(v) => {
+            abi_capnp::fx_api_call_result::op::Which::SqlExec(v) => {
                 let sql_exec_response = v.unwrap();
                 match sql_exec_response.get_response().which().unwrap() {
-                    fx_capnp::sql_exec_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
-                    fx_capnp::sql_exec_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
-                    fx_capnp::sql_exec_response::response::Which::Rows(rows) => {
+                    abi_capnp::sql_exec_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
+                    abi_capnp::sql_exec_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
+                    abi_capnp::sql_exec_response::response::Which::Rows(rows) => {
                         let rows = rows.unwrap();
                         Ok(sql::SqlResult::from(rows))
                     }
@@ -280,7 +280,7 @@ impl SqlDatabase {
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut sql_batch_request = op.init_sql_batch();
         sql_batch_request.set_database(&self.name);
@@ -304,15 +304,15 @@ impl SqlDatabase {
         }
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::SqlBatch(v) => {
+            abi_capnp::fx_api_call_result::op::Which::SqlBatch(v) => {
                 let sql_batch_response = v.unwrap();
                 match sql_batch_response.get_response().which().unwrap() {
-                    fx_capnp::sql_batch_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
-                    fx_capnp::sql_batch_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
-                    fx_capnp::sql_batch_response::response::Which::Ok(_) => Ok(()),
+                    abi_capnp::sql_batch_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
+                    abi_capnp::sql_batch_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
+                    abi_capnp::sql_batch_response::response::Which::Ok(_) => Ok(()),
                 }
             },
             _other => panic!("unexpected response from sql_batch api"),
@@ -323,20 +323,20 @@ impl SqlDatabase {
 pub async fn sleep(duration: Duration) {
     let future_id = {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut sleep_request = op.init_sleep();
         sleep_request.set_millis(duration.as_millis() as u64);
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::Sleep(v) => {
+            abi_capnp::fx_api_call_result::op::Which::Sleep(v) => {
                 let sleep = v.unwrap();
                 match sleep.get_response().which().unwrap() {
-                    fx_capnp::sleep_response::response::Which::FutureId(v) => v,
-                    fx_capnp::sleep_response::response::Which::SleepError(err) => panic!("failed to sleep: {err:?}"),
+                    abi_capnp::sleep_response::response::Which::FutureId(v) => v,
+                    abi_capnp::sleep_response::response::Which::SleepError(err) => panic!("failed to sleep: {err:?}"),
                 }
             },
             _other => panic!("unexpected response from sleep api"),
@@ -357,15 +357,15 @@ pub struct FxInstant {
 impl FxInstant {
     pub fn now() -> Self {
         let mut message = capnp::message::Builder::new_default();
-        message.init_root::<fx_capnp::fx_api_call::Builder>()
+        message.init_root::<abi_capnp::fx_api_call::Builder>()
             .init_op()
             .init_time();
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         let timestamp = match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::Time(v) => {
+            abi_capnp::fx_api_call_result::op::Which::Time(v) => {
                 let time_response = v.unwrap();
                 time_response.get_timestamp()
             },

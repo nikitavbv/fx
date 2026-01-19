@@ -29,7 +29,7 @@ use {
         FxSqlError,
         SqlMigrations,
     },
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     crate::{
         common::{LogMessageEvent, LogSource},
         runtime::{
@@ -810,7 +810,7 @@ enum FunctionInvokeApiError {
 
 fn function_invoke(ctx: &mut Store<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
     let mut function_invoke_request = op.init_invoke();
     function_invoke_request.set_method(handler);
@@ -820,18 +820,18 @@ fn function_invoke(ctx: &mut Store<ExecutionEnv>, handler: String, payload: Vec<
         .map_err(|err| match err {
             FunctionApiError::FunctionPanicked => FunctionInvokeApiError::FunctionPanicked,
         })?;
-    let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
+    let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
     match response.get_op().which().unwrap() {
-        fx_capnp::fx_function_api_call_result::op::Which::Invoke(v) => {
+        abi_capnp::fx_function_api_call_result::op::Which::Invoke(v) => {
             let invoke_response = v.unwrap();
             match invoke_response.get_result().which().unwrap() {
-                fx_capnp::function_invoke_response::result::Which::FutureId(v) => {
+                abi_capnp::function_invoke_response::result::Which::FutureId(v) => {
                     Ok(v)
                 },
-                fx_capnp::function_invoke_response::result::Which::Error(err) => {
+                abi_capnp::function_invoke_response::result::Which::Error(err) => {
                     let err = err.unwrap().get_error();
                     match err.which().unwrap() {
-                        fx_capnp::function_invoke_error::error::Which::HandlerNotFound(_v) => Err(FunctionInvokeApiError::HandlerNotDefined),
+                        abi_capnp::function_invoke_error::error::Which::HandlerNotFound(_v) => Err(FunctionInvokeApiError::HandlerNotDefined),
                         _other => panic!("error when invoking function"),
                     }
                 }
@@ -863,7 +863,7 @@ enum FunctionFuturePollApiError {
 
 fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
     let mut future_poll_request = op.init_future_poll();
     future_poll_request.set_future_id(future_id);
@@ -872,22 +872,22 @@ fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result
         .map_err(|err| match err {
             FunctionApiError::FunctionPanicked => FunctionFuturePollApiError::FunctionPanicked,
         })?;
-    let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
+    let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
 
     Ok(match response.get_op().which().unwrap() {
-        fx_capnp::fx_function_api_call_result::op::Which::FuturePoll(v) => {
+        abi_capnp::fx_function_api_call_result::op::Which::FuturePoll(v) => {
             let future_poll_response = v.unwrap();
             match future_poll_response.get_response().which().unwrap() {
-                fx_capnp::function_future_poll_response::response::Which::Pending(_) => Poll::Pending,
-                fx_capnp::function_future_poll_response::response::Which::Ready(v) => {
+                abi_capnp::function_future_poll_response::response::Which::Pending(_) => Poll::Pending,
+                abi_capnp::function_future_poll_response::response::Which::Ready(v) => {
                     Poll::Ready(v.unwrap().to_vec())
                 },
-                fx_capnp::function_future_poll_response::response::Which::Error(error) => {
+                abi_capnp::function_future_poll_response::response::Which::Error(error) => {
                     let error = error.unwrap();
                     // TODO: refactor FxRuntimeError into something more granular
                     return Err(match error.get_error().which().unwrap() {
-                        fx_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FunctionFuturePollApiError::FunctionRuntimeError,
-                        fx_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FunctionFuturePollApiError::UserApplicationError {
+                        abi_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FunctionFuturePollApiError::FunctionRuntimeError,
+                        abi_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FunctionFuturePollApiError::UserApplicationError {
                             description: v.unwrap().to_string().unwrap(),
                         },
                     });
@@ -900,7 +900,7 @@ fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result
 
 fn function_future_drop(ctx: &mut Store<ExecutionEnv>, future_id: u64) {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
     let mut future_drop_request = op.init_future_drop();
     future_drop_request.set_future_id(future_id);
@@ -910,23 +910,23 @@ fn function_future_drop(ctx: &mut Store<ExecutionEnv>, future_id: u64) {
 
 fn function_stream_poll_next(ctx: &mut Store<ExecutionEnv>, stream_id: u64) -> Poll<Option<Vec<u8>>> {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
     let mut stream_poll_next_request = op.init_stream_poll_next();
     stream_poll_next_request.set_stream_id(stream_id);
 
     let response = invoke_fx_api(ctx, message).unwrap();
-    let response = response.get_root::<fx_capnp::fx_function_api_call_result::Reader>().unwrap();
+    let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
 
     match response.get_op().which().unwrap() {
-        fx_capnp::fx_function_api_call_result::op::Which::StreamPollNext(v) => {
+        abi_capnp::fx_function_api_call_result::op::Which::StreamPollNext(v) => {
             let stream_poll_next_response = v.unwrap();
             match stream_poll_next_response.get_response().which().unwrap() {
-                fx_capnp::function_stream_poll_next_response::response::Which::Pending(_) => Poll::Pending,
-                fx_capnp::function_stream_poll_next_response::response::Which::Ready(v) => {
+                abi_capnp::function_stream_poll_next_response::response::Which::Pending(_) => Poll::Pending,
+                abi_capnp::function_stream_poll_next_response::response::Which::Ready(v) => {
                     Poll::Ready(Some(v.unwrap().to_vec()))
                 },
-                fx_capnp::function_stream_poll_next_response::response::Which::Finished(_) => Poll::Ready(None),
+                abi_capnp::function_stream_poll_next_response::response::Which::Finished(_) => Poll::Ready(None),
             }
         },
         _other => panic!("unexpected response from stream_poll_next api"),
@@ -935,7 +935,7 @@ fn function_stream_poll_next(ctx: &mut Store<ExecutionEnv>, stream_id: u64) -> P
 
 fn function_stream_drop(ctx: &mut Store<ExecutionEnv>, stream_id: u64) {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_function_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
     let op = request.init_op();
     let mut stream_drop_request = op.init_stream_drop();
     stream_drop_request.set_stream_id(stream_id);

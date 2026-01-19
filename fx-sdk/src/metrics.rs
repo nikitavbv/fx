@@ -1,5 +1,5 @@
 use {
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     crate::sys::invoke_fx_api,
 };
 
@@ -27,7 +27,7 @@ impl Counter {
 
     pub fn increment_with_tag_values(&self, values: Vec<String>, delta: u64) {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut metrics_counter_increment_request = op.init_metrics_counter_increment();
         metrics_counter_increment_request.set_counter_name(&self.name);

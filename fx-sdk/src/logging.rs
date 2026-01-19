@@ -3,7 +3,7 @@ use {
     tracing::{Subscriber, Event, field::{Field, Visit}, span::Attributes, Id},
     tracing_subscriber::{Layer, layer},
     fx_common::{LogMessage, LogLevel, LogEventType},
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     crate::invoke_fx_api,
 };
 
@@ -107,22 +107,22 @@ fn log_level_from_metadata(metadata: &'static tracing::Metadata<'static>) -> Log
 
 fn log(event_type: LogEventType, level: LogLevel, fields: HashMap<String, String>) {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+    let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
     let op = request.init_op();
     let mut log_request = op.init_log();
 
     log_request.set_event_type(match event_type {
-        LogEventType::Begin => fx_capnp::EventType::Begin,
-        LogEventType::End => fx_capnp::EventType::End,
-        LogEventType::Instant => fx_capnp::EventType::Instant,
+        LogEventType::Begin => abi_capnp::EventType::Begin,
+        LogEventType::End => abi_capnp::EventType::End,
+        LogEventType::Instant => abi_capnp::EventType::Instant,
     });
 
     log_request.set_level(match level {
-        LogLevel::Trace => fx_capnp::LogLevel::Trace,
-        LogLevel::Debug => fx_capnp::LogLevel::Debug,
-        LogLevel::Info => fx_capnp::LogLevel::Info,
-        LogLevel::Warn => fx_capnp::LogLevel::Warn,
-        LogLevel::Error => fx_capnp::LogLevel::Error,
+        LogLevel::Trace => abi_capnp::LogLevel::Trace,
+        LogLevel::Debug => abi_capnp::LogLevel::Debug,
+        LogLevel::Info => abi_capnp::LogLevel::Info,
+        LogLevel::Warn => abi_capnp::LogLevel::Warn,
+        LogLevel::Error => abi_capnp::LogLevel::Error,
     });
 
     let mut request_fields = log_request.init_fields(fields.len() as u32);

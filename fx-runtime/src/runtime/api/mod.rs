@@ -8,7 +8,7 @@ use {
     futures::FutureExt,
     wasmtime::{AsContext, AsContextMut},
     rand::TryRngCore,
-    fx_types::{capnp, fx_capnp},
+    fx_types::{capnp, abi_capnp},
     fx_common::FxFutureError,
     crate::runtime::{
         runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId, FunctionExecutionError},
@@ -47,14 +47,14 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
 
     let mut message_bytes = &view[req_addr..req_addr+req_len];
     let message_reader = fx_types::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_types::capnp::message::ReaderOptions::default()).unwrap();
-    let request = message_reader.get_root::<fx_types::fx_capnp::fx_api_call::Reader>().unwrap();
+    let request = message_reader.get_root::<fx_types::abi_capnp::fx_api_call::Reader>().unwrap();
     let op = request.get_op();
 
     let mut response_message = capnp::message::Builder::new_default();
-    let response = response_message.init_root::<fx_capnp::fx_api_call_result::Builder>();
+    let response = response_message.init_root::<abi_capnp::fx_api_call_result::Builder>();
     let mut response_op = response.init_op();
 
-    use fx_types::fx_capnp::fx_api_call::op::{Which as Operation};
+    use fx_types::abi_capnp::fx_api_call::op::{Which as Operation};
     match op.which().unwrap() {
         Operation::MetricsCounterIncrement(v) => {
             handle_metrics_counter_increment(caller.data(), v.unwrap());
@@ -124,7 +124,7 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
     write_memory_obj(view, output_ptr, PtrWithLen { ptr: ptr as i64, len: response_size as i64 });
 }
 
-fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_request: fx_capnp::metrics_counter_increment_request::Reader) {
+fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_request: abi_capnp::metrics_counter_increment_request::Reader) {
     let result = data.engine.metrics.function_metrics.counter_increment(
         &data.function_id,
         counter_increment_request.get_counter_name().unwrap().to_str().unwrap(),
@@ -146,7 +146,7 @@ enum RpcApiAsyncError {
     FunctionInvocation(#[from] FunctionExecutionError),
 }
 
-fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Reader, rpc_response: fx_capnp::rpc_call_response::Builder) {
+fn handle_rpc(data: &ExecutionEnv, rpc_request: abi_capnp::rpc_call_request::Reader, rpc_response: abi_capnp::rpc_call_response::Builder) {
     let mut rpc_response = rpc_response.init_response();
 
     let binding_id = rpc_request.get_function_id().unwrap().to_string().unwrap();
@@ -207,7 +207,7 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: fx_capnp::rpc_call_request::Read
     rpc_response.set_future_id(response_future.0);
 }
 
-fn handle_kv_get(data: &ExecutionEnv, kv_get_request: fx_capnp::kv_get_request::Reader, kv_get_response: fx_capnp::kv_get_response::Builder) {
+fn handle_kv_get(data: &ExecutionEnv, kv_get_request: abi_capnp::kv_get_request::Reader, kv_get_response: abi_capnp::kv_get_response::Builder) {
     let mut kv_get_response = kv_get_response.init_response();
 
     let binding = kv_get_request.get_binding_id().unwrap().to_str().unwrap();
@@ -234,7 +234,7 @@ fn handle_kv_get(data: &ExecutionEnv, kv_get_request: fx_capnp::kv_get_request::
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::get"]).inc();
 }
 
-fn handle_kv_set(data: &ExecutionEnv, kv_set_request: fx_capnp::kv_set_request::Reader, kv_set_response: fx_capnp::kv_set_response::Builder) {
+fn handle_kv_set(data: &ExecutionEnv, kv_set_request: abi_capnp::kv_set_request::Reader, kv_set_response: abi_capnp::kv_set_response::Builder) {
     let mut kv_set_response = kv_set_response.init_response();
 
     let binding = kv_set_request.get_binding_id().unwrap().to_str().unwrap();
@@ -253,7 +253,7 @@ fn handle_kv_set(data: &ExecutionEnv, kv_set_request: fx_capnp::kv_set_request::
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::set"]).inc();
 }
 
-fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: fx_capnp::sql_exec_request::Reader, sql_exec_response: fx_capnp::sql_exec_response::Builder) {
+fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: abi_capnp::sql_exec_request::Reader, sql_exec_response: abi_capnp::sql_exec_response::Builder) {
     let mut sql_exec_response = sql_exec_response.init_response();
 
     let binding = sql_exec_request.get_database().unwrap().to_string().unwrap();
@@ -295,7 +295,7 @@ fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: fx_capnp::sql_exec_req
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "sql::exec"]).inc();
 }
 
-fn handle_sql_batch(data: &ExecutionEnv, sql_batch_request: fx_capnp::sql_batch_request::Reader, sql_batch_response: fx_capnp::sql_batch_response::Builder) {
+fn handle_sql_batch(data: &ExecutionEnv, sql_batch_request: abi_capnp::sql_batch_request::Reader, sql_batch_response: abi_capnp::sql_batch_response::Builder) {
     let mut sql_batch_response = sql_batch_response.init_response();
 
     let binding = sql_batch_request.get_database().unwrap().to_string().unwrap();
@@ -323,10 +323,10 @@ fn handle_sql_batch(data: &ExecutionEnv, sql_batch_request: fx_capnp::sql_batch_
     }
 }
 
-fn sql_query_from_reader(request_query: fx_capnp::sql_query::Reader<'_>) -> crate::runtime::sql::Query {
+fn sql_query_from_reader(request_query: abi_capnp::sql_query::Reader<'_>) -> crate::runtime::sql::Query {
     let mut query = crate::runtime::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
     for param in request_query.get_params().unwrap().into_iter() {
-        use fx_capnp::sql_value::value::{Which as SqlValue};
+        use abi_capnp::sql_value::value::{Which as SqlValue};
 
         query = query.with_param(match param.get_value().which().unwrap() {
             SqlValue::Null(_) => crate::runtime::sql::Value::Null,
@@ -339,7 +339,7 @@ fn sql_query_from_reader(request_query: fx_capnp::sql_query::Reader<'_>) -> crat
     query
 }
 
-fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: fx_capnp::sql_migrate_request::Reader, sql_migrate_response: fx_capnp::sql_migrate_response::Builder) {
+fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: abi_capnp::sql_migrate_request::Reader, sql_migrate_response: abi_capnp::sql_migrate_response::Builder) {
     let mut sql_migrate_response = sql_migrate_response.init_response();
 
     let binding = sql_migrate_request.get_database().unwrap().to_string().unwrap();
@@ -362,20 +362,20 @@ fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: fx_capnp::sql_mi
     }
 }
 
-fn handle_log(data: &ExecutionEnv, log_request: fx_capnp::log_request::Reader, _log_response: fx_capnp::log_response::Builder) {
+fn handle_log(data: &ExecutionEnv, log_request: abi_capnp::log_request::Reader, _log_response: abi_capnp::log_response::Builder) {
     data.engine.log(logs::LogMessage::new(
         logs::LogSource::function(&data.function_id),
         match log_request.get_event_type().unwrap() {
-            fx_capnp::EventType::Begin => logs::LogEventType::Begin,
-            fx_capnp::EventType::End => logs::LogEventType::End,
-            fx_capnp::EventType::Instant => logs::LogEventType::Instant,
+            abi_capnp::EventType::Begin => logs::LogEventType::Begin,
+            abi_capnp::EventType::End => logs::LogEventType::End,
+            abi_capnp::EventType::Instant => logs::LogEventType::Instant,
         },
         match log_request.get_level().unwrap() {
-            fx_capnp::LogLevel::Trace => logs::LogLevel::Trace,
-            fx_capnp::LogLevel::Debug => logs::LogLevel::Debug,
-            fx_capnp::LogLevel::Info => logs::LogLevel::Info,
-            fx_capnp::LogLevel::Warn => logs::LogLevel::Warn,
-            fx_capnp::LogLevel::Error => logs::LogLevel::Error,
+            abi_capnp::LogLevel::Trace => logs::LogLevel::Trace,
+            abi_capnp::LogLevel::Debug => logs::LogLevel::Debug,
+            abi_capnp::LogLevel::Info => logs::LogLevel::Info,
+            abi_capnp::LogLevel::Warn => logs::LogLevel::Warn,
+            abi_capnp::LogLevel::Error => logs::LogLevel::Error,
         },
         log_request.get_fields().unwrap()
             .into_iter()
@@ -390,7 +390,7 @@ enum FetchApiAsyncError {
     NetworkRequestFailed(#[from] reqwest::Error),
 }
 
-fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Reader, fetch_response: fx_capnp::fetch_response::Builder) {
+fn handle_fetch(data: &ExecutionEnv, fetch_request: abi_capnp::fetch_request::Reader, fetch_response: abi_capnp::fetch_response::Builder) {
     let mut fetch_response = fetch_response.init_response();
 
     let method = match fetch_request.get_method() {
@@ -420,11 +420,11 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
     let request = data.fetch_client
         .request(
             match method {
-                fx_capnp::HttpMethod::Get => http::Method::GET,
-                fx_capnp::HttpMethod::Post => http::Method::POST,
-                fx_capnp::HttpMethod::Put => http::Method::PUT,
-                fx_capnp::HttpMethod::Patch => http::Method::PATCH,
-                fx_capnp::HttpMethod::Delete => http::Method::DELETE,
+                abi_capnp::HttpMethod::Get => http::Method::GET,
+                abi_capnp::HttpMethod::Post => http::Method::POST,
+                abi_capnp::HttpMethod::Put => http::Method::PUT,
+                abi_capnp::HttpMethod::Patch => http::Method::PATCH,
+                abi_capnp::HttpMethod::Delete => http::Method::DELETE,
             },
             url
         )
@@ -478,7 +478,7 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: fx_capnp::fetch_request::Rea
     fetch_response.set_future_id(index.0);
 }
 
-fn handle_sleep(data: &ExecutionEnv, sleep_request: fx_capnp::sleep_request::Reader, sleep_response: fx_capnp::sleep_response::Builder) {
+fn handle_sleep(data: &ExecutionEnv, sleep_request: abi_capnp::sleep_request::Reader, sleep_response: abi_capnp::sleep_response::Builder) {
     let mut response = sleep_response.init_response();
 
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(sleep_request.get_millis()));
@@ -492,17 +492,17 @@ fn handle_sleep(data: &ExecutionEnv, sleep_request: fx_capnp::sleep_request::Rea
     }
 }
 
-fn handle_random(random_request: fx_capnp::random_request::Reader, mut random_response: fx_capnp::random_response::Builder) {
+fn handle_random(random_request: abi_capnp::random_request::Reader, mut random_response: abi_capnp::random_response::Builder) {
     let mut random_data = vec![0; random_request.get_length() as usize];
     rand::rngs::OsRng.try_fill_bytes(&mut random_data).unwrap();
     random_response.set_data(&random_data);
 }
 
-fn handle_time(mut time_response: fx_capnp::time_response::Builder) {
+fn handle_time(mut time_response: abi_capnp::time_response::Builder) {
     time_response.set_timestamp(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
 }
 
-fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future_poll_request::Reader, future_poll_response: fx_capnp::future_poll_response::Builder) {
+fn handle_future_poll(data: &ExecutionEnv, future_poll_request: abi_capnp::future_poll_request::Reader, future_poll_response: abi_capnp::future_poll_response::Builder) {
     use futures::task::Poll;
 
     let mut response = future_poll_response.init_response();
@@ -556,11 +556,11 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: fx_capnp::future
     }
 }
 
-fn handle_future_drop(data: &ExecutionEnv, future_drop_request: fx_capnp::future_drop_request::Reader, _future_drop_response: fx_capnp::future_drop_response::Builder) {
+fn handle_future_drop(data: &ExecutionEnv, future_drop_request: abi_capnp::future_drop_request::Reader, _future_drop_response: abi_capnp::future_drop_response::Builder) {
     data.engine.futures_pool.remove(&crate::runtime::futures::HostPoolIndex(future_drop_request.get_future_id()));
 }
 
-fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: fx_capnp::stream_export_request::Reader, stream_export_response: fx_capnp::stream_export_response::Builder) {
+fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: abi_capnp::stream_export_request::Reader, stream_export_response: abi_capnp::stream_export_response::Builder) {
     let mut response = stream_export_response.init_response();
 
     match data.engine.streams_pool.push_function_stream(data.execution_context_id.clone()) {
@@ -573,7 +573,7 @@ fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: fx_capnp::s
     }
 }
 
-fn handle_stream_poll_next(data: &ExecutionEnv, stream_poll_next_request: fx_capnp::stream_poll_next_request::Reader, stream_poll_next_response: fx_capnp::stream_poll_next_response::Builder) {
+fn handle_stream_poll_next(data: &ExecutionEnv, stream_poll_next_request: abi_capnp::stream_poll_next_request::Reader, stream_poll_next_response: abi_capnp::stream_poll_next_response::Builder) {
     let mut response = stream_poll_next_response.init_response();
 
     let result = data.engine.streams_pool.poll_next(

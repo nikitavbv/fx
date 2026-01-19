@@ -4,7 +4,7 @@ use {
     futures::{stream::BoxStream, StreamExt, Stream},
     lazy_static::lazy_static,
     fx_common::FxStreamError,
-    fx_types::{fx_capnp, capnp},
+    fx_types::{abi_capnp, capnp},
     crate::{
         sys::{self, PtrWithLen},
         invoke_fx_api,
@@ -81,23 +81,23 @@ pub trait FxStreamExport {
 impl FxStreamExport for FxStream {
     fn wrap(inner: impl Stream<Item = Vec<u8>> + Send + 'static) -> Result<Self, fx_common::FxStreamError> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let _stream_export_request = op.init_stream_export();
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::StreamExport(v) => {
+            abi_capnp::fx_api_call_result::op::Which::StreamExport(v) => {
                 let stream_export_response = v.unwrap();
                 match stream_export_response.get_response().which().unwrap() {
-                    fx_capnp::stream_export_response::response::Which::StreamId(index) => {
+                    abi_capnp::stream_export_response::response::Which::StreamId(index) => {
                         let index = index as i64;
                         STREAM_POOL.push(index, inner.boxed());
                         Ok(Self { index })
                     },
-                    fx_capnp::stream_export_response::response::Which::Error(err) => Err(FxStreamError::PushFailed {
+                    abi_capnp::stream_export_response::response::Which::Error(err) => Err(FxStreamError::PushFailed {
                         reason: err.unwrap().to_string().unwrap(),
                     }),
                 }
@@ -125,29 +125,29 @@ impl Stream for FxImportedStream {
     type Item = Result<Vec<u8>, FxStreamError>;
     fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<fx_capnp::fx_api_call::Builder>();
+        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut stream_poll_request = op.init_stream_poll_next();
         stream_poll_request.set_stream_id(self.index as u64);
 
         let response = invoke_fx_api(message);
-        let response = response.get_root::<fx_capnp::fx_api_call_result::Reader>().unwrap();
+        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
 
         match response.get_op().which().unwrap() {
-            fx_capnp::fx_api_call_result::op::Which::StreamPollNext(v) => {
+            abi_capnp::fx_api_call_result::op::Which::StreamPollNext(v) => {
                 let stream_poll_response = v.unwrap();
                 match stream_poll_response.get_response().which().unwrap() {
-                    fx_capnp::stream_poll_next_response::response::Which::Pending(_) => Poll::Pending,
-                    fx_capnp::stream_poll_next_response::response::Which::Ready(v) => Poll::Ready(Some({
+                    abi_capnp::stream_poll_next_response::response::Which::Pending(_) => Poll::Pending,
+                    abi_capnp::stream_poll_next_response::response::Which::Ready(v) => Poll::Ready(Some({
                         let v = v.unwrap();
                         match v.get_item().which().unwrap() {
-                            fx_capnp::stream_poll_next_response::stream_item::item::Which::Result(v) => Ok(v.unwrap().to_vec()),
-                            fx_capnp::stream_poll_next_response::stream_item::item::Which::Error(err) => Err(FxStreamError::PollFailed {
+                            abi_capnp::stream_poll_next_response::stream_item::item::Which::Result(v) => Ok(v.unwrap().to_vec()),
+                            abi_capnp::stream_poll_next_response::stream_item::item::Which::Error(err) => Err(FxStreamError::PollFailed {
                                 reason: err.unwrap().to_string().unwrap(),
                             }),
                         }
                     })),
-                    fx_capnp::stream_poll_next_response::response::Which::Finished(_) => Poll::Ready(None),
+                    abi_capnp::stream_poll_next_response::response::Which::Finished(_) => Poll::Ready(None),
                 }
             },
             _other => panic!("unexpected response from stream poll api"),
