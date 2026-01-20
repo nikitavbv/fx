@@ -88,7 +88,8 @@ pub(crate) fn handle_invoke(
         }
     };
 
-    let handler = match HANDLERS.get(&handler_name) {
+    let handlers = HANDLERS.lock().unwrap();
+    let handler = match handlers.get(&handler_name) {
         Some(v) => v,
         None => {
             let mut error = result.init_error().init_error();

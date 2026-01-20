@@ -1,5 +1,5 @@
 use {
-    std::{pin::Pin, future::Future, collections::HashMap},
+    std::{pin::Pin, future::Future, collections::HashMap, sync::Mutex},
     thiserror::Error,
     serde::{de::DeserializeOwned, Serialize},
     lazy_static::lazy_static,
@@ -7,7 +7,7 @@ use {
 };
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
-type HandlerFunction = Box<dyn Fn(Vec<u8>) -> HandlerResult + Send + Sync>;
+type HandlerFunction = Box<dyn Fn(Vec<u8>) -> HandlerResult + Send>;
 
 // error type for user application errors + surrounding infrastructure errors
 #[derive(Error, Debug)]
@@ -50,7 +50,7 @@ pub type HandlerResult = BoxFuture<Result<Vec<u8>, HandlerError>>;
 type UserHandlerResult<T: Serialize + 'static> = anyhow::Result<T>;
 
 lazy_static! {
-    pub static ref HANDLERS: HashMap<&'static str, HandlerFunction> = collect_handlers();
+    pub static ref HANDLERS: Mutex<HashMap<&'static str, HandlerFunction>> = Mutex::new(collect_handlers());
 }
 
 fn collect_handlers() -> HashMap<&'static str, HandlerFunction> {
@@ -82,7 +82,7 @@ impl Handler {
     }
 }
 
-pub trait IntoHandler<Args>: Sized + Copy + Send + Sync + 'static {
+pub trait IntoHandler<Args>: Sized + Copy + Send + 'static {
     fn call(&self, args: Vec<u8>) -> HandlerResult;
     fn into_boxed(self) -> HandlerFunction {
         Box::new(move |args| self.call(args))
@@ -91,7 +91,7 @@ pub trait IntoHandler<Args>: Sized + Copy + Send + Sync + 'static {
 
 impl<F, Fut, R> IntoHandler<()> for F
 where
-    F: Fn() -> Fut + Copy + Send + Sync + 'static,
+    F: Fn() -> Fut + Copy + Send + 'static,
     Fut: Future<Output = UserHandlerResult<R>> + Send + 'static,
     R: Serialize + 'static,
 {
@@ -106,7 +106,7 @@ where
 
 impl<F, Fut, T1, R> IntoHandler<(T1,)> for F
 where
-    F: Fn(T1) -> Fut + Copy + Send + Sync + 'static,
+    F: Fn(T1) -> Fut + Copy + Send + 'static,
     Fut: Future<Output = UserHandlerResult<R>> + Send + 'static,
     T1: DeserializeOwned + Send + 'static,
     R: Serialize + 'static,
@@ -123,7 +123,7 @@ where
 
 impl<F, Fut, T1, T2, R> IntoHandler<(T1, T2)> for F
 where
-    F: Fn(T1, T2) -> Fut + Copy + Send + Sync + 'static,
+    F: Fn(T1, T2) -> Fut + Copy + Send + 'static,
     Fut: Future<Output = UserHandlerResult<R>> + Send + 'static,
     T1: DeserializeOwned + Send + 'static,
     T2: DeserializeOwned + Send + 'static,
