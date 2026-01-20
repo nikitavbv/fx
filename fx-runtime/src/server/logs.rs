@@ -57,7 +57,7 @@ impl RabbitMqLogger {
                         crate::common::LogEventLevel::Error => events_capnp::LogLevel::Error,
                     });
 
-                    fn write_log_event_object(mut builder: capnp::struct_list::Builder<'_, events_capnp::log_event_field::Owned>, object: impl Iterator<Item = (u32, (String, crate::common::EventFieldValue))>) {
+                    fn write_log_event_object(mut builder: capnp::struct_list::Builder<'_, events_capnp::log_event_field::Owned>, object: Vec<(u32, (String, crate::common::EventFieldValue))>) {
                         for (index, (key, value)) in object {
                             let mut msg_field = builder.reborrow().get(index as u32);
                             msg_field.set_key(key);
@@ -69,14 +69,14 @@ impl RabbitMqLogger {
                                 crate::common::EventFieldValue::F64(v) => msg_field_value.set_f64(v),
                                 crate::common::EventFieldValue::Object(v) => {
                                     let msg_fields = msg_field_value.init_object(v.len() as u32);
-                                    write_log_event_object(msg_fields, v.into_iter().enumerate().map(|(index, (key, value))| (index as u32, (key, (*value).clone()))));
+                                    write_log_event_object(msg_fields, v.into_iter().enumerate().map(|(index, (key, value))| (index as u32, (key, (*value).clone()))).collect());
                                 }
                             }
                         }
                     }
 
                     let msg_fields = msg_event.init_fields(msg.fields.len() as u32);
-                    write_log_event_object(msg_fields, msg.fields().iter().enumerate().map(|v| (v.0 as u32, (v.1.0.to_owned(), v.1.1.clone()))));
+                    write_log_event_object(msg_fields, msg.fields().iter().enumerate().map(|v| (v.0 as u32, (v.1.0.to_owned(), v.1.1.clone()))).collect());
 
                     capnp::serialize::write_message_to_words(&msg_encoded)
                 };
