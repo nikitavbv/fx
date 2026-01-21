@@ -291,8 +291,12 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
             join_all(consumers).await;
         },
         Command::Serve { config_file } => {
+            let config_path = std::env::current_dir().unwrap().join(config_file);
+            info!("Loading config from {config_path:?}");
+            let config = ServerConfig::load(config_path).await;
+
             FxServer::new(
-                ServerConfig::load(std::env::current_dir().unwrap().join(config_file)).await,
+                config,
                 fx_runtime,
             )
                 .serve()

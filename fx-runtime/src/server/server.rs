@@ -65,6 +65,8 @@ impl FxServer {
     }
 
     pub async fn serve(&self) {
+        info!("starting fx server");
+
         tokio::join!(
             self.definitions_monitor.scan_definitions(),
             self.run_http_listener()
