@@ -5,6 +5,8 @@ use {
     lazy_static::lazy_static,
 };
 
+mod unknown_import;
+
 lazy_static! {
     static ref COUNTER: Mutex<u64> = Mutex::new(0);
     static ref INVOCATION_COUNT: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
@@ -169,5 +171,11 @@ pub async fn test_counter_increment() -> fx::Result<()> {
 pub async fn test_counter_increment_twice_with_tags() -> fx::Result<()> {
     Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value1".to_owned()], 1);
     Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value2".to_owned()], 1);
+    Ok(())
+}
+
+#[handler]
+pub async fn test_unknown_import() -> fx::Result<()> {
+    unsafe { crate::unknown_import::_test_unknown_import(-1) };
     Ok(())
 }

@@ -708,10 +708,26 @@ impl ExecutionContext {
     ) -> Result<Self, FunctionInvokeError> {
         let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), execution_context_id, storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log);
 
+        let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
         let mut linker = wasmtime::Linker::new(&engine.wasmtime);
         linker.func_wrap("fx", "fx_api", crate::runtime::api::fx_api_handler).unwrap();
+        for import in module.imports() {
+            if import.module() == "fx" {
+                continue;
+            }
 
-        let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
+            if let Some(f) = import.ty().func() {
+                linker.func_new(
+                    import.module(),
+                    import.name(),
+                    f.clone(),
+                    move |_, _, _| {
+                        Err(wasmtime::Error::msg("requested function is not implemented by fx runtime"))
+                    }
+                ).unwrap();
+            }
+        }
+
         let instance = linker.instantiate(&mut store, &module).unwrap();
 
         let memory = instance.get_memory(&mut store, "memory").unwrap();
