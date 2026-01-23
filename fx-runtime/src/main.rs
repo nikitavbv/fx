@@ -113,6 +113,15 @@ enum Command {
     },
 }
 
+impl Command {
+    pub fn is_serve(&self) -> bool {
+        match &self {
+            Self::Serve { .. } => true,
+            _ => false,
+        }
+    }
+}
+
 #[cfg(not(target_arch = "aarch64"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -182,8 +191,10 @@ async fn main() {
     };
 
     tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
-    tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), code_storage));
-    tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), definition_storage));
+    if !args.command.is_serve() {
+        tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), code_storage));
+        tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), definition_storage));
+    }
 
     run_command(fx_runtime, args.command).await;
 }
