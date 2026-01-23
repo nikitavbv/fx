@@ -294,7 +294,7 @@ impl Engine {
         function_module: wasmtime::Module,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
-    ) -> ExecutionContextId {
+    ) -> Result<ExecutionContextId, FunctionInvokeError> {
         let execution_context_id = ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst));
 
         let execution_context = ExecutionContext::new(
@@ -307,10 +307,10 @@ impl Engine {
             function_module,
             true,
             true
-        ).unwrap();
+        )?;
         self.execution_contexts.write().unwrap().insert(execution_context_id.clone(), Arc::new(execution_context));
 
-        execution_context_id
+        Ok(execution_context_id)
     }
 
     pub(crate) fn remove_execution_context(&self, execution_context: &ExecutionContextId) {

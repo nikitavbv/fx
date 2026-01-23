@@ -277,7 +277,13 @@ impl DefinitionsMonitor {
             rpc.insert(binding.id.clone(), RpcBinding::new(function_id));
         }
 
-        let execution_context = self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc);
+        let execution_context = match self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc) {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to create execution context for function: {err:?}");
+                return;
+            }
+        };
         let prev_execution_context = self.runtime.engine.update_function_execution_context(function_id.clone(), execution_context);
         if let Some(prev_execution_context) = prev_execution_context {
             // TODO: graceful drain - cleanup in background job?
