@@ -182,7 +182,8 @@ fn handle_rpc(data: &ExecutionEnv, rpc_request: abi_capnp::rpc_call_request::Rea
                 FunctionInvokeError::DefinitionMissing(_)
                 | FunctionInvokeError::CodeFailedToLoad(_)
                 | FunctionInvokeError::CodeNotFound
-                | FunctionInvokeError::FailedToCompile(_) => {
+                | FunctionInvokeError::FailedToCompile(_)
+                | FunctionInvokeError::FailedToInstantiate(_) => {
                 //| FunctionInvokeError::InstantionError(_) => {
                     // TODO: probably there should be some reporting for this?
                     error!("failed to execute rpc api because failed to instantiate target function");

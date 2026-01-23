@@ -107,10 +107,11 @@ impl<'a> HttpHandlerFuture<'a> {
                                     error!("failed to compile function while serving request: {err:?}");
                                     response_internal_error()
                                 },
-                                /*FunctionInvokeAndExecuteError::InstantionError(err) => {
+                                FunctionInvokeAndExecuteError::FailedToInstantiate(err) => {
+                                    // TODO: not necessary runtime error, can be bad function (e.g., requiring import in fx namespace that is not implemented)
                                     error!("failed to instantiate function while serving request: {err:?}");
                                     response_internal_error()
-                                }*/
+                                }
                             }, None)
                         },
                         Err(err) => {

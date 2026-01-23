@@ -32,6 +32,10 @@ pub enum FunctionInvokeError {
     /// Function cannot be invoked if it failed to compile
     #[error("failed to compile: {0:?}")]
     FailedToCompile(CompilerError),
+
+    /// Function cannot be invoked if failed to create instance (failed to link, etc.)
+    #[error("failed to instantiate: {0:?}")]
+    FailedToInstantiate(wasmtime::Error),
 }
 
 /// Failed to invoke function because of internal error in runtime implementation.

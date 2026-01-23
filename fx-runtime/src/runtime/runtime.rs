@@ -197,7 +197,7 @@ impl Engine {
                 FunctionInvokeError::CodeFailedToLoad(err) => FunctionInvokeAndExecuteError::CodeFailedToLoad(err),
                 FunctionInvokeError::CodeNotFound => FunctionInvokeAndExecuteError::CodeNotFound,
                 FunctionInvokeError::FailedToCompile(err) => FunctionInvokeAndExecuteError::FailedToCompile(err),
-                // FunctionInvokeError::InstantionError(err) => FunctionInvokeAndExecuteError::InstantionError(err),
+                FunctionInvokeError::FailedToInstantiate(err) => FunctionInvokeAndExecuteError::FailedToInstantiate(err),
             })?
             .await
             .map_err(|err| match err {
@@ -469,6 +469,10 @@ pub enum FunctionInvokeAndExecuteError {
     /// Function cannot be invoked if it failed to compile
     #[error("failed to compile: {0:?}")]
     FailedToCompile(CompilerError),
+
+    /// Function cannot be invoked if failed to create instance (failed to link, etc.)
+    #[error("failed to instantiate: {0:?}")]
+    FailedToInstantiate(wasmtime::Error),
 }
 
 /// Error that may be returned when function is being executed (i.e, when FunctionRuntimeFuture is being polled)
@@ -728,7 +732,8 @@ impl ExecutionContext {
             }
         }
 
-        let instance = linker.instantiate(&mut store, &module).unwrap();
+        let instance = linker.instantiate(&mut store, &module)
+            .map_err(|err| FunctionInvokeError::FailedToInstantiate(err))?;
 
         let memory = instance.get_memory(&mut store, "memory").unwrap();
         store.data_mut().memory = Some(memory.clone());
