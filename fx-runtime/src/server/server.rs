@@ -10,6 +10,7 @@ use {
     tracing::{info, warn, error},
     walkdir::WalkDir,
     notify::Watcher,
+    thiserror::Error,
     crate::{
         runtime::{FxRuntime, FunctionId, sql::SqlDatabase, runtime::RpcBinding, logs::{StdoutLogger, NoopLogger, BoxLogger}},
         server::{
@@ -192,12 +193,11 @@ impl DefinitionsMonitor {
                 continue;
             }
 
-            if !entry.file_name().to_str().unwrap().ends_with(DEFINITION_FILE_SUFFIX) {
-                continue;
-            }
-
             let entry_path = entry.path();
-            let function_id = self.path_to_function_id(entry_path);
+            let function_id = match self.path_to_function_id(entry_path) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
 
             if !fs::try_exists(&entry_path).await.unwrap() {
                 warn!("config for function {function_id:?} does not exist");
@@ -239,7 +239,10 @@ impl DefinitionsMonitor {
         watcher.watch(&root, notify::RecursiveMode::Recursive).unwrap();
 
         while let Some(path) = rx.recv().await {
-            let function_id = self.path_to_function_id(&path);
+            let function_id = match self.path_to_function_id(&path) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
             if !fs::try_exists(&path).await.unwrap() {
                 self.remove_function(function_id, &mut definition_http).await;
                 continue;
@@ -247,10 +250,6 @@ impl DefinitionsMonitor {
 
             let metadata = tokio::fs::metadata(&path).await.unwrap();
             if !metadata.is_file() {
-                continue;
-            }
-
-            if !path.file_name().unwrap().to_str().unwrap().ends_with(DEFINITION_FILE_SUFFIX) {
                 continue;
             }
 
@@ -303,7 +302,13 @@ impl DefinitionsMonitor {
         let mut rpc = HashMap::new();
         for binding in config.bindings.as_ref().and_then(|v| v.rpc.as_ref()).unwrap_or(&Vec::new()) {
             let function_path = config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.function);
-            let function_id = self.path_to_function_id(&function_path);
+            let function_id = match self.path_to_function_id(&function_path) {
+                Ok(v) => v,
+                Err(err) => {
+                    warn!("failed to detect function id for rpc binding: {err:?}");
+                    continue;
+                }
+            };
             rpc.insert(binding.id.clone(), RpcBinding::new(function_id));
         }
 
@@ -364,13 +369,22 @@ impl DefinitionsMonitor {
         }
     }
 
-    fn path_to_function_id(&self, path: &Path) -> FunctionId {
+    fn path_to_function_id(&self, path: &Path) -> Result<FunctionId, FunctionIdDetectionError> {
         let function_id = path.strip_prefix(&self.functions_directory).unwrap().to_str().unwrap();
+        if !function_id.ends_with(DEFINITION_FILE_SUFFIX) {
+            return Err(FunctionIdDetectionError::PathMissingExtension);
+        }
         let function_id = &function_id[0..function_id.len() - DEFINITION_FILE_SUFFIX.len()];
-        FunctionId::new(function_id)
+        Ok(FunctionId::new(function_id))
     }
 
     fn function_id_to_path(&self, function_id: &FunctionId) -> PathBuf {
         self.functions_directory.join(function_id.as_string())
     }
+}
+
+#[derive(Error, Debug)]
+enum FunctionIdDetectionError {
+    #[error("config path missing .fx.yaml extension")]
+    PathMissingExtension,
 }
