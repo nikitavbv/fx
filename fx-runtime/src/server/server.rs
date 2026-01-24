@@ -74,6 +74,7 @@ impl FxServer {
         }
         let runtime = Arc::new(runtime);
 
+        // TODO: tokio::watch is better here?
         let (http_tx, http_rx) = mpsc::channel::<HttpListenerDefinition>(100);
         let (cron_tx, cron_rx) = mpsc::channel::<CronListenerDefinition>(100);
 
