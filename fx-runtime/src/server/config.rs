@@ -82,15 +82,6 @@ pub(crate) enum FunctionConfigLoadError {
 
 impl FunctionConfig {
     pub async fn load(file_path: PathBuf) -> Result<Self, FunctionConfigLoadError> {
-        if fs::try_exists(&file_path).await.unwrap() {
-            return Ok(Self {
-                config_path: Some(file_path),
-
-                triggers: None,
-                bindings: None,
-            });
-        }
-
         let mut config: Self = serde_yml::from_slice(
             &fs::read(&file_path).await
                 .map_err(|err| FunctionConfigLoadError::FailedToRead(err))?

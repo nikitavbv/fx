@@ -198,6 +198,11 @@ impl DefinitionsMonitor {
 
             let entry_path = entry.path();
             let function_id = self.path_to_function_id(entry_path);
+
+            if !fs::try_exists(&entry_path).await.unwrap() {
+                warn!("config for function {function_id:?} does not exist");
+                continue;
+            }
             let function_config = match FunctionConfig::load(entry_path.to_path_buf()).await {
                 Ok(v) => v,
                 Err(err) => {
@@ -244,8 +249,7 @@ impl DefinitionsMonitor {
             }
 
             let function_id = self.path_to_function_id(&path);
-
-            if !path.exists() {
+            if !fs::try_exists(&path).await.unwrap() {
                 self.remove_function(function_id, &mut definition_http).await;
                 continue;
             }
