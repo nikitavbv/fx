@@ -11,9 +11,10 @@ use {
     walkdir::WalkDir,
     notify::Watcher,
     crate::{
-        runtime::{FxRuntime, FunctionId, sql::SqlDatabase, runtime::RpcBinding},
+        runtime::{FxRuntime, FunctionId, sql::SqlDatabase, runtime::RpcBinding, logs::{StdoutLogger, NoopLogger, BoxLogger}},
         server::{
-            config::{ServerConfig, FunctionConfig},
+            config::{ServerConfig, FunctionConfig, LoggerConfig},
+            logs::RabbitMqLogger,
             http::HttpHandler,
         },
     },
@@ -45,7 +46,14 @@ struct DefinitionSubscribers {
 }
 
 impl FxServer {
-    pub fn new(config: ServerConfig, runtime: FxRuntime) -> Self {
+    pub async fn new(config: ServerConfig, mut runtime: FxRuntime) -> Self {
+        if let Some(logger) = config.logger.as_ref() {
+            runtime = runtime.with_logger(match logger {
+                LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
+                LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
+                LoggerConfig::RabbitMq { uri, exchange } => BoxLogger::new(RabbitMqLogger::new(uri.clone(), exchange.clone()).await.unwrap()),
+            });
+        }
         let runtime = Arc::new(runtime);
 
         let (http_tx, http_rx) = mpsc::channel::<HttpListenerDefinition>(100);

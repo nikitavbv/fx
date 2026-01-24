@@ -11,6 +11,22 @@ pub struct ServerConfig {
     pub config_path: Option<PathBuf>,
 
     pub functions_dir: String,
+
+    pub logger: Option<LoggerConfig>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+pub enum LoggerConfig {
+    #[serde(rename = "stdout")]
+    Stdout,
+    #[serde(rename = "noop")]
+    Noop,
+    #[serde(rename = "rabbitmq")]
+    RabbitMq {
+        uri: String,
+        exchange: String,
+    },
 }
 
 impl ServerConfig {

@@ -310,6 +310,7 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
                 config,
                 fx_runtime,
             )
+                .await
                 .serve()
                 .await
         },
