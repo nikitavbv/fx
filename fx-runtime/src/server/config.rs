@@ -11,6 +11,7 @@ pub struct ServerConfig {
     pub config_path: Option<PathBuf>,
 
     pub functions_dir: String,
+    pub cron_data_path: Option<String>,
 
     pub logger: Option<LoggerConfig>,
 }
@@ -48,12 +49,20 @@ pub struct FunctionConfig {
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionTriggersConfig {
-    pub http: Vec<FunctionHttpEndpointConfig>,
+    pub http: Option<Vec<FunctionHttpEndpointConfig>>,
+    pub cron: Option<Vec<FunctionCronTriggerConfig>>,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionHttpEndpointConfig {
     pub handler: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionCronTriggerConfig {
+    pub id: String,
+    pub handler: String,
+    pub schedule: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

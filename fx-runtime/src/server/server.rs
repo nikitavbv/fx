@@ -1,9 +1,10 @@
 use {
-    std::{sync::Arc, path::{PathBuf, Path}, collections::HashMap, net::SocketAddr},
+    std::{sync::Arc, path::{PathBuf, Path}, collections::HashMap, net::SocketAddr, str::FromStr},
     tokio::{
         fs,
         sync::{Mutex, RwLock, mpsc},
         net::TcpListener,
+        time::{sleep, Duration},
     },
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
@@ -11,12 +12,15 @@ use {
     walkdir::WalkDir,
     notify::Watcher,
     thiserror::Error,
+    cron as cron_utils,
+    chrono::Utc,
     crate::{
         runtime::{FxRuntime, FunctionId, sql::SqlDatabase, runtime::RpcBinding, logs::{StdoutLogger, NoopLogger, BoxLogger}},
         server::{
             config::{ServerConfig, FunctionConfig, LoggerConfig},
             logs::RabbitMqLogger,
             http::HttpHandler,
+            cron::CronDatabase,
         },
     },
 };
@@ -27,7 +31,10 @@ pub struct FxServer {
     runtime: Arc<FxRuntime>,
     definitions_monitor: DefinitionsMonitor,
 
+    config: ServerConfig,
+
     http_definition_rx: Arc<Mutex<mpsc::Receiver<HttpListenerDefinition>>>,
+    cron_definition_rx: Arc<Mutex<mpsc::Receiver<CronListenerDefinition>>>,
 }
 
 struct DefinitionsMonitor {
@@ -35,6 +42,7 @@ struct DefinitionsMonitor {
     functions_directory: PathBuf,
 
     http_definition_tx: Arc<Mutex<mpsc::Sender<HttpListenerDefinition>>>,
+    cron_definition_tx: Arc<Mutex<mpsc::Sender<CronListenerDefinition>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -42,8 +50,17 @@ struct HttpListenerDefinition {
     function: Option<FunctionId>,
 }
 
-struct DefinitionSubscribers {
-    http: mpsc::Receiver<HttpListenerDefinition>,
+#[derive(Clone, Debug)]
+struct CronListenerDefinition {
+    schedule: Vec<CronListenerEntry>,
+}
+
+#[derive(Clone, Debug)]
+struct CronListenerEntry {
+    task_id: String,
+    function_id: FunctionId,
+    handler: String,
+    schedule: cron_utils::Schedule,
 }
 
 impl FxServer {
@@ -58,18 +75,23 @@ impl FxServer {
         let runtime = Arc::new(runtime);
 
         let (http_tx, http_rx) = mpsc::channel::<HttpListenerDefinition>(100);
+        let (cron_tx, cron_rx) = mpsc::channel::<CronListenerDefinition>(100);
 
         let definitions_monitor = DefinitionsMonitor::new(
             runtime.clone(),
             &config,
             http_tx,
+            cron_tx,
         );
 
         Self {
             runtime,
             definitions_monitor,
 
+            config,
+
             http_definition_rx: Arc::new(Mutex::new(http_rx)),
+            cron_definition_rx: Arc::new(Mutex::new(cron_rx)),
         }
     }
 
@@ -78,13 +100,14 @@ impl FxServer {
 
         tokio::join!(
             self.definitions_monitor.scan_definitions(),
-            self.run_http_listener()
+            self.run_http_listener(),
+            self.run_cron_listener(),
         );
     }
 
     async fn run_http_listener(&self) {
-        let mut http_definition_tx = self.http_definition_rx.lock().await;
-        while let Some(mut definition) = http_definition_tx.recv().await {
+        let mut http_definition_rx = self.http_definition_rx.lock().await;
+        while let Some(mut definition) = http_definition_rx.recv().await {
             let server_function = match definition.function {
                 Some(v) => v,
                 None => {
@@ -109,7 +132,7 @@ impl FxServer {
             info!("started http server on {addr:?}");
             loop {
                 tokio::select! {
-                    new_definition = http_definition_tx.recv() => {
+                    new_definition = http_definition_rx.recv() => {
                         let new_definition = match new_definition {
                             Some(v) => v,
                             None => {
@@ -157,6 +180,83 @@ impl FxServer {
             info!("stopped http server.");
         }
     }
+
+    async fn run_cron_listener(&self) {
+        let mut cron_definition_rx = self.cron_definition_rx.lock().await;
+        while let Some(definition) = cron_definition_rx.recv().await {
+            if definition.schedule.is_empty() {
+                // empty schedule, nothing to do, wait until next configuration update...
+                continue;
+            }
+
+            let mut tasks = definition.schedule;
+
+            let cron_data_path = match self.config.cron_data_path.clone() {
+                Some(v) => v,
+                None => {
+                    error!("using cron requires specifying cron_data_path in server config. Update config and restart server to use cron.");
+                    break;
+                }
+            };
+
+            let database = CronDatabase::new(SqlDatabase::new(&cron_data_path).unwrap());
+
+            info!("started cron scheduler");
+
+            loop {
+                tokio::select! {
+                    new_definition = cron_definition_rx.recv() => {
+                        let new_definition = match new_definition {
+                            Some(v) => v,
+                            None => {
+                                continue;
+                            }
+                        };
+
+                        tasks = new_definition.schedule;
+
+                        if tasks.is_empty() {
+                            info!("no cron tasks are defined. Stopping cron scheduler.");
+                            break;
+                        }
+                    },
+                    _tick = sleep(Duration::from_secs(1)) => {
+                        for task in &tasks {
+                            let now = Utc::now();
+                            match database.get_prev_run_time(&task.task_id.as_str()) {
+                                None => {
+                                    // first time, let's run
+                                },
+                                Some(v) => if task.schedule.after(&v).next().unwrap() <= now {
+                                    // time to run
+                                } else {
+                                    // too early to run again
+                                    continue;
+                                },
+                            };
+
+                            let result = self.runtime.engine.invoke_service::<(), ()>(self.runtime.engine.clone(), &task.function_id, &task.handler, ()).await;
+                            match result {
+                                Ok(_) => {
+                                    database.update_run_time(&task.task_id, now);
+                                },
+                                Err(err) => {
+                                    error!("failed to run cron task: {err:?}. Will try again...");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            /*loop {
+                for task in definition.schedule {
+                    let now = Utc::now();
+                    match database.
+                }
+            }*/
+        }
+    }
 }
 
 impl DefinitionsMonitor {
@@ -164,11 +264,13 @@ impl DefinitionsMonitor {
         runtime: Arc<FxRuntime>,
         config: &ServerConfig,
         http_definition_tx: mpsc::Sender<HttpListenerDefinition>,
+        cron_definition_tx: mpsc::Sender<CronListenerDefinition>,
     ) -> Self {
         Self {
             runtime,
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
             http_definition_tx: Arc::new(Mutex::new(http_definition_tx)),
+            cron_definition_tx: Arc::new(Mutex::new(cron_definition_tx)),
         }
     }
 
@@ -177,6 +279,10 @@ impl DefinitionsMonitor {
 
         let mut definition_http = HttpListenerDefinition {
             function: None,
+        };
+
+        let mut definition_cron = CronListenerDefinition {
+            schedule: Vec::new(),
         };
 
         let root = &self.functions_directory;
@@ -215,6 +321,7 @@ impl DefinitionsMonitor {
                 function_id,
                 function_config,
                 &mut definition_http,
+                &mut definition_cron,
             ).await;
         }
 
@@ -264,7 +371,8 @@ impl DefinitionsMonitor {
             self.apply_config(
                 function_id,
                 function_config,
-                &mut definition_http
+                &mut definition_http,
+                &mut definition_cron,
             ).await;
         }
     }
@@ -274,6 +382,7 @@ impl DefinitionsMonitor {
         function_id: FunctionId,
         config: FunctionConfig,
         definition_http: &mut HttpListenerDefinition,
+        definition_cron: &mut CronListenerDefinition,
     ) {
         info!("applying config for {:?}", function_id.as_string());
 
@@ -326,8 +435,9 @@ impl DefinitionsMonitor {
         }
 
         // second, configure triggers:
+        // http:
         let http_trigger_enabled = config.triggers.as_ref()
-            .map(|triggers| !triggers.http.is_empty())
+            .map(|triggers| !triggers.http.as_ref().map(|v| v.is_empty()).unwrap_or(true))
             .unwrap_or(false);
 
         if http_trigger_enabled {
@@ -353,6 +463,24 @@ impl DefinitionsMonitor {
             } else {
                 // no http listener configured, nothing to do
             }
+        }
+
+        // cron:
+        let config_cron = config.triggers.as_ref().and_then(|v| v.cron.as_ref()).cloned().unwrap_or(Vec::new());
+        if !config_cron.is_empty() {
+            definition_cron.schedule = definition_cron.schedule
+                .iter()
+                .cloned()
+                .filter(|v| &v.function_id != &function_id)
+                .chain(config_cron.into_iter().map(|v| CronListenerEntry {
+                    task_id: format!("{}/{}", function_id.as_string(), v.id),
+                    function_id: function_id.clone(),
+                    handler: v.handler.clone(),
+                    schedule: cron_utils::Schedule::from_str(&v.schedule).unwrap(),
+                }))
+                .collect();
+
+            self.cron_definition_tx.lock().await.send(definition_cron.clone()).await.unwrap();
         }
     }
 

@@ -101,12 +101,12 @@ impl CronRunner {
 }
 
 #[derive(Clone)]
-struct CronDatabase {
+pub(crate) struct CronDatabase {
     database: Arc<SqlDatabase>,
 }
 
 impl CronDatabase {
-    fn new(database: SqlDatabase) -> Self {
+    pub(crate) fn new(database: SqlDatabase) -> Self {
         database.exec(Query::new("create table if not exists cron_tasks (task_id text primary key, last_run_at datetime)".to_owned()))
             .map_err(|err| FxRuntimeError::CronError { reason: format!("failed to create state table: {err:?}") })
             .unwrap();
@@ -116,7 +116,7 @@ impl CronDatabase {
         }
     }
 
-    fn get_prev_run_time(&self, task_id: &str) -> Option<DateTime<Utc>> {
+    pub(crate) fn get_prev_run_time(&self, task_id: &str) -> Option<DateTime<Utc>> {
         let result = self.database.exec(
             Query::new("select last_run_at from cron_tasks where task_id = ?".to_owned())
                 .with_param(Value::Text(task_id.to_owned()))
@@ -136,7 +136,7 @@ impl CronDatabase {
         Some(datetime.and_utc())
     }
 
-    fn update_run_time(&self, task_id: &str, run_at: DateTime<Utc>) {
+    pub(crate) fn update_run_time(&self, task_id: &str, run_at: DateTime<Utc>) {
         self.database.exec(
             Query::new("insert or replace into cron_tasks (task_id, last_run_at) values (?, ?)".to_owned())
                 .with_param(Value::Text(task_id.to_owned()))
