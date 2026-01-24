@@ -43,6 +43,13 @@ struct DefinitionsMonitor {
 
     http_definition_tx: Arc<Mutex<mpsc::Sender<HttpListenerDefinition>>>,
     cron_definition_tx: Arc<Mutex<mpsc::Sender<CronListenerDefinition>>>,
+
+    listeners_state: Arc<Mutex<ListenersState>>,
+}
+
+struct ListenersState {
+    http: HttpListenerDefinition,
+    cron: CronListenerDefinition,
 }
 
 #[derive(Clone, Debug)]
@@ -249,13 +256,6 @@ impl FxServer {
                     }
                 }
             }
-
-            /*loop {
-                for task in definition.schedule {
-                    let now = Utc::now();
-                    match database.
-                }
-            }*/
         }
     }
 }
@@ -272,19 +272,14 @@ impl DefinitionsMonitor {
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
             http_definition_tx: Arc::new(Mutex::new(http_definition_tx)),
             cron_definition_tx: Arc::new(Mutex::new(cron_definition_tx)),
+            listeners_state: Arc::new(Mutex::new(ListenersState::new())),
         }
     }
 
     pub async fn scan_definitions(&self) {
         info!("will scan definitions in {:?}", self.functions_directory);
 
-        let mut definition_http = HttpListenerDefinition {
-            function: None,
-        };
-
-        let mut definition_cron = CronListenerDefinition {
-            schedule: Vec::new(),
-        };
+        let mut listeners_state = self.listeners_state.lock().await;
 
         let root = &self.functions_directory;
         for entry in WalkDir::new(root) {
@@ -321,8 +316,7 @@ impl DefinitionsMonitor {
             self.apply_config(
                 function_id,
                 function_config,
-                &mut definition_http,
-                &mut definition_cron,
+                &mut listeners_state,
             ).await;
         }
 
@@ -352,7 +346,7 @@ impl DefinitionsMonitor {
                 Err(_) => continue,
             };
             if !fs::try_exists(&path).await.unwrap() {
-                self.remove_function(function_id, &mut definition_http).await;
+                self.remove_function(function_id, &mut listeners_state.http).await;
                 continue;
             }
 
@@ -372,18 +366,23 @@ impl DefinitionsMonitor {
             self.apply_config(
                 function_id,
                 function_config,
-                &mut definition_http,
-                &mut definition_cron,
+                &mut listeners_state,
             ).await;
         }
+    }
+
+    /// Note: cannot be used together with `scan_definitions`. Provided for testing and for
+    /// building very custom servers.
+    pub async fn define_functions(&self, function_id: FunctionId, config: FunctionConfig) {
+        let mut listeners_state = self.listeners_state.lock().await;
+        self.apply_config(function_id, config, &mut listeners_state).await;
     }
 
     async fn apply_config(
         &self,
         function_id: FunctionId,
         config: FunctionConfig,
-        definition_http: &mut HttpListenerDefinition,
-        definition_cron: &mut CronListenerDefinition,
+        listeners_state: &mut ListenersState,
     ) {
         info!("applying config for {:?}", function_id.as_string());
 
@@ -442,7 +441,7 @@ impl DefinitionsMonitor {
             .unwrap_or(false);
 
         if http_trigger_enabled {
-            if let Some(existing_handler) = definition_http.function.as_ref() {
+            if let Some(existing_handler) = listeners_state.http.function.as_ref() {
                 if existing_handler != &function_id {
                     panic!("http listener already set to a different function: {:?}", existing_handler.as_string());
                 } else {
@@ -450,16 +449,16 @@ impl DefinitionsMonitor {
                 }
             } else {
                 // no http listener configured, let's set one
-                definition_http.function = Some(function_id.clone());
-                self.http_definition_tx.lock().await.send(definition_http.clone()).await.unwrap();
+                listeners_state.http.function = Some(function_id.clone());
+                self.http_definition_tx.lock().await.send(listeners_state.http.clone()).await.unwrap();
             }
         } else {
-            if let Some(existing_handler) = definition_http.function.as_ref() {
+            if let Some(existing_handler) = listeners_state.http.function.as_ref() {
                 if existing_handler != &function_id {
                     // existing handler set to a different function, nothing to do
                 } else {
-                    definition_http.function = None;
-                    self.http_definition_tx.lock().await.send(definition_http.clone()).await.unwrap();
+                    listeners_state.http.function = None;
+                    self.http_definition_tx.lock().await.send(listeners_state.http.clone()).await.unwrap();
                 }
             } else {
                 // no http listener configured, nothing to do
@@ -469,7 +468,7 @@ impl DefinitionsMonitor {
         // cron:
         let config_cron = config.triggers.as_ref().and_then(|v| v.cron.as_ref()).cloned().unwrap_or(Vec::new());
         if !config_cron.is_empty() {
-            definition_cron.schedule = definition_cron.schedule
+            listeners_state.cron.schedule = listeners_state.cron.schedule
                 .iter()
                 .cloned()
                 .filter(|v| &v.function_id != &function_id)
@@ -481,7 +480,7 @@ impl DefinitionsMonitor {
                 }))
                 .collect();
 
-            self.cron_definition_tx.lock().await.send(definition_cron.clone()).await.unwrap();
+            self.cron_definition_tx.lock().await.send(listeners_state.cron.clone()).await.unwrap();
         }
     }
 
@@ -509,6 +508,19 @@ impl DefinitionsMonitor {
 
     fn function_id_to_path(&self, function_id: &FunctionId) -> PathBuf {
         self.functions_directory.join(function_id.as_string())
+    }
+}
+
+impl ListenersState {
+    pub fn new() -> Self {
+        Self {
+            http: HttpListenerDefinition {
+                function: None,
+            },
+            cron: CronListenerDefinition {
+                schedule: Vec::new(),
+            },
+        }
     }
 }
 

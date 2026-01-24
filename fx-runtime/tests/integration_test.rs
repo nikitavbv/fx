@@ -5,15 +5,21 @@ use {
     parking_lot::ReentrantMutex,
     futures::StreamExt,
     fx_common::FxExecutionError,
-    fx_runtime::runtime::{
-        FunctionId,
-        FxRuntime,
-        FxStream,
-        definition::{DefinitionProvider, FunctionDefinition, KvDefinition, RpcDefinition, SqlDefinition},
-        kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
-        logs::{BoxLogger, EventFieldValue, LogEventType},
-        error::FxRuntimeError,
-        FunctionInvokeAndExecuteError,
+    fx_runtime::{
+        runtime::{
+            FunctionId,
+            FxRuntime,
+            FxStream,
+            definition::{DefinitionProvider, FunctionDefinition, KvDefinition, RpcDefinition, SqlDefinition},
+            kv::{BoxedStorage, EmptyStorage, SqliteStorage, WithKey},
+            logs::{BoxLogger, EventFieldValue, LogEventType},
+            error::FxRuntimeError,
+            FunctionInvokeAndExecuteError,
+        },
+        server::{
+            server::FxServer,
+            config::ServerConfig,
+        },
     },
     crate::logger::TestLogger,
 };
@@ -54,6 +60,22 @@ static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMute
         .with_definition_provider(definitions)
         .with_logger(BoxLogger::new(LOGGER.clone()))
 }));
+
+static FX_SERVER: Lazy<ReentrantMutex<FxServer>> = Lazy::new(|| {
+    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+        ReentrantMutex::new(FxServer::new(
+            ServerConfig {
+                config_path: Some("/tmp/fx".into()),
+
+                functions_dir: "/tmp/fx/functions".to_owned(),
+                cron_data_path: None,
+
+                logger: None,
+            },
+            FxRuntime::new()
+        ).await)
+    })
+});
 
 #[tokio::test]
 async fn simple() {
