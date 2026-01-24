@@ -239,18 +239,18 @@ impl DefinitionsMonitor {
         watcher.watch(&root, notify::RecursiveMode::Recursive).unwrap();
 
         while let Some(path) = rx.recv().await {
+            let function_id = self.path_to_function_id(&path);
+            if !fs::try_exists(&path).await.unwrap() {
+                self.remove_function(function_id, &mut definition_http).await;
+                continue;
+            }
+
             let metadata = tokio::fs::metadata(&path).await.unwrap();
             if !metadata.is_file() {
                 continue;
             }
 
             if !path.file_name().unwrap().to_str().unwrap().ends_with(DEFINITION_FILE_SUFFIX) {
-                continue;
-            }
-
-            let function_id = self.path_to_function_id(&path);
-            if !fs::try_exists(&path).await.unwrap() {
-                self.remove_function(function_id, &mut definition_http).await;
                 continue;
             }
 
