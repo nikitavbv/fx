@@ -1,7 +1,8 @@
 use {
     std::path::{PathBuf, Path},
-    tokio::fs,
+    tokio::{fs, io},
     serde::Deserialize,
+    thiserror::Error,
 };
 
 #[derive(Deserialize)]
@@ -57,10 +58,19 @@ pub struct RpcBindingConfig {
     pub function: String,
 }
 
+#[derive(Error, Debug)]
+pub(crate) enum FunctionConfigLoadError {
+    #[error("failed to read config file: {0:?}")]
+    FailedToRead(io::Error),
+}
+
 impl FunctionConfig {
-    pub async fn load(file_path: PathBuf) -> Self {
-        let mut config: Self = serde_yml::from_slice(&fs::read(&file_path).await.unwrap()).unwrap();
+    pub async fn load(file_path: PathBuf) -> Result<Self, FunctionConfigLoadError> {
+        let mut config: Self = serde_yml::from_slice(
+            &fs::read(&file_path).await
+                .map_err(|err| FunctionConfigLoadError::FailedToRead(err))?
+        ).unwrap();
         config.config_path = Some(file_path);
-        config
+        Ok(config)
     }
 }

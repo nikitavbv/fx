@@ -268,7 +268,7 @@ impl Engine {
         }
     }
 
-    fn resolve_context_id_for_function(&self, function_id: &FunctionId) -> Arc<ExecutionContextId> {
+    pub(crate) fn resolve_context_id_for_function(&self, function_id: &FunctionId) -> Arc<ExecutionContextId> {
         if let Some(context_id) = self.deployed_functions.read().unwrap().get(&function_id) {
             context_id.load().clone()
         } else {

@@ -190,7 +190,18 @@ impl DefinitionsMonitor {
 
             let entry_path = entry.path();
             let function_id = self.path_to_function_id(entry_path);
-            let function_config = FunctionConfig::load(entry_path.to_path_buf()).await;
+
+            if !fs::try_exists(&entry_path).await.unwrap() {
+                warn!("config for function {function_id:?} does not exist");
+                continue;
+            }
+            let function_config = match FunctionConfig::load(entry_path.to_path_buf()).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to load function config: {err:?}");
+                    continue;
+                }
+            };
 
             self.apply_config(
                 function_id,
@@ -230,7 +241,18 @@ impl DefinitionsMonitor {
             }
 
             let function_id = self.path_to_function_id(&path);
-            let function_config = FunctionConfig::load(path.to_path_buf()).await;
+            if !fs::try_exists(&path).await.unwrap() {
+                self.remove_function(function_id, &mut definition_http).await;
+                continue;
+            }
+
+            let function_config = match FunctionConfig::load(path.to_path_buf()).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to load function config: {err:?}");
+                    continue;
+                }
+            };
 
             self.apply_config(
                 function_id,
@@ -319,9 +341,19 @@ impl DefinitionsMonitor {
                 // no http listener configured, nothing to do
             }
         }
+    }
 
+    async fn remove_function(&self, function_id: FunctionId, definition_http: &mut HttpListenerDefinition) {
+        info!("removing function: {function_id:?}");
 
-        // TODO: update definitions and send event
+        let execution_context = self.runtime.engine.resolve_context_id_for_function(&function_id);
+        // TODO: graceful drain - cleanup in background job?
+        self.runtime.engine.remove_execution_context(&execution_context);
+
+        if definition_http.function.as_ref().map(|v| v == &function_id).unwrap_or(false) {
+            definition_http.function = None;
+            self.http_definition_tx.lock().await.send(definition_http.clone()).await.unwrap();
+        }
     }
 
     fn path_to_function_id(&self, path: &Path) -> FunctionId {
