@@ -42,6 +42,7 @@ pub struct FxServer {
 
     http_definition_rx: Arc<Mutex<mpsc::Receiver<HttpListenerDefinition>>>,
     cron_definition_rx: Arc<Mutex<mpsc::Receiver<CronListenerDefinition>>>,
+    rabbitmq_definition_rx: Arc<Mutex<mpsc::Receiver<RabbitmqListenerDefinition>>>,
 }
 
 struct DefinitionsMonitor {
@@ -50,6 +51,7 @@ struct DefinitionsMonitor {
 
     http_definition_tx: Arc<Mutex<mpsc::Sender<HttpListenerDefinition>>>,
     cron_definition_tx: Arc<Mutex<mpsc::Sender<CronListenerDefinition>>>,
+    rabbitmq_definition_tx: Arc<Mutex<mpsc::Sender<RabbitmqListenerDefinition>>>,
 
     listeners_state: Arc<Mutex<ListenersState>>,
 }
@@ -71,15 +73,23 @@ struct CronListenerDefinition {
 }
 
 #[derive(Clone, Debug)]
-struct RabbitmqListenerDefinition {
-}
-
-#[derive(Clone, Debug)]
 struct CronListenerEntry {
     task_id: String,
     function_id: FunctionId,
     handler: String,
     schedule: cron_utils::Schedule,
+}
+
+#[derive(Clone, Debug)]
+struct RabbitmqListenerDefinition {
+    consumers: Vec<RabbitMqConsumerDefinition>,
+}
+
+#[derive(Clone, Debug)]
+struct RabbitMqConsumerDefinition {
+    queue: String,
+    function_id: FunctionId,
+    handler: String,
 }
 
 impl FxServer {
@@ -92,12 +102,14 @@ impl FxServer {
         // TODO: tokio::watch is better here?
         let (http_tx, http_rx) = mpsc::channel::<HttpListenerDefinition>(100);
         let (cron_tx, cron_rx) = mpsc::channel::<CronListenerDefinition>(100);
+        let (rabbitmq_tx, rabbitmq_rx) = mpsc::channel::<RabbitmqListenerDefinition>(100);
 
         let definitions_monitor = DefinitionsMonitor::new(
             runtime.clone(),
             &config,
             http_tx,
             cron_tx,
+            rabbitmq_tx,
         );
 
         Self {
@@ -108,6 +120,7 @@ impl FxServer {
 
             http_definition_rx: Arc::new(Mutex::new(http_rx)),
             cron_definition_rx: Arc::new(Mutex::new(cron_rx)),
+            rabbitmq_definition_rx: Arc::new(Mutex::new(rabbitmq_rx)),
         }
     }
 
@@ -118,6 +131,7 @@ impl FxServer {
             self.definitions_monitor.scan_definitions(),
             self.run_http_listener(),
             self.run_cron_listener(),
+            self.run_rabbitmq_listener(),
         );
     }
 
@@ -277,6 +291,20 @@ impl FxServer {
             }
         }
     }
+
+    async fn run_rabbitmq_listener(&self) {
+        let mut rabbitmq_definition_rx = self.rabbitmq_definition_rx.lock().await;
+        while let Some(definition) = rabbitmq_definition_rx.recv().await {
+            if definition.consumers.is_empty() {
+                // empty consumers list, nothing to do, wait until next configuration update...
+                continue;
+            }
+
+            let mut consumers = definition.consumers;
+
+            // TODO: create consumers and listen using FuturesUnordered (?)
+        }
+    }
 }
 
 impl DefinitionsMonitor {
@@ -285,12 +313,14 @@ impl DefinitionsMonitor {
         config: &ServerConfig,
         http_definition_tx: mpsc::Sender<HttpListenerDefinition>,
         cron_definition_tx: mpsc::Sender<CronListenerDefinition>,
+        rabbitmq_definition_tx: mpsc::Sender<RabbitmqListenerDefinition>,
     ) -> Self {
         Self {
             runtime,
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
             http_definition_tx: Arc::new(Mutex::new(http_definition_tx)),
             cron_definition_tx: Arc::new(Mutex::new(cron_definition_tx)),
+            rabbitmq_definition_tx: Arc::new(Mutex::new(rabbitmq_definition_tx)),
             listeners_state: Arc::new(Mutex::new(ListenersState::new())),
         }
     }
@@ -526,12 +556,17 @@ impl DefinitionsMonitor {
         self.cron_definition_tx.lock().await.send(listeners_state.cron.clone()).await.unwrap();
 
         // rabbitmq:
-        let config_rabbitmq = config.triggers.as_ref().and_then(|v| v.rabbitmq.as_ref()).cloned().unwrap_or(Vec::new());
-        if !config_rabbitmq.is_empty() {
-            // TODO
-        } else {
-            // TODO
-        }
+        listeners_state.rabbitmq.consumers = listeners_state.rabbitmq.consumers
+            .iter()
+            .cloned()
+            .filter(|v| &v.function_id != &function_id)
+            .chain(config.triggers.as_ref().and_then(|v| v.rabbitmq.as_ref()).cloned().unwrap_or(Vec::new()).into_iter().map(|v| RabbitMqConsumerDefinition {
+                queue: v.queue.clone(),
+                function_id: function_id.clone(),
+                handler: v.handler.clone(),
+            }))
+            .collect();
+        self.rabbitmq_definition_tx.lock().await.send(listeners_state.rabbitmq.clone()).await.unwrap();
     }
 
     async fn remove_function(&self, function_id: FunctionId, definition_http: &mut HttpListenerDefinition) {
@@ -570,7 +605,9 @@ impl ListenersState {
             cron: CronListenerDefinition {
                 schedule: Vec::new(),
             },
-            rabbitmq: RabbitmqListenerDefinition {},
+            rabbitmq: RabbitmqListenerDefinition {
+                consumers: Vec::new(),
+            },
         }
     }
 }
