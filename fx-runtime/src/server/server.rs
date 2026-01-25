@@ -267,6 +267,7 @@ impl FxServer {
                                     database.update_run_time(&task.task_id, now);
                                 },
                                 Err(err) => {
+                                    // TODO: should not log error if error is caused by user application (e.g., function panicked)
                                     error!("failed to run cron task: {err:?}. Will try again...");
                                 }
                             }
