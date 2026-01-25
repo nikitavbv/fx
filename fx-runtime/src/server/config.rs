@@ -83,6 +83,16 @@ impl FunctionConfig {
 
         self
     }
+
+    pub fn with_binding_rpc(mut self, id: String, path: String) -> Self {
+        if self.bindings.is_none() {
+            self.bindings = Some(FunctionBindingsConfig::new());
+        }
+
+        self.bindings = self.bindings.map(|v| v.with_rpc(id, path));
+
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -148,6 +158,16 @@ impl FunctionBindingsConfig {
             id,
             path,
         });
+
+        self
+    }
+
+    pub fn with_rpc(mut self, id: String, path: String) -> Self {
+        if self.rpc.is_none() {
+            self.rpc = Some(Vec::new());
+        }
+
+        self.rpc.as_mut().unwrap().push(RpcBindingConfig { id, function: path });
 
         self
     }

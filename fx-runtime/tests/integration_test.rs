@@ -68,7 +68,7 @@ async fn simple() {
 
 #[tokio::test]
 async fn sql_simple() {
-    assert_eq!(52, FX_INSTANCE.lock().invoke_service::<_, u32>(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0);
+    assert_eq!(52, fx_server().await.lock().invoke_function::<_, u32>(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0);
 }
 
 #[tokio::test]
@@ -325,7 +325,16 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
             .with_binding_sql("app".to_owned(), ":memory:".to_owned())
+            .with_binding_rpc("app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
     ).await;
+
+    for function_id in ["test-app-for-panic", "test-app-for-system", "other-app"] {
+        server.define_function(
+            FunctionId::new(function_id),
+            FunctionConfig::new("/tmp/fx/functions/test-app-for-panic.fx.yaml".into())
+                .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+        ).await;
+    }
 
     let server = Arc::new(ReentrantMutex::new(server));
     *fx_server = Some(server.clone());
