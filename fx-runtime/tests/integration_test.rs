@@ -1,7 +1,7 @@
 use {
     std::{fs, sync::Arc, time::Instant},
     once_cell::sync::Lazy,
-    tokio::join,
+    tokio::{join, sync::{OnceCell, Mutex}},
     parking_lot::ReentrantMutex,
     futures::StreamExt,
     fx_common::FxExecutionError,
@@ -18,7 +18,7 @@ use {
         },
         server::{
             server::FxServer,
-            config::ServerConfig,
+            config::{ServerConfig, FunctionConfig},
         },
     },
     crate::logger::TestLogger,
@@ -60,22 +60,6 @@ static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMute
         .with_definition_provider(definitions)
         .with_logger(BoxLogger::new(LOGGER.clone()))
 }));
-
-static FX_SERVER: Lazy<ReentrantMutex<FxServer>> = Lazy::new(|| {
-    tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-        ReentrantMutex::new(FxServer::new(
-            ServerConfig {
-                config_path: Some("/tmp/fx".into()),
-
-                functions_dir: "/tmp/fx/functions".to_owned(),
-                cron_data_path: None,
-
-                logger: None,
-            },
-            FxRuntime::new()
-        ).await)
-    })
-});
 
 #[tokio::test]
 async fn simple() {
@@ -313,6 +297,37 @@ async fn metrics_counter_increment() {
 #[tokio::test]
 async fn metrics_counter_increment_twice_with_tags() {
     FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
+}
+
+async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
+    static FX_SERVER: Mutex<Option<Arc<ReentrantMutex<FxServer>>>> = Mutex::const_new(None);
+
+    let mut fx_server = FX_SERVER.lock().await;
+    if let Some(fx_server) = fx_server.as_ref() {
+        return fx_server.clone();
+    }
+
+    let server = FxServer::new(
+        ServerConfig {
+            config_path: Some("/tmp/fx".into()),
+
+            functions_dir: "/tmp/fx/functions".to_owned(),
+            cron_data_path: None,
+
+            logger: None,
+        },
+        FxRuntime::new()
+    ).await;
+
+    server.define_function(
+        FunctionId::new("test-app"),
+        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+    ).await;
+
+    let server = Arc::new(ReentrantMutex::new(server));
+    *fx_server = Some(server.clone());
+
+    server
 }
 
 // TODO: add test that verifies that counter metrics with labels are recorded correctly

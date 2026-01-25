@@ -47,6 +47,16 @@ pub struct FunctionConfig {
     pub bindings: Option<FunctionBindingsConfig>,
 }
 
+impl FunctionConfig {
+    pub fn new(config_path: PathBuf) -> Self {
+        Self {
+            config_path: Some(config_path),
+            triggers: None,
+            bindings: None,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionTriggersConfig {
     pub http: Option<Vec<FunctionHttpEndpointConfig>>,

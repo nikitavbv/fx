@@ -15,7 +15,13 @@ use {
     cron as cron_utils,
     chrono::Utc,
     crate::{
-        runtime::{FxRuntime, FunctionId, sql::SqlDatabase, runtime::RpcBinding, logs::{StdoutLogger, NoopLogger, BoxLogger}},
+        runtime::{
+            FxRuntime,
+            FunctionId,
+            sql::SqlDatabase,
+            runtime::{RpcBinding, FunctionInvokeAndExecuteError, FunctionInvocationEvent},
+            logs::{StdoutLogger, NoopLogger, BoxLogger},
+        },
         server::{
             config::{ServerConfig, FunctionConfig, LoggerConfig},
             logs::RabbitMqLogger,
@@ -111,6 +117,16 @@ impl FxServer {
             self.run_http_listener(),
             self.run_cron_listener(),
         );
+    }
+
+    /// Note: cannot be used together with `serve`. Provided for testing and for
+    /// building very custom servers.
+    pub async fn define_function(&self, function_id: FunctionId, config: FunctionConfig) {
+        self.definitions_monitor.define_function(function_id, config).await;
+    }
+
+    pub async fn invoke_function<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, function_id: &FunctionId, handler_name: &str, arg: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
+        self.runtime.engine.invoke_service(self.runtime.engine.clone(), &function_id, handler_name, arg).await
     }
 
     async fn run_http_listener(&self) {
@@ -373,7 +389,7 @@ impl DefinitionsMonitor {
 
     /// Note: cannot be used together with `scan_definitions`. Provided for testing and for
     /// building very custom servers.
-    pub async fn define_functions(&self, function_id: FunctionId, config: FunctionConfig) {
+    pub async fn define_function(&self, function_id: FunctionId, config: FunctionConfig) {
         let mut listeners_state = self.listeners_state.lock().await;
         self.apply_config(function_id, config, &mut listeners_state).await;
     }
