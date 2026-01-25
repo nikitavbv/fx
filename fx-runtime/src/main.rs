@@ -4,27 +4,20 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf, net::SocketAddr, sync::Arc, process::exit},
+    std::{fs, path::PathBuf, sync::Arc, process::exit},
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
-    anyhow::anyhow,
-    tokio::{join, net::TcpListener, time::sleep},
-    hyper::server::conn::http1,
-    hyper_util::rt::{TokioIo, TokioTimer},
-    clap::{Parser, Subcommand, CommandFactory, ValueEnum, builder::PossibleValue},
+    clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all},
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
-            kv::{SqliteStorage, BoxedStorage, FsStorage, SuffixStorage, KVStorage},
-            sql::SqlDatabase,
-            definition::{DefinitionProvider, load_cron_task_from_config, load_rabbitmq_consumer_task_from_config},
+            kv::{BoxedStorage, FsStorage, SuffixStorage, KVStorage},
+            definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
             metrics::run_metrics_server,
             logs::{BoxLogger, StdoutLogger, NoopLogger},
         },
         server::{
-            cron::{CronRunner, CronTaskDefinition},
-            http::HttpHandler,
             consumer::RabbitMqConsumer,
             logs::RabbitMqLogger,
             server::FxServer,
