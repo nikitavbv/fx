@@ -43,6 +43,8 @@ pub struct FunctionConfig {
     #[serde(skip_deserializing)]
     pub config_path: Option<PathBuf>,
 
+    pub code: Option<FunctionCodeConfig>,
+
     pub triggers: Option<FunctionTriggersConfig>,
     pub bindings: Option<FunctionBindingsConfig>,
 }
@@ -51,10 +53,23 @@ impl FunctionConfig {
     pub fn new(config_path: PathBuf) -> Self {
         Self {
             config_path: Some(config_path),
+            code: None,
             triggers: None,
             bindings: None,
         }
     }
+
+    pub fn with_code_inline(mut self, code: Vec<u8>) -> Self {
+        self.code = Some(FunctionCodeConfig::Inline(code));
+        self
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum FunctionCodeConfig {
+    Path(String),
+    Inline(Vec<u8>),
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

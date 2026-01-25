@@ -23,7 +23,7 @@ use {
             logs::{StdoutLogger, NoopLogger, BoxLogger},
         },
         server::{
-            config::{ServerConfig, FunctionConfig, LoggerConfig},
+            config::{ServerConfig, FunctionConfig, FunctionCodeConfig, LoggerConfig},
             logs::RabbitMqLogger,
             http::HttpHandler,
             cron::CronDatabase,
@@ -403,8 +403,17 @@ impl DefinitionsMonitor {
         info!("applying config for {:?}", function_id.as_string());
 
         // first, precompile module:
-        let module_code = self.function_id_to_path(&function_id).with_added_extension("wasm");
-        let module_code = fs::read(&module_code).await.unwrap();
+        let module_code = match config.code {
+            Some(v) => match v {
+                FunctionCodeConfig::Path(v) => fs::read(&v).await.unwrap(),
+                FunctionCodeConfig::Inline(v) => v,
+            },
+            None => {
+                let module_code = self.function_id_to_path(&function_id).with_added_extension("wasm");
+                fs::read(&module_code).await.unwrap()
+            },
+        };
+
         let runtime = self.runtime.clone();
         let compiled_module = {
             let function_id = function_id.clone();

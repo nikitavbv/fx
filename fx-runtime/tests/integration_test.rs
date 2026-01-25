@@ -63,7 +63,7 @@ static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMute
 
 #[tokio::test]
 async fn simple() {
-    assert_eq!(52, FX_INSTANCE.lock().invoke_service::<_, u32>(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0);
+    assert_eq!(52, fx_server().await.lock().invoke_function::<_, u32>(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0);
 }
 
 #[tokio::test]
@@ -322,6 +322,7 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
     server.define_function(
         FunctionId::new("test-app"),
         FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
     ).await;
 
     let server = Arc::new(ReentrantMutex::new(server));
