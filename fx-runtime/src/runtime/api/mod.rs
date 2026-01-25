@@ -14,7 +14,7 @@ use {
         runtime::{ExecutionEnv, write_memory_obj, PtrWithLen, FunctionId, FunctionExecutionError},
         kv::KVStorage,
         error::FunctionInvokeError,
-        logs,
+        logs::{self, Logger},
         futures::{HostFutureError, HostFuturePollError},
     },
 };
@@ -364,7 +364,7 @@ fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: abi_capnp::sql_m
 }
 
 fn handle_log(data: &ExecutionEnv, log_request: abi_capnp::log_request::Reader, _log_response: abi_capnp::log_response::Builder) {
-    data.engine.log(logs::LogMessage::new(
+    let message = logs::LogMessage::new(
         logs::LogSource::function(&data.function_id),
         match log_request.get_event_type().unwrap() {
             abi_capnp::EventType::Begin => logs::LogEventType::Begin,
@@ -382,7 +382,13 @@ fn handle_log(data: &ExecutionEnv, log_request: abi_capnp::log_request::Reader, 
             .into_iter()
             .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
             .collect()
-    ).into());
+    ).into();
+
+    if let Some(custom_logger) = data.logger.as_ref() {
+        custom_logger.log(message);
+    } else {
+        data.engine.log(message);
+    }
 }
 
 #[derive(Error, Debug)]

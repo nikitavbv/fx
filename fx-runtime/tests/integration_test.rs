@@ -35,6 +35,7 @@ impl Drop for DataCleanupGuard {
 }
 
 static LOGGER: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
+static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 
 #[tokio::test]
 async fn simple() {
@@ -271,6 +272,20 @@ async fn log_span() {
 }
 
 #[tokio::test]
+async fn logger_override() {
+    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app-logger-override"), "test_log", ()).await.unwrap();
+
+    let events = LOGGER_CUSTOM_FUNCTION.events();
+    let found_expected_event = events.iter()
+        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("this is a test log".to_owned())).unwrap_or(false))
+        .is_some();
+
+    if !found_expected_event {
+        panic!("didn't find expected event. All events: {events:?}");
+    }
+}
+
+#[tokio::test]
 async fn metrics_counter_increment() {
     fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
     // todo: check counter value
@@ -308,6 +323,13 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
             .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
             .with_binding_sql("app".to_owned(), ":memory:".to_owned())
             .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
+    ).await;
+
+    server.define_function(
+        FunctionId::new("test-app-logger-override"),
+        FunctionConfig::new("/tmp/fx/functions/test-app-logger-override.fx.yaml".into())
+            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+            .with_logger(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER_CUSTOM_FUNCTION.clone()))))
     ).await;
 
     for function_id in ["test-app-for-panic", "test-app-for-system", "other-app"] {

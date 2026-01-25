@@ -285,6 +285,7 @@ impl Engine {
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
         kv: HashMap<String, BoxedStorage>,
+        logger: Option<BoxLogger>,
     ) -> Result<ExecutionContextId, FunctionInvokeError> {
         let execution_context_id = ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst));
 
@@ -297,7 +298,8 @@ impl Engine {
             rpc,
             function_module,
             true,
-            true
+            true,
+            logger,
         )?;
         self.execution_contexts.write().unwrap().insert(execution_context_id.clone(), Arc::new(execution_context));
 
@@ -387,6 +389,7 @@ impl Engine {
             self.compile_module(&module_code),
             true, // TODO: permissions
             true, // TODO: permissions
+            None,
         );
 
         if let Some(memory_usage) = memory_tracker.report_total() {
@@ -703,9 +706,10 @@ impl ExecutionContext {
         rpc: HashMap<String, RpcBinding>,
         module: wasmtime::Module,
         allow_fetch: bool,
-        allow_log: bool
+        allow_log: bool,
+        logger: Option<BoxLogger>,
     ) -> Result<Self, FunctionInvokeError> {
-        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), execution_context_id, storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log);
+        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), execution_context_id, storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log, logger);
 
         let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
         let mut linker = wasmtime::Linker::new(&engine.wasmtime);
@@ -789,6 +793,7 @@ pub(crate) struct ExecutionEnv {
     allow_log: bool,
 
     pub(crate) fetch_client: reqwest::Client,
+    pub(crate) logger: Option<BoxLogger>,
 }
 
 impl ExecutionEnv {
@@ -801,6 +806,7 @@ impl ExecutionEnv {
         rpc: HashMap<String, RpcBinding>,
         allow_fetch: bool,
         allow_log: bool,
+        logger: Option<BoxLogger>,
     ) -> Self {
         Self {
             execution_context: RwLock::new(None),
@@ -818,6 +824,7 @@ impl ExecutionEnv {
             allow_fetch,
             allow_log,
             fetch_client: reqwest::Client::new(),
+            logger,
         }
     }
 
@@ -828,6 +835,7 @@ impl ExecutionEnv {
         let storage = std::mem::replace(&mut self.storage, HashMap::new());
         let sql = std::mem::replace(&mut self.sql, HashMap::new());
         let rpc = std::mem::replace(&mut self.rpc, HashMap::new());
+        let logger = std::mem::replace(&mut self.logger, None);
 
         Self {
             execution_context,
@@ -851,6 +859,7 @@ impl ExecutionEnv {
             allow_log: true,
 
             fetch_client: reqwest::Client::new(),
+            logger,
         }
     }
 }

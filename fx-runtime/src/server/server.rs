@@ -85,12 +85,7 @@ struct CronListenerEntry {
 impl FxServer {
     pub async fn new(config: ServerConfig, mut runtime: FxRuntime) -> Self {
         if let Some(logger) = config.logger.as_ref() {
-            runtime = runtime.with_logger(match logger {
-                LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
-                LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
-                LoggerConfig::RabbitMq { uri, exchange } => BoxLogger::new(RabbitMqLogger::new(uri.clone(), exchange.clone()).await.unwrap()),
-                LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
-            });
+            runtime = runtime.with_logger(create_logger(logger).await);
         }
         let runtime = Arc::new(runtime);
 
@@ -467,7 +462,12 @@ impl DefinitionsMonitor {
             ).unwrap()));
         }
 
-        let execution_context = match self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc, kv) {
+        let logger = match config.logger.as_ref() {
+            Some(v) => Some(create_logger(v).await),
+            None => None,
+        };
+
+        let execution_context = match self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc, kv, logger) {
             Ok(v) => v,
             Err(err) => {
                 error!("failed to create execution context for function: {err:?}");
@@ -579,4 +579,13 @@ impl ListenersState {
 enum FunctionIdDetectionError {
     #[error("config path missing .fx.yaml extension")]
     PathMissingExtension,
+}
+
+async fn create_logger(logger: &LoggerConfig) -> BoxLogger {
+    match logger {
+        LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
+        LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
+        LoggerConfig::RabbitMq { uri, exchange } => BoxLogger::new(RabbitMqLogger::new(uri.clone(), exchange.clone()).await.unwrap()),
+        LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
+    }
 }

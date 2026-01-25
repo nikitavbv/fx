@@ -17,7 +17,7 @@ pub struct ServerConfig {
     pub logger: Option<LoggerConfig>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum LoggerConfig {
     #[serde(rename = "stdout")]
@@ -41,7 +41,7 @@ impl ServerConfig {
     }
 }
 
-#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(Deserialize, Clone)]
 pub struct FunctionConfig {
     #[serde(skip_deserializing)]
     pub config_path: Option<PathBuf>,
@@ -50,6 +50,7 @@ pub struct FunctionConfig {
 
     pub triggers: Option<FunctionTriggersConfig>,
     pub bindings: Option<FunctionBindingsConfig>,
+    pub logger: Option<LoggerConfig>,
 }
 
 impl FunctionConfig {
@@ -59,6 +60,7 @@ impl FunctionConfig {
             code: None,
             triggers: None,
             bindings: None,
+            logger: None,
         }
     }
 
@@ -94,6 +96,11 @@ impl FunctionConfig {
 
         self.bindings = self.bindings.map(|v| v.with_rpc(id, path));
 
+        self
+    }
+
+    pub fn with_logger(mut self, logger: LoggerConfig) -> Self {
+        self.logger = Some(logger);
         self
     }
 }
