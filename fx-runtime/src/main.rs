@@ -92,15 +92,6 @@ enum Command {
         function: String,
         rpc_method_name: String,
     },
-    Http {
-        function: String,
-
-        #[arg(long)]
-        port: Option<u16>,
-    },
-    Cron {
-        schedule_file: String,
-    },
     #[command(name = "rabbitmq")]
     RabbitMq {
         consumer_file: String,
@@ -212,77 +203,6 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
                 error!("failed to invoke function: {err:?}");
                 exit(-1);
             }
-        },
-        Command::Http { function, port } => {
-            let addr: SocketAddr = ([0, 0, 0, 0], port.unwrap_or(8080)).into();
-            let listener = match TcpListener::bind(addr).await {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("failed to bind tcp listener for http sever: {err:?}");
-                    exit(-1);
-                }
-            };
-            let http_handler = Arc::new(HttpHandler::new(Arc::new(fx_runtime), FunctionId::new(function)));
-            info!("running http server on {addr:?}");
-            loop {
-                let (tcp, _) = match listener.accept().await {
-                    Ok(v) => v,
-                    Err(err) => {
-                        error!("failed to accept http connection: {err:?}");
-                        continue;
-                    }
-                };
-                let io = TokioIo::new(tcp);
-
-                let http_handler = http_handler.clone();
-                tokio::task::spawn(async move {
-                    if let Err(err) = http1::Builder::new()
-                        .timer(TokioTimer::new())
-                        .serve_connection(io, http_handler)
-                        .await {
-                            if err.is_timeout() {
-                                // ignore timeouts, because those can be caused by client
-                            } else if err.is_incomplete_message() {
-                                // ignore incomplete messages, because those are caused by client
-                            } else {
-                                error!("error while handling http request: {err:?}"); // incomplete message should be fine
-                            }
-                        }
-                });
-            }
-        },
-        Command::Cron { schedule_file } => {
-            let config = match fs::read(schedule_file) {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("failed to read cron config file: {err:?}");
-                    exit(-1);
-                }
-            };
-            let config = load_cron_task_from_config(config);
-            let database = match SqlDatabase::new(config.state_path) {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("failed to open database for cron state: {err:?}");
-                    exit(-1);
-                }
-            };
-            let cron_runner = {
-                let mut cron_runner = CronRunner::new(fx_runtime.engine.clone(), database);
-
-                for task in config.tasks {
-                    cron_runner = cron_runner.with_task(
-                        CronTaskDefinition::new(task.id)
-                            .with_schedule(task.schedule)
-                            .with_function_id(task.function)
-                            .with_method_name(task.rpc_method_name)
-                    );
-                }
-
-                cron_runner
-            };
-
-            cron_runner.run().await;
         },
         Command::RabbitMq { consumer_file, amqp_addr } => {
             let config = match fs::read(consumer_file) {
