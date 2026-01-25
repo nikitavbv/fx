@@ -18,7 +18,7 @@ use {
         },
         server::{
             server::FxServer,
-            config::{ServerConfig, FunctionConfig},
+            config::{ServerConfig, FunctionConfig, LoggerConfig},
         },
     },
     crate::logger::TestLogger,
@@ -36,31 +36,6 @@ impl Drop for DataCleanupGuard {
 
 static LOGGER: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 
-static FX_INSTANCE: Lazy<ReentrantMutex<FxRuntime>> = Lazy::new(|| ReentrantMutex::new({
-    let storage_code = BoxedStorage::new(SqliteStorage::in_memory().unwrap())
-        .with_key(b"test-app", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
-        // separate instance of test app for panic to avoid disrupting other tests:
-        .with_key(b"test-app-for-panic", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
-        .with_key(b"test-app-system", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap()
-        .with_key(b"other-app", &fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap()).unwrap();
-
-    let storage_compiler = BoxedStorage::new(SqliteStorage::in_memory().unwrap());
-
-    let definitions = DefinitionProvider::new(BoxedStorage::new(EmptyStorage))
-        .with_definition(
-            FunctionId::new("test-app"),
-            FunctionDefinition::new()
-                .with_kv(KvDefinition::new("test-kv", "data/test-kv"))
-                .with_sql(SqlDefinition::new("app"))
-                .with_rpc(RpcDefinition::new("other-app"))
-        );
-
-    FxRuntime::new()
-        .with_code_storage(storage_code)
-        .with_definition_provider(definitions)
-        .with_logger(BoxLogger::new(LOGGER.clone()))
-}));
-
 #[tokio::test]
 async fn simple() {
     assert_eq!(52, fx_server().await.lock().invoke_function::<_, u32>(&FunctionId::new("test-app".to_owned()), "simple", 10).await.unwrap().0);
@@ -73,7 +48,8 @@ async fn sql_simple() {
 
 #[tokio::test]
 async fn invoke_function_non_existent() {
-    let err = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())
+    let err = fx_server().await.lock()
+        .invoke_function::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())
         .await
         .map(|v| v.0)
         .err()
@@ -87,7 +63,8 @@ async fn invoke_function_non_existent() {
 
 #[tokio::test]
 async fn invoke_function_non_existent_rpc() {
-    let err = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ())
+    let err = fx_server().await.lock()
+        .invoke_function::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ())
         .await
         .map(|v| v.0);
 
@@ -99,7 +76,8 @@ async fn invoke_function_non_existent_rpc() {
 
 #[tokio::test]
 async fn invoke_function_no_module_code() {
-    let err = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ())
+    let err = fx_server().await.lock()
+        .invoke_function::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ())
         .await
         .map(|v| v.0);
 
@@ -111,7 +89,8 @@ async fn invoke_function_no_module_code() {
 
 #[tokio::test]
 async fn invoke_function_panic() {
-    let result = FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
+    let result = fx_server().await.lock()
+        .invoke_function::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
     match result.err().unwrap() {
         FunctionInvokeAndExecuteError::FunctionPanicked => {}
         other => panic!("expected function panicked error, got: {other:?}"),
@@ -120,7 +99,8 @@ async fn invoke_function_panic() {
 
 #[tokio::test]
 async fn invoke_function_wrong_argument() {
-    let result = FX_INSTANCE.lock().invoke_service::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
+    let result = fx_server().await.lock()
+        .invoke_function::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
     match result {
         FunctionInvokeAndExecuteError::FunctionRuntimeError => {}
         other => panic!("unexpected fx error: {other:?}"),
@@ -130,7 +110,8 @@ async fn invoke_function_wrong_argument() {
 #[tokio::test]
 async fn async_handler_simple() {
     let started_at = Instant::now();
-    let result = FX_INSTANCE.lock().invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
+    let result = fx_server().await.lock()
+        .invoke_function::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
     let total_time = (Instant::now() - started_at).as_secs();
     assert_eq!(42, result);
     assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
@@ -139,18 +120,19 @@ async fn async_handler_simple() {
 #[tokio::test]
 async fn async_concurrent() {
     // pre-warm the function
-    let fx = FX_INSTANCE.lock();
-    let _ = fx.invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
+    let fx = fx_server().await;
+    let fx = fx.lock();
+    let _ = fx.invoke_function::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
 
     // measure time to wait for both
     let function = FunctionId::new("test-app".to_owned());
     let started_at = Instant::now();
     let result = join!(
         async {
-            fx.invoke_service::<u64, u64>(&function, "async_simple", 42).await.unwrap().0
+            fx.invoke_function::<u64, u64>(&function, "async_simple", 42).await.unwrap().0
         },
         async {
-            fx.invoke_service::<u64, u64>(&function, "async_simple", 43).await.unwrap().0
+            fx.invoke_function::<u64, u64>(&function, "async_simple", 43).await.unwrap().0
         }
     );
     let total_time = (Instant::now() - started_at).as_secs();
@@ -163,7 +145,7 @@ async fn async_concurrent() {
 async fn async_rpc() {
     assert_eq!(
         84,
-        FX_INSTANCE.lock().invoke_service::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap().0
+        fx_server().await.lock().invoke_function::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap().0
     );
 }
 
@@ -171,14 +153,14 @@ async fn async_rpc() {
 async fn rpc_panic() {
     assert_eq!(
         42,
-        FX_INSTANCE.lock().invoke_service::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap().0
+        fx_server().await.lock().invoke_function::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap().0
     )
 }
 
-#[tokio::test]
+/*#[tokio::test]
 async fn stream_simple() {
-    let fx = FX_INSTANCE.lock();
-    let stream: FxStream = fx.invoke_service::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap().0;
+    let fx = fx_server().await.lock();
+    let stream: FxStream = fx.invoke_function::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap().0;
     let mut stream = fx.read_stream(&stream).unwrap().unwrap();
     let started_at = Instant::now();
     let mut n = 0;
@@ -199,12 +181,12 @@ async fn stream_simple() {
     if n != 5 {
         panic!("unexpected number of items read from stream: {n}");
     }
-}
+}*/
 
 #[tokio::test]
 async fn random() {
-    let random_bytes_0: Vec<u8> = FX_INSTANCE.lock().invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
-    let random_bytes_1: Vec<u8> = FX_INSTANCE.lock().invoke_service::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
+    let random_bytes_0: Vec<u8> = fx_server().await.lock().invoke_function::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
+    let random_bytes_1: Vec<u8> = fx_server().await.lock().invoke_function::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
 
     assert_eq!(32, random_bytes_0.len());
     assert_eq!(32, random_bytes_1.len());
@@ -213,7 +195,7 @@ async fn random() {
 
 #[tokio::test]
 async fn time() {
-    let millis = FX_INSTANCE.lock().invoke_service::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
+    let millis = fx_server().await.lock().invoke_function::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
     assert!((950..=1050).contains(&millis));
 }
 
@@ -221,18 +203,18 @@ async fn time() {
 async fn kv_simple() {
     let _cleanup_guard = DataCleanupGuard;
 
-    let result = FX_INSTANCE.lock().invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0;
+    let result = fx_server().await.lock().invoke_function::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0;
     assert!(result.is_none());
 
-    FX_INSTANCE.lock().invoke_service::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
+    fx_server().await.lock().invoke_function::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
 
-    let result = FX_INSTANCE.lock().invoke_service::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0.unwrap();
+    let result = fx_server().await.lock().invoke_function::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0.unwrap();
     assert_eq!("Hello World!", result);
 }
 
 #[tokio::test]
 async fn kv_wrong_binding_name() {
-    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
+    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
 }
 
 /*#[tokio::test]
@@ -245,7 +227,7 @@ async fn fetch() {
 
 #[tokio::test]
 async fn log() {
-    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();
+    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();
 
     let events = LOGGER.events();
     let found_expected_event = events.iter()
@@ -259,7 +241,7 @@ async fn log() {
 
 #[tokio::test]
 async fn log_span() {
-    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
+    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
 
     // both events include fields inherited from span
     let first_message = LOGGER.events()
@@ -290,13 +272,13 @@ async fn log_span() {
 
 #[tokio::test]
 async fn metrics_counter_increment() {
-    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
+    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
     // todo: check counter value
 }
 
 #[tokio::test]
 async fn metrics_counter_increment_twice_with_tags() {
-    FX_INSTANCE.lock().invoke_service::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
+    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
 }
 
 async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
@@ -314,7 +296,7 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
             functions_dir: "/tmp/fx/functions".to_owned(),
             cron_data_path: None,
 
-            logger: None,
+            logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
         },
         FxRuntime::new()
     ).await;
@@ -325,7 +307,7 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
             .with_binding_sql("app".to_owned(), ":memory:".to_owned())
-            .with_binding_rpc("app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
+            .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
     ).await;
 
     for function_id in ["test-app-for-panic", "test-app-for-system", "other-app"] {

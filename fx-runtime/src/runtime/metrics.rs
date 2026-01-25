@@ -228,7 +228,8 @@ async fn collect_metrics(engine: Arc<Engine>) {
                         continue;
                     }
                 };
-                let memory = execution_env.instance.get_memory(store.as_context_mut(), "memory");
+
+                let memory = execution_env.instance.borrow().get_memory(store.as_context_mut(), "memory");
                 if let Some(memory) = memory.as_ref() {
                     let data_size = memory.data_size(store.as_context());
                     metrics.function_memory_size.with_label_values(&[function_id.clone()]).set(data_size as i64);

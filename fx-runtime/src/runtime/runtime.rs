@@ -6,9 +6,10 @@ use {
         task::{self, Poll},
         time::{SystemTime, UNIX_EPOCH, Instant},
         io::Cursor,
+        cell::RefCell,
     },
     tracing::{error, info},
-    wasmtime::{AsContext, AsContextMut, Instance, Store},
+    wasmtime::{AsContext, AsContextMut, InstancePre, Instance, Store},
     serde::{Serialize, Deserialize},
     futures::{FutureExt, TryFutureExt},
     rand::TryRngCore,
@@ -217,7 +218,7 @@ impl Engine {
         // TODO: will be able to remove this once switched to new server?
         let context_id = self.resolve_context_id_for_function(&function_id);
 
-        let need_to_create_context = {
+        {
             let execution_contexts = match self.execution_contexts.read() {
                 Ok(v) => v,
                 Err(err) => {
@@ -227,22 +228,11 @@ impl Engine {
                     ));
                 }
             };
-            if let Some(context) = execution_contexts.get(&context_id) {
-                context.needs_recreate.load(Ordering::SeqCst)
-            } else {
-                true
-            }
-        };
 
-        if need_to_create_context {
-            // need to create execution context first
-            let mut execution_contexts = self.execution_contexts.write().unwrap();
-            let ctx = execution_contexts.get(&context_id);
-            if ctx.map(|v| v.needs_recreate.load(Ordering::SeqCst)).unwrap_or(true) {
-                // TODO: will be able to remove this once switched to new server?
-                let definition = self.definition_provider.read().unwrap().definition_for_function(&function_id)
-                    .map_err(|err| FunctionInvokeError::DefinitionMissing(err))?;
-                execution_contexts.insert((*context_id).clone(), Arc::new(self.create_execution_context(engine.clone(), &function_id, (*context_id).clone(), definition)?));
+            let context = execution_contexts.get(&context_id)
+                .ok_or(FunctionInvokeError::CodeNotFound)?;
+            if context.needs_recreate.load(Ordering::SeqCst) {
+                context.reset(engine.clone())?;
             }
         }
 
@@ -690,7 +680,8 @@ impl Drop for FunctionRuntimeFuture {
 
 pub(crate) struct ExecutionContext {
     pub(crate) function_id: FunctionId,
-    pub(crate) instance: Instance,
+    instance_template: InstancePre<ExecutionEnv>,
+    pub(crate) instance: RefCell<Instance>,
     pub(crate) store: Arc<Mutex<Store<ExecutionEnv>>>,
     // pub(crate) function_env: FunctionEnv<ExecutionEnv>,
     // TODO: regular boolean can probably be used here
@@ -698,6 +689,9 @@ pub(crate) struct ExecutionContext {
     futures_to_drop: Arc<Mutex<VecDeque<i64>>>,
     streams_to_drop: Arc<Mutex<VecDeque<i64>>>,
 }
+
+// TODO: hack. Runtime is single-threaded anyway. Need to figure out if I can remove requirement for fields to be Sync
+unsafe impl Sync for ExecutionContext {}
 
 impl ExecutionContext {
     pub fn new(
@@ -733,33 +727,40 @@ impl ExecutionContext {
             }
         }
 
-        let instance = linker.instantiate(&mut store, &module)
+        let instance_template = linker.instantiate_pre(&module)
+            .map_err(|err| FunctionInvokeError::FailedToInstantiate(err))?;
+
+        let instance = instance_template.instantiate(&mut store)
             .map_err(|err| FunctionInvokeError::FailedToInstantiate(err))?;
 
         let memory = instance.get_memory(&mut store, "memory").unwrap();
         store.data_mut().memory = Some(memory.clone());
 
-        // some libraries, like leptos, have wbidgen imports, but do not use them. Let's add them here so that module can be linked
-        /*for import in module.imports().into_iter() {
-            let module = import.module();
-            if module != "fx" {
-                match import.ty() {
-                    wasmer::ExternType::Function(f) => {
-                        import_object.define(module, import.name(), Function::new_with_env(&mut store, &function_env, f, crate::api::unsupported::handle_unsupported));
-                    },
-                    other => panic!("unexpected import type: {other:?}"),
-                }
-            }
-        }*/
-
         Ok(Self {
             function_id,
-            instance,
+            instance_template,
+            instance: RefCell::new(instance),
             store: Arc::new(Mutex::new(store)),
             needs_recreate: Arc::new(AtomicBool::new(false)),
             futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
             streams_to_drop: Arc::new(Mutex::new(VecDeque::new())),
         })
+    }
+
+    fn reset(&self, engine: Arc<Engine>) -> Result<(), FunctionInvokeError> {
+        let mut store = self.store.lock().unwrap();
+        let env = store.data_mut().reset();
+        *store = wasmtime::Store::new(&engine.wasmtime, env);
+
+        *self.instance.borrow_mut() = self.instance_template.instantiate(store.as_context_mut())
+            .map_err(|err| FunctionInvokeError::FailedToInstantiate(err))?;
+        drop(store);
+
+        self.needs_recreate.store(false, Ordering::SeqCst);
+        self.futures_to_drop.lock().unwrap().clear();
+        self.streams_to_drop.lock().unwrap().clear();
+
+        Ok(())
     }
 }
 
@@ -770,8 +771,10 @@ pub(crate) struct ExecutionEnv {
     pub(crate) futures_waker: Option<std::task::Waker>,
 
     pub(crate) engine: Arc<Engine>,
-    pub(crate) instance: Option<Instance>,
+    pub(crate) instance: Option<RefCell<Instance>>,
     pub(crate) memory: Option<wasmtime::Memory>,
+
+    // TODO: these fields are not needed anymore?
     pub(crate) execution_error: Option<Vec<u8>>,
     pub(crate) rpc_response: Option<Vec<u8>>,
 
@@ -781,6 +784,7 @@ pub(crate) struct ExecutionEnv {
     pub(crate) sql: HashMap<String, SqlDatabase>,
     pub(crate) rpc: HashMap<String, RpcBinding>,
 
+    // TODO: replace with a better permissions model
     allow_fetch: bool,
     allow_log: bool,
 
@@ -813,6 +817,39 @@ impl ExecutionEnv {
             rpc,
             allow_fetch,
             allow_log,
+            fetch_client: reqwest::Client::new(),
+        }
+    }
+
+    fn reset(&mut self) -> ExecutionEnv {
+        let execution_context = std::mem::replace(&mut self.execution_context, RwLock::new(None));
+        let futures_waker = std::mem::replace(&mut self.futures_waker, None);
+
+        let storage = std::mem::replace(&mut self.storage, HashMap::new());
+        let sql = std::mem::replace(&mut self.sql, HashMap::new());
+        let rpc = std::mem::replace(&mut self.rpc, HashMap::new());
+
+        Self {
+            execution_context,
+            execution_context_id: self.execution_context_id.clone(),
+
+            futures_waker,
+            engine: self.engine.clone(),
+            instance: None,
+            memory: None,
+
+            execution_error: None,
+            rpc_response: None,
+
+            function_id: self.function_id.clone(),
+
+            storage,
+            sql,
+            rpc,
+
+            allow_fetch: true,
+            allow_log: true,
+
             fetch_client: reqwest::Client::new(),
         }
     }
@@ -978,11 +1015,11 @@ pub(crate) fn invoke_fx_api(
     message: capnp::message::Builder<capnp::message::HeapAllocator>
 ) -> Result<capnp::message::Reader<capnp::serialize::OwnedSegments>, FunctionApiError> {
     let instance = ctx.data().instance.as_ref().unwrap().clone();
-    let memory = instance.get_memory(ctx.as_context_mut(), "memory").unwrap();
+    let memory = instance.borrow().get_memory(ctx.as_context_mut(), "memory").unwrap();
 
     let response_ptr = {
         let message_size = capnp::serialize::compute_serialized_size_in_words(&message) * 8;
-        let ptr = instance.get_typed_func::<i64, i64>(ctx.as_context_mut(), "_fx_malloc").unwrap()
+        let ptr = instance.borrow().get_typed_func::<i64, i64>(ctx.as_context_mut(), "_fx_malloc").unwrap()
             .call(ctx.as_context_mut(), message_size as i64)
             .unwrap() as usize;
 
@@ -995,7 +1032,7 @@ pub(crate) fn invoke_fx_api(
             ).unwrap();
         }
 
-        instance.get_typed_func::<(i64, i64), i64>(ctx.as_context_mut(), "_fx_api").unwrap()
+        instance.borrow().get_typed_func::<(i64, i64), i64>(ctx.as_context_mut(), "_fx_api").unwrap()
             .call(ctx.as_context_mut(), (ptr as i64, message_size as i64))
             .map_err(|err| {
                 let trap = err.downcast::<wasmtime::Trap>().unwrap();
@@ -1022,7 +1059,7 @@ pub(crate) fn invoke_fx_api(
         (response.to_vec(), response_length)
     };
 
-    instance.get_typed_func::<(i64, i64), ()>(ctx.as_context_mut(), "_fx_dealloc").unwrap()
+    instance.borrow().get_typed_func::<(i64, i64), ()>(ctx.as_context_mut(), "_fx_dealloc").unwrap()
         .call(ctx.as_context_mut(), (response_ptr as i64, (header_length + response_length as usize) as i64))
         .unwrap();
 

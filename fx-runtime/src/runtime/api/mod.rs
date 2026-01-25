@@ -111,7 +111,7 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
 
     let fx_malloc = caller.data().instance.as_ref().unwrap().clone();
 
-    let ptr = fx_malloc.get_typed_func::<i64, i64>(caller.as_context_mut(), "_fx_malloc").unwrap()
+    let ptr = fx_malloc.borrow().get_typed_func::<i64, i64>(caller.as_context_mut(), "_fx_malloc").unwrap()
         .call(caller.as_context_mut(), response_size as i64)
         .unwrap() as usize;
 

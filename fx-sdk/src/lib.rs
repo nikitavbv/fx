@@ -134,7 +134,8 @@ pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(funct
                 let rpc_response = v.unwrap();
                 match rpc_response.get_response().which().unwrap() {
                     abi_capnp::rpc_call_response::response::Which::FutureId(v) => v,
-                    _other => panic!("unexpected rpc response"),
+                    abi_capnp::rpc_call_response::response::Which::BindingNotFound(_) => panic!("binding not found"),
+                    abi_capnp::rpc_call_response::response::Which::Error(_) => panic!("unexpected rpc error"),
                 }
             },
             _other => panic!("unexpected response from rpc api"),

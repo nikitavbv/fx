@@ -84,6 +84,7 @@ impl FxServer {
                 LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
                 LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
                 LoggerConfig::RabbitMq { uri, exchange } => BoxLogger::new(RabbitMqLogger::new(uri.clone(), exchange.clone()).await.unwrap()),
+                LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
             });
         }
         let runtime = Arc::new(runtime);

@@ -1,8 +1,9 @@
 use {
-    std::path::{PathBuf, Path},
+    std::{path::{PathBuf, Path}, sync::Arc},
     tokio::{fs, io},
     serde::Deserialize,
     thiserror::Error,
+    crate::runtime::logs::BoxLogger,
 };
 
 #[derive(Deserialize)]
@@ -28,6 +29,8 @@ pub enum LoggerConfig {
         uri: String,
         exchange: String,
     },
+    #[serde(skip)]
+    Custom(Arc<BoxLogger>),
 }
 
 impl ServerConfig {
