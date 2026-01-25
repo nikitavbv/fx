@@ -430,8 +430,14 @@ impl DefinitionsMonitor {
         // TODO: bindings should be lazy
         let mut sql = HashMap::new();
         for binding in config.bindings.as_ref().and_then(|v| v.sql.as_ref()).unwrap_or(&Vec::new()) {
-            let path = config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.path);
-            sql.insert(binding.id.clone(), SqlDatabase::new(path).unwrap());
+            sql.insert(
+                binding.id.clone(),
+                if binding.path == ":memory:" {
+                    SqlDatabase::in_memory()
+                } else {
+                    SqlDatabase::new(config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.path))
+                }.unwrap()
+            );
         }
 
         let mut rpc = HashMap::new();

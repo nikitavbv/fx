@@ -324,6 +324,7 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
         FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
+            .with_binding_sql("app".to_owned(), ":memory:".to_owned())
     ).await;
 
     let server = Arc::new(ReentrantMutex::new(server));

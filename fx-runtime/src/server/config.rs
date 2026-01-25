@@ -73,6 +73,16 @@ impl FunctionConfig {
 
         self
     }
+
+    pub fn with_binding_sql(mut self, id: String, path: String) -> Self {
+        if self.bindings.is_none() {
+            self.bindings = Some(FunctionBindingsConfig::new());
+        }
+
+        self.bindings = self.bindings.map(|v| v.with_sql(id, path));
+
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -124,6 +134,19 @@ impl FunctionBindingsConfig {
         self.kv.as_mut().unwrap().push(KvBindingConfig {
             id,
             path
+        });
+
+        self
+    }
+
+    pub fn with_sql(mut self, id: String, path: String) -> Self {
+        if self.sql.is_none() {
+            self.sql = Some(Vec::new());
+        }
+
+        self.sql.as_mut().unwrap().push(SqlBindingConfig {
+            id,
+            path,
         });
 
         self
