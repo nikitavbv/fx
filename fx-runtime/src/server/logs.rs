@@ -97,9 +97,20 @@ impl RabbitMqLogger {
                 if let Err(err) = result {
                     error!("failed to publish message to rabbitmq: {err:?}. Reconnecting...");
                     sleep(Duration::from_secs(1)).await;
-                    let (new_connection, new_channel) = Self::connect(&uri, &exchange).await.unwrap();
-                    _connection = new_connection;
-                    channel = new_channel;
+
+                    loop {
+                        let (new_connection, new_channel) = match Self::connect(&uri, &exchange).await {
+                            Ok(v) => v,
+                            Err(err) => {
+                                error!("failed to reconnect to rabbitmq: {err:?}. Retrying...");
+                                sleep(Duration::from_secs(1)).await;
+                                continue;
+                            }
+                        };
+                        _connection = new_connection;
+                        channel = new_channel;
+                        break;
+                    }
                 }
             }
         });
