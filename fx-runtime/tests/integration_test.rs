@@ -1,5 +1,5 @@
 use {
-    std::{fs, sync::Arc, time::Instant},
+    std::{fs, sync::Arc, time::Instant, env::current_dir},
     once_cell::sync::Lazy,
     tokio::{join, sync::{OnceCell, Mutex}},
     parking_lot::ReentrantMutex,
@@ -323,6 +323,7 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
         FunctionId::new("test-app"),
         FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+            .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
     ).await;
 
     let server = Arc::new(ReentrantMutex::new(server));

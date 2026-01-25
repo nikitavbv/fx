@@ -63,6 +63,16 @@ impl FunctionConfig {
         self.code = Some(FunctionCodeConfig::Inline(code));
         self
     }
+
+    pub fn with_binding_kv(mut self, id: String, path: String) -> Self {
+        if self.bindings.is_none() {
+            self.bindings = Some(FunctionBindingsConfig::new());
+        }
+
+        self.bindings = self.bindings.map(|v| v.with_kv(id, path));
+
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -94,6 +104,30 @@ pub struct FunctionCronTriggerConfig {
 pub struct FunctionBindingsConfig {
     pub sql: Option<Vec<SqlBindingConfig>>,
     pub rpc: Option<Vec<RpcBindingConfig>>,
+    pub kv: Option<Vec<KvBindingConfig>>,
+}
+
+impl FunctionBindingsConfig {
+    pub fn new() -> Self {
+        Self {
+            sql: None,
+            rpc: None,
+            kv: None,
+        }
+    }
+
+    pub fn with_kv(mut self, id: String, path: String) -> Self {
+        if self.kv.is_none() {
+            self.kv = Some(Vec::new());
+        }
+
+        self.kv.as_mut().unwrap().push(KvBindingConfig {
+            id,
+            path
+        });
+
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -106,6 +140,12 @@ pub struct SqlBindingConfig {
 pub struct RpcBindingConfig {
     pub id: String,
     pub function: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct KvBindingConfig {
+    pub id: String,
+    pub path: String,
 }
 
 #[derive(Error, Debug)]

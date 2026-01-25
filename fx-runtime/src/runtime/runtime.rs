@@ -294,6 +294,7 @@ impl Engine {
         function_module: wasmtime::Module,
         sql: HashMap<String, SqlDatabase>,
         rpc: HashMap<String, RpcBinding>,
+        kv: HashMap<String, BoxedStorage>,
     ) -> Result<ExecutionContextId, FunctionInvokeError> {
         let execution_context_id = ExecutionContextId::new(self.execution_context_id_counter.fetch_add(1, Ordering::SeqCst));
 
@@ -301,7 +302,7 @@ impl Engine {
             engine,
             function_id,
             execution_context_id.clone(),
-            HashMap::new(),
+            kv,
             sql,
             rpc,
             function_module,

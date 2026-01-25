@@ -21,6 +21,7 @@ use {
             sql::SqlDatabase,
             runtime::{RpcBinding, FunctionInvokeAndExecuteError, FunctionInvocationEvent},
             logs::{StdoutLogger, NoopLogger, BoxLogger},
+            kv::{BoxedStorage, FsStorage},
         },
         server::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig, LoggerConfig},
@@ -446,7 +447,14 @@ impl DefinitionsMonitor {
             rpc.insert(binding.id.clone(), RpcBinding::new(function_id));
         }
 
-        let execution_context = match self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc) {
+        let mut kv = HashMap::new();
+        for binding in config.bindings.as_ref().and_then(|v| v.kv.as_ref()).unwrap_or(&Vec::new()) {
+            kv.insert(binding.id.clone(), BoxedStorage::new(FsStorage::new(
+                config.config_path.as_ref().unwrap().parent().unwrap().join(&binding.path),
+            ).unwrap()));
+        }
+
+        let execution_context = match self.runtime.engine.create_execution_context_v2(self.runtime.engine.clone(), function_id.clone(), compiled_module, sql, rpc, kv) {
             Ok(v) => v,
             Err(err) => {
                 error!("failed to create execution context for function: {err:?}");
