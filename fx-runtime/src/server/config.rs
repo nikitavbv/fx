@@ -109,6 +109,7 @@ pub enum FunctionCodeConfig {
 pub struct FunctionTriggersConfig {
     pub http: Option<Vec<FunctionHttpEndpointConfig>>,
     pub cron: Option<Vec<FunctionCronTriggerConfig>>,
+    pub rabbitmq: Option<Vec<FunctionRabbitmqTriggerConfig>>,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -121,6 +122,12 @@ pub struct FunctionCronTriggerConfig {
     pub id: String,
     pub handler: String,
     pub schedule: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionRabbitmqTriggerConfig {
+    pub handler: String,
+    pub queue: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

@@ -57,6 +57,7 @@ struct DefinitionsMonitor {
 struct ListenersState {
     http: HttpListenerDefinition,
     cron: CronListenerDefinition,
+    rabbitmq: RabbitmqListenerDefinition,
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +68,10 @@ struct HttpListenerDefinition {
 #[derive(Clone, Debug)]
 struct CronListenerDefinition {
     schedule: Vec<CronListenerEntry>,
+}
+
+#[derive(Clone, Debug)]
+struct RabbitmqListenerDefinition {
 }
 
 #[derive(Clone, Debug)]
@@ -507,21 +512,25 @@ impl DefinitionsMonitor {
         }
 
         // cron:
-        let config_cron = config.triggers.as_ref().and_then(|v| v.cron.as_ref()).cloned().unwrap_or(Vec::new());
-        if !config_cron.is_empty() {
-            listeners_state.cron.schedule = listeners_state.cron.schedule
-                .iter()
-                .cloned()
-                .filter(|v| &v.function_id != &function_id)
-                .chain(config_cron.into_iter().map(|v| CronListenerEntry {
-                    task_id: format!("{}/{}", function_id.as_string(), v.id),
-                    function_id: function_id.clone(),
-                    handler: v.handler.clone(),
-                    schedule: cron_utils::Schedule::from_str(&v.schedule).unwrap(),
-                }))
-                .collect();
+        listeners_state.cron.schedule = listeners_state.cron.schedule
+            .iter()
+            .cloned()
+            .filter(|v| &v.function_id != &function_id)
+            .chain(config.triggers.as_ref().and_then(|v| v.cron.as_ref()).cloned().unwrap_or(Vec::new()).into_iter().map(|v| CronListenerEntry {
+                task_id: format!("{}/{}", function_id.as_string(), v.id),
+                function_id: function_id.clone(),
+                handler: v.handler.clone(),
+                schedule: cron_utils::Schedule::from_str(&v.schedule).unwrap(),
+            }))
+            .collect();
+        self.cron_definition_tx.lock().await.send(listeners_state.cron.clone()).await.unwrap();
 
-            self.cron_definition_tx.lock().await.send(listeners_state.cron.clone()).await.unwrap();
+        // rabbitmq:
+        let config_rabbitmq = config.triggers.as_ref().and_then(|v| v.rabbitmq.as_ref()).cloned().unwrap_or(Vec::new());
+        if !config_rabbitmq.is_empty() {
+            // TODO
+        } else {
+            // TODO
         }
     }
 
@@ -561,6 +570,7 @@ impl ListenersState {
             cron: CronListenerDefinition {
                 schedule: Vec::new(),
             },
+            rabbitmq: RabbitmqListenerDefinition {},
         }
     }
 }
