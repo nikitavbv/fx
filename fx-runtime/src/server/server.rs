@@ -463,7 +463,10 @@ mod rabbitmq {
                             msg = consumer.next() => {
                                 let msg = match msg {
                                     Some(v) => v,
-                                    None => break,
+                                    None => {
+                                        info!(queue, function_id=function_id.as_string(), handler, "consumer.next() retruned None");
+                                        break;
+                                    },
                                 };
 
                                 let msg = msg.unwrap();
