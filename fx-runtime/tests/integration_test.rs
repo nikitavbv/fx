@@ -18,7 +18,7 @@ use {
         },
         server::{
             server::FxServer,
-            config::{ServerConfig, FunctionConfig, LoggerConfig},
+            config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig},
         },
     },
     crate::logger::TestLogger,
@@ -313,6 +313,8 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
             amqp_addr: None,
 
             logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
+
+            introspection: None,
         },
         FxRuntime::new()
     ).await;

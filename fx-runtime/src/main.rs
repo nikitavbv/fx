@@ -27,6 +27,7 @@ use {
 };
 
 mod common;
+mod introspection;
 mod runtime;
 mod server;
 
@@ -95,7 +96,7 @@ async fn main() {
     let fx_runtime = FxRuntime::new();
 
     // TODO: move to server, based on ServerConfig
-    tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
+    // tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
 
     run_command(fx_runtime, args.command).await;
 }

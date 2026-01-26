@@ -25,6 +25,7 @@ use {
     futures::{stream::FuturesUnordered, StreamExt},
     fx_common::QueueMessage,
     crate::{
+        introspection::server::run_introspection_server,
         runtime::{
             FxRuntime,
             FunctionId,
@@ -138,6 +139,7 @@ impl FxServer {
         info!("starting fx server");
 
         tokio::join!(
+            self.run_introspection_server(),
             self.definitions_monitor.scan_definitions(),
             self.run_http_listener(),
             self.run_cron_listener(),
@@ -153,6 +155,18 @@ impl FxServer {
 
     pub async fn invoke_function<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, function_id: &FunctionId, handler_name: &str, arg: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
         self.runtime.engine.invoke_service(self.runtime.engine.clone(), &function_id, handler_name, arg).await
+    }
+
+    async fn run_introspection_server(&self) {
+        let introspection_config = match &self.config.introspection {
+            Some(v) => v,
+            None => return,
+        };
+        if !introspection_config.enabled {
+            return;
+        }
+
+        run_introspection_server(self.runtime.engine.metrics.clone()).await;
     }
 
     async fn run_http_listener(&self) {

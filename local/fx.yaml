@@ -1,1 +1,4 @@
 functions_dir: ./functions
+
+introspection:
+  enabled: true

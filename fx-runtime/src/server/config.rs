@@ -16,6 +16,15 @@ pub struct ServerConfig {
     pub amqp_addr: Option<String>,
 
     pub logger: Option<LoggerConfig>,
+    pub introspection: Option<IntrospectionConfig>,
+}
+
+impl ServerConfig {
+    pub async fn load(file_path: PathBuf) -> Self {
+        let mut config: Self = serde_yml::from_slice(&fs::read(&file_path).await.unwrap()).unwrap();
+        config.config_path = Some(file_path);
+        config
+    }
 }
 
 #[derive(Deserialize, Clone)]
@@ -34,12 +43,9 @@ pub enum LoggerConfig {
     Custom(Arc<BoxLogger>),
 }
 
-impl ServerConfig {
-    pub async fn load(file_path: PathBuf) -> Self {
-        let mut config: Self = serde_yml::from_slice(&fs::read(&file_path).await.unwrap()).unwrap();
-        config.config_path = Some(file_path);
-        config
-    }
+#[derive(Deserialize)]
+pub struct IntrospectionConfig {
+    pub enabled: bool,
 }
 
 #[derive(Deserialize, Clone)]
