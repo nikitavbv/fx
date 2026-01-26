@@ -12,7 +12,7 @@ pub async fn run_introspection_server(runtime_metrics: Metrics) {
         .route("/metrics", get(metrics))
         .layer(Extension(runtime_metrics));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8081").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
