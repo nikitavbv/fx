@@ -13,6 +13,7 @@ pub struct ServerConfig {
 
     pub functions_dir: String,
     pub cron_data_path: Option<String>,
+    pub amqp_addr: Option<String>,
 
     pub logger: Option<LoggerConfig>,
 }

@@ -1,11 +1,19 @@
 use {
-    std::{sync::Arc, path::{PathBuf, Path}, collections::HashMap, net::SocketAddr, str::FromStr},
+    std::{
+        sync::Arc,
+        path::{PathBuf, Path},
+        collections::{HashMap, HashSet},
+        net::SocketAddr,
+        str::FromStr,
+    },
     tokio::{
         fs,
         sync::{Mutex, RwLock, mpsc},
         net::TcpListener,
         time::{sleep, Duration},
+        task::JoinHandle,
     },
+    tokio_util::sync::CancellationToken,
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
     tracing::{info, warn, error},
@@ -14,6 +22,7 @@ use {
     thiserror::Error,
     cron as cron_utils,
     chrono::Utc,
+    futures::{stream::FuturesUnordered, StreamExt},
     crate::{
         runtime::{
             FxRuntime,
@@ -175,9 +184,7 @@ impl FxServer {
                     new_definition = http_definition_rx.recv() => {
                         let new_definition = match new_definition {
                             Some(v) => v,
-                            None => {
-                                continue
-                            }
+                            None => continue,
                         };
 
                         if let Some(new_target_function) = new_definition.function {
@@ -293,6 +300,35 @@ impl FxServer {
     }
 
     async fn run_rabbitmq_listener(&self) {
+        use lapin::{Connection, ConnectionProperties};
+
+        #[derive(Clone, Debug, Hash, Eq, PartialEq)]
+        struct ConsumerKey {
+            queue: String,
+            function_id: FunctionId,
+            handler: String,
+        }
+
+        impl From<RabbitMqConsumerDefinition> for ConsumerKey {
+            fn from(v: RabbitMqConsumerDefinition) -> Self {
+                Self {
+                    queue: v.queue.clone(),
+                    function_id: v.function_id.clone(),
+                    handler: v.handler.clone(),
+                }
+            }
+        }
+
+        impl From<&RabbitMqConsumerDefinition> for ConsumerKey {
+            fn from(v: &RabbitMqConsumerDefinition) -> Self {
+                Self {
+                    queue: v.queue.clone(),
+                    function_id: v.function_id.clone(),
+                    handler: v.handler.clone(),
+                }
+            }
+        }
+
         let mut rabbitmq_definition_rx = self.rabbitmq_definition_rx.lock().await;
         while let Some(definition) = rabbitmq_definition_rx.recv().await {
             if definition.consumers.is_empty() {
@@ -300,10 +336,77 @@ impl FxServer {
                 continue;
             }
 
-            let mut consumers = definition.consumers;
+            let amqp_addr = match self.config.amqp_addr.as_ref() {
+                Some(v) => v.clone(),
+                None => {
+                    error!("using rabbitmq requires specifying amqp_addr in server config. Update config and restart server to use rabbitmq.");
+                    break;
+                }
+            };
 
-            // TODO: create consumers and listen using FuturesUnordered (?)
+            let connection = Connection::connect(&amqp_addr, ConnectionProperties::default().with_connection_name("fx".into())).await.unwrap();
+
+            let mut consumers = definition.consumers
+                .into_iter()
+                .map(ConsumerKey::from)
+                .collect::<HashSet<_>>();
+            let mut active_consumers = HashMap::<ConsumerKey, CancellationToken>::new();
+            let mut consumer_futures = FuturesUnordered::new();
+
+            info!("started rabbitmq consumer");
+
+            loop {
+                tokio::select! {
+                    new_definition = rabbitmq_definition_rx.recv() => {
+                        let new_definition = match new_definition {
+                            Some(v) => v,
+                            None => continue,
+                        };
+
+                        for consumer_definition in new_definition.consumers.iter() {
+                            let consumer_key = ConsumerKey::from(consumer_definition);
+                            if !active_consumers.contains_key(&consumer_key) {
+                                // new consumer, need to spawn it
+                                let (cancel_token, handle) = self.spawn_rabbitmq_consumer().await;
+                                active_consumers.insert(consumer_key.clone(), cancel_token);
+                                consumer_futures.push(handle);
+                            }
+                        }
+
+                        let new_definition_consumers = new_definition.consumers.into_iter()
+                            .map(ConsumerKey::from)
+                            .collect::<HashSet<_>>();
+                        let active_consumer_keys = active_consumers.keys().cloned().collect::<HashSet<_>>();
+                        for consumer_key in active_consumer_keys {
+                            if !new_definition_consumers.contains(&consumer_key) {
+                                let cancellation_token = active_consumers.remove(&consumer_key).unwrap();
+                                cancellation_token.cancel();
+                            }
+                        }
+
+                        if active_consumers.is_empty() {
+                            info!("no active rabbitmq consumers. Closing connection...");
+                            // TODO: wait for remaining consumers?
+                            break;
+                        }
+                    },
+                    _consumer_result = consumer_futures.next() => {
+                        // ignore consumer exits
+                    }
+                }
+            }
         }
+    }
+
+    async fn spawn_rabbitmq_consumer(&self) -> (CancellationToken, JoinHandle<()>) {
+        let cancellation_token = CancellationToken::new();
+
+        (
+            cancellation_token.clone(),
+            tokio::task::spawn(async {
+
+            })
+        )
     }
 }
 
