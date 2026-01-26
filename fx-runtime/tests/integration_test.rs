@@ -310,6 +310,7 @@ async fn fx_server() -> Arc<ReentrantMutex<FxServer>> {
 
             functions_dir: "/tmp/fx/functions".to_owned(),
             cron_data_path: None,
+            amqp_addr: None,
 
             logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
         },
