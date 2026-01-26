@@ -31,7 +31,6 @@ mod runtime;
 mod server;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
-const FILE_EXTENSION_DEFINITION: &str = ".fx.yaml";
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -40,22 +39,7 @@ struct Args {
     command: Command,
 
     #[arg(long)]
-    functions_dir: Option<String>,
-
-    #[arg(long)]
-    compiler_cache_dir: Option<String>,
-
-    #[arg(long)]
     metrics_port: Option<u16>,
-
-    #[arg(long)]
-    logger: Option<ArgsLogger>,
-
-    #[arg(long)]
-    logger_rabbitmq_uri: Option<String>,
-
-    #[arg(long)]
-    logger_rabbitmq_exchange: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -85,13 +69,6 @@ enum Command {
         function: String,
         rpc_method_name: String,
     },
-    #[command(name = "rabbitmq")]
-    RabbitMq {
-        consumer_file: String,
-
-        #[arg(long)]
-        amqp_addr: String,
-    },
     Serve {
         config_file: String,
     },
@@ -114,71 +91,11 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 async fn main() {
     FmtSubscriber::builder().with_max_level(Level::INFO).init();
     let args = Args::parse();
-    let current_dir = match std::env::current_dir() {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to detect workdir: {err:?}");
-            exit(-1);
-        }
-    };
 
-    let functions_dir = args.functions_dir.map(PathBuf::from).unwrap_or(current_dir);
-    let functions_storage = match FsStorage::new(functions_dir.clone()) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to init functions storage: {err:?}");
-            exit(-1);
-        }
-    };
-    let code_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_WASM, functions_storage.clone()));
-    let definition_storage = BoxedStorage::new(SuffixStorage::new(FILE_EXTENSION_DEFINITION, functions_storage));
-    let definition_provider = DefinitionProvider::new(definition_storage.clone());
+    let fx_runtime = FxRuntime::new();
 
-    let fx_runtime = FxRuntime::new()
-        .with_code_storage(code_storage.clone())
-        .with_definition_provider(definition_provider);
-
-    let fx_runtime = if let Some(logger) = args.logger {
-        fx_runtime.with_logger(match logger {
-            ArgsLogger::Stdout => BoxLogger::new(StdoutLogger::new()),
-            ArgsLogger::Noop => BoxLogger::new(NoopLogger::new()),
-            ArgsLogger::RabbitMq => {
-                let uri = match args.logger_rabbitmq_uri {
-                    Some(v) => v,
-                    None => {
-                        error!("rabbitmq logger requires setting rabbitmq uri");
-                        exit(-1);
-                    }
-                };
-
-                let exchange = match args.logger_rabbitmq_exchange {
-                    Some(v) => v,
-                    None => {
-                        error!("rabbitmq logger requires setting exchange param");
-                        exit(-1);
-                    }
-                };
-
-                let logger = match RabbitMqLogger::new(uri, exchange).await {
-                    Ok(v) => v,
-                    Err(err) => {
-                        error!("failed to create rabbitmq logger: {err:?}");
-                        exit(-1);
-                    }
-                };
-
-                BoxLogger::new(logger)
-            },
-        })
-    } else {
-        fx_runtime
-    };
-
+    // TODO: move to server, based on ServerConfig
     tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
-    if !args.command.is_serve() {
-        tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), code_storage));
-        tokio::spawn(reload_on_key_changes(fx_runtime.engine.clone(), definition_storage));
-    }
 
     run_command(fx_runtime, args.command).await;
 }
@@ -186,6 +103,7 @@ async fn main() {
 async fn run_command(fx_runtime: FxRuntime, command: Command) {
     match command {
         Command::Run { function, rpc_method_name } => {
+            // TODO: make run work with FxServer
             let function = if function.ends_with(FILE_EXTENSION_WASM) {
                 &function[0..function.len() - FILE_EXTENSION_WASM.len()]
             } else {
@@ -196,23 +114,6 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
                 error!("failed to invoke function: {err:?}");
                 exit(-1);
             }
-        },
-        Command::RabbitMq { consumer_file, amqp_addr } => {
-            let config = match fs::read(consumer_file) {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("failed to read consumer config file: {err:?}");
-                    exit(-1);
-                }
-            };
-            let config = load_rabbitmq_consumer_task_from_config(config);
-            let consumers = config.consumers.into_iter()
-                .map(|v| async {
-                    RabbitMqConsumer::new(fx_runtime.engine.clone(), amqp_addr.clone(), v.id, v.queue, v.function, v.rpc_method_name).run().await
-                }.boxed())
-                .collect::<Vec<_>>();
-
-            join_all(consumers).await;
         },
         Command::Serve { config_file } => {
             let config_path = std::env::current_dir().unwrap().join(config_file);
@@ -227,35 +128,5 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
                 .serve()
                 .await
         },
-    }
-}
-
-async fn reload_on_key_changes(engine: Arc<Engine>, storage: BoxedStorage) {
-    let mut watcher = storage.watch();
-    while let Some(key) = watcher.next().await {
-        let key = match key {
-            Ok(v) => v,
-            Err(err) => {
-                error!("kv watch error: {err:?}");
-                continue;
-            }
-        };
-
-        let function_id = match String::from_utf8(key.key) {
-            Ok(v) => v,
-            Err(err) => {
-                warn!("failed to decode function id as string: {err:?}");
-                continue;
-            }
-        };
-        engine.reload(&FunctionId::new(function_id))
-    }
-}
-
-async fn reload_on_optimizations(engine: Arc<Engine>, subscriber: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<FunctionId>>>) {
-    let mut subscriber = subscriber.lock().await;
-    while let Some(function_id) = subscriber.recv().await {
-        info!(function_id=function_id.as_string(), "reloading optimized function");
-        engine.reload(&function_id);
     }
 }
