@@ -299,161 +299,192 @@ impl FxServer {
             }
         }
     }
+}
 
-    async fn run_rabbitmq_listener(&self) {
-        use lapin::{Connection, ConnectionProperties};
+mod rabbitmq {
+    use {
+        super::*,
+        lapin::{Connection, ConnectionProperties},
+    };
 
-        #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-        struct ConsumerKey {
-            queue: String,
-            function_id: FunctionId,
-            handler: String,
-        }
+    #[derive(Clone, Debug, Hash, Eq, PartialEq)]
+    struct ConsumerKey {
+        queue: String,
+        function_id: FunctionId,
+        handler: String,
+    }
 
-        impl From<RabbitMqConsumerDefinition> for ConsumerKey {
-            fn from(v: RabbitMqConsumerDefinition) -> Self {
-                Self {
-                    queue: v.queue.clone(),
-                    function_id: v.function_id.clone(),
-                    handler: v.handler.clone(),
-                }
-            }
-        }
-
-        impl From<&RabbitMqConsumerDefinition> for ConsumerKey {
-            fn from(v: &RabbitMqConsumerDefinition) -> Self {
-                Self {
-                    queue: v.queue.clone(),
-                    function_id: v.function_id.clone(),
-                    handler: v.handler.clone(),
-                }
-            }
-        }
-
-        let mut rabbitmq_definition_rx = self.rabbitmq_definition_rx.lock().await;
-        while let Some(definition) = rabbitmq_definition_rx.recv().await {
-            if definition.consumers.is_empty() {
-                // empty consumers list, nothing to do, wait until next configuration update...
-                continue;
-            }
-
-            let amqp_addr = match self.config.amqp_addr.as_ref() {
-                Some(v) => v.clone(),
-                None => {
-                    error!("using rabbitmq requires specifying amqp_addr in server config. Update config and restart server to use rabbitmq.");
-                    break;
-                }
-            };
-
-            let connection = Arc::new(Connection::connect(&amqp_addr, ConnectionProperties::default().with_connection_name("fx".into())).await.unwrap());
-            let mut active_consumers = HashMap::<ConsumerKey, CancellationToken>::new();
-            let mut consumer_futures = FuturesUnordered::new();
-
-            info!("started rabbitmq consumer");
-
-            loop {
-                tokio::select! {
-                    new_definition = rabbitmq_definition_rx.recv() => {
-                        let new_definition = match new_definition {
-                            Some(v) => v,
-                            None => continue,
-                        };
-
-                        for consumer_definition in new_definition.consumers.iter() {
-                            let consumer_key = ConsumerKey::from(consumer_definition);
-                            if !active_consumers.contains_key(&consumer_key) {
-                                // new consumer, need to spawn it
-                                let (cancel_token, handle) = self.spawn_rabbitmq_consumer(
-                                    connection.clone(),
-                                    consumer_definition.queue.clone(),
-                                    consumer_definition.function_id.clone(),
-                                    consumer_definition.handler.clone(),
-                                ).await;
-                                active_consumers.insert(consumer_key.clone(), cancel_token);
-                                consumer_futures.push(handle);
-                            }
-                        }
-
-                        let new_definition_consumers = new_definition.consumers.into_iter()
-                            .map(ConsumerKey::from)
-                            .collect::<HashSet<_>>();
-                        let active_consumer_keys = active_consumers.keys().cloned().collect::<HashSet<_>>();
-                        for consumer_key in active_consumer_keys {
-                            if !new_definition_consumers.contains(&consumer_key) {
-                                let cancellation_token = active_consumers.remove(&consumer_key).unwrap();
-                                cancellation_token.cancel();
-                            }
-                        }
-
-                        if active_consumers.is_empty() {
-                            info!("no active rabbitmq consumers. Closing connection...");
-                            // TODO: wait for remaining consumers?
-                            break;
-                        }
-                    },
-                    _consumer_result = consumer_futures.next() => {
-                        // ignore consumer exits
-                    }
-                }
+    impl From<RabbitMqConsumerDefinition> for ConsumerKey {
+        fn from(v: RabbitMqConsumerDefinition) -> Self {
+            Self {
+                queue: v.queue.clone(),
+                function_id: v.function_id.clone(),
+                handler: v.handler.clone(),
             }
         }
     }
 
-    async fn spawn_rabbitmq_consumer(
-        &self,
-        connection: Arc<lapin::Connection>,
-        queue: String,
-        function_id: FunctionId,
-        handler: String,
-    ) -> (CancellationToken, JoinHandle<()>) {
-        use lapin::{options::{BasicConsumeOptions, BasicAckOptions, BasicNackOptions}, types::FieldTable};
+    impl From<&RabbitMqConsumerDefinition> for ConsumerKey {
+        fn from(v: &RabbitMqConsumerDefinition) -> Self {
+            Self {
+                queue: v.queue.clone(),
+                function_id: v.function_id.clone(),
+                handler: v.handler.clone(),
+            }
+        }
+    }
 
-        let cancellation_token = CancellationToken::new();
-        let runtime = self.runtime.clone();
+    impl FxServer {
+        pub(super) async fn run_rabbitmq_listener(&self) {
+            let mut rabbitmq_definition_rx = self.rabbitmq_definition_rx.lock().await;
+            while let Some(definition) = rabbitmq_definition_rx.recv().await {
+                if definition.consumers.is_empty() {
+                    // empty consumers list, nothing to do, wait until next configuration update...
+                    continue;
+                }
 
-        (
-            cancellation_token.clone(),
-            tokio::task::spawn(async move {
-                let channel = connection.create_channel().await.unwrap();
+                let amqp_addr = match self.config.amqp_addr.as_ref() {
+                    Some(v) => v.clone(),
+                    None => {
+                        error!("using rabbitmq requires specifying amqp_addr in server config. Update config and restart server to use rabbitmq.");
+                        break;
+                    }
+                };
 
-                let mut consumer = channel.basic_consume(
-                    &queue,
-                    &format!("fx-{:?}-{}", function_id, handler),
-                    BasicConsumeOptions::default(),
-                    FieldTable::default()
-                ).await.unwrap();
+                let connection = Arc::new(Connection::connect(&amqp_addr, ConnectionProperties::default().with_connection_name("fx".into())).await.unwrap());
+                let mut active_consumers = HashMap::<ConsumerKey, CancellationToken>::new();
+                let mut consumer_futures = FuturesUnordered::new();
+
+                info!("started rabbitmq consumer");
+
+                self.rabbitmq_handle_definition_update(
+                    connection.clone(),
+                    definition,
+                    &mut active_consumers,
+                    &mut consumer_futures
+                ).await;
 
                 loop {
                     tokio::select! {
-                        _ = cancellation_token.cancelled() => {
-                            channel.close(200, "shutdown").await.unwrap();
-                            break;
-                        },
-
-                        msg = consumer.next() => {
-                            let msg = match msg {
+                        new_definition = rabbitmq_definition_rx.recv() => {
+                            let new_definition = match new_definition {
                                 Some(v) => v,
-                                None => break,
+                                None => continue,
                             };
 
-                            let msg = msg.unwrap();
-                            let message = QueueMessage {
-                                data: msg.data.clone(),
+                            if !self.rabbitmq_handle_definition_update(
+                                connection.clone(),
+                                new_definition,
+                                &mut active_consumers,
+                                &mut consumer_futures,
+                            ).await {
+                                info!("no active rabbitmq consumers. Closing connection...");
+                                // TODO: wait for remaining consumers?
+                                break;
                             };
-
-                            let result = runtime.invoke_service::<QueueMessage, ()>(&function_id, &handler, message).await;
-                            if let Err(err) = result {
-                                error!("failed to invoke consumer: {err:?}");
-                                msg.nack(BasicNackOptions::default()).await.unwrap();
-                                sleep(Duration::from_secs(1)).await;
-                            } else {
-                                msg.ack(BasicAckOptions::default()).await.unwrap();
-                            }
+                        },
+                        _consumer_result = consumer_futures.next() => {
+                            // ignore consumer exits
                         }
                     }
                 }
-            })
-        )
+            }
+        }
+
+        async fn rabbitmq_handle_definition_update(
+            &self,
+            connection: Arc<lapin::Connection>,
+            new_definition: RabbitmqListenerDefinition,
+            active_consumers: &mut HashMap<ConsumerKey, CancellationToken>,
+            consumer_futures: &mut FuturesUnordered<JoinHandle<()>>,
+        ) -> bool {
+            for consumer_definition in new_definition.consumers.iter() {
+                let consumer_key = ConsumerKey::from(consumer_definition);
+                if !active_consumers.contains_key(&consumer_key) {
+                    // new consumer, need to spawn it
+                    let (cancel_token, handle) = self.spawn_rabbitmq_consumer(
+                        connection.clone(),
+                        consumer_definition.queue.clone(),
+                        consumer_definition.function_id.clone(),
+                        consumer_definition.handler.clone(),
+                    ).await;
+                    active_consumers.insert(consumer_key.clone(), cancel_token);
+                    consumer_futures.push(handle);
+                }
+            }
+
+            let new_definition_consumers = new_definition.consumers.into_iter()
+                .map(ConsumerKey::from)
+                .collect::<HashSet<_>>();
+            let active_consumer_keys = active_consumers.keys().cloned().collect::<HashSet<_>>();
+            for consumer_key in active_consumer_keys {
+                if !new_definition_consumers.contains(&consumer_key) {
+                    let cancellation_token = active_consumers.remove(&consumer_key).unwrap();
+                    cancellation_token.cancel();
+                }
+            }
+
+            !active_consumers.is_empty()
+        }
+
+        async fn spawn_rabbitmq_consumer(
+            &self,
+            connection: Arc<lapin::Connection>,
+            queue: String,
+            function_id: FunctionId,
+            handler: String,
+        ) -> (CancellationToken, JoinHandle<()>) {
+            use lapin::{options::{BasicConsumeOptions, BasicAckOptions, BasicNackOptions}, types::FieldTable};
+
+            let cancellation_token = CancellationToken::new();
+            let runtime = self.runtime.clone();
+
+            (
+                cancellation_token.clone(),
+                tokio::task::spawn(async move {
+                    info!(queue, function_id=function_id.as_string(), handler, "starting rabbitmq consumer");
+
+                    let channel = connection.create_channel().await.unwrap();
+
+                    let mut consumer = channel.basic_consume(
+                        &queue,
+                        &format!("fx-{:?}-{}", function_id, handler),
+                        BasicConsumeOptions::default(),
+                        FieldTable::default()
+                    ).await.unwrap();
+
+                    loop {
+                        tokio::select! {
+                            _ = cancellation_token.cancelled() => {
+                                channel.close(200, "shutdown").await.unwrap();
+                                break;
+                            },
+
+                            msg = consumer.next() => {
+                                let msg = match msg {
+                                    Some(v) => v,
+                                    None => break,
+                                };
+
+                                let msg = msg.unwrap();
+                                let message = QueueMessage {
+                                    data: msg.data.clone(),
+                                };
+
+                                let result = runtime.invoke_service::<QueueMessage, ()>(&function_id, &handler, message).await;
+                                if let Err(err) = result {
+                                    error!("failed to invoke consumer: {err:?}");
+                                    msg.nack(BasicNackOptions::default()).await.unwrap();
+                                    sleep(Duration::from_secs(1)).await;
+                                } else {
+                                    msg.ack(BasicAckOptions::default()).await.unwrap();
+                                }
+                            }
+                        }
+                    }
+                })
+            )
+        }
     }
 }
 
