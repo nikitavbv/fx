@@ -43,6 +43,7 @@ use {
             definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition, DefinitionError},
             logs::{self, Logger, BoxLogger, StdoutLogger},
         },
+        introspection::IntrospectionState,
     },
 };
 
@@ -150,6 +151,7 @@ pub struct Engine {
     wasmtime: wasmtime::Engine,
 
     pub metrics: Metrics,
+    pub introspection: Arc<IntrospectionState>,
 
     deployed_functions: RwLock<HashMap<FunctionId, ArcSwap<ExecutionContextId>>>,
     execution_context_id_counter: AtomicU64,
@@ -171,6 +173,7 @@ impl Engine {
             wasmtime: wasmtime::Engine::default(),
 
             metrics: Metrics::new(),
+            introspection: Arc::new(IntrospectionState::new()),
 
             deployed_functions: RwLock::new(HashMap::new()),
             execution_context_id_counter: AtomicU64::new(0),
