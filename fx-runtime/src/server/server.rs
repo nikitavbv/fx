@@ -23,6 +23,7 @@ use {
     cron as cron_utils,
     chrono::Utc,
     futures::{stream::FuturesUnordered, StreamExt},
+    fx_common::QueueMessage,
     crate::{
         runtime::{
             FxRuntime,
@@ -344,12 +345,7 @@ impl FxServer {
                 }
             };
 
-            let connection = Connection::connect(&amqp_addr, ConnectionProperties::default().with_connection_name("fx".into())).await.unwrap();
-
-            let mut consumers = definition.consumers
-                .into_iter()
-                .map(ConsumerKey::from)
-                .collect::<HashSet<_>>();
+            let connection = Arc::new(Connection::connect(&amqp_addr, ConnectionProperties::default().with_connection_name("fx".into())).await.unwrap());
             let mut active_consumers = HashMap::<ConsumerKey, CancellationToken>::new();
             let mut consumer_futures = FuturesUnordered::new();
 
@@ -367,7 +363,12 @@ impl FxServer {
                             let consumer_key = ConsumerKey::from(consumer_definition);
                             if !active_consumers.contains_key(&consumer_key) {
                                 // new consumer, need to spawn it
-                                let (cancel_token, handle) = self.spawn_rabbitmq_consumer().await;
+                                let (cancel_token, handle) = self.spawn_rabbitmq_consumer(
+                                    connection.clone(),
+                                    consumer_definition.queue.clone(),
+                                    consumer_definition.function_id.clone(),
+                                    consumer_definition.handler.clone(),
+                                ).await;
                                 active_consumers.insert(consumer_key.clone(), cancel_token);
                                 consumer_futures.push(handle);
                             }
@@ -398,13 +399,59 @@ impl FxServer {
         }
     }
 
-    async fn spawn_rabbitmq_consumer(&self) -> (CancellationToken, JoinHandle<()>) {
+    async fn spawn_rabbitmq_consumer(
+        &self,
+        connection: Arc<lapin::Connection>,
+        queue: String,
+        function_id: FunctionId,
+        handler: String,
+    ) -> (CancellationToken, JoinHandle<()>) {
+        use lapin::{options::{BasicConsumeOptions, BasicAckOptions, BasicNackOptions}, types::FieldTable};
+
         let cancellation_token = CancellationToken::new();
+        let runtime = self.runtime.clone();
 
         (
             cancellation_token.clone(),
-            tokio::task::spawn(async {
+            tokio::task::spawn(async move {
+                let channel = connection.create_channel().await.unwrap();
 
+                let mut consumer = channel.basic_consume(
+                    &queue,
+                    &format!("fx-{:?}-{}", function_id, handler),
+                    BasicConsumeOptions::default(),
+                    FieldTable::default()
+                ).await.unwrap();
+
+                loop {
+                    tokio::select! {
+                        _ = cancellation_token.cancelled() => {
+                            channel.close(200, "shutdown").await.unwrap();
+                            break;
+                        },
+
+                        msg = consumer.next() => {
+                            let msg = match msg {
+                                Some(v) => v,
+                                None => break,
+                            };
+
+                            let msg = msg.unwrap();
+                            let message = QueueMessage {
+                                data: msg.data.clone(),
+                            };
+
+                            let result = runtime.invoke_service::<QueueMessage, ()>(&function_id, &handler, message).await;
+                            if let Err(err) = result {
+                                error!("failed to invoke consumer: {err:?}");
+                                msg.nack(BasicNackOptions::default()).await.unwrap();
+                                sleep(Duration::from_secs(1)).await;
+                            } else {
+                                msg.ack(BasicAckOptions::default()).await.unwrap();
+                            }
+                        }
+                    }
+                }
             })
         )
     }
