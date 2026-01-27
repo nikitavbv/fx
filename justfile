@@ -59,10 +59,3 @@ fortunes-benchmark:
     wrk -t4 -c10 -d5s http://localhost:8080/fortunes > /dev/null
     # run the benchmark
     wrk -t4 -c10 -d60s http://localhost:8080/fortunes
-
-local-http: cloud-dashboard
-    cargo run -p fx-cloud --release -- --functions-dir local/functions http dashboard
-
-local-cron: app-hello-world
-    cp target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm local/functions/hello-world.wasm
-    cargo run -p fx-cloud --release -- --functions-dir local/functions cron local/cron.yaml
