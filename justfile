@@ -11,7 +11,7 @@ test:
 coverage:
     cargo llvm-cov --html run -p fx-tests --release
 
-apps: cloud-dashboard app-counter app-hello-world app-rpc-test-service
+apps: app-counter app-hello-world app-rpc-test-service
 
 demo: app-demo run
 
@@ -23,10 +23,6 @@ app-demo: app-hello-world app-fortunes
     rm local/functions/fortunes.sqlite || true
     sqlite3 local/functions/fortunes.sqlite < apps/fx-fortunes/fortunes.sql
     cp apps/fx-fortunes/fortunes.fx.yaml local/functions/fortunes.fx.yaml
-
-cloud-dashboard:
-    cargo build --target wasm32-unknown-unknown -p fx-cloud-dashboard --release
-    cp target/wasm32-unknown-unknown/release/fx_cloud_dashboard.wasm local/functions/dashboard.wasm
 
 app-counter:
     cargo build --target wasm32-unknown-unknown -p fx-app-counter --release
