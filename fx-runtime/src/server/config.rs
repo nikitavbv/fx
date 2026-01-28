@@ -34,11 +34,6 @@ pub enum LoggerConfig {
     Stdout,
     #[serde(rename = "noop")]
     Noop,
-    #[serde(rename = "rabbitmq")]
-    RabbitMq {
-        uri: String,
-        exchange: String,
-    },
     #[serde(skip)]
     Custom(Arc<BoxLogger>),
 }

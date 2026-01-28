@@ -18,8 +18,6 @@ use {
             logs::{BoxLogger, StdoutLogger, NoopLogger},
         },
         server::{
-            consumer::RabbitMqConsumer,
-            logs::RabbitMqLogger,
             server::FxServer,
             config::ServerConfig,
         },

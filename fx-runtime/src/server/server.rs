@@ -36,7 +36,6 @@ use {
         },
         server::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig, LoggerConfig},
-            logs::RabbitMqLogger,
             http::HttpHandler,
             cron::CronDatabase,
         },
@@ -53,7 +52,6 @@ pub struct FxServer {
 
     http_definition_rx: Arc<Mutex<mpsc::Receiver<HttpListenerDefinition>>>,
     cron_definition_rx: Arc<Mutex<mpsc::Receiver<CronListenerDefinition>>>,
-    rabbitmq_definition_rx: Arc<Mutex<mpsc::Receiver<RabbitmqListenerDefinition>>>,
 }
 
 struct DefinitionsMonitor {
@@ -62,7 +60,6 @@ struct DefinitionsMonitor {
 
     http_definition_tx: Arc<Mutex<mpsc::Sender<HttpListenerDefinition>>>,
     cron_definition_tx: Arc<Mutex<mpsc::Sender<CronListenerDefinition>>>,
-    rabbitmq_definition_tx: Arc<Mutex<mpsc::Sender<RabbitmqListenerDefinition>>>,
 
     listeners_state: Arc<Mutex<ListenersState>>,
 }
@@ -70,7 +67,6 @@ struct DefinitionsMonitor {
 struct ListenersState {
     http: HttpListenerDefinition,
     cron: CronListenerDefinition,
-    rabbitmq: RabbitmqListenerDefinition,
 }
 
 #[derive(Clone, Debug)]
@@ -91,18 +87,6 @@ struct CronListenerEntry {
     schedule: cron_utils::Schedule,
 }
 
-#[derive(Clone, Debug)]
-struct RabbitmqListenerDefinition {
-    consumers: Vec<RabbitMqConsumerDefinition>,
-}
-
-#[derive(Clone, Debug)]
-struct RabbitMqConsumerDefinition {
-    queue: String,
-    function_id: FunctionId,
-    handler: String,
-}
-
 impl FxServer {
     pub async fn new(config: ServerConfig, mut runtime: FxRuntime) -> Self {
         if let Some(logger) = config.logger.as_ref() {
@@ -113,14 +97,12 @@ impl FxServer {
         // TODO: tokio::watch is better here?
         let (http_tx, http_rx) = mpsc::channel::<HttpListenerDefinition>(100);
         let (cron_tx, cron_rx) = mpsc::channel::<CronListenerDefinition>(100);
-        let (rabbitmq_tx, rabbitmq_rx) = mpsc::channel::<RabbitmqListenerDefinition>(100);
 
         let definitions_monitor = DefinitionsMonitor::new(
             runtime.clone(),
             &config,
             http_tx,
             cron_tx,
-            rabbitmq_tx,
         );
 
         Self {
@@ -131,7 +113,6 @@ impl FxServer {
 
             http_definition_rx: Arc::new(Mutex::new(http_rx)),
             cron_definition_rx: Arc::new(Mutex::new(cron_rx)),
-            rabbitmq_definition_rx: Arc::new(Mutex::new(rabbitmq_rx)),
         }
     }
 
@@ -143,7 +124,6 @@ impl FxServer {
             self.definitions_monitor.scan_definitions(),
             self.run_http_listener(),
             self.run_cron_listener(),
-            self.run_rabbitmq_listener(),
         );
     }
 
@@ -315,210 +295,18 @@ impl FxServer {
     }
 }
 
-mod rabbitmq {
-    use {
-        super::*,
-        lapin::{Connection, ConnectionProperties},
-    };
-
-    #[derive(Clone, Debug, Hash, Eq, PartialEq)]
-    struct ConsumerKey {
-        queue: String,
-        function_id: FunctionId,
-        handler: String,
-    }
-
-    impl From<RabbitMqConsumerDefinition> for ConsumerKey {
-        fn from(v: RabbitMqConsumerDefinition) -> Self {
-            Self {
-                queue: v.queue.clone(),
-                function_id: v.function_id.clone(),
-                handler: v.handler.clone(),
-            }
-        }
-    }
-
-    impl From<&RabbitMqConsumerDefinition> for ConsumerKey {
-        fn from(v: &RabbitMqConsumerDefinition) -> Self {
-            Self {
-                queue: v.queue.clone(),
-                function_id: v.function_id.clone(),
-                handler: v.handler.clone(),
-            }
-        }
-    }
-
-    impl FxServer {
-        pub(super) async fn run_rabbitmq_listener(&self) {
-            let mut rabbitmq_definition_rx = self.rabbitmq_definition_rx.lock().await;
-            while let Some(definition) = rabbitmq_definition_rx.recv().await {
-                if definition.consumers.is_empty() {
-                    // empty consumers list, nothing to do, wait until next configuration update...
-                    continue;
-                }
-
-                let amqp_addr = match self.config.amqp_addr.as_ref() {
-                    Some(v) => v.clone(),
-                    None => {
-                        error!("using rabbitmq requires specifying amqp_addr in server config. Update config and restart server to use rabbitmq.");
-                        break;
-                    }
-                };
-
-                let connection = Arc::new(Connection::connect(&amqp_addr, ConnectionProperties::default().with_connection_name("fx".into())).await.unwrap());
-                let mut active_consumers = HashMap::<ConsumerKey, CancellationToken>::new();
-                let mut consumer_futures = FuturesUnordered::new();
-
-                info!("started rabbitmq consumer");
-
-                self.rabbitmq_handle_definition_update(
-                    connection.clone(),
-                    definition,
-                    &mut active_consumers,
-                    &mut consumer_futures
-                ).await;
-
-                loop {
-                    tokio::select! {
-                        new_definition = rabbitmq_definition_rx.recv() => {
-                            let new_definition = match new_definition {
-                                Some(v) => v,
-                                None => continue,
-                            };
-
-                            if !self.rabbitmq_handle_definition_update(
-                                connection.clone(),
-                                new_definition,
-                                &mut active_consumers,
-                                &mut consumer_futures,
-                            ).await {
-                                info!("no active rabbitmq consumers. Closing connection...");
-                                // TODO: wait for remaining consumers?
-                                break;
-                            };
-                        },
-                        _consumer_result = consumer_futures.next() => {
-                            // ignore consumer exits
-                        }
-                    }
-                }
-            }
-        }
-
-        async fn rabbitmq_handle_definition_update(
-            &self,
-            connection: Arc<lapin::Connection>,
-            new_definition: RabbitmqListenerDefinition,
-            active_consumers: &mut HashMap<ConsumerKey, CancellationToken>,
-            consumer_futures: &mut FuturesUnordered<JoinHandle<()>>,
-        ) -> bool {
-            for consumer_definition in new_definition.consumers.iter() {
-                let consumer_key = ConsumerKey::from(consumer_definition);
-                if !active_consumers.contains_key(&consumer_key) {
-                    // new consumer, need to spawn it
-                    let (cancel_token, handle) = self.spawn_rabbitmq_consumer(
-                        connection.clone(),
-                        consumer_definition.queue.clone(),
-                        consumer_definition.function_id.clone(),
-                        consumer_definition.handler.clone(),
-                    ).await;
-                    active_consumers.insert(consumer_key.clone(), cancel_token);
-                    consumer_futures.push(handle);
-                }
-            }
-
-            let new_definition_consumers = new_definition.consumers.into_iter()
-                .map(ConsumerKey::from)
-                .collect::<HashSet<_>>();
-            let active_consumer_keys = active_consumers.keys().cloned().collect::<HashSet<_>>();
-            for consumer_key in active_consumer_keys {
-                if !new_definition_consumers.contains(&consumer_key) {
-                    let cancellation_token = active_consumers.remove(&consumer_key).unwrap();
-                    cancellation_token.cancel();
-                }
-            }
-
-            !active_consumers.is_empty()
-        }
-
-        async fn spawn_rabbitmq_consumer(
-            &self,
-            connection: Arc<lapin::Connection>,
-            queue: String,
-            function_id: FunctionId,
-            handler: String,
-        ) -> (CancellationToken, JoinHandle<()>) {
-            use lapin::{options::{BasicConsumeOptions, BasicAckOptions, BasicNackOptions}, types::FieldTable};
-
-            let cancellation_token = CancellationToken::new();
-            let runtime = self.runtime.clone();
-
-            (
-                cancellation_token.clone(),
-                tokio::task::spawn(async move {
-                    info!(queue, function_id=function_id.as_string(), handler, "starting rabbitmq consumer");
-
-                    let channel = connection.create_channel().await.unwrap();
-
-                    let mut consumer = channel.basic_consume(
-                        &queue,
-                        &format!("fx-{:?}-{}", function_id, handler),
-                        BasicConsumeOptions::default(),
-                        FieldTable::default()
-                    ).await.unwrap();
-
-                    loop {
-                        tokio::select! {
-                            _ = cancellation_token.cancelled() => {
-                                channel.close(200, "shutdown").await.unwrap();
-                                break;
-                            },
-
-                            msg = consumer.next() => {
-                                let msg = match msg {
-                                    Some(v) => v,
-                                    None => {
-                                        info!(queue, function_id=function_id.as_string(), handler, "consumer.next() retruned None");
-                                        break;
-                                    },
-                                };
-
-                                let msg = msg.unwrap();
-                                let message = QueueMessage {
-                                    data: msg.data.clone(),
-                                };
-
-                                let result = runtime.invoke_service::<QueueMessage, ()>(&function_id, &handler, message).await;
-                                if let Err(err) = result {
-                                    error!("failed to invoke consumer: {err:?}");
-                                    msg.nack(BasicNackOptions::default()).await.unwrap();
-                                    sleep(Duration::from_secs(1)).await;
-                                } else {
-                                    msg.ack(BasicAckOptions::default()).await.unwrap();
-                                }
-                            }
-                        }
-                    }
-                })
-            )
-        }
-    }
-}
-
 impl DefinitionsMonitor {
     pub fn new(
         runtime: Arc<FxRuntime>,
         config: &ServerConfig,
         http_definition_tx: mpsc::Sender<HttpListenerDefinition>,
         cron_definition_tx: mpsc::Sender<CronListenerDefinition>,
-        rabbitmq_definition_tx: mpsc::Sender<RabbitmqListenerDefinition>,
     ) -> Self {
         Self {
             runtime,
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
             http_definition_tx: Arc::new(Mutex::new(http_definition_tx)),
             cron_definition_tx: Arc::new(Mutex::new(cron_definition_tx)),
-            rabbitmq_definition_tx: Arc::new(Mutex::new(rabbitmq_definition_tx)),
             listeners_state: Arc::new(Mutex::new(ListenersState::new())),
         }
     }
@@ -752,19 +540,6 @@ impl DefinitionsMonitor {
             }))
             .collect();
         self.cron_definition_tx.lock().await.send(listeners_state.cron.clone()).await.unwrap();
-
-        // rabbitmq:
-        listeners_state.rabbitmq.consumers = listeners_state.rabbitmq.consumers
-            .iter()
-            .cloned()
-            .filter(|v| &v.function_id != &function_id)
-            .chain(config.triggers.as_ref().and_then(|v| v.rabbitmq.as_ref()).cloned().unwrap_or(Vec::new()).into_iter().map(|v| RabbitMqConsumerDefinition {
-                queue: v.queue.clone(),
-                function_id: function_id.clone(),
-                handler: v.handler.clone(),
-            }))
-            .collect();
-        self.rabbitmq_definition_tx.lock().await.send(listeners_state.rabbitmq.clone()).await.unwrap();
     }
 
     async fn remove_function(&self, function_id: FunctionId, definition_http: &mut HttpListenerDefinition) {
@@ -803,9 +578,6 @@ impl ListenersState {
             cron: CronListenerDefinition {
                 schedule: Vec::new(),
             },
-            rabbitmq: RabbitmqListenerDefinition {
-                consumers: Vec::new(),
-            },
         }
     }
 }
@@ -820,7 +592,6 @@ async fn create_logger(logger: &LoggerConfig) -> BoxLogger {
     match logger {
         LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
         LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
-        LoggerConfig::RabbitMq { uri, exchange } => BoxLogger::new(RabbitMqLogger::new(uri.clone(), exchange.clone()).await.unwrap()),
         LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
     }
 }
