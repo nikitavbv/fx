@@ -41,6 +41,7 @@ walkdir = "2.5.0"
 arc-swap = "1.8.0"
 axum = "0.8.8"
 leptos = { version = "0.8.15", default-features = false, features = ["ssr"] }
+gdt-cpus = "25.12.0"
 
 fx-common = { path = "../extra/fx-common" }
 fx-types = { path = "../fx-types" }

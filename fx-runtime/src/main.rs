@@ -36,86 +36,63 @@ const FILE_EXTENSION_WASM: &str = ".wasm";
 struct Args {
     #[command(subcommand)]
     command: Command,
-
-    #[arg(long)]
-    metrics_port: Option<u16>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ArgsLogger {
-    Stdout,
-    Noop,
-    RabbitMq,
-}
-
-impl ValueEnum for ArgsLogger {
-    fn value_variants<'a>() -> &'a [Self] {
-        &[Self::Stdout, Self::Noop, Self::RabbitMq]
-    }
-
-    fn to_possible_value(&self) -> Option<PossibleValue> {
-        Some(match self {
-            Self::Stdout => PossibleValue::new("stdout").help("write logs to stdout"),
-            Self::Noop => PossibleValue::new("noop").help("do not write logs anywhere"),
-            Self::RabbitMq => PossibleValue::new("rabbitmq").help("write logs to rabbitmq exchange"),
-        })
-    }
 }
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    Run {
-        function: String,
-        rpc_method_name: String,
-    },
     Serve {
         config_file: String,
     },
-}
-
-impl Command {
-    pub fn is_serve(&self) -> bool {
-        match &self {
-            Self::Serve { .. } => true,
-            _ => false,
-        }
-    }
 }
 
 #[cfg(not(target_arch = "aarch64"))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() {
+fn main() {
     FmtSubscriber::builder().with_max_level(Level::INFO).init();
     let args = Args::parse();
 
-    let fx_runtime = FxRuntime::new();
-
-    // TODO: move to server, based on ServerConfig
-    // tokio::spawn(run_metrics_server(fx_runtime.engine.clone(), args.metrics_port.unwrap_or(8081)));
-
-    run_command(fx_runtime, args.command).await;
-}
-
-async fn run_command(fx_runtime: FxRuntime, command: Command) {
-    match command {
-        Command::Run { function, rpc_method_name } => {
-            // TODO: make run work with FxServer
-            let function = if function.ends_with(FILE_EXTENSION_WASM) {
-                &function[0..function.len() - FILE_EXTENSION_WASM.len()]
-            } else {
-                &function
-            };
-            let result = fx_runtime.invoke_service::<(), ()>(&FunctionId::new(function), &rpc_method_name, ()).await;
-            if let Err(err) = result {
-                error!("failed to invoke function: {err:?}");
-                exit(-1);
-            }
-        },
+    match args.command {
         Command::Serve { config_file } => {
-            let config_path = std::env::current_dir().unwrap().join(config_file);
+            warn!("note: fx is currently undergoing major refactoring. For now, please use versions 0.1.560 or older.");
+
+            let cpu_info = match gdt_cpus::cpu_info() {
+                Ok(v) => Some(v),
+                Err(err) => {
+                    error!("failed to get cpu info: {err:?}");
+                    None
+                }
+            };
+
+            let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+            let worker_cores = cpu_info.as_ref()
+                .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
+                .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
+
+            let mut worker_id = 0;
+            let mut worker_handles = Vec::new();
+            for worker_core_id in worker_cores.into_iter() {
+                let handle = std::thread::spawn(move || {
+                    if let Some(worker_core_id) = worker_core_id {
+                        match gdt_cpus::pin_thread_to_core(worker_core_id) {
+                            Ok(_) => {},
+                            Err(gdt_cpus::Error::Unsupported(_)) => {},
+                            Err(err) => error!("failed to pin thread to core: {err:?}"),
+                        }
+                    }
+
+                    info!(worker_id, "started worker thread");
+                });
+                worker_handles.push(handle);
+                worker_id += 1;
+            }
+
+            for handle in worker_handles {
+                handle.join().unwrap();
+            }
+
+            /*let config_path = std::env::current_dir().unwrap().join(config_file);
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path).await;
 
@@ -125,7 +102,7 @@ async fn run_command(fx_runtime: FxRuntime, command: Command) {
             )
                 .await
                 .serve()
-                .await
+                .await*/
         },
     }
 }
