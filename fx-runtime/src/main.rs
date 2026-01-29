@@ -4,11 +4,14 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf, sync::Arc, process::exit},
+    std::{fs, path::PathBuf, sync::Arc, process::exit, net::SocketAddr, convert::Infallible, pin::Pin},
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
-    ::futures::{FutureExt, StreamExt, future::join_all},
+    ::futures::{FutureExt, StreamExt, future::join_all, future::BoxFuture},
+    hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
+    hyper_util::rt::{TokioIo, TokioTimer},
+    http_body_util::{Full, BodyStream},
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
@@ -57,6 +60,10 @@ fn main() {
         Command::Serve { config_file } => {
             warn!("note: fx is currently undergoing major refactoring. For now, please use versions 0.1.560 or older.");
 
+            let config_path = std::env::current_dir().unwrap().join(config_file);
+            info!("Loading config from {config_path:?}");
+            let config = ServerConfig::load(config_path);
+
             let cpu_info = match gdt_cpus::cpu_info() {
                 Ok(v) => Some(v),
                 Err(err) => {
@@ -64,6 +71,15 @@ fn main() {
                     None
                 }
             };
+
+            let management_thread_handle = std::thread::spawn(move || {
+                info!("started management thread");
+
+                let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+            });
 
             let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
             let worker_cores = cpu_info.as_ref()
@@ -83,26 +99,100 @@ fn main() {
                     }
 
                     info!(worker_id, "started worker thread");
+
+                    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    let local_set = tokio::task::LocalSet::new();
+
+                    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, Some(socket2::Protocol::TCP)).unwrap();
+                    socket.set_reuse_port(true).unwrap();
+                    socket.set_reuse_address(true).unwrap();
+                    socket.set_nonblocking(true).unwrap();
+
+                    // TODO: take port from config
+                    let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
+                    socket.bind(&addr.into()).unwrap();
+                    socket.listen(1024).unwrap();
+
+                    tokio_runtime.block_on(local_set.run_until(async {
+                        let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
+                        let graceful = hyper_util::server::graceful::GracefulShutdown::new();
+
+                        let http_handler = HttpHandlerV2::new();
+
+                        loop {
+                            tokio::select! {
+                                connection = listener.accept() => {
+                                    let (tcp, _) = match connection {
+                                        Ok(v) => v,
+                                        Err(err) => {
+                                            error!("failed to accept http connection: {err:?}");
+                                            continue;
+                                        }
+                                    };
+                                    info!(worker_id, "new http connection");
+
+                                    let io = TokioIo::new(tcp);
+                                    let conn = http1::Builder::new()
+                                        .timer(TokioTimer::new())
+                                        .serve_connection(io, &http_handler);
+                                }
+                            }
+                        }
+                    }));
                 });
                 worker_handles.push(handle);
                 worker_id += 1;
             }
 
+            management_thread_handle.join().unwrap();
             for handle in worker_handles {
                 handle.join().unwrap();
             }
-
-            /*let config_path = std::env::current_dir().unwrap().join(config_file);
-            info!("Loading config from {config_path:?}");
-            let config = ServerConfig::load(config_path).await;
-
-            FxServer::new(
-                config,
-                fx_runtime,
-            )
-                .await
-                .serve()
-                .await*/
         },
+    }
+}
+
+struct HttpHandlerV2 {}
+
+impl HttpHandlerV2 {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for &HttpHandlerV2 {
+    type Response = Response<Full<Bytes>>;
+    type Error = Infallible;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+    fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        Box::pin(HttpHandlerFuture::new(req))
+    }
+}
+
+struct HttpHandlerFuture<'a> {
+    inner: BoxFuture<'a, Result<Response<Full<Bytes>>, Infallible>>,
+}
+
+impl<'a> HttpHandlerFuture<'a> {
+    fn new(req: hyper::Request<hyper::body::Incoming>) -> Self {
+        let inner = Box::pin(async move {
+            unimplemented!()
+        });
+
+        Self {
+            inner,
+        }
+    }
+}
+
+impl<'a> Future for HttpHandlerFuture<'a> {
+    type Output = Result<Response<Full<Bytes>>, Infallible>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        self.inner.poll_unpin(cx)
     }
 }

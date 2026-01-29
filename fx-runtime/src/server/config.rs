@@ -20,8 +20,8 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
-    pub async fn load(file_path: PathBuf) -> Self {
-        let mut config: Self = serde_yml::from_slice(&fs::read(&file_path).await.unwrap()).unwrap();
+    pub fn load(file_path: PathBuf) -> Self {
+        let mut config: Self = serde_yml::from_slice(&std::fs::read(&file_path).unwrap()).unwrap();
         config.config_path = Some(file_path);
         config
     }
