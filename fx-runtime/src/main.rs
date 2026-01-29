@@ -4,7 +4,7 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{fs, path::PathBuf, sync::Arc, process::exit, net::SocketAddr, convert::Infallible, pin::Pin},
+    std::{path::PathBuf, sync::Arc, process::exit, net::SocketAddr, convert::Infallible, pin::Pin, cell::RefCell, rc::Rc},
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
@@ -12,6 +12,7 @@ use {
     hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::{Full, BodyStream},
+    walkdir::WalkDir,
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
@@ -79,6 +80,15 @@ fn main() {
                     .enable_all()
                     .build()
                     .unwrap();
+                let local_set = tokio::task::LocalSet::new();
+
+                let definitions_monitor = DefinitionsMonitor::new(&config);
+
+                tokio_runtime.block_on(local_set.run_until(async {
+                    tokio::join!(
+                        definitions_monitor.scan_definitions(),
+                    )
+                }));
             });
 
             let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
@@ -120,8 +130,6 @@ fn main() {
                         let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
                         let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
-                        let http_handler = HttpHandlerV2::new();
-
                         loop {
                             tokio::select! {
                                 connection = listener.accept() => {
@@ -137,7 +145,20 @@ fn main() {
                                     let io = TokioIo::new(tcp);
                                     let conn = http1::Builder::new()
                                         .timer(TokioTimer::new())
-                                        .serve_connection(io, &http_handler);
+                                        .serve_connection(io, HttpHandlerV2);
+                                    let request_future = graceful.watch(conn);
+
+                                    tokio::task::spawn_local(async move {
+                                        if let Err(err) = request_future.await {
+                                            if err.is_timeout() {
+                                                // ignore timeouts, because those can be caused by client
+                                            } else if err.is_incomplete_message() {
+                                                // ignore incomplete messages, because those are caused by client
+                                            } else {
+                                                error!("error while handling http request: {err:?}"); // incomplete message should be fine
+                                            }
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -155,15 +176,9 @@ fn main() {
     }
 }
 
-struct HttpHandlerV2 {}
+struct HttpHandlerV2;
 
-impl HttpHandlerV2 {
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for &HttpHandlerV2 {
+impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandlerV2 {
     type Response = Response<Full<Bytes>>;
     type Error = Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
@@ -195,4 +210,40 @@ impl<'a> Future for HttpHandlerFuture<'a> {
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         self.inner.poll_unpin(cx)
     }
+}
+
+struct DefinitionsMonitor {
+    functions_directory: PathBuf,
+}
+
+impl DefinitionsMonitor {
+    pub fn new(
+        config: &ServerConfig,
+    ) -> Self {
+        Self {
+            functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
+        }
+    }
+
+    async fn scan_definitions(&self) {
+        info!("will scan definitions in: {:?}", self.functions_directory);
+
+        let root = &self.functions_directory;
+        for entry in WalkDir::new(root) {
+            let entry = match entry {
+                Ok(v) => v,
+                Err(err) => {
+                    warn!("failed to scan definitions in dir: {err:?}");
+                    continue;
+                }
+            };
+
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            unimplemented!()
+        }
+    }
+
 }
