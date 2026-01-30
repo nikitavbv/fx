@@ -323,6 +323,7 @@ impl DefinitionsMonitor {
                 self.broadcast_tx.send(BroadcastMessage::RemoveFunction(function_id)).unwrap();
                 continue;
             }
+            unimplemented!("handle other updates")
         }
     }
 
