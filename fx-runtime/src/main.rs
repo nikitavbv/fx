@@ -4,15 +4,17 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{path::PathBuf, sync::Arc, process::exit, net::SocketAddr, convert::Infallible, pin::Pin, cell::RefCell, rc::Rc},
+    std::{path::{PathBuf, Path}, process::exit, net::SocketAddr, convert::Infallible, pin::Pin, cell::RefCell, rc::Rc},
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
+    tokio::{fs, sync::broadcast},
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all, future::BoxFuture},
     hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::{Full, BodyStream},
     walkdir::WalkDir,
+    thiserror::Error,
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
@@ -23,7 +25,7 @@ use {
         },
         server::{
             server::FxServer,
-            config::ServerConfig,
+            config::{ServerConfig, FunctionConfig},
         },
     },
 };
@@ -34,6 +36,7 @@ mod runtime;
 mod server;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
+const DEFINITION_FILE_SUFFIX: &str = ".fx.yaml";
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -47,6 +50,11 @@ enum Command {
     Serve {
         config_file: String,
     },
+}
+
+#[derive(Clone, Debug)]
+enum BroadcastMessage {
+    RemoveFunction(FunctionId),
 }
 
 #[cfg(not(target_arch = "aarch64"))]
@@ -73,6 +81,13 @@ fn main() {
                 }
             };
 
+            let (broadcast_tx, broadcast_rx) = broadcast::channel::<BroadcastMessage>(100);
+            let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+            let worker_broadcast_rx = std::iter::once(broadcast_rx).chain(
+              (0..(worker_threads-1))
+                  .map(|_| broadcast_tx.subscribe())
+            ).collect::<Vec<_>>();
+
             let management_thread_handle = std::thread::spawn(move || {
                 info!("started management thread");
 
@@ -82,7 +97,7 @@ fn main() {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let definitions_monitor = DefinitionsMonitor::new(&config);
+                let definitions_monitor = DefinitionsMonitor::new(&config, broadcast_tx);
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
@@ -91,16 +106,30 @@ fn main() {
                 }));
             });
 
-            let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
             let worker_cores = cpu_info.as_ref()
                 .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
                 .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
 
+            struct WorkerConfig {
+                core_id: Option<usize>,
+                broadcast_rx: tokio::sync::broadcast::Receiver<BroadcastMessage>,
+            }
+
+            let workers = worker_cores.into_iter()
+                .zip(worker_broadcast_rx.into_iter())
+                .map(|(core_id, broadcast_rx)| WorkerConfig {
+                    core_id,
+                    broadcast_rx,
+                })
+                .collect::<Vec<_>>();
+
             let mut worker_id = 0;
             let mut worker_handles = Vec::new();
-            for worker_core_id in worker_cores.into_iter() {
+            for worker in workers.into_iter() {
                 let handle = std::thread::spawn(move || {
-                    if let Some(worker_core_id) = worker_core_id {
+                    let mut worker = worker;
+
+                    if let Some(worker_core_id) = worker.core_id {
                         match gdt_cpus::pin_thread_to_core(worker_core_id) {
                             Ok(_) => {},
                             Err(gdt_cpus::Error::Unsupported(_)) => {},
@@ -132,6 +161,10 @@ fn main() {
 
                         loop {
                             tokio::select! {
+                                broadcast_message = worker.broadcast_rx.recv() => {
+                                    unimplemented!("handling broadcast messages is not implemented yet. Received {broadcast_message:?}");
+                                },
+
                                 connection = listener.accept() => {
                                     let (tcp, _) = match connection {
                                         Ok(v) => v,
@@ -214,14 +247,18 @@ impl<'a> Future for HttpHandlerFuture<'a> {
 
 struct DefinitionsMonitor {
     functions_directory: PathBuf,
+    broadcast_tx: tokio::sync::broadcast::Sender<BroadcastMessage>,
 }
 
 impl DefinitionsMonitor {
     pub fn new(
         config: &ServerConfig,
+        broadcast_tx: tokio::sync::broadcast::Sender<BroadcastMessage>,
     ) -> Self {
         Self {
-            functions_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&config.functions_dir),
+            functions_directory: config.config_path.as_ref().unwrap().parent().unwrap()
+                .join(&config.functions_dir),
+            broadcast_tx,
         }
     }
 
@@ -242,8 +279,65 @@ impl DefinitionsMonitor {
                 continue;
             }
 
-            unimplemented!()
+            let entry_path = entry.path();
+            let function_id = match self.path_to_function_id(entry_path) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let function_config = match FunctionConfig::load(entry_path.to_path_buf()).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to load function config: {err:?}");
+                    continue;
+                }
+            };
+
+            // self.apply_config(function_id, function_config);
+        }
+
+        info!("listening for definition changes");
+        let (tx, mut rx) = flume::unbounded();
+        let event_fn = {
+            move |res: notify::Result<notify::Event>| {
+                let res = res.unwrap();
+
+                match res.kind {
+                    notify::EventKind::Access(_) => {},
+                    _other => {
+                        for changed_path in res.paths {
+                            tx.send(changed_path).unwrap();
+                        }
+                    }
+                }
+            }
+        };
+        let mut watcher = notify::recommended_watcher(event_fn).unwrap();
+
+        while let Ok(path) = rx.recv_async().await {
+            let function_id = match self.path_to_function_id(&path) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if !fs::try_exists(&path).await.unwrap() {
+                self.broadcast_tx.send(BroadcastMessage::RemoveFunction(function_id)).unwrap();
+                continue;
+            }
         }
     }
 
+    fn path_to_function_id(&self, path: &Path) -> Result<FunctionId, FunctionIdDetectionError> {
+        let function_id = path.strip_prefix(&self.functions_directory).unwrap().to_str().unwrap();
+        if !function_id.ends_with(DEFINITION_FILE_SUFFIX) {
+            return Err(FunctionIdDetectionError::PathMissingExtension);
+        }
+        let function_id = &function_id[0..function_id.len() - DEFINITION_FILE_SUFFIX.len()];
+        Ok(FunctionId::new(function_id))
+    }
+}
+
+#[derive(Error, Debug)]
+enum FunctionIdDetectionError {
+    #[error("config path missing .fx.yaml extension")]
+    PathMissingExtension,
 }
