@@ -25,7 +25,7 @@ use {
         },
         server::{
             server::FxServer,
-            config::{ServerConfig, FunctionConfig},
+            config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
         },
     },
 };
@@ -55,6 +55,10 @@ enum Command {
 #[derive(Debug)]
 enum WorkerMessage {
     RemoveFunction(FunctionId),
+    CreateFunctionInstance {
+        instance_id: FunctionInstanceId,
+        module: wasmtime::Module,
+    }
 }
 
 struct CompilerMessage {
@@ -106,7 +110,7 @@ fn main() {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
+                let mut definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
@@ -271,6 +275,9 @@ struct DefinitionsMonitor {
     functions_directory: PathBuf,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,
+
+    // DefinitionsMonitor requests FunctionInstance creation and assigns IDs to them.
+    function_instance_id_counter: u64,
 }
 
 impl DefinitionsMonitor {
@@ -284,10 +291,11 @@ impl DefinitionsMonitor {
                 .join(&config.functions_dir),
             workers_tx,
             compiler_tx,
+            function_instance_id_counter: 0,
         }
     }
 
-    async fn scan_definitions(&self) {
+    async fn scan_definitions(&mut self) {
         info!("will scan definitions in: {:?}", self.functions_directory);
 
         let root = &self.functions_directory;
@@ -318,7 +326,7 @@ impl DefinitionsMonitor {
                 }
             };
 
-            self.apply_config(function_id, function_config);
+            self.apply_config(function_id, function_config).await;
         }
 
         info!("listening for definition changes");
@@ -362,7 +370,7 @@ impl DefinitionsMonitor {
                 }
             };
 
-            self.apply_config(function_id, function_config);
+            self.apply_config(function_id, function_config).await;
         }
     }
 
@@ -375,6 +383,10 @@ impl DefinitionsMonitor {
         Ok(FunctionId::new(function_id))
     }
 
+    fn function_id_to_path(&self, function_id: &FunctionId) -> PathBuf {
+        self.functions_directory.join(function_id.as_string())
+    }
+
     fn remove_function(&self, function_id: FunctionId) {
         info!("removing function: {:?}", function_id.as_string());
         for worker in self.workers_tx.iter() {
@@ -382,11 +394,45 @@ impl DefinitionsMonitor {
         }
     }
 
-    fn apply_config(&self, function_id: FunctionId, function_config: FunctionConfig) {
+    async fn apply_config(&mut self, function_id: FunctionId, config: FunctionConfig) {
         info!("applying config for: {:?}", function_id.as_string());
 
         // first, precompile module:
+        let module_code = match config.code {
+            Some(v) => match v {
+                FunctionCodeConfig::Path(v) => fs::read(&v).await.unwrap(),
+                FunctionCodeConfig::Inline(v) => v,
+            },
+            None => {
+                let module_code = self.function_id_to_path(&function_id).with_added_extension("wasm");
+                fs::read(&module_code).await.unwrap()
+            }
+        };
+
+        let (compiler_response_tx, compiler_response_rx) = oneshot::channel();
+        self.compiler_tx.send_async(CompilerMessage {
+            function_id: function_id.clone(),
+            code: module_code,
+            response: compiler_response_tx,
+        }).await.unwrap();
+
+        let instance_id = self.next_instance_id();
+        let module = compiler_response_rx.await.unwrap();
+
+        for worker in self.workers_tx.iter() {
+            worker.send_async(WorkerMessage::CreateFunctionInstance {
+                instance_id: instance_id.clone(),
+                module: module.clone()
+            }).await.unwrap();
+        }
+
         unimplemented!("compile module not implemented")
+    }
+
+    fn next_instance_id(&mut self) -> FunctionInstanceId {
+        let instance_id = FunctionInstanceId::new(self.function_instance_id_counter);
+        self.function_instance_id_counter += 1;
+        instance_id
     }
 }
 
@@ -394,4 +440,15 @@ impl DefinitionsMonitor {
 enum FunctionIdDetectionError {
     #[error("config path missing .fx.yaml extension")]
     PathMissingExtension,
+}
+
+#[derive(Debug, Clone)]
+struct FunctionInstanceId {
+    id: u64,
+}
+
+impl FunctionInstanceId {
+    fn new(id: u64) -> Self {
+        Self { id }
+    }
 }
