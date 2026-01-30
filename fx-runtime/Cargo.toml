@@ -11,7 +11,7 @@ hyper-util = { version = "0.1.11", features = ["tokio", "server", "server-gracef
 http-body-util = "0.1.3"
 rayon = "1.10.0"
 thread_local = "1.1.8"
-wasmtime = { version = "40.0.2", default-features = false, features = ["runtime", "cranelift"] }
+wasmtime = { version = "40.0.2", default-features = false, features = ["runtime", "cranelift", "async"] }
 rusqlite = { version = "0.35.0", features = ["bundled"] }
 rusqlite_migration = "2.1.0"
 rmp-serde = "=1.3.0"

@@ -7,7 +7,7 @@ use {
     std::{path::{PathBuf, Path}, process::exit, net::SocketAddr, convert::Infallible, pin::Pin, cell::RefCell, rc::Rc},
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
-    tokio::{fs, sync::broadcast},
+    tokio::{fs, sync::oneshot},
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
     ::futures::{FutureExt, StreamExt, future::join_all, future::BoxFuture},
     hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
@@ -52,9 +52,15 @@ enum Command {
     },
 }
 
-#[derive(Clone, Debug)]
-enum BroadcastMessage {
+#[derive(Debug)]
+enum WorkerMessage {
     RemoveFunction(FunctionId),
+}
+
+struct CompilerMessage {
+    function_id: FunctionId,
+    code: Vec<u8>,
+    response: oneshot::Sender<wasmtime::Module>,
 }
 
 #[cfg(not(target_arch = "aarch64"))]
@@ -72,6 +78,10 @@ fn main() {
             let config_path = std::env::current_dir().unwrap().join(config_file);
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path);
+            let wasmtime = wasmtime::Engine::new(
+                wasmtime::Config::new()
+                    .async_support(true)
+            ).unwrap();
 
             let cpu_info = match gdt_cpus::cpu_info() {
                 Ok(v) => Some(v),
@@ -81,12 +91,11 @@ fn main() {
                 }
             };
 
-            let (broadcast_tx, broadcast_rx) = broadcast::channel::<BroadcastMessage>(100);
             let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
-            let worker_broadcast_rx = std::iter::once(broadcast_rx).chain(
-              (0..(worker_threads-1))
-                  .map(|_| broadcast_tx.subscribe())
-            ).collect::<Vec<_>>();
+            let (workers_tx, workers_rx) = (0..worker_threads)
+                .map(|_| flume::unbounded::<WorkerMessage>())
+                .unzip::<_, _, Vec<_>, Vec<_>>();
+            let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
 
             let management_thread_handle = std::thread::spawn(move || {
                 info!("started management thread");
@@ -97,7 +106,7 @@ fn main() {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let definitions_monitor = DefinitionsMonitor::new(&config, broadcast_tx);
+                let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
@@ -106,20 +115,32 @@ fn main() {
                 }));
             });
 
+            let compiler_thread_handle = std::thread::spawn(move || {
+                info!("started compiler thread");
+
+                while let Ok(msg) = compiler_rx.recv() {
+                    let function_id = msg.function_id.as_string();
+
+                    info!(function_id, "compiling");
+                    msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
+                    info!(function_id, "done compiling");
+                }
+            });
+
             let worker_cores = cpu_info.as_ref()
                 .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
                 .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
 
             struct WorkerConfig {
                 core_id: Option<usize>,
-                broadcast_rx: tokio::sync::broadcast::Receiver<BroadcastMessage>,
+                messages_rx: flume::Receiver<WorkerMessage>,
             }
 
             let workers = worker_cores.into_iter()
-                .zip(worker_broadcast_rx.into_iter())
-                .map(|(core_id, broadcast_rx)| WorkerConfig {
+                .zip(workers_rx.into_iter())
+                .map(|(core_id, messages_rx)| WorkerConfig {
                     core_id,
-                    broadcast_rx,
+                    messages_rx,
                 })
                 .collect::<Vec<_>>();
 
@@ -161,8 +182,8 @@ fn main() {
 
                         loop {
                             tokio::select! {
-                                broadcast_message = worker.broadcast_rx.recv() => {
-                                    unimplemented!("handling broadcast messages is not implemented yet. Received {broadcast_message:?}");
+                                message = worker.messages_rx.recv_async() => {
+                                    unimplemented!("handling messages is not supported yet. Received message: {message:?}");
                                 },
 
                                 connection = listener.accept() => {
@@ -201,10 +222,11 @@ fn main() {
                 worker_id += 1;
             }
 
-            management_thread_handle.join().unwrap();
             for handle in worker_handles {
                 handle.join().unwrap();
             }
+            compiler_thread_handle.join().unwrap();
+            management_thread_handle.join().unwrap();
         },
     }
 }
@@ -247,18 +269,21 @@ impl<'a> Future for HttpHandlerFuture<'a> {
 
 struct DefinitionsMonitor {
     functions_directory: PathBuf,
-    broadcast_tx: tokio::sync::broadcast::Sender<BroadcastMessage>,
+    workers_tx: Vec<flume::Sender<WorkerMessage>>,
+    compiler_tx: flume::Sender<CompilerMessage>,
 }
 
 impl DefinitionsMonitor {
     pub fn new(
         config: &ServerConfig,
-        broadcast_tx: tokio::sync::broadcast::Sender<BroadcastMessage>,
+        workers_tx: Vec<flume::Sender<WorkerMessage>>,
+        compiler_tx: flume::Sender<CompilerMessage>,
     ) -> Self {
         Self {
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap()
                 .join(&config.functions_dir),
-            broadcast_tx,
+            workers_tx,
+            compiler_tx,
         }
     }
 
@@ -293,7 +318,7 @@ impl DefinitionsMonitor {
                 }
             };
 
-            // self.apply_config(function_id, function_config);
+            self.apply_config(function_id, function_config);
         }
 
         info!("listening for definition changes");
@@ -320,10 +345,24 @@ impl DefinitionsMonitor {
                 Err(_) => continue,
             };
             if !fs::try_exists(&path).await.unwrap() {
-                self.broadcast_tx.send(BroadcastMessage::RemoveFunction(function_id)).unwrap();
+                self.remove_function(function_id);
                 continue;
             }
-            unimplemented!("handle other updates")
+
+            let metadata = fs::metadata(&path).await.unwrap();
+            if !metadata.is_file() {
+                continue;
+            }
+
+            let function_config = match FunctionConfig::load(path).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to load function config: {err:?}");
+                    continue
+                }
+            };
+
+            self.apply_config(function_id, function_config);
         }
     }
 
@@ -334,6 +373,20 @@ impl DefinitionsMonitor {
         }
         let function_id = &function_id[0..function_id.len() - DEFINITION_FILE_SUFFIX.len()];
         Ok(FunctionId::new(function_id))
+    }
+
+    fn remove_function(&self, function_id: FunctionId) {
+        info!("removing function: {:?}", function_id.as_string());
+        for worker in self.workers_tx.iter() {
+            worker.send(WorkerMessage::RemoveFunction(function_id.clone())).unwrap();
+        }
+    }
+
+    fn apply_config(&self, function_id: FunctionId, function_config: FunctionConfig) {
+        info!("applying config for: {:?}", function_id.as_string());
+
+        // first, precompile module:
+        unimplemented!("compile module not implemented")
     }
 }
 
