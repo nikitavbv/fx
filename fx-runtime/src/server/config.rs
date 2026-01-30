@@ -13,7 +13,6 @@ pub struct ServerConfig {
 
     pub functions_dir: String,
     pub cron_data_path: Option<String>,
-    pub amqp_addr: Option<String>,
 
     pub logger: Option<LoggerConfig>,
     pub introspection: Option<IntrospectionConfig>,
@@ -124,6 +123,7 @@ pub struct FunctionTriggersConfig {
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionHttpEndpointConfig {
     pub handler: String,
+    pub host: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

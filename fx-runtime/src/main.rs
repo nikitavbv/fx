@@ -4,7 +4,7 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{path::{PathBuf, Path}, process::exit, net::SocketAddr, convert::Infallible, pin::Pin, cell::RefCell, rc::Rc},
+    std::{path::{PathBuf, Path}, collections::HashMap, net::SocketAddr, convert::Infallible, pin::Pin, rc::Rc},
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
     tokio::{fs, sync::oneshot},
@@ -55,9 +55,12 @@ enum Command {
 #[derive(Debug)]
 enum WorkerMessage {
     RemoveFunction(FunctionId),
-    CreateFunctionInstance {
+    FunctionDeploy {
+        function_id: FunctionId,
         instance_id: FunctionInstanceId,
         module: wasmtime::Module,
+
+        http_listeners: Vec<FunctionHttpListener>,
     }
 }
 
@@ -164,12 +167,14 @@ fn main() {
 
                     info!(worker_id, "started worker thread");
 
+                    // setup async runtime:
                     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
                         .build()
                         .unwrap();
                     let local_set = tokio::task::LocalSet::new();
 
+                    // setup socket:
                     let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, Some(socket2::Protocol::TCP)).unwrap();
                     socket.set_reuse_port(true).unwrap();
                     socket.set_reuse_address(true).unwrap();
@@ -180,6 +185,13 @@ fn main() {
                     socket.bind(&addr.into()).unwrap();
                     socket.listen(1024).unwrap();
 
+                    // setup wasm runtime:
+                    let mut function_instances: HashMap<FunctionInstanceId, FunctionInstance> = HashMap::new();
+                    let mut functions: HashMap<FunctionId, FunctionInstanceId> = HashMap::new();
+                    let mut http_hosts: HashMap<String, FunctionId> = HashMap::new();
+                    let mut http_default: Option<FunctionId> = None;
+
+                    // run worker:
                     tokio_runtime.block_on(local_set.run_until(async {
                         let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
                         let graceful = hyper_util::server::graceful::GracefulShutdown::new();
@@ -187,7 +199,28 @@ fn main() {
                         loop {
                             tokio::select! {
                                 message = worker.messages_rx.recv_async() => {
-                                    unimplemented!("handling messages is not supported yet. Received message: {message:?}");
+                                    match message.unwrap() {
+                                        WorkerMessage::FunctionDeploy {
+                                            function_id,
+                                            instance_id,
+                                            module,
+                                            http_listeners,
+                                        } => {
+                                            function_instances.insert(instance_id.clone(), FunctionInstance::new(module));
+                                            // TODO: cleanup old instances
+                                            functions.insert(function_id.clone(), instance_id);
+
+                                            http_hosts = http_hosts.into_iter()
+                                                .filter(|v| &v.1 != &function_id)
+                                                .chain(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.clone(), function_id.clone())))
+                                                .collect();
+
+                                            if http_listeners.iter().find(|v| v.host.is_none()).is_some() {
+                                                http_default = Some(function_id.clone());
+                                            }
+                                        },
+                                        other => unimplemented!("unsupported message: {other:?}"),
+                                    }
                                 },
 
                                 connection = listener.accept() => {
@@ -419,14 +452,22 @@ impl DefinitionsMonitor {
         let instance_id = self.next_instance_id();
         let module = compiler_response_rx.await.unwrap();
 
+        let http_listeners = config.triggers.iter()
+            .flat_map(|v| v.http.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| FunctionHttpListener {
+                host: v.host.clone(),
+            })
+            .collect::<Vec<_>>();
+
         for worker in self.workers_tx.iter() {
-            worker.send_async(WorkerMessage::CreateFunctionInstance {
+            worker.send_async(WorkerMessage::FunctionDeploy {
+                function_id: function_id.clone(),
                 instance_id: instance_id.clone(),
-                module: module.clone()
+                module: module.clone(),
+                http_listeners: http_listeners.clone(),
             }).await.unwrap();
         }
-
-        unimplemented!("compile module not implemented")
     }
 
     fn next_instance_id(&mut self) -> FunctionInstanceId {
@@ -442,7 +483,7 @@ enum FunctionIdDetectionError {
     PathMissingExtension,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct FunctionInstanceId {
     id: u64,
 }
@@ -450,5 +491,30 @@ struct FunctionInstanceId {
 impl FunctionInstanceId {
     fn new(id: u64) -> Self {
         Self { id }
+    }
+}
+
+struct FunctionInstance {
+    module: wasmtime::Module,
+}
+
+impl FunctionInstance {
+    pub fn new(module: wasmtime::Module) -> Self {
+        Self {
+            module,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct FunctionHttpListener {
+    host: Option<String>,
+}
+
+impl FunctionHttpListener {
+    pub fn new(host: Option<String>) -> Self {
+        Self {
+            host,
+        }
     }
 }
