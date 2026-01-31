@@ -4,7 +4,15 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{path::{PathBuf, Path}, collections::HashMap, net::SocketAddr, convert::Infallible, pin::Pin, rc::Rc},
+    std::{
+        path::{PathBuf, Path},
+        collections::HashMap,
+        net::SocketAddr,
+        convert::Infallible,
+        pin::Pin,
+        rc::Rc,
+        cell::RefCell,
+    },
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
     tokio::{fs, sync::oneshot},
@@ -122,17 +130,21 @@ fn main() {
                 }));
             });
 
-            let compiler_thread_handle = std::thread::spawn(move || {
-                info!("started compiler thread");
+            let compiler_thread_handle = {
+                let wasmtime = wasmtime.clone();
 
-                while let Ok(msg) = compiler_rx.recv() {
-                    let function_id = msg.function_id.as_string();
+                std::thread::spawn(move || {
+                    info!("started compiler thread");
 
-                    info!(function_id, "compiling");
-                    msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
-                    info!(function_id, "done compiling");
-                }
-            });
+                    while let Ok(msg) = compiler_rx.recv() {
+                        let function_id = msg.function_id.as_string();
+
+                        info!(function_id, "compiling");
+                        msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
+                        info!(function_id, "done compiling");
+                    }
+                })
+            };
 
             let worker_cores = cpu_info.as_ref()
                 .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
@@ -154,6 +166,8 @@ fn main() {
             let mut worker_id = 0;
             let mut worker_handles = Vec::new();
             for worker in workers.into_iter() {
+                let wasmtime = wasmtime.clone();
+
                 let handle = std::thread::spawn(move || {
                     let mut worker = worker;
 
@@ -188,8 +202,8 @@ fn main() {
                     // setup wasm runtime:
                     let mut function_instances: HashMap<FunctionInstanceId, FunctionInstance> = HashMap::new();
                     let mut functions: HashMap<FunctionId, FunctionInstanceId> = HashMap::new();
-                    let mut http_hosts: HashMap<String, FunctionId> = HashMap::new();
-                    let mut http_default: Option<FunctionId> = None;
+                    let mut http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
+                    let mut http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
 
                     // run worker:
                     tokio_runtime.block_on(local_set.run_until(async {
@@ -206,17 +220,18 @@ fn main() {
                                             module,
                                             http_listeners,
                                         } => {
-                                            function_instances.insert(instance_id.clone(), FunctionInstance::new(module));
+                                            function_instances.insert(instance_id.clone(), FunctionInstance::new(&wasmtime, module).await);
                                             // TODO: cleanup old instances
                                             functions.insert(function_id.clone(), instance_id);
 
-                                            http_hosts = http_hosts.into_iter()
+                                            http_hosts.replace_with(|http_hosts| http_hosts.clone().into_iter()
                                                 .filter(|v| &v.1 != &function_id)
                                                 .chain(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.clone(), function_id.clone())))
-                                                .collect();
+                                                .collect()
+                                            );
 
                                             if http_listeners.iter().find(|v| v.host.is_none()).is_some() {
-                                                http_default = Some(function_id.clone());
+                                                http_default.replace(Some(function_id.clone()));
                                             }
                                         },
                                         other => unimplemented!("unsupported message: {other:?}"),
@@ -236,7 +251,7 @@ fn main() {
                                     let io = TokioIo::new(tcp);
                                     let conn = http1::Builder::new()
                                         .timer(TokioTimer::new())
-                                        .serve_connection(io, HttpHandlerV2);
+                                        .serve_connection(io, HttpHandlerV2::new(http_hosts.clone(), http_default.clone()));
                                     let request_future = graceful.watch(conn);
 
                                     tokio::task::spawn_local(async move {
@@ -268,7 +283,19 @@ fn main() {
     }
 }
 
-struct HttpHandlerV2;
+struct HttpHandlerV2 {
+    http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
+    http_default: Rc<RefCell<Option<FunctionId>>>,
+}
+
+impl HttpHandlerV2 {
+    pub fn new(http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>, http_default: Rc<RefCell<Option<FunctionId>>>) -> Self {
+        Self {
+            http_hosts,
+            http_default,
+        }
+    }
+}
 
 impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandlerV2 {
     type Response = Response<Full<Bytes>>;
@@ -496,13 +523,49 @@ impl FunctionInstanceId {
 
 struct FunctionInstance {
     module: wasmtime::Module,
+    instance_template: wasmtime::InstancePre<FunctionInstanceState>,
+    instance: wasmtime::Instance,
 }
 
 impl FunctionInstance {
-    pub fn new(module: wasmtime::Module) -> Self {
+    pub async fn new(wasmtime: &wasmtime::Engine, module: wasmtime::Module) -> Self {
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new());
+
+        let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
+        linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
+        for import in module.imports() {
+            if import.module() == "fx" {
+                continue;
+            }
+
+            if let Some(f) = import.ty().func() {
+                linker.func_new(
+                    import.module(),
+                    import.name(),
+                    f.clone(),
+                    move |_, _, _| {
+                        Err(wasmtime::Error::msg("requested function is not implemented by fx runtime"))
+                    }
+                ).unwrap();
+            }
+        }
+
+        let instance_template = linker.instantiate_pre(&module).unwrap();
+        let instance = instance_template.instantiate_async(&mut store).await.unwrap();
+
         Self {
             module,
+            instance_template,
+            instance,
         }
+    }
+}
+
+struct FunctionInstanceState {}
+
+impl FunctionInstanceState {
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
@@ -517,4 +580,8 @@ impl FunctionHttpListener {
             host,
         }
     }
+}
+
+fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64, output_ptr: i64) {
+    unimplemented!("fx api handling is not implemented yet")
 }
