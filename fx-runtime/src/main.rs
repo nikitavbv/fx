@@ -200,10 +200,10 @@ fn main() {
                     socket.listen(1024).unwrap();
 
                     // setup wasm runtime:
-                    let mut function_instances: HashMap<FunctionInstanceId, FunctionInstance> = HashMap::new();
-                    let mut functions: HashMap<FunctionId, FunctionInstanceId> = HashMap::new();
-                    let mut http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
-                    let mut http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
+                    let function_instances: Rc<RefCell<HashMap<FunctionInstanceId, Rc<RefCell<FunctionInstance>>>>> = Rc::new(RefCell::new(HashMap::new()));
+                    let functions: Rc<RefCell<HashMap<FunctionId, FunctionInstanceId>>> = Rc::new(RefCell::new(HashMap::new()));
+                    let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
+                    let http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
 
                     // run worker:
                     tokio_runtime.block_on(local_set.run_until(async {
@@ -220,18 +220,18 @@ fn main() {
                                             module,
                                             http_listeners,
                                         } => {
-                                            function_instances.insert(instance_id.clone(), FunctionInstance::new(&wasmtime, module).await);
+                                            function_instances.borrow_mut().insert(instance_id.clone(), Rc::new(RefCell::new(FunctionInstance::new(&wasmtime, module).await)));
                                             // TODO: cleanup old instances
-                                            functions.insert(function_id.clone(), instance_id);
+                                            functions.borrow_mut().insert(function_id.clone(), instance_id);
 
-                                            http_hosts.replace_with(|http_hosts| http_hosts.clone().into_iter()
-                                                .filter(|v| &v.1 != &function_id)
-                                                .chain(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.clone(), function_id.clone())))
-                                                .collect()
-                                            );
+                                            {
+                                                let mut http_hosts = http_hosts.borrow_mut();
+                                                http_hosts.retain(|_k, v| v != &function_id);
+                                                http_hosts.extend(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.to_lowercase(), function_id.clone())));
+                                            }
 
                                             if http_listeners.iter().find(|v| v.host.is_none()).is_some() {
-                                                http_default.replace(Some(function_id.clone()));
+                                                *http_default.borrow_mut() = Some(function_id.clone());
                                             }
                                         },
                                         other => unimplemented!("unsupported message: {other:?}"),
@@ -251,7 +251,12 @@ fn main() {
                                     let io = TokioIo::new(tcp);
                                     let conn = http1::Builder::new()
                                         .timer(TokioTimer::new())
-                                        .serve_connection(io, HttpHandlerV2::new(http_hosts.clone(), http_default.clone()));
+                                        .serve_connection(io, HttpHandlerV2::new(
+                                            http_hosts.clone(),
+                                            http_default.clone(),
+                                            functions.clone(),
+                                            function_instances.clone(),
+                                        ));
                                     let request_future = graceful.watch(conn);
 
                                     tokio::task::spawn_local(async move {
@@ -286,13 +291,22 @@ fn main() {
 struct HttpHandlerV2 {
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
+    functions: Rc<RefCell<HashMap<FunctionId, FunctionInstanceId>>>,
+    function_instances: Rc<RefCell<HashMap<FunctionInstanceId, Rc<RefCell<FunctionInstance>>>>>,
 }
 
 impl HttpHandlerV2 {
-    pub fn new(http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>, http_default: Rc<RefCell<Option<FunctionId>>>) -> Self {
+    pub fn new(
+        http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
+        http_default: Rc<RefCell<Option<FunctionId>>>,
+        functions: Rc<RefCell<HashMap<FunctionId, FunctionInstanceId>>>,
+        function_instances: Rc<RefCell<HashMap<FunctionInstanceId, Rc<RefCell<FunctionInstance>>>>>,
+    ) -> Self {
         Self {
             http_hosts,
             http_default,
+            functions,
+            function_instances,
         }
     }
 }
@@ -303,7 +317,13 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
-        Box::pin(HttpHandlerFuture::new(req))
+        let target_function = req.headers().get("Host")
+            .and_then(|v| self.http_hosts.borrow().get(&v.to_str().unwrap().to_lowercase()).cloned())
+            .or_else(|| self.http_default.borrow().clone());
+        let target_function_instance_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
+        let target_function_instance = target_function_instance_id.and_then(|instance_id| self.function_instances.borrow().get(&instance_id).cloned());
+
+        Box::pin(HttpHandlerFuture::new(req, target_function_instance))
     }
 }
 
@@ -312,7 +332,7 @@ struct HttpHandlerFuture<'a> {
 }
 
 impl<'a> HttpHandlerFuture<'a> {
-    fn new(req: hyper::Request<hyper::body::Incoming>) -> Self {
+    fn new(req: hyper::Request<hyper::body::Incoming>, target_function_instance: Option<Rc<RefCell<FunctionInstance>>>) -> Self {
         let inner = Box::pin(async move {
             unimplemented!()
         });
