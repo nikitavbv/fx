@@ -17,12 +17,15 @@ use {
     tracing_subscriber::FmtSubscriber,
     tokio::{fs, sync::oneshot},
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
-    ::futures::{FutureExt, StreamExt, future::join_all, future::BoxFuture},
+    ::futures::{FutureExt, StreamExt, future::join_all, future::LocalBoxFuture},
     hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::{Full, BodyStream},
     walkdir::WalkDir,
     thiserror::Error,
+    notify::Watcher,
+    fx_types::{capnp, abi_capnp},
+    wasmtime::AsContextMut,
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
@@ -314,7 +317,7 @@ impl HttpHandlerV2 {
 impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandlerV2 {
     type Response = Response<Full<Bytes>>;
     type Error = Infallible;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
         let target_function = req.headers().get("Host")
@@ -323,31 +326,22 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let target_function_instance_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
         let target_function_instance = target_function_instance_id.and_then(|instance_id| self.function_instances.borrow().get(&instance_id).cloned());
 
-        Box::pin(HttpHandlerFuture::new(req, target_function_instance))
-    }
-}
+        Box::pin(async move {
+            let target_function_instance = match target_function_instance {
+                Some(v) => v,
+                None => {
+                    let mut response = Response::new(Full::new(Bytes::from("no fx function found to handle this request.\n".as_bytes())));
+                    *response.status_mut() = StatusCode::BAD_GATEWAY;
+                    return Ok(response);
+                }
+            };
 
-struct HttpHandlerFuture<'a> {
-    inner: BoxFuture<'a, Result<Response<Full<Bytes>>, Infallible>>,
-}
+            // TODO: handling borrow across await is unsafe here?
+            let function_future = target_function_instance.borrow().handle_request(FunctionRequest::new());
+            let response = function_future.await;
 
-impl<'a> HttpHandlerFuture<'a> {
-    fn new(req: hyper::Request<hyper::body::Incoming>, target_function_instance: Option<Rc<RefCell<FunctionInstance>>>) -> Self {
-        let inner = Box::pin(async move {
             unimplemented!()
-        });
-
-        Self {
-            inner,
-        }
-    }
-}
-
-impl<'a> Future for HttpHandlerFuture<'a> {
-    type Output = Result<Response<Full<Bytes>>, Infallible>;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        self.inner.poll_unpin(cx)
+        })
     }
 }
 
@@ -378,8 +372,8 @@ impl DefinitionsMonitor {
     async fn scan_definitions(&mut self) {
         info!("will scan definitions in: {:?}", self.functions_directory);
 
-        let root = &self.functions_directory;
-        for entry in WalkDir::new(root) {
+        let root = self.functions_directory.clone();
+        for entry in WalkDir::new(&root) {
             let entry = match entry {
                 Ok(v) => v,
                 Err(err) => {
@@ -426,6 +420,7 @@ impl DefinitionsMonitor {
             }
         };
         let mut watcher = notify::recommended_watcher(event_fn).unwrap();
+        watcher.watch(&root, notify::RecursiveMode::Recursive).unwrap();
 
         while let Ok(path) = rx.recv_async().await {
             let function_id = match self.path_to_function_id(&path) {
@@ -544,7 +539,9 @@ impl FunctionInstanceId {
 struct FunctionInstance {
     module: wasmtime::Module,
     instance_template: wasmtime::InstancePre<FunctionInstanceState>,
-    instance: wasmtime::Instance,
+    instance: Rc<wasmtime::Instance>,
+    store: Rc<wasmtime::Store<FunctionInstanceState>>,
+    fn_malloc: Rc<wasmtime::TypedFunc<i64, i64>>,
 }
 
 impl FunctionInstance {
@@ -573,11 +570,19 @@ impl FunctionInstance {
         let instance_template = linker.instantiate_pre(&module).unwrap();
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
+        let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
+
         Self {
             module,
             instance_template,
-            instance,
+            instance: Rc::new(instance),
+            store: Rc::new(store),
+            fn_malloc: Rc::new(fn_malloc),
         }
+    }
+
+    fn handle_request(&self, req: FunctionRequest) -> FunctionFuture {
+        FunctionFuture::new(self.instance.clone(), req)
     }
 }
 
@@ -604,4 +609,54 @@ impl FunctionHttpListener {
 
 fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64, output_ptr: i64) {
     unimplemented!("fx api handling is not implemented yet")
+}
+
+struct FunctionRequest {}
+
+impl FunctionRequest {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+struct FunctionResponse {}
+
+impl FunctionResponse {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+struct FunctionFuture {
+    instance: Rc<wasmtime::Instance>,
+    req: FunctionRequest,
+}
+
+impl FunctionFuture {
+    pub fn new(instance: Rc<wasmtime::Instance>, req: FunctionRequest) -> Self {
+        Self {
+            instance,
+            req,
+        }
+    }
+
+    fn invoke_fx_api(&self, message: capnp::message::Builder<capnp::message::HeapAllocator>) {
+        let response_ptr = {
+            let message_size = capnp::serialize::compute_serialized_size_in_words(&message) * 8;
+        };
+
+        unimplemented!("fx api calling is not supported yet")
+    }
+
+    fn malloc(&self) {
+
+    }
+}
+
+impl Future for FunctionFuture {
+    type Output = FunctionResponse;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        unimplemented!()
+    }
 }
