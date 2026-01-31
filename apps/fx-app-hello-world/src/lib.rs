@@ -15,10 +15,7 @@ pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     // let instance = kv.get("instance").unwrap().map(|v| String::from_utf8(v).unwrap());
     let instance = "demo";
 
-    if req.url == "/test-rpc" {
-        let response: RpcResponse = fx::rpc("rpc-test-service", "hello", RpcRequest { number: 42 }).await.unwrap();
-        return Ok(HttpResponse::new().with_body(format!("rpc demo returned a response: {response:?}\n")));
-    } else if req.url == "/test-fetch" {
+    if req.url == "/test-fetch" {
         let res = fetch(HttpRequest::get("http://httpbin.org/get".to_owned()).unwrap()).await.unwrap();
         return Ok(HttpResponse::new().with_body(String::from_utf8(res.body).unwrap()));
     } else if req.url == "/test-sql" {

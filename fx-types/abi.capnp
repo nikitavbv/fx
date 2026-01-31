@@ -3,7 +3,7 @@
 struct FxApiCall {
     op :union {
         metricsCounterIncrement @0 :MetricsCounterIncrementRequest;
-        rpc @1 :RpcCallRequest;
+        deprecated1 @1 :Void;
         kvGet @2 :KvGetRequest;
         kvSet @3 :KvSetRequest;
         sqlExec @4 :SqlExecRequest;
@@ -24,7 +24,7 @@ struct FxApiCall {
 struct FxApiCallResult {
     op :union {
         metricsCounterIncrement @0 :Void;
-        rpc @1 :RpcCallResponse;
+        deprecated @1 :Void;
         kvGet @2 :KvGetResponse;
         kvSet @3 :KvSetResponse;
         sqlExec @4 :SqlExecResponse;
@@ -71,27 +71,6 @@ struct MetricsCounterIncrementRequest {
 struct MetricsTag {
     name @0 :Text;
     value @1 :Text;
-}
-
-struct RpcCallRequest {
-    functionId @0 :Text;
-    methodName @1 :Text;
-    argument @2 :Data;
-}
-
-struct RpcCallResponse {
-    response :union {
-        futureId @0 :UInt64;
-        bindingNotFound @1 :Void;
-        error @2 :RpcCallError;
-    }
-
-    struct RpcCallError {
-        error :union {
-            runtimeError @0 :Void;
-            instantiationError @1 :Void;
-        }
-    }
 }
 
 struct KvGetRequest {

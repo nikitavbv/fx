@@ -35,7 +35,7 @@ use {
     crate::{
         sys::{read_memory_owned, invoke_fx_api},
         logging::FxLoggingLayer,
-        fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError, RpcApiAsyncError},
+        fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
     },
 };
 
@@ -113,50 +113,6 @@ pub enum RpcRuntimeError {
 
     #[error("runtime error in rpc implementation on target function side (or it is not behaving properly)")]
     FunctionRuntimeError,
-}
-
-pub async fn rpc<T: serde::ser::Serialize, R: serde::de::DeserializeOwned>(function_id: impl Into<String>, method: impl Into<String>, arg: T) -> StdResult<R, RpcError> {
-    let future_index = {
-        let arg = rmp_serde::to_vec(&arg).unwrap();
-
-        let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-        let op = request.init_op();
-        let mut rpc_request = op.init_rpc();
-        rpc_request.set_function_id(function_id.into());
-        rpc_request.set_method_name(method.into());
-        rpc_request.set_argument(&arg);
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::Rpc(v) => {
-                let rpc_response = v.unwrap();
-                match rpc_response.get_response().which().unwrap() {
-                    abi_capnp::rpc_call_response::response::Which::FutureId(v) => v,
-                    abi_capnp::rpc_call_response::response::Which::BindingNotFound(_) => panic!("binding not found"),
-                    abi_capnp::rpc_call_response::response::Which::Error(_) => panic!("unexpected rpc error"),
-                }
-            },
-            _other => panic!("unexpected response from rpc api"),
-        }
-    };
-
-    let response = FxHostFuture::new(PoolIndex(future_index as u64)).await
-        .map_err(|err| match err {
-            HostFutureError::RuntimeError(err) => RpcError::RuntimeError(RpcRuntimeError::FutureError(err)),
-            HostFutureError::AsyncApiError(err) => match err {
-                HostFutureAsyncApiError::Rpc(err) => match err {
-                    RpcApiAsyncError::RuntimeError => RpcError::RuntimeError(RpcRuntimeError::RpcRuntimeError),
-                    RpcApiAsyncError::FunctionRuntimeError => RpcError::RuntimeError(RpcRuntimeError::FunctionRuntimeError),
-                    RpcApiAsyncError::UserApplicationError { message } => RpcError::UserApplicationError { message },
-                    RpcApiAsyncError::FunctionPanicked => RpcError::FunctionPanicked,
-                    RpcApiAsyncError::HandlerNotFound => RpcError::HandlerNotFound,
-                },
-                _ => RpcError::RuntimeError(RpcRuntimeError::UnexpectedAsyncApiError),
-            }
-        })?;
-    Ok(rmp_serde::from_slice(&response).unwrap())
 }
 
 pub struct KvStore {

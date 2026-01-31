@@ -41,11 +41,6 @@ pub async fn rpc_responder(arg: u64) -> fx::Result<u64> {
 }
 
 #[handler]
-pub async fn call_rpc(arg: u64) -> fx::Result<u64> {
-    Ok(fx::rpc("other-app", "rpc_responder", arg).await.unwrap())
-}
-
-#[handler]
 pub async fn rpc_responder_panic() -> fx::Result<u64> {
     panic!("test panic");
 }
@@ -54,20 +49,6 @@ pub async fn rpc_responder_panic() -> fx::Result<u64> {
 pub async fn rpc_responder_panic_async() -> fx::Result<u64> {
     sleep(Duration::from_secs(1)).await;
     panic!("test panic");
-}
-
-#[handler]
-pub async fn call_rpc_panic() -> fx::Result<i64> {
-    let res0 = match fx::rpc::<(), u64>("other-app", "rpc_responder_panic", ()).await {
-        Ok(_) => panic!("didn't expect test rpc call not to fail"),
-        Err(_) => 0,
-    };
-    let res1 = match fx::rpc::<(), u64>("other-app", "rpc_responder_panic_async", ()).await {
-        Ok(_) => panic!("didn't expect test rpc call not to fail"),
-        Err(_) => 0,
-    };
-
-    Ok(42 + res0 as i64 + res1 as i64)
 }
 
 #[handler]

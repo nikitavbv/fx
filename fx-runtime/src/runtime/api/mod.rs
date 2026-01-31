@@ -60,9 +60,7 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_metrics_counter_increment(caller.data(), v.unwrap());
             response_op.set_metrics_counter_increment(());
         },
-        Operation::Rpc(v) => {
-            handle_rpc(caller.data(), v.unwrap(), response_op.init_rpc());
-        },
+        Operation::Deprecated1(_) => panic!("call to deprecated api"),
         Operation::KvGet(v) => {
             handle_kv_get(caller.data(), v.unwrap(), response_op.init_kv_get());
         },
@@ -144,68 +142,6 @@ fn handle_metrics_counter_increment(data: &ExecutionEnv, counter_increment_reque
 enum RpcApiAsyncError {
     #[error("failed to execute function: {0:?}")]
     FunctionInvocation(#[from] FunctionExecutionError),
-}
-
-fn handle_rpc(data: &ExecutionEnv, rpc_request: abi_capnp::rpc_call_request::Reader, rpc_response: abi_capnp::rpc_call_response::Builder) {
-    let mut rpc_response = rpc_response.init_response();
-
-    let binding_id = rpc_request.get_function_id().unwrap().to_string().unwrap();
-    let function_id = match data.rpc.get(&binding_id) {
-        Some(v) => v.target_function.clone(),
-        None => {
-            rpc_response.set_binding_not_found(());
-            return;
-        }
-    };
-
-    let method_name = rpc_request.get_method_name().unwrap().to_str().unwrap();
-    let argument = rpc_request.get_argument().unwrap();
-
-    let engine = data.engine.clone();
-    let response_future = match engine.clone().invoke_service_raw(engine.clone(), function_id.clone(), method_name.to_owned(), argument.to_vec()) {
-        Ok(response_future) => response_future.map(|v| v
-            .map(|v| v.0)
-            .map_err(RpcApiAsyncError::from)
-            .map_err(HostFutureAsyncApiError::from)
-            .map_err(HostFutureError::from)
-        ),
-        Err(err) => {
-            let mut error_response = rpc_response.init_error().init_error();
-
-            match err {
-                FunctionInvokeError::RuntimeError(runtime_error) => {
-                    error!("failed to execute rpc api because of internal error: {runtime_error:?}");
-                    error_response.set_runtime_error(());
-                    return;
-                },
-                // this class of errors can be groupped under "instantiation" error. Caller does not need to know specific reason
-                FunctionInvokeError::DefinitionMissing(_)
-                | FunctionInvokeError::CodeFailedToLoad(_)
-                | FunctionInvokeError::CodeNotFound
-                | FunctionInvokeError::FailedToCompile(_)
-                | FunctionInvokeError::FailedToInstantiate(_) => {
-                //| FunctionInvokeError::InstantionError(_) => {
-                    // TODO: probably there should be some reporting for this?
-                    error!("failed to execute rpc api because failed to instantiate target function");
-                    error_response.set_instantiation_error(());
-                    return;
-                },
-            }
-        },
-    };
-
-    let response_future = match data.engine.futures_pool.push(response_future.boxed()) {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to push future to futures arena: {err:?}");
-            rpc_response.init_error().init_error().set_runtime_error(());
-            return;
-        }
-    };
-
-    engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "rpc"]).inc();
-
-    rpc_response.set_future_id(response_future.0);
 }
 
 fn handle_kv_get(data: &ExecutionEnv, kv_get_request: abi_capnp::kv_get_request::Reader, kv_get_response: abi_capnp::kv_get_response::Builder) {

@@ -142,22 +142,6 @@ async fn async_concurrent() {
     assert!(total_time <= 4); // async_simple is expected to sleep for 3 seconds, two requests are served concurrentlys
 }
 
-#[tokio::test]
-async fn async_rpc() {
-    assert_eq!(
-        84,
-        fx_server().await.lock().invoke_function::<u64, u64>(&FunctionId::new("test-app".to_owned()), "call_rpc", 42).await.unwrap().0
-    );
-}
-
-#[tokio::test]
-async fn rpc_panic() {
-    assert_eq!(
-        42,
-        fx_server().await.lock().invoke_function::<(), i64>(&FunctionId::new("test-app"), "call_rpc_panic", ()).await.unwrap().0
-    )
-}
-
 /*#[tokio::test]
 async fn stream_simple() {
     let fx = fx_server().await.lock();
