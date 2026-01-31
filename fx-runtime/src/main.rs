@@ -68,7 +68,7 @@ enum WorkerMessage {
     RemoveFunction(FunctionId),
     FunctionDeploy {
         function_id: FunctionId,
-        instance_id: FunctionInstanceId,
+        deployment_id: FunctionDeploymentId,
         module: wasmtime::Module,
 
         http_listeners: Vec<FunctionHttpListener>,
@@ -203,8 +203,8 @@ fn main() {
                     socket.listen(1024).unwrap();
 
                     // setup wasm runtime:
-                    let function_instances: Rc<RefCell<HashMap<FunctionInstanceId, Rc<RefCell<FunctionInstance>>>>> = Rc::new(RefCell::new(HashMap::new()));
-                    let functions: Rc<RefCell<HashMap<FunctionId, FunctionInstanceId>>> = Rc::new(RefCell::new(HashMap::new()));
+                    let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>> = Rc::new(RefCell::new(HashMap::new()));
+                    let functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>> = Rc::new(RefCell::new(HashMap::new()));
                     let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
                     let http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
 
@@ -219,13 +219,13 @@ fn main() {
                                     match message.unwrap() {
                                         WorkerMessage::FunctionDeploy {
                                             function_id,
-                                            instance_id,
+                                            deployment_id,
                                             module,
                                             http_listeners,
                                         } => {
-                                            function_instances.borrow_mut().insert(instance_id.clone(), Rc::new(RefCell::new(FunctionInstance::new(&wasmtime, module).await)));
-                                            // TODO: cleanup old instances
-                                            functions.borrow_mut().insert(function_id.clone(), instance_id);
+                                            function_deployments.borrow_mut().insert(deployment_id.clone(), Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, module).await)));
+                                            // TODO: cleanup old deployments
+                                            functions.borrow_mut().insert(function_id.clone(), deployment_id);
 
                                             {
                                                 let mut http_hosts = http_hosts.borrow_mut();
@@ -258,7 +258,7 @@ fn main() {
                                             http_hosts.clone(),
                                             http_default.clone(),
                                             functions.clone(),
-                                            function_instances.clone(),
+                                            function_deployments.clone(),
                                         ));
                                     let request_future = graceful.watch(conn);
 
@@ -294,22 +294,22 @@ fn main() {
 struct HttpHandlerV2 {
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
-    functions: Rc<RefCell<HashMap<FunctionId, FunctionInstanceId>>>,
-    function_instances: Rc<RefCell<HashMap<FunctionInstanceId, Rc<RefCell<FunctionInstance>>>>>,
+    functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
 }
 
 impl HttpHandlerV2 {
     pub fn new(
         http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
         http_default: Rc<RefCell<Option<FunctionId>>>,
-        functions: Rc<RefCell<HashMap<FunctionId, FunctionInstanceId>>>,
-        function_instances: Rc<RefCell<HashMap<FunctionInstanceId, Rc<RefCell<FunctionInstance>>>>>,
+        functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
+        function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
     ) -> Self {
         Self {
             http_hosts,
             http_default,
             functions,
-            function_instances,
+            function_deployments,
         }
     }
 }
@@ -323,11 +323,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let target_function = req.headers().get("Host")
             .and_then(|v| self.http_hosts.borrow().get(&v.to_str().unwrap().to_lowercase()).cloned())
             .or_else(|| self.http_default.borrow().clone());
-        let target_function_instance_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
-        let target_function_instance = target_function_instance_id.and_then(|instance_id| self.function_instances.borrow().get(&instance_id).cloned());
+        let target_function_deployment_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
+        let target_function_deployment = target_function_deployment_id.and_then(|instance_id| self.function_deployments.borrow().get(&instance_id).cloned());
 
         Box::pin(async move {
-            let target_function_instance = match target_function_instance {
+            let target_function_deployment = match target_function_deployment {
                 Some(v) => v,
                 None => {
                     let mut response = Response::new(Full::new(Bytes::from("no fx function found to handle this request.\n".as_bytes())));
@@ -336,8 +336,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            // TODO: handling borrow across await is unsafe here?
-            let function_future = target_function_instance.borrow().handle_request(FunctionRequest::new());
+            let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::new());
             let response = function_future.await;
 
             unimplemented!()
@@ -350,8 +349,8 @@ struct DefinitionsMonitor {
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,
 
-    // DefinitionsMonitor requests FunctionInstance creation and assigns IDs to them.
-    function_instance_id_counter: u64,
+    // DefinitionsMonitor requests FunctionDeployment creation and assigns IDs to them.
+    deployment_id_counter: u64,
 }
 
 impl DefinitionsMonitor {
@@ -365,7 +364,7 @@ impl DefinitionsMonitor {
                 .join(&config.functions_dir),
             workers_tx,
             compiler_tx,
-            function_instance_id_counter: 0,
+            deployment_id_counter: 0,
         }
     }
 
@@ -491,7 +490,7 @@ impl DefinitionsMonitor {
             response: compiler_response_tx,
         }).await.unwrap();
 
-        let instance_id = self.next_instance_id();
+        let deployment_id = self.next_deployment_id();
         let module = compiler_response_rx.await.unwrap();
 
         let http_listeners = config.triggers.iter()
@@ -505,17 +504,17 @@ impl DefinitionsMonitor {
         for worker in self.workers_tx.iter() {
             worker.send_async(WorkerMessage::FunctionDeploy {
                 function_id: function_id.clone(),
-                instance_id: instance_id.clone(),
+                deployment_id: deployment_id.clone(),
                 module: module.clone(),
                 http_listeners: http_listeners.clone(),
             }).await.unwrap();
         }
     }
 
-    fn next_instance_id(&mut self) -> FunctionInstanceId {
-        let instance_id = FunctionInstanceId::new(self.function_instance_id_counter);
-        self.function_instance_id_counter += 1;
-        instance_id
+    fn next_deployment_id(&mut self) -> FunctionDeploymentId {
+        let deployment_id = FunctionDeploymentId::new(self.deployment_id_counter);
+        self.deployment_id_counter += 1;
+        deployment_id
     }
 }
 
@@ -525,29 +524,26 @@ enum FunctionIdDetectionError {
     PathMissingExtension,
 }
 
+/// deployment is a set of FunctionInstances deployed with same configuration
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-struct FunctionInstanceId {
+struct FunctionDeploymentId {
     id: u64,
 }
 
-impl FunctionInstanceId {
+impl FunctionDeploymentId {
     fn new(id: u64) -> Self {
         Self { id }
     }
 }
 
-struct FunctionInstance {
+struct FunctionDeployment {
     module: wasmtime::Module,
     instance_template: wasmtime::InstancePre<FunctionInstanceState>,
-    instance: Rc<wasmtime::Instance>,
-    store: Rc<wasmtime::Store<FunctionInstanceState>>,
-    fn_malloc: Rc<wasmtime::TypedFunc<i64, i64>>,
+    instance: Rc<FunctionInstance>,
 }
 
-impl FunctionInstance {
+impl FunctionDeployment {
     pub async fn new(wasmtime: &wasmtime::Engine, module: wasmtime::Module) -> Self {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new());
-
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
         for import in module.imports() {
@@ -566,23 +562,40 @@ impl FunctionInstance {
                 ).unwrap();
             }
         }
-
         let instance_template = linker.instantiate_pre(&module).unwrap();
-        let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
-        let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
+        let instance = FunctionInstance::new(wasmtime, &instance_template).await;
 
         Self {
             module,
             instance_template,
             instance: Rc::new(instance),
-            store: Rc::new(store),
-            fn_malloc: Rc::new(fn_malloc),
         }
     }
 
     fn handle_request(&self, req: FunctionRequest) -> FunctionFuture {
         FunctionFuture::new(self.instance.clone(), req)
+    }
+}
+
+struct FunctionInstance {
+    instance: wasmtime::Instance,
+    store: wasmtime::Store<FunctionInstanceState>,
+    fn_malloc: wasmtime::TypedFunc<i64, i64>,
+}
+
+impl FunctionInstance {
+    pub async fn new(wasmtime: &wasmtime::Engine, instance_template: &wasmtime::InstancePre<FunctionInstanceState>) -> Self {
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new());
+        let instance = instance_template.instantiate_async(&mut store).await.unwrap();
+
+        let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
+
+        Self {
+            instance,
+            store,
+            fn_malloc,
+        }
     }
 }
 
@@ -628,12 +641,12 @@ impl FunctionResponse {
 }
 
 struct FunctionFuture {
-    instance: Rc<wasmtime::Instance>,
+    instance: Rc<FunctionInstance>,
     req: FunctionRequest,
 }
 
 impl FunctionFuture {
-    pub fn new(instance: Rc<wasmtime::Instance>, req: FunctionRequest) -> Self {
+    pub fn new(instance: Rc<FunctionInstance>, req: FunctionRequest) -> Self {
         Self {
             instance,
             req,
