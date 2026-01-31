@@ -685,6 +685,13 @@ impl FunctionInstance {
         let response = self.invoke_fx_api(message).await;
         let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
         match response.get_op().which().unwrap() {
+            abi_capnp::fx_function_api_call_result::op::Which::Invoke(response) => {
+                let response = response.unwrap();
+                match response.get_result().which().unwrap() {
+                    abi_capnp::function_invoke_response::result::Which::FutureId(v) => unimplemented!("received future id"),
+                    abi_capnp::function_invoke_response::result::Which::Error(err) => unimplemented!("received an error"),
+                }
+            }
             _other => unimplemented!(),
         }
 
