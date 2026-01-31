@@ -1235,6 +1235,7 @@ dependencies = [
  "crossbeam",
  "flume",
  "futures",
+ "futures-intrusive",
  "fx-common",
  "fx-types",
  "gdt-cpus",
