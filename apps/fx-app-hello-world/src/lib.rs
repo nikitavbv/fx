@@ -4,7 +4,7 @@ use {
     serde::{Serialize, Deserialize},
 };
 
-#[handler]
+#[handler::fetch]
 pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
     info!("hello from wasm service!");
 

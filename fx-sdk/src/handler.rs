@@ -1,8 +1,14 @@
+pub use {
+    fx_macro::fetch,
+    ctor::ctor,
+};
+
 use {
     std::{pin::Pin, future::Future, collections::HashMap, sync::Mutex, sync::OnceLock},
     thiserror::Error,
     serde::{de::DeserializeOwned, Serialize},
     lazy_static::lazy_static,
+    futures::FutureExt,
     crate::fx_futures::FunctionFutureError,
 };
 
@@ -12,9 +18,21 @@ type HttpHandlerFunction = Box<dyn Fn(FunctionRequest) -> BoxFuture<FunctionResp
 
 pub struct FunctionRequest {}
 
-pub struct FunctionResponse {}
+impl FunctionRequest {
+    pub fn into_legacy_http_request(self) -> crate::HttpRequest {
+        crate::HttpRequest::new()
+    }
+}
+
+pub struct FunctionResponse {
+}
 
 impl FunctionResponse {
+    pub fn from_legacy_http_response(response: crate::HttpResponse) -> Self {
+        Self {
+        }
+    }
+
     pub fn into_legacy_http_response(self) -> crate::HttpResponse {
         crate::HttpResponse::new()
     }
@@ -24,10 +42,10 @@ pub trait IntoFunctionResult {}
 
 pub fn register_http_fetch_handler<F, Fut>(f: F)
 where
-    F: Fn(FunctionRequest) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = FunctionResponse> + 'static + Send {
+    F: Fn(crate::HttpRequest) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = crate::Result<fx_common::HttpResponse>> + 'static + Send {
     let _ = HANDLER_FETCH.set(Box::new(move |req| {
-        Box::pin(f(req)) as BoxFuture<FunctionResponse>
+        Box::pin(f(req.into_legacy_http_request()).map(|v| FunctionResponse::from_legacy_http_response(v.unwrap()))) as BoxFuture<FunctionResponse>
     }));
 }
 

@@ -34,7 +34,7 @@ use {
             kv::{BoxedStorage, FsStorage, SuffixStorage, KVStorage},
             definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
             metrics::run_metrics_server,
-            logs::{BoxLogger, StdoutLogger, NoopLogger},
+            logs::{self, BoxLogger, StdoutLogger, NoopLogger},
         },
         server::{
             server::FxServer,
@@ -225,7 +225,10 @@ fn main() {
                                             module,
                                             http_listeners,
                                         } => {
-                                            function_deployments.borrow_mut().insert(deployment_id.clone(), Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, module).await)));
+                                            function_deployments.borrow_mut().insert(
+                                                deployment_id.clone(),
+                                                Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, function_id.clone(), module).await))
+                                            );
                                             // TODO: cleanup old deployments
                                             functions.borrow_mut().insert(function_id.clone(), deployment_id);
 
@@ -545,7 +548,7 @@ struct FunctionDeployment {
 }
 
 impl FunctionDeployment {
-    pub async fn new(wasmtime: &wasmtime::Engine, module: wasmtime::Module) -> Self {
+    pub async fn new(wasmtime: &wasmtime::Engine, function_id: FunctionId, module: wasmtime::Module) -> Self {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
         for import in module.imports() {
@@ -566,7 +569,7 @@ impl FunctionDeployment {
         }
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
-        let instance = FunctionInstance::new(wasmtime, &instance_template).await;
+        let instance = FunctionInstance::new(wasmtime, function_id, &instance_template).await;
 
         Self {
             module,
@@ -594,8 +597,12 @@ struct FunctionInstance {
 }
 
 impl FunctionInstance {
-    pub async fn new(wasmtime: &wasmtime::Engine, instance_template: &wasmtime::InstancePre<FunctionInstanceState>) -> Self {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new());
+    pub async fn new(
+        wasmtime: &wasmtime::Engine,
+        function_id: FunctionId,
+        instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
+    ) -> Self {
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(function_id));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -699,11 +706,15 @@ impl FunctionInstance {
     }
 }
 
-struct FunctionInstanceState {}
+struct FunctionInstanceState {
+    function_id: FunctionId,
+}
 
 impl FunctionInstanceState {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(function_id: FunctionId) -> Self {
+        Self {
+            function_id,
+        }
     }
 }
 
@@ -721,7 +732,50 @@ impl FunctionHttpListener {
 }
 
 fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64, output_ptr: i64) {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let mut message_bytes = &view[req_addr as usize..(req_addr + req_len) as usize];
+    let message_reader = fx_types::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_types::capnp::message::ReaderOptions::default()).unwrap();
+    let request = message_reader.get_root::<fx_types::abi_capnp::fx_api_call::Reader>().unwrap();
+    let op = request.get_op();
+
+    let mut response_message = capnp::message::Builder::new_default();
+    let response = response_message.init_root::<abi_capnp::fx_api_call_result::Builder>();
+    let mut response_op = response.init_op();
+
+    use fx_types::abi_capnp::fx_api_call::op::{Which as Operation};
+    match op.which().unwrap() {
+        Operation::Log(v) => handle_log(caller.data(), v.unwrap(), response_op.init_log()),
+        _other => unimplemented!("fx api call not implemented: {:?}", op),
+    }
+
     unimplemented!("fx api handling is not implemented yet")
+}
+
+fn handle_log(data: &FunctionInstanceState, log_request: abi_capnp::log_request::Reader, _log_response: abi_capnp::log_response::Builder) {
+    let message: crate::common::LogMessageEvent = logs::LogMessage::new(
+        logs::LogSource::function(&data.function_id),
+        match log_request.get_event_type().unwrap() {
+            abi_capnp::EventType::Begin => logs::LogEventType::Begin,
+            abi_capnp::EventType::End => logs::LogEventType::End,
+            abi_capnp::EventType::Instant => logs::LogEventType::Instant,
+        },
+        match log_request.get_level().unwrap() {
+            abi_capnp::LogLevel::Trace => logs::LogLevel::Trace,
+            abi_capnp::LogLevel::Debug => logs::LogLevel::Debug,
+            abi_capnp::LogLevel::Info => logs::LogLevel::Info,
+            abi_capnp::LogLevel::Warn => logs::LogLevel::Warn,
+            abi_capnp::LogLevel::Error => logs::LogLevel::Error,
+        },
+        log_request.get_fields().unwrap()
+            .into_iter()
+            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+            .collect()
+    ).into();
+
+    println!("{message:?}");
 }
 
 struct FunctionRequest {}
