@@ -1,11 +1,37 @@
 use {
-    std::{pin::Pin, future::Future, collections::HashMap, sync::Mutex},
+    std::{pin::Pin, future::Future, collections::HashMap, sync::Mutex, sync::OnceLock},
     thiserror::Error,
     serde::{de::DeserializeOwned, Serialize},
     lazy_static::lazy_static,
     crate::fx_futures::FunctionFutureError,
 };
 
+// v2 handlers:
+pub(crate) static HANDLER_FETCH: OnceLock<HttpHandlerFunction> = OnceLock::new();
+type HttpHandlerFunction = Box<dyn Fn(FunctionRequest) -> BoxFuture<FunctionResponse> + Send + Sync>;
+
+pub struct FunctionRequest {}
+
+pub struct FunctionResponse {}
+
+impl FunctionResponse {
+    pub fn into_legacy_http_response(self) -> crate::HttpResponse {
+        crate::HttpResponse::new()
+    }
+}
+
+pub trait IntoFunctionResult {}
+
+pub fn register_http_fetch_handler<F, Fut>(f: F)
+where
+    F: Fn(FunctionRequest) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = FunctionResponse> + 'static + Send {
+    let _ = HANDLER_FETCH.set(Box::new(move |req| {
+        Box::pin(f(req)) as BoxFuture<FunctionResponse>
+    }));
+}
+
+// v1 handlers:
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 type HandlerFunction = Box<dyn Fn(Vec<u8>) -> HandlerResult + Send>;
 

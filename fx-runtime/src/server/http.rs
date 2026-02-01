@@ -8,7 +8,7 @@ use {
     arc_swap::ArcSwap,
     fx_common::{HttpResponse, HttpRequest, FxStream},
     crate::common::{FunctionInvokeEvent, events::InvocationTimings},
-    crate::runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::{Engine, FunctionInvokeAndExecuteError}},
+    crate::runtime::{FxRuntime, FunctionId, error::FxRuntimeError, runtime::{Engine, FunctionInvokeAndExecuteError, FunctionRequest}},
 };
 
 pub struct HttpHandler {
@@ -82,7 +82,8 @@ impl<'a> HttpHandlerFuture<'a> {
                     engine.metrics.http_functions_in_flight.inc();
                     let metric_guard_http_functions_in_flight = MetricGaugeDecreaseGuard::wrap(engine.metrics.http_functions_in_flight.clone());
 
-                    let invoke_service_future = engine.invoke_service::<_, HttpResponse>(engine.clone(), &service_id, "http", request);
+                    let request = FunctionRequest::Http;
+                    let invoke_service_future = engine.invoke_service::<HttpResponse>(engine.clone(), &service_id, request);
                     let invoke_service_with_timeout = timeout(Duration::from_secs(60), invoke_service_future);
                     let (fx_response, invocation_event) = match invoke_service_with_timeout.await {
                         Ok(v) => match v {

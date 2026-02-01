@@ -90,12 +90,12 @@ impl FxRuntime {
     }
 
     #[allow(dead_code)]
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
-        self.engine.invoke_service(self.engine.clone(), service, function_name, argument).await
+    pub async fn invoke_service<S: serde::de::DeserializeOwned>(&self, service: &FunctionId, request: FunctionRequest) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
+        self.engine.invoke_service(self.engine.clone(), service, request).await
     }
 
-    pub fn invoke_service_raw(&self, service: &FunctionId, function_name: &str, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
-        self.engine.invoke_service_raw(self.engine.clone(), service.clone(), function_name.to_owned(), argument)
+    pub fn invoke_service_raw(&self, service: &FunctionId, request: FunctionRequest) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
+        self.engine.invoke_service_raw(self.engine.clone(), service.clone(), request)
     }
 
     #[allow(dead_code)]
@@ -189,9 +189,8 @@ impl Engine {
         }
     }
 
-    pub async fn invoke_service<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, function_name: &str, argument: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
-        let argument = rmp_serde::to_vec(&argument).unwrap();
-        let (response, event) = self.invoke_service_raw(engine, service.clone(), function_name.to_owned(), argument)
+    pub async fn invoke_service<S: serde::de::DeserializeOwned>(&self, engine: Arc<Engine>, service: &FunctionId, request: FunctionRequest) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
+        let (response, event) = self.invoke_service_raw(engine, service.clone(), request)
             .map_err(|err| match err {
                 FunctionInvokeError::RuntimeError(err) => {
                     error!("runtime error when invoking function: {err:?}");
@@ -217,7 +216,7 @@ impl Engine {
         Ok((rmp_serde::from_slice(&response).unwrap(), event))
     }
 
-    pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, function_name: String, argument: Vec<u8>) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
+    pub fn invoke_service_raw(&self, engine: Arc<Engine>, function_id: FunctionId, request: FunctionRequest) -> Result<FunctionRuntimeFuture, FunctionInvokeError> {
         // TODO: will be able to remove this once switched to new server?
         let context_id = self.resolve_context_id_for_function(&function_id);
 
@@ -239,7 +238,7 @@ impl Engine {
             }
         }
 
-        Ok(self.run_service(engine, function_id.clone(), (*context_id).clone(), &function_name, argument))
+        Ok(self.run_service(engine, function_id.clone(), (*context_id).clone(), request))
     }
 
     pub fn reload(&self, function_id: &FunctionId) {
@@ -250,13 +249,12 @@ impl Engine {
         }
     }
 
-    fn run_service(&self, engine: Arc<Engine>, function_id: FunctionId, execution_context_id: ExecutionContextId, function_name: &str, argument: Vec<u8>) -> FunctionRuntimeFuture {
+    fn run_service(&self, engine: Arc<Engine>, function_id: FunctionId, execution_context_id: ExecutionContextId, request: FunctionRequest) -> FunctionRuntimeFuture {
         FunctionRuntimeFuture {
             engine,
             function_id,
             execution_context_id,
-            function_name: function_name.to_owned(),
-            argument: argument.to_owned(),
+            request,
             rpc_future_index: Arc::new(Mutex::new(None)),
         }
     }
@@ -513,8 +511,7 @@ pub struct FunctionRuntimeFuture {
     engine: Arc<Engine>,
     function_id: FunctionId,
     execution_context_id: ExecutionContextId,
-    function_name: String,
-    argument: Vec<u8>,
+    request: FunctionRequest,
     rpc_future_index: Arc<Mutex<Option<i64>>>,
 }
 
@@ -538,8 +535,7 @@ impl Future for FunctionRuntimeFuture {
         let rpc_future_index = self.rpc_future_index.clone();
         let mut rpc_future_index = rpc_future_index.lock().unwrap();
 
-        let argument = self.argument.clone();
-        let function_name = self.function_name.clone();
+        let request = self.request.clone();
         let ctx = {
             let ctxs = self.engine.execution_contexts.read().unwrap();
             ctxs.get(&self.execution_context_id).unwrap().clone()
@@ -601,8 +597,7 @@ impl Future for FunctionRuntimeFuture {
             let points_before = u64::MAX;
             // store.set_fuel(points_before).unwrap();
 
-            // TODO: fx api instead of all of this
-            let future_index = match function_invoke(&mut store, function_name, argument) {
+            let future_index = match function_invoke(&mut store, request) {
                 Ok(v) => v,
                 Err(err) => return Poll::Ready(Err(match err {
                     FunctionInvokeApiError::HandlerNotDefined => {
@@ -879,13 +874,27 @@ enum FunctionInvokeApiError {
     FunctionPanicked
 }
 
-fn function_invoke(ctx: &mut Store<ExecutionEnv>, handler: String, payload: Vec<u8>) -> Result<u64, FunctionInvokeApiError> {
+#[derive(Clone)]
+pub(crate) enum FunctionRequest {
+    Http,
+    Cron {
+        task_name: String,
+    },
+}
+
+fn function_invoke(ctx: &mut Store<ExecutionEnv>, request: FunctionRequest) -> Result<u64, FunctionInvokeApiError> {
     let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-    let op = request.init_op();
+    let message_request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
+    let op = message_request.init_op();
     let mut function_invoke_request = op.init_invoke();
-    function_invoke_request.set_method(handler);
-    function_invoke_request.set_payload(&payload);
+    match request {
+        FunctionRequest::Http => {
+            let mut function_request_http = function_invoke_request.init_http();
+        },
+        FunctionRequest::Cron { task_name } => unimplemented!(),
+    }
+
+    // TODO: mape request to function_request_http
 
     let response = invoke_fx_api(ctx, message)
         .map_err(|err| match err {

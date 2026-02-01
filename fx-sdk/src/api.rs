@@ -1,7 +1,9 @@
+pub use ctor::ctor;
+
 use {
     std::task::Poll,
     fx_types::{capnp, abi_capnp},
-    futures::TryFutureExt,
+    futures::{TryFutureExt, FutureExt},
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex, FxFuture, FunctionFutureError},
         fx_streams::STREAM_POOL,
@@ -71,37 +73,10 @@ pub(crate) fn handle_invoke(
 ) {
     let mut result = invoke_response.init_result();
 
-    let handler_name = match invoke_request.get_method() {
-        Ok(v) => v,
-        Err(_err) => {
-            let mut error = result.init_error().init_error();
-            error.set_internal_runtime_error(());
-            return;
-        }
-    };
-    let handler_name = match handler_name.to_str() {
-        Ok(v) => v,
-        Err(_err) => {
-            let mut error = result.init_error().init_error();
-            error.set_bad_request(());
-            return;
-        }
-    };
-
-    let handlers = HANDLERS.lock().unwrap();
-    let handler = match handlers.get(&handler_name) {
-        Some(v) => v,
-        None => {
-            let mut error = result.init_error().init_error();
-            error.set_handler_not_found(());
-            return;
-        }
-    };
-
-    let handler_future = handler(invoke_request.get_payload().unwrap().to_vec());
+    let handler = crate::handler::HANDLER_FETCH.get().unwrap();
+    let handler_future = handler(crate::handler::FunctionRequest {});
     let handler_future = FxFuture::wrap(
-        handler_future
-            .map_err(|err| FunctionFutureError::from(err))
+        handler_future.map(|v| Ok(rmp_serde::to_vec(&v.into_legacy_http_response()).unwrap()))
     );
     result.set_future_id(handler_future.future_index());
 }

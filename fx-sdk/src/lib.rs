@@ -21,7 +21,7 @@ pub use {
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
         http::{FxHttpRequest, fetch},
-        handler::{Handler, IntoHandler},
+        handler::{Handler, IntoHandler, register_http_fetch_handler},
         FxResult as Result,
     },
 };
@@ -40,6 +40,8 @@ use {
 };
 
 pub mod utils;
+
+pub mod handler;
 pub mod metrics;
 pub mod sql;
 
@@ -47,7 +49,6 @@ mod api;
 mod error;
 mod fx_futures;
 mod fx_streams;
-mod handler;
 mod http;
 mod logging;
 mod sys;

@@ -30,7 +30,7 @@ use {
             FxRuntime,
             FunctionId,
             sql::SqlDatabase,
-            runtime::{RpcBinding, FunctionInvokeAndExecuteError, FunctionInvocationEvent},
+            runtime::{RpcBinding, FunctionInvokeAndExecuteError, FunctionInvocationEvent, FunctionRequest},
             logs::{StdoutLogger, NoopLogger, BoxLogger},
             kv::{BoxedStorage, FsStorage},
         },
@@ -133,8 +133,8 @@ impl FxServer {
         self.definitions_monitor.define_function(function_id, config).await;
     }
 
-    pub async fn invoke_function<T: serde::ser::Serialize, S: serde::de::DeserializeOwned>(&self, function_id: &FunctionId, handler_name: &str, arg: T) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
-        self.runtime.engine.invoke_service(self.runtime.engine.clone(), &function_id, handler_name, arg).await
+    pub async fn invoke_function<S: serde::de::DeserializeOwned>(&self, function_id: &FunctionId, request: FunctionRequest) -> Result<(S, FunctionInvocationEvent), FunctionInvokeAndExecuteError> {
+        self.runtime.engine.invoke_service(self.runtime.engine.clone(), &function_id, request).await
     }
 
     async fn run_introspection_server(&self) {
@@ -277,7 +277,8 @@ impl FxServer {
                                 },
                             };
 
-                            let result = self.runtime.engine.invoke_service::<(), ()>(self.runtime.engine.clone(), &task.function_id, &task.handler, ()).await;
+                            let request = FunctionRequest::Http;
+                            let result = self.runtime.engine.invoke_service::<()>(self.runtime.engine.clone(), &task.function_id, request).await;
                             match result {
                                 Ok(_) => {
                                     database.update_run_time(&task.task_id, now);

@@ -374,8 +374,9 @@ struct FunctionStreamDropRequest {
 struct FunctionStreamDropResponse {}
 
 struct FunctionInvokeRequest {
-    method @0 :Text;
-    payload @1 :Data;
+    http @0 :HttpRequest;
+
+    struct HttpRequest {}
 }
 
 struct FunctionInvokeResponse {
