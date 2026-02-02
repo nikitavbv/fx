@@ -1,3 +1,8 @@
+pub use self::{
+    resource::{ResourceId, FunctionResourceId, FunctionResource, add_function_resource},
+    future::wrap_function_response_future,
+};
+
 use {
     std::{task::Poll, io::Cursor},
     fx_types::{capnp, abi_capnp},
@@ -8,6 +13,9 @@ use {
         api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next, handle_invoke},
     },
 };
+
+mod future;
+mod resource;
 
 // exports:
 // malloc is exported function because it saves roundrip for capnp-based api

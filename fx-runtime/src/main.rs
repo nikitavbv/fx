@@ -25,9 +25,10 @@ use {
     walkdir::WalkDir,
     thiserror::Error,
     notify::Watcher,
-    fx_types::{capnp, abi_capnp},
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
+    slotmap::SlotMap,
+    fx_types::{capnp, abi_capnp},
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
@@ -708,12 +709,14 @@ impl FunctionInstance {
 
 struct FunctionInstanceState {
     function_id: FunctionId,
+    resources: SlotMap<slotmap::DefaultKey, Resource>,
 }
 
 impl FunctionInstanceState {
     pub fn new(function_id: FunctionId) -> Self {
         Self {
             function_id,
+            resources: SlotMap::new(),
         }
     }
 }
@@ -792,4 +795,8 @@ impl FunctionResponse {
     pub fn new() -> Self {
         Self {}
     }
+}
+
+enum Resource {
+    Test,
 }

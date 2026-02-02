@@ -22,6 +22,7 @@ pub use {
         error::FxError,
         http::{FxHttpRequest, fetch},
         handler::{Handler, IntoHandler, register_http_fetch_handler},
+        api::HttpRequestV2,
         FxResult as Result,
     },
 };
@@ -39,9 +40,11 @@ use {
     },
 };
 
+pub mod sys;
 pub mod utils;
 
 pub mod handler;
+pub mod logging;
 pub mod metrics;
 pub mod sql;
 
@@ -50,8 +53,6 @@ mod error;
 mod fx_futures;
 mod fx_streams;
 mod http;
-mod logging;
-mod sys;
 
 pub type FxResult<T> = anyhow::Result<T>;
 

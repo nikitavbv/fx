@@ -1,6 +1,5 @@
 pub use {
     fx_macro::fetch,
-    ctor::ctor,
 };
 
 use {

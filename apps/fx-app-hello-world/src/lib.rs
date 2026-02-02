@@ -1,16 +1,16 @@
 use {
-    fx_sdk::{self as fx, HttpRequest, HttpResponse, handler, SqlQuery, fetch},
+    fx_sdk::{self as fx, HttpRequest, HttpRequestV2, HttpResponse, handler, SqlQuery, fetch, handler::FunctionResponse},
     tracing::info,
     serde::{Serialize, Deserialize},
 };
 
 #[handler::fetch]
-pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
+pub async fn http(req: HttpRequestV2) -> FunctionResponse {
     info!("hello from wasm service!");
 
     // let kv = ctx.kv("demo");
     //let counter: i64 = ctx.rpc("counter", "incr", ()).await.unwrap();
-    let counter = 42;
+    /*let counter = 42;
 
     // let instance = kv.get("instance").unwrap().map(|v| String::from_utf8(v).unwrap());
     let instance = "demo";
@@ -26,7 +26,8 @@ pub async fn http(req: HttpRequest) -> fx::Result<HttpResponse> {
         return Ok(HttpResponse::new().with_body(format!("hello sql! x={:?}", result.into_rows()[0].columns[0])));
     }
 
-    Ok(HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url)))
+    Ok(HttpResponse::new().with_body(format!("Hello from {:?} rpc style, counter value using global: {counter:?}, instance: {instance:?}", req.url)));*/
+    unimplemented!()
 }
 
 #[handler]

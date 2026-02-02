@@ -1,4 +1,4 @@
-pub use ctor::ctor;
+pub use self::http::{HttpRequest as HttpRequestV2};
 
 use {
     std::task::Poll,
@@ -11,6 +11,8 @@ use {
         error::FxError,
     },
 };
+
+mod http;
 
 pub(crate) fn handle_future_poll(
     future_poll_request: abi_capnp::function_future_poll_request::Reader,
