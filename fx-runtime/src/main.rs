@@ -583,7 +583,9 @@ impl FunctionDeployment {
         let instance = self.instance.clone();
 
         Box::pin(async move {
-            instance.invoke(req).await
+            let resource = unimplemented!();
+            instance.invoke_http_trigger(&resource);
+            unimplemented!()
         })
     }
 }
@@ -592,9 +594,11 @@ struct FunctionInstance {
     instance: wasmtime::Instance,
     store: LocalMutex<wasmtime::Store<FunctionInstanceState>>,
     memory: wasmtime::Memory,
+    // fx apis:
     fn_malloc: wasmtime::TypedFunc<i64, i64>,
     fn_dealloc: wasmtime::TypedFunc<(i64, i64), ()>,
-    fn_fx_api: wasmtime::TypedFunc<(i64, i64), i64>,
+    // triggers:
+    fn_trigger_http: wasmtime::TypedFunc<u64, u64>,
 }
 
 impl FunctionInstance {
@@ -610,7 +614,8 @@ impl FunctionInstance {
 
         let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
         let fn_dealloc = instance.get_typed_func::<(i64, i64), ()>(store.as_context_mut(), "_fx_dealloc").unwrap();
-        let fn_fx_api = instance.get_typed_func::<(i64, i64), i64>(store.as_context_mut(), "_fx_api").unwrap();
+
+        let fn_trigger_http = instance.get_typed_func(store.as_context_mut(), "__fx_handler_http").unwrap();
 
         // We are using async calls to exported functions to enable epoch-based preemption.
         // We also allow functions to handle concurrent requests. That introduces an interesting
@@ -628,7 +633,7 @@ impl FunctionInstance {
             memory,
             fn_malloc,
             fn_dealloc,
-            fn_fx_api,
+            fn_trigger_http,
         }
     }
 
@@ -642,68 +647,9 @@ impl FunctionInstance {
         self.fn_dealloc.call_async(store.as_context_mut(), (ptr as i64, len as i64)).await.unwrap();
     }
 
-    async fn fx_api(&self, message_ptr: u64, message_length: u64) -> u64 {
-        let mut store = self.store.lock().await;
-        self.fn_fx_api.call_async(store.as_context_mut(), (message_ptr as i64, message_length as i64)).await.unwrap() as u64
-    }
-
-    async fn invoke_fx_api(&self, message: capnp::message::Builder<capnp::message::HeapAllocator>) -> capnp::message::Reader<capnp::serialize::OwnedSegments> {
-        let response_ptr = {
-            let message_size = capnp::serialize::compute_serialized_size_in_words(&message) * 8;
-            let ptr = self.malloc(message_size as u64).await;
-            {
-                let mut store = self.store.lock().await;
-                let view = self.memory.data_mut(store.as_context_mut());
-                capnp::serialize::write_message(&mut view[(ptr as usize)..(ptr as usize)+message_size], &message).unwrap();
-            }
-
-            self.fx_api(ptr, message_size as u64).await
-        };
-
-        let header_length = 4;
-        let (response, response_length) = {
-            let store = self.store.lock().await;
-            let view = self.memory.data(store.as_context());
-            let header_bytes = {
-                let response_ptr = response_ptr as usize;
-                &view[response_ptr..response_ptr + header_length]
-            };
-            let response_length = u32::from_le_bytes(header_bytes.try_into().unwrap());
-
-            let response = {
-                let response_ptr = response_ptr as usize;
-                let response_length = response_length as usize;
-                &view[(response_ptr + header_length)..(response_ptr + header_length + response_length)]
-            };
-
-            (response.to_vec(), response_length)
-        };
-
-        self.dealloc(response_ptr, (header_length as u64) + (response_length as u64)).await;
-
-        capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap()
-    }
-
-    async fn invoke(&self, req: FunctionRequest) -> FunctionResponse {
-        let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-        let op = request.init_op();
-        let mut function_invoke_request = op.init_invoke();
-
-        let response = self.invoke_fx_api(message).await;
-        let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_function_api_call_result::op::Which::Invoke(response) => {
-                let response = response.unwrap();
-                match response.get_result().which().unwrap() {
-                    abi_capnp::function_invoke_response::result::Which::FutureId(v) => unimplemented!("received future id"),
-                    abi_capnp::function_invoke_response::result::Which::Error(err) => unimplemented!("received an error"),
-                }
-            }
-            _other => unimplemented!(),
-        }
-
-        FunctionResponse::new()
+    async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
+        let store = self.store.lock();
+        FunctionResourceId::new(self.fn_trigger_http.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
     }
 }
 
@@ -794,6 +740,30 @@ struct FunctionResponse {}
 impl FunctionResponse {
     pub fn new() -> Self {
         Self {}
+    }
+}
+
+struct ResourceId {
+    id: u64,
+}
+
+impl ResourceId {
+    pub fn new(id: u64) -> Self {
+        Self { id }
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.id
+    }
+}
+
+struct FunctionResourceId {
+    id: u64,
+}
+
+impl FunctionResourceId {
+    pub fn new(id: u64) -> Self {
+        Self { id }
     }
 }
 
