@@ -13,7 +13,7 @@ use {
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
         logging::{set_panic_hook, init_logger},
-        api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next, handle_invoke},
+        api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next},
     },
 };
 
@@ -89,7 +89,7 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
             handle_stream_poll_next(v.unwrap(), response_op.init_stream_poll_next());
         },
         Operation::Invoke(v) => {
-            handle_invoke(v.unwrap(), response_op.init_invoke());
+            unimplemented!("legacy invoke api is not supported anymore")
         }
     };
 

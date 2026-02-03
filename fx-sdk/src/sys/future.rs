@@ -3,12 +3,12 @@ use {
     futures::FutureExt,
     crate::{
         sys::{FunctionResource, FunctionResourceId, add_function_resource},
-        handler::FunctionResponse,
+        handler::{FunctionResponse, IntoFunctionResponse},
     },
 };
 
-pub fn wrap_function_response_future(future: impl Future<Output = FunctionResponse> + Send + 'static) -> FunctionResourceId {
-    let future = future.boxed();
+pub fn wrap_function_response_future<T: IntoFunctionResponse>(future: impl Future<Output = T> + Send + 'static) -> FunctionResourceId {
+    let future = future.map(|v| v.into_function_response()).boxed();
     let future = FunctionResource::FunctionResponseFuture(Mutex::new(future));
     add_function_resource(future)
 }

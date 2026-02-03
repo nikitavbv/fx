@@ -21,7 +21,7 @@ pub use {
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
         http::{FxHttpRequest, fetch},
-        handler::{Handler, IntoHandler, register_http_fetch_handler},
+        handler::{Handler, IntoHandler},
         api::HttpRequestV2,
         FxResult as Result,
     },

@@ -68,17 +68,3 @@ pub(crate) fn handle_stream_drop(
 ) {
     STREAM_POOL.remove(stream_drop_request.get_stream_id());
 }
-
-pub(crate) fn handle_invoke(
-    invoke_request: abi_capnp::function_invoke_request::Reader,
-    invoke_response: abi_capnp::function_invoke_response::Builder
-) {
-    let mut result = invoke_response.init_result();
-
-    let handler = crate::handler::HANDLER_FETCH.get().unwrap();
-    let handler_future = handler(crate::handler::FunctionRequest {});
-    let handler_future = FxFuture::wrap(
-        handler_future.map(|v| Ok(rmp_serde::to_vec(&v.into_legacy_http_response()).unwrap()))
-    );
-    result.set_future_id(handler_future.future_index());
-}

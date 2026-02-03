@@ -11,8 +11,6 @@ use {
     crate::fx_futures::FunctionFutureError,
 };
 
-// v2 handlers:
-pub(crate) static HANDLER_FETCH: OnceLock<HttpHandlerFunction> = OnceLock::new();
 type HttpHandlerFunction = Box<dyn Fn(FunctionRequest) -> BoxFuture<FunctionResponse> + Send + Sync>;
 
 pub struct FunctionRequest {}
@@ -27,25 +25,25 @@ pub struct FunctionResponse {
 }
 
 impl FunctionResponse {
-    pub fn from_legacy_http_response(response: crate::HttpResponse) -> Self {
-        Self {
-        }
-    }
-
     pub fn into_legacy_http_response(self) -> crate::HttpResponse {
         crate::HttpResponse::new()
     }
 }
 
-pub trait IntoFunctionResult {}
+pub trait IntoFunctionResponse {
+    fn into_function_response(self) -> FunctionResponse;
+}
 
-pub fn register_http_fetch_handler<F, Fut>(f: F)
-where
-    F: Fn(crate::HttpRequest) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = crate::Result<fx_common::HttpResponse>> + 'static + Send {
-    let _ = HANDLER_FETCH.set(Box::new(move |req| {
-        Box::pin(f(req.into_legacy_http_request()).map(|v| FunctionResponse::from_legacy_http_response(v.unwrap()))) as BoxFuture<FunctionResponse>
-    }));
+impl IntoFunctionResponse for FunctionResponse {
+    fn into_function_response(self) -> FunctionResponse {
+        self
+    }
+}
+
+impl IntoFunctionResponse for fx_common::HttpResponse {
+    fn into_function_response(self) -> FunctionResponse {
+        FunctionResponse {}
+    }
 }
 
 // v1 handlers:
