@@ -31,6 +31,7 @@ use {
     slotmap::{SlotMap, Key as SlotMapKey},
     fx_types::{capnp, abi_capnp, abi::FuturePollResult},
     crate::{
+        common::LogMessageEvent,
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
             kv::{BoxedStorage, FsStorage, SuffixStorage, KVStorage},
@@ -718,7 +719,36 @@ fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
 }
 
 fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
-    unimplemented!()
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let mut message_bytes = &view[req_addr as usize..(req_addr + req_len) as usize];
+    let message_reader = fx_types::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_types::capnp::message::ReaderOptions::default()).unwrap();
+    let message = message_reader.get_root::<fx_types::abi_log_capnp::log_message::Reader>().unwrap();
+
+    let message: LogMessageEvent = logs::LogMessage::new(
+        logs::LogSource::function(&caller.data().function_id),
+        match message.get_event_type().unwrap() {
+            fx_types::abi_log_capnp::EventType::Begin => logs::LogEventType::Begin,
+            fx_types::abi_log_capnp::EventType::End => logs::LogEventType::End,
+            fx_types::abi_log_capnp::EventType::Instant => logs::LogEventType::Instant,
+        },
+        match message.get_level().unwrap() {
+            fx_types::abi_log_capnp::LogLevel::Trace => logs::LogLevel::Trace,
+            fx_types::abi_log_capnp::LogLevel::Debug => logs::LogLevel::Debug,
+            fx_types::abi_log_capnp::LogLevel::Info => logs::LogLevel::Info,
+            fx_types::abi_log_capnp::LogLevel::Warn => logs::LogLevel::Warn,
+            fx_types::abi_log_capnp::LogLevel::Error => logs::LogLevel::Error,
+        },
+        message.get_fields().unwrap()
+            .into_iter()
+            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+            .collect()
+    ).into();
+
+    // TODO: support custom loggers
+    println!("{message:?}");
 }
 
 struct FunctionRequest(FunctionRequestInner);

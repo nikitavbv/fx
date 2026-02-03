@@ -4,7 +4,7 @@ use {
     tracing_subscriber::{Layer, layer},
     fx_common::{LogMessage, LogLevel, LogEventType},
     fx_types::{capnp, abi_capnp},
-    crate::invoke_fx_api,
+    crate::sys::log,
 };
 
 pub fn panic_hook(info: &panic::PanicHookInfo) {
@@ -103,33 +103,4 @@ fn log_level_from_metadata(metadata: &'static tracing::Metadata<'static>) -> Log
         tracing::Level::WARN => LogLevel::Warn,
         tracing::Level::ERROR => LogLevel::Error,
     }
-}
-
-fn log(event_type: LogEventType, level: LogLevel, fields: HashMap<String, String>) {
-    let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-    let op = request.init_op();
-    let mut log_request = op.init_log();
-
-    log_request.set_event_type(match event_type {
-        LogEventType::Begin => abi_capnp::EventType::Begin,
-        LogEventType::End => abi_capnp::EventType::End,
-        LogEventType::Instant => abi_capnp::EventType::Instant,
-    });
-
-    log_request.set_level(match level {
-        LogLevel::Trace => abi_capnp::LogLevel::Trace,
-        LogLevel::Debug => abi_capnp::LogLevel::Debug,
-        LogLevel::Info => abi_capnp::LogLevel::Info,
-        LogLevel::Warn => abi_capnp::LogLevel::Warn,
-        LogLevel::Error => abi_capnp::LogLevel::Error,
-    });
-
-    let mut request_fields = log_request.init_fields(fields.len() as u32);
-    for (field_index, (field_name, field_value)) in fields.into_iter().enumerate() {
-        let mut request_field = request_fields.reborrow().get(field_index as u32);
-        request_field.set_name(field_name);
-        request_field.set_value(field_value);
-    }
-    let _response = invoke_fx_api(message);
 }

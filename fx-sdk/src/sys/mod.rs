@@ -3,6 +3,8 @@ pub use self::{
     future::wrap_function_response_future,
 };
 
+pub(crate) use self::logs::log;
+
 use {
     std::{task::Poll, io::Cursor},
     futures::FutureExt,
@@ -16,6 +18,7 @@ use {
 };
 
 mod future;
+mod logs;
 mod resource;
 
 // exports:
@@ -114,6 +117,7 @@ pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
     pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
+    pub(crate) fn fx_log(req_addr: i64, req_len: i64);
 }
 
 #[derive(Debug)]
