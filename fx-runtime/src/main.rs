@@ -552,7 +552,11 @@ struct FunctionDeployment {
 impl FunctionDeployment {
     pub async fn new(wasmtime: &wasmtime::Engine, function_id: FunctionId, module: wasmtime::Module) -> Self {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
+
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
+
+        linker.func_wrap("fx", "fx_log", fx_log_handler).unwrap();
+
         for import in module.imports() {
             if import.module() == "fx" {
                 continue;
@@ -569,6 +573,7 @@ impl FunctionDeployment {
                 ).unwrap();
             }
         }
+
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
         let instance = FunctionInstance::new(wasmtime, function_id, &instance_template).await;
@@ -710,6 +715,10 @@ fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
     let op = request.get_op();
 
     unimplemented!("fx apis are deprecated: {:?}", op)
+}
+
+fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
+    unimplemented!()
 }
 
 struct FunctionRequest(FunctionRequestInner);
