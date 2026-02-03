@@ -13,6 +13,7 @@ use {
         pin::Pin,
         rc::Rc,
         cell::RefCell,
+        task::Poll,
     },
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
@@ -28,7 +29,7 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
-    fx_types::{capnp, abi_capnp},
+    fx_types::{capnp, abi_capnp, abi::FuturePollResult},
     crate::{
         runtime::{
             runtime::{FxRuntime, FunctionId, Engine},
@@ -597,6 +598,7 @@ struct FunctionInstance {
     // fx apis:
     fn_malloc: wasmtime::TypedFunc<i64, i64>,
     fn_dealloc: wasmtime::TypedFunc<(i64, i64), ()>,
+    fn_future_poll: wasmtime::TypedFunc<u64, i64>,
     // triggers:
     fn_trigger_http: wasmtime::TypedFunc<u64, u64>,
 }
@@ -614,6 +616,7 @@ impl FunctionInstance {
 
         let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
         let fn_dealloc = instance.get_typed_func::<(i64, i64), ()>(store.as_context_mut(), "_fx_dealloc").unwrap();
+        let fn_future_poll = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_future_poll").unwrap();
 
         let fn_trigger_http = instance.get_typed_func(store.as_context_mut(), "__fx_handler_http").unwrap();
 
@@ -633,6 +636,7 @@ impl FunctionInstance {
             memory,
             fn_malloc,
             fn_dealloc,
+            fn_future_poll,
             fn_trigger_http,
         }
     }
@@ -645,6 +649,17 @@ impl FunctionInstance {
     async fn dealloc(&self, ptr: u64, len: u64) {
         let mut store = self.store.lock().await;
         self.fn_dealloc.call_async(store.as_context_mut(), (ptr as i64, len as i64)).await.unwrap();
+    }
+
+    async fn future_poll(&self, future_id: &FunctionResourceId) -> Poll<()> {
+        let mut store = self.store.lock().await;
+        let future_poll_result = self.fn_future_poll.call_async(store.as_context_mut(), future_id.as_u64()).await.unwrap();
+        drop(store);
+
+        match FuturePollResult::try_from(future_poll_result).unwrap() {
+            FuturePollResult::Pending => Poll::Pending,
+            FuturePollResult::Ready => Poll::Ready(()),
+        }
     }
 
     async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
@@ -740,6 +755,7 @@ impl From<slotmap::DefaultKey> for ResourceId {
     }
 }
 
+#[derive(Clone)]
 struct FunctionResourceId {
     id: u64,
 }
@@ -747,6 +763,10 @@ struct FunctionResourceId {
 impl FunctionResourceId {
     pub fn new(id: u64) -> Self {
         Self { id }
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.id
     }
 }
 
@@ -772,6 +792,11 @@ impl Future for FunctionFuture {
     type Output = FunctionResourceId;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        unimplemented!("FunctionFuture poll is not implemented yet")
+        let future_poll_future = std::pin::pin!(self.instance.future_poll(&self.resource_id));
+
+        match future_poll_future.poll(cx) {
+            Poll::Pending | Poll::Ready(Poll::Pending) => Poll::Pending,
+            Poll::Ready(Poll::Ready(_)) => Poll::Ready(self.resource_id.clone()),
+        }
     }
 }

@@ -1,11 +1,12 @@
 pub use self::{
-    resource::{ResourceId, FunctionResourceId, FunctionResource, add_function_resource},
+    resource::{ResourceId, FunctionResourceId, FunctionResource, add_function_resource, get_function_resource, swap_function_resource},
     future::wrap_function_response_future,
 };
 
 use {
     std::{task::Poll, io::Cursor},
-    fx_types::{capnp, abi_capnp},
+    futures::FutureExt,
+    fx_types::{capnp, abi_capnp, abi::FuturePollResult},
     crate::{
         fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
@@ -31,9 +32,28 @@ pub extern "C" fn _fx_dealloc(ptr: i64, size: i64) {
 /// returns fx_types::abi::FunctionPollResult
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
-    let future_resource_id = FunctionResourceId::new(future_resource_id);
+    use std::task::{Context, Waker};
 
-    unimplemented!("future poll is not implemented yet")
+    let future_resource_id = FunctionResourceId::new(future_resource_id);
+    let future_resource = get_function_resource(&future_resource_id);
+    let future = match &*future_resource {
+        FunctionResource::FunctionResponseFuture(v) => v,
+        _other => panic!("resource is not future"),
+    };
+    let mut future = future.lock().unwrap();
+
+    let mut context = Context::from_waker(Waker::noop());
+    let future_poll_result = future.poll_unpin(&mut context);
+    drop(future);
+
+    (match future_poll_result {
+        Poll::Pending => FuturePollResult::Pending,
+        Poll::Ready(resource) => {
+            let resource = FunctionResource::FunctionResponse(resource);
+            swap_function_resource(&future_resource_id, resource);
+            FuturePollResult::Ready
+        }
+    }) as i64
 }
 
 // main entrypoint for capnp-based api (global dispatch will be deprecated soon)
