@@ -18,19 +18,25 @@ mod future;
 mod resource;
 
 // exports:
-// malloc is exported function because it saves roundrip for capnp-based api
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_malloc(size: i64) -> i64 {
     unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) as i64 }
 }
 
-// dealloc is exported function to avoid RPC memory management depend on using capnp-based api
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_dealloc(ptr: i64, size: i64) {
     unsafe { std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) }
 }
 
-// main entrypoint for capnp-based api
+/// returns fx_types::abi::FunctionPollResult
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
+    let future_resource_id = FunctionResourceId::new(future_resource_id);
+
+    unimplemented!("future poll is not implemented yet")
+}
+
+// main entrypoint for capnp-based api (global dispatch will be deprecated soon)
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
     set_panic_hook();

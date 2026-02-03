@@ -27,7 +27,7 @@ use {
     notify::Watcher,
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
-    slotmap::SlotMap,
+    slotmap::{SlotMap, Key as SlotMapKey},
     fx_types::{capnp, abi_capnp},
     crate::{
         runtime::{
@@ -342,7 +342,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::new());
+            let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
             let response = function_future.await;
 
             unimplemented!()
@@ -583,9 +583,9 @@ impl FunctionDeployment {
         let instance = self.instance.clone();
 
         Box::pin(async move {
-            let resource = unimplemented!();
-            instance.invoke_http_trigger(&resource);
-            unimplemented!()
+            let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(req));
+            let response_resource = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
+            unimplemented!("now need to fetch actual response by resource id")
         })
     }
 }
@@ -665,6 +665,10 @@ impl FunctionInstanceState {
             resources: SlotMap::new(),
         }
     }
+
+    pub fn resource_add(&mut self, resource: Resource) -> ResourceId {
+        ResourceId::from(self.resources.insert(resource))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -690,49 +694,22 @@ fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
     let request = message_reader.get_root::<fx_types::abi_capnp::fx_api_call::Reader>().unwrap();
     let op = request.get_op();
 
-    let mut response_message = capnp::message::Builder::new_default();
-    let response = response_message.init_root::<abi_capnp::fx_api_call_result::Builder>();
-    let mut response_op = response.init_op();
+    unimplemented!("fx apis are deprecated: {:?}", op)
+}
 
-    use fx_types::abi_capnp::fx_api_call::op::{Which as Operation};
-    match op.which().unwrap() {
-        Operation::Log(v) => handle_log(caller.data(), v.unwrap(), response_op.init_log()),
-        _other => unimplemented!("fx api call not implemented: {:?}", op),
+struct FunctionRequest(FunctionRequestInner);
+
+impl From<hyper::Request<hyper::body::Incoming>> for FunctionRequest {
+    fn from(value: hyper::Request<hyper::body::Incoming>) -> Self {
+        FunctionRequest(FunctionRequestInner::Http(value))
     }
-
-    unimplemented!("fx api handling is not implemented yet")
 }
-
-fn handle_log(data: &FunctionInstanceState, log_request: abi_capnp::log_request::Reader, _log_response: abi_capnp::log_response::Builder) {
-    let message: crate::common::LogMessageEvent = logs::LogMessage::new(
-        logs::LogSource::function(&data.function_id),
-        match log_request.get_event_type().unwrap() {
-            abi_capnp::EventType::Begin => logs::LogEventType::Begin,
-            abi_capnp::EventType::End => logs::LogEventType::End,
-            abi_capnp::EventType::Instant => logs::LogEventType::Instant,
-        },
-        match log_request.get_level().unwrap() {
-            abi_capnp::LogLevel::Trace => logs::LogLevel::Trace,
-            abi_capnp::LogLevel::Debug => logs::LogLevel::Debug,
-            abi_capnp::LogLevel::Info => logs::LogLevel::Info,
-            abi_capnp::LogLevel::Warn => logs::LogLevel::Warn,
-            abi_capnp::LogLevel::Error => logs::LogLevel::Error,
-        },
-        log_request.get_fields().unwrap()
-            .into_iter()
-            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
-            .collect()
-    ).into();
-
-    println!("{message:?}");
-}
-
-struct FunctionRequest {}
 
 impl FunctionRequest {
-    pub fn new() -> Self {
-        Self {}
-    }
+}
+
+enum FunctionRequestInner {
+    Http(hyper::Request<hyper::body::Incoming>),
 }
 
 struct FunctionResponse {}
@@ -757,6 +734,12 @@ impl ResourceId {
     }
 }
 
+impl From<slotmap::DefaultKey> for ResourceId {
+    fn from(value: slotmap::DefaultKey) -> Self {
+        Self::new(value.data().as_ffi())
+    }
+}
+
 struct FunctionResourceId {
     id: u64,
 }
@@ -768,5 +751,27 @@ impl FunctionResourceId {
 }
 
 enum Resource {
-    Test,
+    FunctionRequest(FunctionRequest),
+}
+
+struct FunctionFuture {
+    instance: Rc<FunctionInstance>,
+    resource_id: FunctionResourceId,
+}
+
+impl FunctionFuture {
+    fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+        Self {
+            instance,
+            resource_id,
+        }
+    }
+}
+
+impl Future for FunctionFuture {
+    type Output = FunctionResourceId;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        unimplemented!("FunctionFuture poll is not implemented yet")
+    }
 }

@@ -40,6 +40,10 @@ pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
     FunctionResourceId::new(function_resources().lock().unwrap().insert(Arc::new(resource)).data().as_ffi())
 }
 
+pub fn get_function_resource_mut(resource: FunctionResource) -> &'static mut FunctionResource {
+    unimplemented!()
+}
+
 fn function_resources() -> Arc<Mutex<SlotMap<DefaultKey, Arc<FunctionResource>>>> {
     FUNCTION_RESOURCES.get_or_init(|| Arc::new(Mutex::new(SlotMap::new()))).clone()
 }
