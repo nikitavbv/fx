@@ -323,7 +323,7 @@ impl HttpHandlerV2 {
 }
 
 impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandlerV2 {
-    type Response = Response<Full<Bytes>>;
+    type Response = Response<FunctionResponseHttpBody>;
     type Error = Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -338,7 +338,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let target_function_deployment = match target_function_deployment {
                 Some(v) => v,
                 None => {
-                    let mut response = Response::new(Full::new(Bytes::from("no fx function found to handle this request.\n".as_bytes())));
+                    let mut response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("no fx function found to handle this request.\n".as_bytes())));
                     *response.status_mut() = StatusCode::BAD_GATEWAY;
                     return Ok(response);
                 }
@@ -347,9 +347,37 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
             let response = function_future.await;
 
-            unimplemented!()
+            let mut response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("not implemented.\n".as_bytes())));
+
+            Ok(response)
         })
     }
+}
+
+struct FunctionResponseHttpBody(FunctionResponseHttpBodyInner);
+
+impl FunctionResponseHttpBody {
+    pub fn for_bytes(bytes: Bytes) -> Self {
+        Self(FunctionResponseHttpBodyInner::Full(RefCell::new(Some(bytes))))
+    }
+}
+
+impl hyper::body::Body for FunctionResponseHttpBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        match &self.0 {
+            FunctionResponseHttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
+        }
+    }
+}
+
+enum FunctionResponseHttpBodyInner {
+    Full(RefCell<Option<Bytes>>),
 }
 
 struct DefinitionsMonitor {
@@ -592,7 +620,7 @@ impl FunctionDeployment {
         Box::pin(async move {
             let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(req));
             let response_resource = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
-            unimplemented!("now need to fetch actual response by resource id")
+            FunctionResponse::for_function_resource(instance.clone(), response_resource)
         })
     }
 }
@@ -766,12 +794,22 @@ enum FunctionRequestInner {
     Http(hyper::Request<hyper::body::Incoming>),
 }
 
-struct FunctionResponse {}
+struct FunctionResponse(FunctionResponseInner);
 
 impl FunctionResponse {
-    pub fn new() -> Self {
-        Self {}
+    pub fn for_function_resource(function: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+        Self(FunctionResponseInner::HttpResponseResource {
+            function,
+            resource_id,
+        })
     }
+}
+
+enum FunctionResponseInner {
+    HttpResponseResource {
+        function: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+    },
 }
 
 struct ResourceId {

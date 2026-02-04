@@ -6,6 +6,7 @@ use {
     crate::handler::FunctionResponse,
 };
 
+// TODO: implement drop for resources!
 static FUNCTION_RESOURCES: OnceLock<Arc<Mutex<SlotMap<DefaultKey, Arc<FunctionResource>>>>> = OnceLock::new();
 
 pub struct ResourceId {
