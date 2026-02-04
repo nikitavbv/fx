@@ -40,7 +40,13 @@ static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(Tes
 
 #[tokio::test]
 async fn simple() {
-    assert_eq!(52, fx_server().invoke_function(FunctionId::new("test-app".to_owned()), FunctionRequest::new()).await.unwrap().0);
+    let response = fx_server()
+        .invoke_function(
+            FunctionId::new("test-app".to_owned()),
+            FunctionRequest::from(hyper::Request::new(http_body_util::Full::new(hyper::body::Bytes::from_static("hello fx!".as_bytes()))))
+        ).await;
+
+    panic!("got response: {response:?}");
 }
 
 /*#[tokio::test]
@@ -284,16 +290,31 @@ async fn metrics_counter_increment_twice_with_tags() {
 fn fx_server() -> &'static RunningFxServer {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
-        FxServerV2::new(ServerConfig {
-            config_path: Some("/tmp/fx".into()),
+        std::thread::spawn(|| tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+            let server = FxServerV2::new(ServerConfig {
+                config_path: Some("/tmp/fx".into()),
 
-            functions_dir: "/tmp/fx/functions".to_owned(),
-            cron_data_path: None,
+                functions_dir: "/tmp/fx/functions".to_owned(),
+                cron_data_path: None,
 
-            logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
+                logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
 
-            introspection: None,
-        }).start()
+                introspection: None,
+            }).start();
+
+            tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
+                server.deploy_function(
+                    FunctionId::new("test-app"),
+                    FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                        .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                        .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
+                        .with_binding_sql("app".to_owned(), ":memory:".to_owned())
+                        .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
+                ).await;
+            });
+
+            server
+        })).join().unwrap()
     })
 
     /*static FX_SERVER: Mutex<Option<Arc<ReentrantMutex<FxServer>>>> = Mutex::const_new(None);
@@ -315,15 +336,6 @@ fn fx_server() -> &'static RunningFxServer {
             introspection: None,
         },
         FxRuntime::new()
-    ).await;
-
-    server.define_function(
-        FunctionId::new("test-app"),
-        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-            .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
-            .with_binding_sql("app".to_owned(), ":memory:".to_owned())
-            .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
     ).await;
 
     server.define_function(

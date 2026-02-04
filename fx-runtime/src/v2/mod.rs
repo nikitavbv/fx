@@ -89,6 +89,12 @@ struct CompilerMessage {
     response: oneshot::Sender<wasmtime::Module>,
 }
 
+struct ManagementMessage {
+    function_id: FunctionId,
+    function_config: FunctionConfig,
+    on_ready: oneshot::Sender<()>,
+}
+
 pub struct FxServerV2 {
     config: ServerConfig,
 }
@@ -117,6 +123,7 @@ impl FxServerV2 {
             .map(|_| flume::unbounded::<WorkerMessage>())
             .unzip::<_, _, Vec<_>, Vec<_>>();
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
+        let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
 
         let management_thread_handle = {
             let workers_tx = workers_tx.clone();
@@ -135,6 +142,12 @@ impl FxServerV2 {
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
                         definitions_monitor.scan_definitions(),
+                        async {
+                            while let Ok(msg) = management_rx.recv() {
+                                definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
+                                msg.on_ready.send(()).unwrap();
+                            }
+                        }
                     )
                 }));
             })
@@ -299,6 +312,8 @@ impl FxServerV2 {
 
         RunningFxServer {
             worker_tx: workers_tx,
+            management_tx,
+
             invoke_roundrobin_index: tokio::sync::Mutex::new(0),
 
             worker_handles,
@@ -310,6 +325,8 @@ impl FxServerV2 {
 
 pub struct RunningFxServer {
     worker_tx: Vec<flume::Sender<WorkerMessage>>,
+    management_tx: flume::Sender<ManagementMessage>,
+
     invoke_roundrobin_index: tokio::sync::Mutex<usize>,
 
     worker_handles: Vec<JoinHandle<()>>,
@@ -318,6 +335,14 @@ pub struct RunningFxServer {
 }
 
 impl RunningFxServer {
+    pub async fn deploy_function(&self, function_id: FunctionId, function_config: FunctionConfig) {
+        let (response_tx, response_rx) = oneshot::channel();
+
+        self.management_tx.send_async(ManagementMessage { function_id, function_config, on_ready: response_tx }).await.unwrap();
+
+        response_rx.await.unwrap();
+    }
+
     pub async fn invoke_function(&self, function_id: FunctionId, request: FunctionRequest) -> RemoteFunctionResponse {
         let worker_index = {
             let mut invoke_roundrobin_index = self.invoke_roundrobin_index.lock().await;
@@ -436,7 +461,7 @@ struct DefinitionsMonitor {
     compiler_tx: flume::Sender<CompilerMessage>,
 
     // DefinitionsMonitor requests FunctionDeployment creation and assigns IDs to them.
-    deployment_id_counter: u64,
+    deployment_id_counter: RefCell<u64>,
 }
 
 impl DefinitionsMonitor {
@@ -450,11 +475,11 @@ impl DefinitionsMonitor {
                 .join(&config.functions_dir),
             workers_tx,
             compiler_tx,
-            deployment_id_counter: 0,
+            deployment_id_counter: RefCell::new(0),
         }
     }
 
-    async fn scan_definitions(&mut self) {
+    async fn scan_definitions(&self) {
         info!("will scan definitions in: {:?}", self.functions_directory);
 
         let root = self.functions_directory.clone();
@@ -554,7 +579,7 @@ impl DefinitionsMonitor {
         }
     }
 
-    async fn apply_config(&mut self, function_id: FunctionId, config: FunctionConfig) {
+    async fn apply_config(&self, function_id: FunctionId, config: FunctionConfig) {
         info!("applying config for: {:?}", function_id.as_string());
 
         // first, precompile module:
@@ -597,9 +622,9 @@ impl DefinitionsMonitor {
         }
     }
 
-    fn next_deployment_id(&mut self) -> FunctionDeploymentId {
-        let deployment_id = FunctionDeploymentId::new(self.deployment_id_counter);
-        self.deployment_id_counter += 1;
+    fn next_deployment_id(&self) -> FunctionDeploymentId {
+        let deployment_id = FunctionDeploymentId::new(*self.deployment_id_counter.borrow());
+        *self.deployment_id_counter.borrow_mut() += 1;
         deployment_id
     }
 }
@@ -838,6 +863,12 @@ impl From<hyper::Request<hyper::body::Incoming>> for FunctionRequest {
     }
 }
 
+impl From<hyper::Request<http_body_util::Full<hyper::body::Bytes>>> for FunctionRequest {
+    fn from(value: hyper::Request<http_body_util::Full<hyper::body::Bytes>>) -> Self {
+        FunctionRequest(FunctionRequestInner::HttpInline(value))
+    }
+}
+
 impl FunctionRequest {
 }
 
@@ -866,7 +897,8 @@ enum FunctionResponseInner {
 }
 
 /// Like FunctionResponse, but you can move it to different threads.
-struct RemoteFunctionResponse(RemoteFunctionResponseInner);
+#[derive(Debug)]
+pub struct RemoteFunctionResponse(RemoteFunctionResponseInner);
 
 impl RemoteFunctionResponse {
     pub async fn from_function_response(response: FunctionResponse) -> Self {
@@ -874,6 +906,7 @@ impl RemoteFunctionResponse {
     }
 }
 
+#[derive(Debug)]
 enum RemoteFunctionResponseInner {}
 
 struct ResourceId {
