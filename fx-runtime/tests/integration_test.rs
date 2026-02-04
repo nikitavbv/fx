@@ -40,11 +40,9 @@ static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(Tes
 
 #[tokio::test]
 async fn simple() {
-    fx_server()
-        .invoke_function(
-            FunctionId::new("test-app".to_owned()),
-            FunctionRequest::from(hyper::Request::new(http_body_util::Full::new(hyper::body::Bytes::from_static("hello fx!".as_bytes()))))
-        ).await;
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080").await.unwrap();
+    assert!(response.status().is_success());
 }
 
 /*#[tokio::test]
@@ -285,7 +283,7 @@ async fn metrics_counter_increment_twice_with_tags() {
     fx_server().invoke_function(FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
 }*/
 
-fn fx_server() -> &'static RunningFxServer {
+fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
         std::thread::spawn(|| tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
@@ -303,6 +301,7 @@ fn fx_server() -> &'static RunningFxServer {
             server.deploy_function(
                 FunctionId::new("test-app"),
                 FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                    .with_trigger_http()
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                     .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
@@ -311,7 +310,7 @@ fn fx_server() -> &'static RunningFxServer {
 
             server
         })).join().unwrap()
-    })
+    });
 
     /*static FX_SERVER: Mutex<Option<Arc<ReentrantMutex<FxServer>>>> = Mutex::const_new(None);
 

@@ -70,6 +70,16 @@ impl FunctionConfig {
         self
     }
 
+    pub fn with_trigger_http(mut self) -> Self {
+        if self.triggers.is_none() {
+            self.triggers = Some(FunctionTriggersConfig::new());
+        }
+
+        self.triggers = self.triggers.map(|v| v.with_http());
+
+        self
+    }
+
     pub fn with_binding_kv(mut self, id: String, path: String) -> Self {
         if self.bindings.is_none() {
             self.bindings = Some(FunctionBindingsConfig::new());
@@ -117,13 +127,33 @@ pub enum FunctionCodeConfig {
 pub struct FunctionTriggersConfig {
     pub http: Option<Vec<FunctionHttpEndpointConfig>>,
     pub cron: Option<Vec<FunctionCronTriggerConfig>>,
-    pub rabbitmq: Option<Vec<FunctionRabbitmqTriggerConfig>>,
+}
+
+impl FunctionTriggersConfig {
+    pub fn new() -> Self {
+        Self {
+            http: None,
+            cron: None,
+        }
+    }
+
+    pub fn with_http(mut self) -> Self {
+        self.http = Some(vec![FunctionHttpEndpointConfig::new()]);
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionHttpEndpointConfig {
-    pub handler: String,
     pub host: Option<String>,
+}
+
+impl FunctionHttpEndpointConfig {
+    pub fn new() -> Self {
+        Self {
+            host: None,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

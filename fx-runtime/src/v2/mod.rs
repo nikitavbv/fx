@@ -56,12 +56,6 @@ enum WorkerMessage {
 
         http_listeners: Vec<FunctionHttpListener>,
     },
-    /// TODO: bad idea, remove.
-    FunctionInvoke {
-        function_id: FunctionId,
-        request: FunctionRequest,
-        response: DebugWrapper<oneshot::Sender<RemoteFunctionResponse>>,
-    }
 }
 
 struct DebugWrapper<T>(T);
@@ -261,11 +255,6 @@ impl FxServerV2 {
                                             *http_default.borrow_mut() = Some(function_id.clone());
                                         }
                                     },
-                                    WorkerMessage::FunctionInvoke { function_id, request, response } => {
-                                        let function_deployment = function_deployments.borrow().get(&functions.borrow().get(&function_id).unwrap()).unwrap().clone();
-                                        let function_response = function_deployment.borrow().handle_request(request).await;
-                                        response.into_inner().send(RemoteFunctionResponse::from_function_response(function_response).await).unwrap();
-                                    },
                                     other => unimplemented!("unsupported message: {other:?}"),
                                 }
                             },
@@ -342,28 +331,6 @@ impl RunningFxServer {
         self.management_tx.send_async(ManagementMessage { function_id, function_config, on_ready: response_tx }).await.unwrap();
 
         response_rx.await.unwrap();
-    }
-
-    pub async fn invoke_function(&self, function_id: FunctionId, request: FunctionRequest) -> RemoteFunctionResponse {
-        let worker_index = {
-            let mut invoke_roundrobin_index = self.invoke_roundrobin_index.lock().await;
-            let worker_index = *invoke_roundrobin_index;
-            *invoke_roundrobin_index = (worker_index + 1) % self.worker_tx.len();
-            worker_index
-        };
-
-        let (response_tx, response_rx) = oneshot::channel();
-
-        self.worker_tx.get(worker_index).unwrap()
-            .send_async(WorkerMessage::FunctionInvoke {
-                function_id,
-                request,
-                response: DebugWrapper(response_tx),
-            })
-            .await
-            .unwrap();
-
-        response_rx.await.unwrap()
     }
 
     pub fn wait_until_finished(self) {
@@ -898,35 +865,6 @@ enum FunctionResponseInner {
         function: Rc<FunctionInstance>,
         resource_id: FunctionResourceId,
     },
-}
-
-/// Like FunctionResponse, but you can move it to different threads.
-/// TODO: remote function responses are probably not needed. Goes against the whole architecture of sharing nothing between threads.
-#[derive(Debug)]
-pub struct RemoteFunctionResponse(RemoteFunctionResponseInner);
-
-impl RemoteFunctionResponse {
-    async fn from_function_response(response: FunctionResponse) -> Self {
-        Self(RemoteFunctionResponseInner::from_function_response(response.0).await)
-    }
-}
-
-#[derive(Debug)]
-enum RemoteFunctionResponseInner {
-    HttpResponse(hyper::Response<()>),
-}
-
-impl RemoteFunctionResponseInner {
-    async fn from_function_response(response: FunctionResponseInner) -> Self {
-        match response {
-            FunctionResponseInner::HttpResponseResource { function, resource_id } => {
-                // we have to realize response here because reference counting to `function` will not work
-                // from different threads. And without reference counting, it will be possible that function
-                // in memory of which data lives will be destroyed by the time remote thread requests data
-                Self::HttpResponse(unimplemented!("response realization not implemented yet"))
-            },
-        }
-    }
 }
 
 struct ResourceId {
