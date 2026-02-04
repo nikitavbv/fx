@@ -14,6 +14,7 @@ use {
         rc::Rc,
         cell::RefCell,
         task::Poll,
+        thread::JoinHandle,
     },
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
@@ -101,26 +102,45 @@ fn main() {
             let config_path = std::env::current_dir().unwrap().join(config_file);
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path);
-            let wasmtime = wasmtime::Engine::new(
-                wasmtime::Config::new()
-                    .async_support(true)
-            ).unwrap();
 
-            let cpu_info = match gdt_cpus::cpu_info() {
-                Ok(v) => Some(v),
-                Err(err) => {
-                    error!("failed to get cpu info: {err:?}");
-                    None
-                }
-            };
+            FxServerV2::new(config).start().wait_until_finished();
+        },
+    }
+}
 
-            let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
-            let (workers_tx, workers_rx) = (0..worker_threads)
-                .map(|_| flume::unbounded::<WorkerMessage>())
-                .unzip::<_, _, Vec<_>, Vec<_>>();
-            let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
+struct FxServerV2 {
+    config: ServerConfig,
+}
 
-            let management_thread_handle = std::thread::spawn(move || {
+impl FxServerV2 {
+    pub fn new(config: ServerConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn start(self) -> RunningFxServer {
+        let wasmtime = wasmtime::Engine::new(
+            wasmtime::Config::new()
+                .async_support(true)
+        ).unwrap();
+
+        let cpu_info = match gdt_cpus::cpu_info() {
+            Ok(v) => Some(v),
+            Err(err) => {
+                error!("failed to get cpu info: {err:?}");
+                None
+            }
+        };
+
+        let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+        let (workers_tx, workers_rx) = (0..worker_threads)
+            .map(|_| flume::unbounded::<WorkerMessage>())
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+        let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
+
+        let management_thread_handle = {
+            let workers_tx = workers_tx.clone();
+
+            std::thread::spawn(move || {
                 info!("started management thread");
 
                 let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -129,173 +149,204 @@ fn main() {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let mut definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
+                let mut definitions_monitor = DefinitionsMonitor::new(&self.config, workers_tx, compiler_tx);
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
                         definitions_monitor.scan_definitions(),
                     )
                 }));
-            });
+            })
+        };
 
-            let compiler_thread_handle = {
-                let wasmtime = wasmtime.clone();
+        let compiler_thread_handle = {
+            let wasmtime = wasmtime.clone();
 
-                std::thread::spawn(move || {
-                    info!("started compiler thread");
+            std::thread::spawn(move || {
+                info!("started compiler thread");
 
-                    while let Ok(msg) = compiler_rx.recv() {
-                        let function_id = msg.function_id.as_string();
+                while let Ok(msg) = compiler_rx.recv() {
+                    let function_id = msg.function_id.as_string();
 
-                        info!(function_id, "compiling");
-                        msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
-                        info!(function_id, "done compiling");
+                    info!(function_id, "compiling");
+                    msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
+                    info!(function_id, "done compiling");
+                }
+            })
+        };
+
+        let worker_cores = cpu_info.as_ref()
+            .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
+            .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
+
+        struct WorkerConfig {
+            core_id: Option<usize>,
+            messages_rx: flume::Receiver<WorkerMessage>,
+        }
+
+        let workers = worker_cores.into_iter()
+            .zip(workers_rx.into_iter())
+            .map(|(core_id, messages_rx)| WorkerConfig {
+                core_id,
+                messages_rx,
+            })
+            .collect::<Vec<_>>();
+
+        let mut worker_id = 0;
+        let mut worker_handles = Vec::new();
+        for worker in workers.into_iter() {
+            let wasmtime = wasmtime.clone();
+
+            let handle = std::thread::spawn(move || {
+                let mut worker = worker;
+
+                if let Some(worker_core_id) = worker.core_id {
+                    match gdt_cpus::pin_thread_to_core(worker_core_id) {
+                        Ok(_) => {},
+                        Err(gdt_cpus::Error::Unsupported(_)) => {},
+                        Err(err) => error!("failed to pin thread to core: {err:?}"),
                     }
-                })
-            };
+                }
 
-            let worker_cores = cpu_info.as_ref()
-                .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
-                .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
+                info!(worker_id, "started worker thread");
 
-            struct WorkerConfig {
-                core_id: Option<usize>,
-                messages_rx: flume::Receiver<WorkerMessage>,
-            }
+                // setup async runtime:
+                let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let local_set = tokio::task::LocalSet::new();
 
-            let workers = worker_cores.into_iter()
-                .zip(workers_rx.into_iter())
-                .map(|(core_id, messages_rx)| WorkerConfig {
-                    core_id,
-                    messages_rx,
-                })
-                .collect::<Vec<_>>();
+                // setup socket:
+                let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, Some(socket2::Protocol::TCP)).unwrap();
+                socket.set_reuse_port(true).unwrap();
+                socket.set_reuse_address(true).unwrap();
+                socket.set_nonblocking(true).unwrap();
 
-            let mut worker_id = 0;
-            let mut worker_handles = Vec::new();
-            for worker in workers.into_iter() {
-                let wasmtime = wasmtime.clone();
+                // TODO: take port from config
+                let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
+                socket.bind(&addr.into()).unwrap();
+                socket.listen(1024).unwrap();
 
-                let handle = std::thread::spawn(move || {
-                    let mut worker = worker;
+                // setup wasm runtime:
+                let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>> = Rc::new(RefCell::new(HashMap::new()));
+                let functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>> = Rc::new(RefCell::new(HashMap::new()));
+                let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
+                let http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
 
-                    if let Some(worker_core_id) = worker.core_id {
-                        match gdt_cpus::pin_thread_to_core(worker_core_id) {
-                            Ok(_) => {},
-                            Err(gdt_cpus::Error::Unsupported(_)) => {},
-                            Err(err) => error!("failed to pin thread to core: {err:?}"),
-                        }
-                    }
+                // run worker:
+                tokio_runtime.block_on(local_set.run_until(async {
+                    let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
+                    let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
-                    info!(worker_id, "started worker thread");
+                    loop {
+                        tokio::select! {
+                            message = worker.messages_rx.recv_async() => {
+                                match message.unwrap() {
+                                    WorkerMessage::FunctionDeploy {
+                                        function_id,
+                                        deployment_id,
+                                        module,
+                                        http_listeners,
+                                    } => {
+                                        function_deployments.borrow_mut().insert(
+                                            deployment_id.clone(),
+                                            Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, function_id.clone(), module).await))
+                                        );
+                                        // TODO: cleanup old deployments
+                                        functions.borrow_mut().insert(function_id.clone(), deployment_id);
 
-                    // setup async runtime:
-                    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
-                        .enable_all()
-                        .build()
-                        .unwrap();
-                    let local_set = tokio::task::LocalSet::new();
-
-                    // setup socket:
-                    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, Some(socket2::Protocol::TCP)).unwrap();
-                    socket.set_reuse_port(true).unwrap();
-                    socket.set_reuse_address(true).unwrap();
-                    socket.set_nonblocking(true).unwrap();
-
-                    // TODO: take port from config
-                    let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
-                    socket.bind(&addr.into()).unwrap();
-                    socket.listen(1024).unwrap();
-
-                    // setup wasm runtime:
-                    let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>> = Rc::new(RefCell::new(HashMap::new()));
-                    let functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>> = Rc::new(RefCell::new(HashMap::new()));
-                    let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
-                    let http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
-
-                    // run worker:
-                    tokio_runtime.block_on(local_set.run_until(async {
-                        let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
-                        let graceful = hyper_util::server::graceful::GracefulShutdown::new();
-
-                        loop {
-                            tokio::select! {
-                                message = worker.messages_rx.recv_async() => {
-                                    match message.unwrap() {
-                                        WorkerMessage::FunctionDeploy {
-                                            function_id,
-                                            deployment_id,
-                                            module,
-                                            http_listeners,
-                                        } => {
-                                            function_deployments.borrow_mut().insert(
-                                                deployment_id.clone(),
-                                                Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, function_id.clone(), module).await))
-                                            );
-                                            // TODO: cleanup old deployments
-                                            functions.borrow_mut().insert(function_id.clone(), deployment_id);
-
-                                            {
-                                                let mut http_hosts = http_hosts.borrow_mut();
-                                                http_hosts.retain(|_k, v| v != &function_id);
-                                                http_hosts.extend(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.to_lowercase(), function_id.clone())));
-                                            }
-
-                                            if http_listeners.iter().find(|v| v.host.is_none()).is_some() {
-                                                *http_default.borrow_mut() = Some(function_id.clone());
-                                            }
-                                        },
-                                        other => unimplemented!("unsupported message: {other:?}"),
-                                    }
-                                },
-
-                                connection = listener.accept() => {
-                                    let (tcp, _) = match connection {
-                                        Ok(v) => v,
-                                        Err(err) => {
-                                            error!("failed to accept http connection: {err:?}");
-                                            continue;
+                                        {
+                                            let mut http_hosts = http_hosts.borrow_mut();
+                                            http_hosts.retain(|_k, v| v != &function_id);
+                                            http_hosts.extend(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.to_lowercase(), function_id.clone())));
                                         }
-                                    };
-                                    info!(worker_id, "new http connection");
 
-                                    let io = TokioIo::new(tcp);
-                                    let conn = http1::Builder::new()
-                                        .timer(TokioTimer::new())
-                                        .serve_connection(io, HttpHandlerV2::new(
-                                            http_hosts.clone(),
-                                            http_default.clone(),
-                                            functions.clone(),
-                                            function_deployments.clone(),
-                                        ));
-                                    let request_future = graceful.watch(conn);
-
-                                    tokio::task::spawn_local(async move {
-                                        if let Err(err) = request_future.await {
-                                            if err.is_timeout() {
-                                                // ignore timeouts, because those can be caused by client
-                                            } else if err.is_incomplete_message() {
-                                                // ignore incomplete messages, because those are caused by client
-                                            } else {
-                                                error!("error while handling http request: {err:?}"); // incomplete message should be fine
-                                            }
+                                        if http_listeners.iter().find(|v| v.host.is_none()).is_some() {
+                                            *http_default.borrow_mut() = Some(function_id.clone());
                                         }
-                                    });
+                                    },
+                                    other => unimplemented!("unsupported message: {other:?}"),
                                 }
+                            },
+
+                            connection = listener.accept() => {
+                                let (tcp, _) = match connection {
+                                    Ok(v) => v,
+                                    Err(err) => {
+                                        error!("failed to accept http connection: {err:?}");
+                                        continue;
+                                    }
+                                };
+                                info!(worker_id, "new http connection");
+
+                                let io = TokioIo::new(tcp);
+                                let conn = http1::Builder::new()
+                                    .timer(TokioTimer::new())
+                                    .serve_connection(io, HttpHandlerV2::new(
+                                        http_hosts.clone(),
+                                        http_default.clone(),
+                                        functions.clone(),
+                                        function_deployments.clone(),
+                                    ));
+                                let request_future = graceful.watch(conn);
+
+                                tokio::task::spawn_local(async move {
+                                    if let Err(err) = request_future.await {
+                                        if err.is_timeout() {
+                                            // ignore timeouts, because those can be caused by client
+                                        } else if err.is_incomplete_message() {
+                                            // ignore incomplete messages, because those are caused by client
+                                        } else {
+                                            error!("error while handling http request: {err:?}"); // incomplete message should be fine
+                                        }
+                                    }
+                                });
                             }
                         }
-                    }));
-                });
-                worker_handles.push(handle);
-                worker_id += 1;
-            }
+                    }
+                }));
+            });
+            worker_handles.push(handle);
+            worker_id += 1;
+        }
 
-            for handle in worker_handles {
-                handle.join().unwrap();
-            }
-            compiler_thread_handle.join().unwrap();
-            management_thread_handle.join().unwrap();
-        },
+        RunningFxServer {
+            worker_tx: workers_tx,
+            invoke_roundrobin_index: RefCell::new(0),
+
+            worker_handles,
+            compiler_thread_handle,
+            management_thread_handle,
+        }
+    }
+}
+
+struct RunningFxServer {
+    worker_tx: Vec<flume::Sender<WorkerMessage>>,
+    invoke_roundrobin_index: RefCell<usize>,
+
+    worker_handles: Vec<JoinHandle<()>>,
+    compiler_thread_handle: JoinHandle<()>,
+    management_thread_handle: JoinHandle<()>,
+}
+
+impl RunningFxServer {
+    pub async fn invoke_function(&self, function_id: FunctionId, request: FunctionRequest) -> FunctionResponse {
+        let worker_index = *self.invoke_roundrobin_index.borrow();
+        *self.invoke_roundrobin_index.borrow_mut() = (worker_index + 1) % self.worker_tx.len();
+
+        // TODO: send message to worker
+
+        unimplemented!()
+    }
+
+    pub fn wait_until_finished(self) {
+        for handle in self.worker_handles {
+            handle.join().unwrap();
+        }
+        self.compiler_thread_handle.join().unwrap();
+        self.management_thread_handle.join().unwrap();
     }
 }
 
