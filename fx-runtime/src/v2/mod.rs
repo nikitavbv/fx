@@ -56,6 +56,7 @@ enum WorkerMessage {
 
         http_listeners: Vec<FunctionHttpListener>,
     },
+    /// TODO: bad idea, remove.
     FunctionInvoke {
         function_id: FunctionId,
         request: FunctionRequest,
@@ -263,7 +264,7 @@ impl FxServerV2 {
                                     WorkerMessage::FunctionInvoke { function_id, request, response } => {
                                         let function_deployment = function_deployments.borrow().get(&functions.borrow().get(&function_id).unwrap()).unwrap().clone();
                                         let function_response = function_deployment.borrow().handle_request(request).await;
-                                        response.into_inner().send(RemoteFunctionResponse::from_function_response(function_response).await);
+                                        response.into_inner().send(RemoteFunctionResponse::from_function_response(function_response).await).unwrap();
                                     },
                                     other => unimplemented!("unsupported message: {other:?}"),
                                 }
@@ -900,6 +901,7 @@ enum FunctionResponseInner {
 }
 
 /// Like FunctionResponse, but you can move it to different threads.
+/// TODO: remote function responses are probably not needed. Goes against the whole architecture of sharing nothing between threads.
 #[derive(Debug)]
 pub struct RemoteFunctionResponse(RemoteFunctionResponseInner);
 
@@ -911,13 +913,18 @@ impl RemoteFunctionResponse {
 
 #[derive(Debug)]
 enum RemoteFunctionResponseInner {
-    HttpResponse,
+    HttpResponse(hyper::Response<()>),
 }
 
 impl RemoteFunctionResponseInner {
     async fn from_function_response(response: FunctionResponseInner) -> Self {
         match response {
-            FunctionResponseInner::HttpResponseResource { function, resource_id } => Self::HttpResponse,
+            FunctionResponseInner::HttpResponseResource { function, resource_id } => {
+                // we have to realize response here because reference counting to `function` will not work
+                // from different threads. And without reference counting, it will be possible that function
+                // in memory of which data lives will be destroyed by the time remote thread requests data
+                Self::HttpResponse(unimplemented!("response realization not implemented yet"))
+            },
         }
     }
 }
