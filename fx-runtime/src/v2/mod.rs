@@ -530,7 +530,10 @@ impl DefinitionsMonitor {
             }
         };
         let mut watcher = notify::recommended_watcher(event_fn).unwrap();
-        watcher.watch(&root, notify::RecursiveMode::Recursive).unwrap();
+        if let Err(err) = watcher.watch(&root, notify::RecursiveMode::Recursive) {
+            error!("failed to start watching functions directory: {err:?}");
+            return;
+        }
 
         while let Ok(path) = rx.recv_async().await {
             let function_id = match self.path_to_function_id(&path) {
@@ -901,13 +904,23 @@ enum FunctionResponseInner {
 pub struct RemoteFunctionResponse(RemoteFunctionResponseInner);
 
 impl RemoteFunctionResponse {
-    pub async fn from_function_response(response: FunctionResponse) -> Self {
-        unimplemented!()
+    async fn from_function_response(response: FunctionResponse) -> Self {
+        Self(RemoteFunctionResponseInner::from_function_response(response.0).await)
     }
 }
 
 #[derive(Debug)]
-enum RemoteFunctionResponseInner {}
+enum RemoteFunctionResponseInner {
+    HttpResponse,
+}
+
+impl RemoteFunctionResponseInner {
+    async fn from_function_response(response: FunctionResponseInner) -> Self {
+        match response {
+            FunctionResponseInner::HttpResponseResource { function, resource_id } => Self::HttpResponse,
+        }
+    }
+}
 
 struct ResourceId {
     id: u64,

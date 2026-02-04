@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
+    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, HttpRequestV2, HttpResponse, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
     lazy_static::lazy_static,
 };
 
@@ -10,6 +10,11 @@ mod unknown_import;
 lazy_static! {
     static ref COUNTER: Mutex<u64> = Mutex::new(0);
     static ref INVOCATION_COUNT: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
+}
+
+#[handler::fetch]
+pub async fn http(_req: HttpRequestV2) -> HttpResponse {
+    HttpResponse::new().with_body("hello fx!")
 }
 
 #[handler]

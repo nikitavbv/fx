@@ -40,13 +40,11 @@ static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(Tes
 
 #[tokio::test]
 async fn simple() {
-    let response = fx_server()
+    fx_server()
         .invoke_function(
             FunctionId::new("test-app".to_owned()),
             FunctionRequest::from(hyper::Request::new(http_body_util::Full::new(hyper::body::Bytes::from_static("hello fx!".as_bytes()))))
         ).await;
-
-    panic!("got response: {response:?}");
 }
 
 /*#[tokio::test]
@@ -302,16 +300,14 @@ fn fx_server() -> &'static RunningFxServer {
                 introspection: None,
             }).start();
 
-            tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-                server.deploy_function(
-                    FunctionId::new("test-app"),
-                    FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                        .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-                        .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
-                        .with_binding_sql("app".to_owned(), ":memory:".to_owned())
-                        .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
-                ).await;
-            });
+            server.deploy_function(
+                FunctionId::new("test-app"),
+                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                    .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
+                    .with_binding_sql("app".to_owned(), ":memory:".to_owned())
+                    .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
+            ).await;
 
             server
         })).join().unwrap()
