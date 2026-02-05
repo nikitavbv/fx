@@ -21,13 +21,20 @@ impl FunctionRequest {
     }
 }
 
-pub struct FunctionResponse {
-}
+pub struct FunctionResponse(FunctionResponseInner);
 
 impl FunctionResponse {
     pub fn into_legacy_http_response(self) -> crate::HttpResponse {
         crate::HttpResponse::new()
     }
+}
+
+enum FunctionResponseInner {
+    HttpResponse(FunctionHttpResponse),
+}
+
+struct FunctionHttpResponse {
+    status: http::status::StatusCode,
 }
 
 pub trait IntoFunctionResponse {
@@ -42,7 +49,9 @@ impl IntoFunctionResponse for FunctionResponse {
 
 impl IntoFunctionResponse for fx_common::HttpResponse {
     fn into_function_response(self) -> FunctionResponse {
-        FunctionResponse {}
+        FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
+            status: self.status,
+        }))
     }
 }
 

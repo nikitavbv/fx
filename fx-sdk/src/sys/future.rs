@@ -1,5 +1,4 @@
 use {
-    std::sync::Mutex,
     futures::FutureExt,
     crate::{
         sys::{FunctionResource, FunctionResourceId, add_function_resource},
@@ -9,6 +8,6 @@ use {
 
 pub fn wrap_function_response_future<T: IntoFunctionResponse>(future: impl Future<Output = T> + Send + 'static) -> FunctionResourceId {
     let future = future.map(|v| v.into_function_response()).boxed();
-    let future = FunctionResource::FunctionResponseFuture(Mutex::new(future));
+    let future = FunctionResource::FunctionResponseFuture(future);
     add_function_resource(future)
 }
