@@ -390,6 +390,13 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
             let response = function_future.await;
 
+            match response.0 {
+                FunctionResponseInner::HttpResponseResource { function, resource_id } => {
+                    let resource = function.move_serialized_resource_to_host(&resource_id).await;
+                    unimplemented!("moved resource to host: {resource:?}");
+                }
+            };
+
             let response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("not implemented.\n".as_bytes())));
 
             Ok(response)
@@ -679,6 +686,9 @@ struct FunctionInstance {
     fn_malloc: wasmtime::TypedFunc<i64, i64>,
     fn_dealloc: wasmtime::TypedFunc<(i64, i64), ()>,
     fn_future_poll: wasmtime::TypedFunc<u64, i64>,
+    fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
+    fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
+    fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
     // triggers:
     fn_trigger_http: wasmtime::TypedFunc<u64, u64>,
 }
@@ -697,6 +707,9 @@ impl FunctionInstance {
         let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
         let fn_dealloc = instance.get_typed_func::<(i64, i64), ()>(store.as_context_mut(), "_fx_dealloc").unwrap();
         let fn_future_poll = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_future_poll").unwrap();
+        let fn_resource_serialize = instance.get_typed_func::<u64, u64>(store.as_context_mut(), "_fx_resource_serialize").unwrap();
+        let fn_resource_serialized_ptr = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_resource_serialized_ptr").unwrap();
+        let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop").unwrap();
 
         let fn_trigger_http = instance.get_typed_func(store.as_context_mut(), "__fx_handler_http").unwrap();
 
@@ -717,6 +730,9 @@ impl FunctionInstance {
             fn_malloc,
             fn_dealloc,
             fn_future_poll,
+            fn_resource_serialize,
+            fn_resource_serialized_ptr,
+            fn_resource_drop,
             fn_trigger_http,
         }
     }
@@ -740,6 +756,34 @@ impl FunctionInstance {
             FuturePollResult::Pending => Poll::Pending,
             FuturePollResult::Ready => Poll::Ready(()),
         }
+    }
+
+    async fn resource_serialize(&self, resource_id: &FunctionResourceId) -> u64 {
+        let mut store = self.store.lock().await;
+        self.fn_resource_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64
+    }
+
+    async fn resource_serialized_ptr(&self, resource_id: &FunctionResourceId) -> u64 {
+        let mut store = self.store.lock().await;
+        self.fn_resource_serialized_ptr.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64
+    }
+
+    async fn resource_drop(&self, resource_id: &FunctionResourceId) {
+        let mut store = self.store.lock().await;
+        self.fn_resource_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
+    }
+
+    async fn move_serialized_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
+        let len = self.resource_serialize(resource_id).await as usize;
+        let ptr = self.resource_serialized_ptr(resource_id).await as usize;
+
+        let store = self.store.lock().await;
+        let view = self.memory.data(store.as_context());
+
+        let resource_data = view[len..len+ptr].to_owned();
+        self.resource_drop(resource_id).await;
+
+        resource_data
     }
 
     async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {

@@ -3,7 +3,8 @@ use {
     futures::future::BoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
-    crate::handler::FunctionResponse,
+    fx_types::{capnp, abi_function_resources_capnp},
+    crate::handler::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
 };
 
 // TODO: implement drop for resources!
@@ -80,7 +81,14 @@ trait SerializeResource {
 
 impl SerializeResource for FunctionResponse {
     fn serialize(self) -> Vec<u8> {
-        unimplemented!()
+        let mut message = capnp::message::Builder::new_default();
+        let mut resource = message.init_root::<abi_function_resources_capnp::function_response::Builder>();
+        match self.0 {
+            FunctionResponseInner::HttpResponse(http) => {
+                resource.set_status(http.status.as_u16());
+            }
+        }
+        capnp::serialize::write_message_to_words(&message)
     }
 }
 
@@ -104,6 +112,10 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
         FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
         FunctionResource::FunctionResponse(v) => v.serialize_inplace(),
     }) as u64
+}
+
+pub fn drop_function_resource(resource_id: &FunctionResourceId) {
+    function_resources().lock().unwrap().remove(resource_id.into());
 }
 
 fn function_resources() -> Arc<Mutex<SlotMap<DefaultKey, Arc<Mutex<FunctionResource>>>>> {
