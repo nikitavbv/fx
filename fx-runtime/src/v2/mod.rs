@@ -11,6 +11,7 @@ use {
         task::Poll,
         thread::JoinHandle,
         fmt::Debug,
+        marker::PhantomData,
     },
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
@@ -26,7 +27,7 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
-    fx_types::{capnp, abi_capnp, abi::FuturePollResult},
+    fx_types::{capnp, abi_capnp, abi_function_resources_capnp, abi::FuturePollResult},
     crate::{
         common::LogMessageEvent,
         runtime::{
@@ -389,13 +390,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
             let response = function_future.await;
-
-            match response.0 {
-                FunctionResponseInner::HttpResponseResource { function, resource_id } => {
-                    let resource = function.move_serialized_resource_to_host(&resource_id).await;
-                    unimplemented!("moved resource to host: {resource:?}");
-                }
-            };
+            let response: FunctionResponse = response.move_to_host().await;
 
             let response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("not implemented.\n".as_bytes())));
 
@@ -667,13 +662,13 @@ impl FunctionDeployment {
         }
     }
 
-    fn handle_request(&self, req: FunctionRequest) -> Pin<Box<dyn Future<Output = FunctionResponse>>> {
+    fn handle_request(&self, req: FunctionRequest) -> Pin<Box<dyn Future<Output = SerializedFunctionResource<FunctionResponse>>>> {
         let instance = self.instance.clone();
 
         Box::pin(async move {
             let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(req));
             let response_resource = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
-            FunctionResponse::for_function_resource(instance.clone(), response_resource)
+            SerializedFunctionResource::new(instance, response_resource)
         })
     }
 }
@@ -777,10 +772,12 @@ impl FunctionInstance {
         let len = self.resource_serialize(resource_id).await as usize;
         let ptr = self.resource_serialized_ptr(resource_id).await as usize;
 
-        let store = self.store.lock().await;
-        let view = self.memory.data(store.as_context());
+        let resource_data = {
+            let store = self.store.lock().await;
+            let view = self.memory.data(store.as_context());
+            view[ptr..ptr+len].to_owned()
+        };
 
-        let resource_data = view[len..len+ptr].to_owned();
         self.resource_drop(resource_id).await;
 
         resource_data
@@ -895,20 +892,46 @@ enum FunctionRequestInner {
 
 struct FunctionResponse(FunctionResponseInner);
 
-impl FunctionResponse {
-    pub fn for_function_resource(function: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
-        Self(FunctionResponseInner::HttpResponseResource {
-            function,
-            resource_id,
-        })
+enum FunctionResponseInner {
+    HttpResponse(FunctionHttpResponse),
+}
+
+struct FunctionHttpResponse {
+    status: http::status::StatusCode,
+}
+
+struct SerializedFunctionResource<T: DeserializeFunctionResource> {
+    _t: PhantomData<T>,
+    instance: Rc<FunctionInstance>,
+    resource: FunctionResourceId,
+}
+
+impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
+    pub fn new(instance: Rc<FunctionInstance>, resource: FunctionResourceId) -> Self {
+        Self {
+            _t: PhantomData,
+            instance,
+            resource,
+        }
+    }
+
+    async fn move_to_host(self) -> T {
+        T::deserialize(&mut self.instance.move_serialized_resource_to_host(&self.resource).await.as_slice())
     }
 }
 
-enum FunctionResponseInner {
-    HttpResponseResource {
-        function: Rc<FunctionInstance>,
-        resource_id: FunctionResourceId,
-    },
+trait DeserializeFunctionResource {
+    fn deserialize(resource: &mut &[u8]) -> Self;
+}
+
+impl DeserializeFunctionResource for FunctionResponse {
+    fn deserialize(resource: &mut &[u8]) -> Self {
+        let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
+        let response = message_reader.get_root::<abi_function_resources_capnp::function_response::Reader>().unwrap();
+        Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
+            status: http::StatusCode::from_u16(response.get_status()).unwrap(),
+        }))
+    }
 }
 
 struct ResourceId {
