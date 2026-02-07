@@ -15,6 +15,7 @@ pub use {
     fx_macro::handler,
     futures::FutureExt,
     inventory,
+    ::http::StatusCode,
     crate::{
         sys::{PtrWithLen},
         fx_futures::FxFuture,

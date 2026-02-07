@@ -45,6 +45,13 @@ async fn simple() {
     assert!(response.status().is_success());
 }
 
+#[tokio::test]
+async fn status_code() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/status-code").await.unwrap();
+    assert_eq!(419, response.status().as_u16());
+}
+
 /*#[tokio::test]
 async fn sql_simple() {
     assert_eq!(52, fx_server().await.lock().invoke_function::<_, u32>(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0);

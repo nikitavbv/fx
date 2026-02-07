@@ -638,6 +638,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
 
         linker.func_wrap("fx", "fx_log", fx_log_handler).unwrap();
+        linker.func_wrap("fx", "fx_resource_serialize", fx_resource_serialize_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -810,6 +811,10 @@ impl FunctionInstanceState {
     pub fn resource_add(&mut self, resource: Resource) -> ResourceId {
         ResourceId::from(self.resources.insert(resource))
     }
+
+    pub fn resource_serialize(&mut self, resource_id: ResourceId) {
+        unimplemented!("host resource serialization is not implemented yet")
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -869,6 +874,12 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
 
     // TODO: support custom loggers
     println!("{message:?}");
+}
+
+fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
+    let resource_id = ResourceId::from(resource_id);
+
+    unimplemented!("fx_resource_serialize_handler is not implemented yet")
 }
 
 #[derive(Debug)]
@@ -956,6 +967,12 @@ impl ResourceId {
 impl From<slotmap::DefaultKey> for ResourceId {
     fn from(value: slotmap::DefaultKey) -> Self {
         Self::new(value.data().as_ffi())
+    }
+}
+
+impl From<u64> for ResourceId {
+    fn from(id: u64) -> Self {
+        Self { id }
     }
 }
 

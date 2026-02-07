@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, HttpRequestV2, HttpResponse, FxStream, FxStreamExport, KvError, fetch, metrics::Counter},
+    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, HttpRequestV2, HttpResponse, FxStream, FxStreamExport, KvError, fetch, metrics::Counter, StatusCode},
     lazy_static::lazy_static,
 };
 
@@ -13,8 +13,12 @@ lazy_static! {
 }
 
 #[handler::fetch]
-pub async fn http(_req: HttpRequestV2) -> HttpResponse {
-    HttpResponse::new().with_body("hello fx!")
+pub async fn http(req: HttpRequestV2) -> HttpResponse {
+    if req.uri().path().starts_with("/test/status-code") {
+        HttpResponse::new().with_status(StatusCode::IM_A_TEAPOT).with_body("this returns custom status code.\n")
+    } else {
+        HttpResponse::new().with_body("hello fx!")
+    }
 }
 
 #[handler]
