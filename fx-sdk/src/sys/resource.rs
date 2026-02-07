@@ -8,7 +8,7 @@ use {
 };
 
 // TODO: implement drop for resources!
-static FUNCTION_RESOURCES: OnceLock<Arc<Mutex<SlotMap<DefaultKey, Arc<Mutex<FunctionResource>>>>>> = OnceLock::new();
+static FUNCTION_RESOURCES: OnceLock<Mutex<SlotMap<DefaultKey, FunctionResource>>> = OnceLock::new();
 
 pub struct ResourceId {
     id: u64,
@@ -114,21 +114,25 @@ pub trait DeserializeHostResource {
 }
 
 pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
-    FunctionResourceId::new(function_resources().lock().unwrap().insert(Arc::new(Mutex::new(resource))).data().as_ffi())
+    FunctionResourceId::new(function_resources().lock().unwrap().insert(resource).data().as_ffi())
 }
 
-pub fn get_function_resource(resource: &FunctionResourceId) -> Arc<Mutex<FunctionResource>> {
-    function_resources().lock().unwrap().get(resource.into()).unwrap().clone()
+pub fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource: &FunctionResourceId, mapper: F) -> T {
+    mapper(function_resources().lock().unwrap().get(resource.into()).unwrap())
 }
 
-pub fn swap_function_resource(resource_id: &FunctionResourceId, new_resource: FunctionResource) -> Arc<Mutex<FunctionResource>> {
-    std::mem::replace(function_resources().lock().unwrap().get_mut(resource_id.into()).unwrap(), Arc::new(Mutex::new(new_resource)))
+pub fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(resource: &FunctionResourceId, mapper: F) -> T {
+    mapper(function_resources().lock().unwrap().get_mut(resource.into()).unwrap())
+}
+
+pub fn replace_function_resource(resource_id: &FunctionResourceId, new_resource: FunctionResource) {
+    *function_resources().lock().unwrap().get_mut(resource_id.into()).unwrap() = new_resource;
 }
 
 pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     let resources = function_resources();
-    let resources = resources.lock().unwrap();
-    let mut resource = resources.get(resource_id.into()).unwrap().lock().unwrap();
+    let mut resources = resources.lock().unwrap();
+    let resource = resources.get_mut(resource_id.into()).unwrap();
     (match &mut *resource {
         FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
         FunctionResource::FunctionResponse(v) => v.serialize_inplace(),
@@ -139,6 +143,6 @@ pub fn drop_function_resource(resource_id: &FunctionResourceId) {
     function_resources().lock().unwrap().remove(resource_id.into());
 }
 
-fn function_resources() -> Arc<Mutex<SlotMap<DefaultKey, Arc<Mutex<FunctionResource>>>>> {
-    FUNCTION_RESOURCES.get_or_init(|| Arc::new(Mutex::new(SlotMap::new()))).clone()
+fn function_resources() -> &'static Mutex<SlotMap<DefaultKey, FunctionResource>> {
+    FUNCTION_RESOURCES.get_or_init(|| Mutex::new(SlotMap::new()))
 }

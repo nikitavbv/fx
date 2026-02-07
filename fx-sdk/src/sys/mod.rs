@@ -1,5 +1,16 @@
 pub use self::{
-    resource::{ResourceId, FunctionResourceId, FunctionResource, SerializableResource, add_function_resource, get_function_resource, swap_function_resource, serialize_function_resource, drop_function_resource},
+    resource::{
+        ResourceId,
+        FunctionResourceId,
+        FunctionResource,
+        SerializableResource,
+        add_function_resource,
+        replace_function_resource,
+        serialize_function_resource,
+        drop_function_resource,
+        map_function_resource_ref,
+        map_function_resource_ref_mut,
+    },
     future::wrap_function_response_future,
 };
 
@@ -41,22 +52,21 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
     use std::task::{Context, Waker};
 
     let future_resource_id = FunctionResourceId::new(future_resource_id);
-    let future_resource = get_function_resource(&future_resource_id);
-    let mut future_resource = future_resource.lock().unwrap();
-    let future = match &mut *future_resource {
-        FunctionResource::FunctionResponseFuture(v) => v,
-        _other => panic!("resource is not future"),
-    };
+    let future_poll_result = map_function_resource_ref_mut(&future_resource_id, |future_resource| {
+        let future = match &mut *future_resource {
+            FunctionResource::FunctionResponseFuture(v) => v,
+            _other => panic!("resource is not future"),
+        };
 
-    let mut context = Context::from_waker(Waker::noop());
-    let future_poll_result = future.poll_unpin(&mut context);
-    drop(future_resource);
+        let mut context = Context::from_waker(Waker::noop());
+        future.poll_unpin(&mut context)
+    });
 
     (match future_poll_result {
         Poll::Pending => FuturePollResult::Pending,
         Poll::Ready(resource) => {
             let resource = FunctionResource::from(resource);
-            swap_function_resource(&future_resource_id, resource);
+            replace_function_resource(&future_resource_id, resource);
             FuturePollResult::Ready
         }
     }) as i64
@@ -69,15 +79,15 @@ pub extern "C" fn _fx_resource_serialize(resource_id: u64) -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
-    let resource = get_function_resource(&FunctionResourceId::new(resource_id));
-    let resource = resource.lock().unwrap();
-    match &*resource {
-        FunctionResource::FunctionResponseFuture(_) => panic!("not a serialized resource"),
-        FunctionResource::FunctionResponse(v) => match v {
-            SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
-            SerializableResource::Serialized(v) => v.as_ptr() as i64,
-        },
-    }
+    map_function_resource_ref(&FunctionResourceId::new(resource_id), |resource| {
+        match &*resource {
+            FunctionResource::FunctionResponseFuture(_) => panic!("not a serialized resource"),
+            FunctionResource::FunctionResponse(v) => match v {
+                SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
+                SerializableResource::Serialized(v) => v.as_ptr() as i64,
+            },
+        }
+    })
 }
 
 #[unsafe(no_mangle)]

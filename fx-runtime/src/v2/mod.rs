@@ -672,7 +672,7 @@ impl FunctionDeployment {
         let instance = self.instance.clone();
 
         Box::pin(async move {
-            let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(req));
+            let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(SerializableResource::Raw(req)));
             let response_resource = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
             SerializedFunctionResource::new(instance, response_resource)
         })
@@ -684,8 +684,6 @@ struct FunctionInstance {
     store: LocalMutex<wasmtime::Store<FunctionInstanceState>>,
     memory: wasmtime::Memory,
     // fx apis:
-    fn_malloc: wasmtime::TypedFunc<i64, i64>,
-    fn_dealloc: wasmtime::TypedFunc<(i64, i64), ()>,
     fn_future_poll: wasmtime::TypedFunc<u64, i64>,
     fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
@@ -705,8 +703,6 @@ impl FunctionInstance {
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
 
-        let fn_malloc = instance.get_typed_func::<i64, i64>(store.as_context_mut(), "_fx_malloc").unwrap();
-        let fn_dealloc = instance.get_typed_func::<(i64, i64), ()>(store.as_context_mut(), "_fx_dealloc").unwrap();
         let fn_future_poll = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_future_poll").unwrap();
         let fn_resource_serialize = instance.get_typed_func::<u64, u64>(store.as_context_mut(), "_fx_resource_serialize").unwrap();
         let fn_resource_serialized_ptr = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_resource_serialized_ptr").unwrap();
@@ -728,24 +724,12 @@ impl FunctionInstance {
             instance,
             store,
             memory,
-            fn_malloc,
-            fn_dealloc,
             fn_future_poll,
             fn_resource_serialize,
             fn_resource_serialized_ptr,
             fn_resource_drop,
             fn_trigger_http,
         }
-    }
-
-    async fn malloc(&self, len: u64) -> u64 {
-        let mut store = self.store.lock().await;
-        self.fn_malloc.call_async(store.as_context_mut(), len as i64).await.unwrap() as u64
-    }
-
-    async fn dealloc(&self, ptr: u64, len: u64) {
-        let mut store = self.store.lock().await;
-        self.fn_dealloc.call_async(store.as_context_mut(), (ptr as i64, len as i64)).await.unwrap();
     }
 
     async fn future_poll(&self, future_id: &FunctionResourceId) -> Poll<()> {
@@ -812,8 +796,17 @@ impl FunctionInstanceState {
         ResourceId::from(self.resources.insert(resource))
     }
 
-    pub fn resource_serialize(&mut self, resource_id: ResourceId) {
-        unimplemented!("host resource serialization is not implemented yet")
+    pub fn resource_serialize(&mut self, resource_id: &ResourceId) -> usize {
+        let resource = self.resources.detach(resource_id.into()).unwrap();
+        let (resource, serialized_size) = match resource {
+            Resource::FunctionRequest(req) => {
+                let serialized = req.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (Resource::FunctionRequest(serialized), serialized_size)
+            },
+        };
+        self.resources.reattach(resource_id.into(), resource);
+        serialized_size
     }
 }
 
@@ -877,9 +870,7 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
 }
 
 fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
-    let resource_id = ResourceId::from(resource_id);
-
-    unimplemented!("fx_resource_serialize_handler is not implemented yet")
+    caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
 }
 
 #[derive(Debug)]
@@ -970,6 +961,12 @@ impl From<slotmap::DefaultKey> for ResourceId {
     }
 }
 
+impl Into<slotmap::DefaultKey> for &ResourceId {
+    fn into(self) -> slotmap::DefaultKey {
+        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
+    }
+}
+
 impl From<u64> for ResourceId {
     fn from(id: u64) -> Self {
         Self { id }
@@ -992,7 +989,38 @@ impl FunctionResourceId {
 }
 
 enum Resource {
-    FunctionRequest(FunctionRequest),
+    FunctionRequest(SerializableResource<FunctionRequest>),
+}
+
+enum SerializableResource<T: SerializeResource> {
+    Raw(T),
+    Serialized(Vec<u8>),
+}
+
+impl<T: SerializeResource> SerializableResource<T> {
+    fn map_to_serialized(self) -> Self {
+        match self {
+            Self::Raw(t) => Self::Serialized(t.serialize()),
+            Self::Serialized(v) => Self::Serialized(v),
+        }
+    }
+
+    fn serialized_size(&self) -> usize {
+        match self {
+            Self::Raw(_) => panic!("cannot compute serialized size for resource that is not serialized yet"),
+            Self::Serialized(v) => v.len(),
+        }
+    }
+}
+
+trait SerializeResource {
+    fn serialize(self) -> Vec<u8>;
+}
+
+impl SerializeResource for FunctionRequest {
+    fn serialize(self) -> Vec<u8> {
+        unimplemented!("serialization is not implemented for function requests yet")
+    }
 }
 
 struct FunctionFuture {
