@@ -1,5 +1,5 @@
 use {
-    std::{sync::{OnceLock, Mutex, Arc}, cell::RefCell},
+    std::{sync::{OnceLock, Mutex, Arc}, cell::LazyCell, marker::PhantomData},
     futures::future::BoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
@@ -90,6 +90,27 @@ impl SerializeResource for FunctionResponse {
         }
         capnp::serialize::write_message_to_words(&message)
     }
+}
+
+pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T>);
+
+impl<T: DeserializeHostResource> From<ResourceId> for DeserializableHostResource<T> {
+    fn from(value: ResourceId) -> Self {
+        Self(LazyCell::new(move || {
+            let data: Vec<u8> = unimplemented!("fetch data by resource id!");
+            T::deserialize(&mut data.as_slice())
+        }))
+    }
+}
+
+impl<T: DeserializeHostResource> DeserializableHostResource<T> {
+    pub(crate) fn get_raw(&self) -> &T {
+        &*self.0
+    }
+}
+
+pub trait DeserializeHostResource {
+    fn deserialize(data: &mut &[u8]) -> Self;
 }
 
 pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {

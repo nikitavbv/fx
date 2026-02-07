@@ -1,13 +1,26 @@
-use crate::sys::ResourceId;
+use {
+    http::Uri,
+    crate::sys::{ResourceId, DeserializableHostResource, DeserializeHostResource},
+};
 
-pub struct HttpRequest(HttpRequestInner);
+pub struct HttpRequest(DeserializableHostResource<HttpRequestInner>);
 
 impl HttpRequest {
     pub fn from_host_resource(resource: ResourceId) -> Self {
-        Self(HttpRequestInner::Host(resource))
+        Self(DeserializableHostResource::from(resource))
+    }
+
+    pub fn uri(&self) -> &Uri {
+        &self.0.get_raw().url
     }
 }
 
-enum HttpRequestInner {
-    Host(ResourceId),
+struct HttpRequestInner {
+    url: Uri,
+}
+
+impl DeserializeHostResource for HttpRequestInner {
+    fn deserialize(data: &mut &[u8]) -> Self {
+        unimplemented!()
+    }
 }

@@ -3,7 +3,10 @@ pub use self::{
     future::wrap_function_response_future,
 };
 
-pub(crate) use self::logs::log;
+pub(crate) use self::{
+    logs::log,
+    resource::{DeserializableHostResource, DeserializeHostResource},
+};
 
 use {
     std::{task::Poll, io::Cursor},
