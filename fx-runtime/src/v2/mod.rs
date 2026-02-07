@@ -138,7 +138,7 @@ impl FxServerV2 {
                     tokio::join!(
                         definitions_monitor.scan_definitions(),
                         async {
-                            while let Ok(msg) = management_rx.recv() {
+                            while let Ok(msg) = management_rx.recv_async().await {
                                 definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
                                 msg.on_ready.send(()).unwrap();
                             }
