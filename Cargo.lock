@@ -1159,14 +1159,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-app-counter"
-version = "0.1.0"
-dependencies = [
- "fx-sdk",
-]
-
-[[package]]
-name = "fx-app-hello-world"
+name = "fx-app-demo"
 version = "0.1.0"
 dependencies = [
  "fx-sdk",
@@ -1180,15 +1173,6 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "fx-sdk",
-]
-
-[[package]]
-name = "fx-app-rpc-test-service"
-version = "0.1.0"
-dependencies = [
- "fx-sdk",
- "serde",
- "tracing",
 ]
 
 [[package]]

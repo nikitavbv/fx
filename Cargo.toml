@@ -8,10 +8,8 @@ members = [
     "extra/fx-macro",
     "extra/fx-common",
 
-    "apps/fx-app-counter",
-    "apps/fx-app-hello-world",
+    "apps/fx-app-demo",
     "apps/fx-app-mocks",
-    "apps/fx-app-rpc-test-service",
     "apps/fx-fortunes",
     "apps/fx-test-app",
 ]

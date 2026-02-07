@@ -390,9 +390,14 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
             let response = function_future.await;
-            let response: FunctionResponse = response.move_to_host().await;
+            let function_response: FunctionResponse = response.move_to_host().await;
 
-            let response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("not implemented.\n".as_bytes())));
+            let mut response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("not implemented.\n".as_bytes())));
+            match function_response.0 {
+                FunctionResponseInner::HttpResponse(v) => {
+                    *response.status_mut() = v.status;
+                }
+            }
 
             Ok(response)
         })

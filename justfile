@@ -11,13 +11,14 @@ test:
 coverage:
     cargo llvm-cov --html run -p fx-tests --release
 
-apps: app-counter app-hello-world app-rpc-test-service
-
 demo: app-demo run
 
-app-demo: app-hello-world app-fortunes
-    cp target/wasm32-unknown-unknown/release/fx_app_hello_world.wasm local/functions/hello-world.wasm
-    cp apps/fx-app-hello-world/hello-world.fx.yaml local/functions/hello-world.fx.yaml
+app-demo: app-fortunes
+    cargo build --target wasm32-unknown-unknown -p fx-app-demo --release
+    cargo build --target wasm32-unknown-unknown -p fx-fortunes --release
+
+    cp target/wasm32-unknown-unknown/release/fx_app_demo.wasm local/functions/demo.wasm
+    cp apps/fx-app-demo/demo.fx.yaml local/functions/demo.fx.yaml
 
     cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/functions/fortunes.wasm
     rm local/functions/fortunes.sqlite || true
@@ -26,12 +27,6 @@ app-demo: app-hello-world app-fortunes
 
 app-counter:
     cargo build --target wasm32-unknown-unknown -p fx-app-counter --release
-
-app-hello-world:
-    cargo build --target wasm32-unknown-unknown -p fx-app-hello-world --release
-
-app-rpc-test-service:
-    cargo build --target wasm32-unknown-unknown -p fx-app-rpc-test-service --release
 
 app-fortunes:
     cargo build --target wasm32-unknown-unknown -p fx-fortunes --release
