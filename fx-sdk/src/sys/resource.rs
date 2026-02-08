@@ -48,6 +48,7 @@ impl Into<DefaultKey> for &FunctionResourceId {
 pub enum FunctionResource {
     FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
+    FunctionResponseBody(Vec<u8>),
 }
 
 impl From<FunctionResponse> for FunctionResource {
@@ -62,21 +63,18 @@ pub enum SerializableResource<T: SerializeResource> {
 }
 
 impl<T: SerializeResource> SerializableResource<T> {
-    fn serialize_inplace(&mut self) -> usize {
-        let prev = std::mem::replace(self, SerializableResource::Serialized(Vec::new()));
-        let mut len = 0;
-        *self = match prev {
-            Self::Serialized(v) => {
-                len = v.len();
-                Self::Serialized(v)
-            },
-            Self::Raw(v) => {
-                let serialized = v.serialize();
-                len = serialized.len();
-                Self::Serialized(serialized)
-            },
-        };
-        len
+    fn map_to_serialized(self) -> Self {
+        match self {
+            Self::Serialized(v) => Self::Serialized(v),
+            Self::Raw(v) => Self::Serialized(v.serialize()),
+        }
+    }
+
+    fn serialized_size(&self) -> usize {
+        match self {
+            Self::Raw(_) => panic!("cannot compute serialized size for resource that is not serialized yet"),
+            Self::Serialized(v) => v.len(),
+        }
     }
 }
 
@@ -91,6 +89,7 @@ impl SerializeResource for FunctionResponse {
         match self.0 {
             FunctionResponseInner::HttpResponse(http) => {
                 resource.set_status(http.status.as_u16());
+                resource.set_body_resource(http.body.as_u64());
             }
         }
         capnp::serialize::write_message_to_words(&message)
@@ -150,14 +149,25 @@ pub fn replace_function_resource(resource_id: &FunctionResourceId, new_resource:
     })
 }
 
+/// returns length of serialized resource
 pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {
-        let resource = resources.get_mut(resource_id.into()).unwrap();
-        (match &mut *resource {
+        let resource = resources.detach(resource_id.into()).unwrap();
+        let (resource, serialized_size) = match resource {
             FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
-            FunctionResource::FunctionResponse(v) => v.serialize_inplace(),
-        }) as u64
-    })
+            FunctionResource::FunctionResponse(v) => {
+                let serialized = v.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (FunctionResource::FunctionResponse(serialized), serialized_size)
+            },
+            FunctionResource::FunctionResponseBody(v) => {
+                let serialized_size = v.len();
+                (FunctionResource::FunctionResponseBody(v), serialized_size)
+            },
+        };
+        resources.reattach(resource_id.into(), resource);
+        serialized_size
+    }) as u64
 }
 
 pub fn drop_function_resource(resource_id: &FunctionResourceId) {

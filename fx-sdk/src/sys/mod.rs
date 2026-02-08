@@ -84,10 +84,11 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
             FunctionResource::FunctionResponseFuture(_) => panic!("not a serialized resource"),
             FunctionResource::FunctionResponse(v) => match v {
                 SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
-                SerializableResource::Serialized(v) => v.as_ptr() as i64,
+                SerializableResource::Serialized(v) => v.as_ptr(),
             },
+            FunctionResource::FunctionResponseBody(v) => v.as_ptr(),
         }
-    })
+    }) as i64
 }
 
 #[unsafe(no_mangle)]

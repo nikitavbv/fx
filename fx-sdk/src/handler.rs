@@ -8,7 +8,7 @@ use {
     serde::{de::DeserializeOwned, Serialize},
     lazy_static::lazy_static,
     futures::FutureExt,
-    crate::fx_futures::FunctionFutureError,
+    crate::{fx_futures::FunctionFutureError, sys::{FunctionResourceId, FunctionResource, add_function_resource}},
 };
 
 type HttpHandlerFunction = Box<dyn Fn(FunctionRequest) -> BoxFuture<FunctionResponse> + Send + Sync>;
@@ -35,6 +35,7 @@ pub(crate) enum FunctionResponseInner {
 
 pub(crate) struct FunctionHttpResponse {
     pub(crate) status: http::status::StatusCode,
+    pub(crate) body: FunctionResourceId,
 }
 
 pub trait IntoFunctionResponse {
@@ -51,6 +52,7 @@ impl IntoFunctionResponse for fx_common::HttpResponse {
     fn into_function_response(self) -> FunctionResponse {
         FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: self.status,
+            body: add_function_resource(FunctionResource::FunctionResponseBody(self.body)),
         }))
     }
 }

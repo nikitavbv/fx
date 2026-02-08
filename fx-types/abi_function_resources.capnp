@@ -2,4 +2,5 @@
 
 struct FunctionResponse {
     status @0 :UInt16;
+    bodyResource @1 :UInt64;
 }
