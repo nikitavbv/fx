@@ -17,7 +17,7 @@ use {
     tracing_subscriber::FmtSubscriber,
     tokio::{fs, sync::oneshot},
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
-    ::futures::{FutureExt, StreamExt, future::join_all, future::LocalBoxFuture},
+    ::futures::{FutureExt, StreamExt, future::BoxFuture, future::LocalBoxFuture},
     hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::{Full, BodyStream},
@@ -32,6 +32,8 @@ use {
         abi_capnp,
         abi_function_resources_capnp,
         abi_host_resources_capnp,
+        abi_log_capnp,
+        abi_sql_capnp,
         abi::FuturePollResult,
     },
     crate::{
@@ -42,6 +44,7 @@ use {
             definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
             metrics::run_metrics_server,
             logs::{self, BoxLogger, StdoutLogger, NoopLogger},
+            sql::{Value as SqlValue, QueryResult},
         },
         server::{
             server::FxServer,
@@ -62,11 +65,23 @@ enum WorkerMessage {
         module: wasmtime::Module,
 
         http_listeners: Vec<FunctionHttpListener>,
+
+        bindings_sql: HashMap<String, SqlBindingConfig>,
     },
 }
 
 #[derive(Debug)]
-enum SqlMessage {}
+enum SqlMessage {
+    Exec(SqlExecMessage),
+}
+
+#[derive(Debug)]
+struct SqlExecMessage {
+    binding: SqlBindingConfig,
+    statement: String,
+    params: Vec<SqlValue>,
+    response: oneshot::Sender<QueryResult>,
+}
 
 struct DebugWrapper<T>(T);
 
@@ -281,10 +296,11 @@ impl FxServerV2 {
                                         deployment_id,
                                         module,
                                         http_listeners,
+                                        bindings_sql,
                                     } => {
                                         function_deployments.borrow_mut().insert(
                                             deployment_id.clone(),
-                                            Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, sql_tx.clone(), function_id.clone(), module).await))
+                                            Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, sql_tx.clone(), function_id.clone(), module, bindings_sql).await))
                                         );
                                         // TODO: cleanup old deployments
                                         functions.borrow_mut().insert(function_id.clone(), deployment_id);
@@ -676,12 +692,24 @@ impl DefinitionsMonitor {
             })
             .collect::<Vec<_>>();
 
+        let bindings_sql = config.bindings.iter()
+            .flat_map(|v| v.sql.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| (v.id.clone(), SqlBindingConfig {
+                location: match v.path.as_str() {
+                    ":memory:" => SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string()),
+                    path => SqlBindingConfigLocation::Path(path.parse().unwrap()),
+                },
+            }))
+            .collect::<HashMap<_, _>>();
+
         for worker in self.workers_tx.iter() {
             worker.send_async(WorkerMessage::FunctionDeploy {
                 function_id: function_id.clone(),
                 deployment_id: deployment_id.clone(),
                 module: module.clone(),
                 http_listeners: http_listeners.clone(),
+                bindings_sql: bindings_sql.clone(),
             }).await.unwrap();
         }
     }
@@ -718,7 +746,7 @@ struct FunctionDeployment {
 }
 
 impl FunctionDeployment {
-    pub async fn new(wasmtime: &wasmtime::Engine, sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, module: wasmtime::Module) -> Self {
+    pub async fn new(wasmtime: &wasmtime::Engine, sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, module: wasmtime::Module, bindings_sql: HashMap<String, SqlBindingConfig>) -> Self {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
 
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
@@ -727,7 +755,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_resource_serialize", fx_resource_serialize_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_move_from_host", fx_resource_move_from_host_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_drop", fx_resource_drop_handler).unwrap();
-        linker.func_wrap("fx", "fx_sql_open", fx_sql_open_handler).unwrap();
+        linker.func_wrap("fx", "fx_sql_exec", fx_sql_exec_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -748,7 +776,7 @@ impl FunctionDeployment {
 
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
-        let instance = FunctionInstance::new(wasmtime, sql_tx, function_id, &instance_template).await;
+        let instance = FunctionInstance::new(wasmtime, sql_tx, function_id, &instance_template, bindings_sql).await;
 
         Self {
             module,
@@ -769,7 +797,6 @@ impl FunctionDeployment {
 }
 
 struct FunctionInstance {
-    sql_tx: flume::Sender<SqlMessage>,
     instance: wasmtime::Instance,
     store: LocalMutex<wasmtime::Store<FunctionInstanceState>>,
     memory: wasmtime::Memory,
@@ -788,8 +815,9 @@ impl FunctionInstance {
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
+        bindings_sql: HashMap<String, SqlBindingConfig>,
     ) -> Self {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(function_id));
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(sql_tx, function_id, bindings_sql));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -812,7 +840,6 @@ impl FunctionInstance {
         let store = LocalMutex::new(store, false);
 
         Self {
-            sql_tx,
             instance,
             store,
             memory,
@@ -872,15 +899,19 @@ impl FunctionInstance {
 }
 
 struct FunctionInstanceState {
+    sql_tx: flume::Sender<SqlMessage>,
     function_id: FunctionId,
     resources: SlotMap<slotmap::DefaultKey, Resource>,
+    bindings_sql: HashMap<String, SqlBindingConfig>,
 }
 
 impl FunctionInstanceState {
-    pub fn new(function_id: FunctionId) -> Self {
+    pub fn new(sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, bindings_sql: HashMap<String, SqlBindingConfig>) -> Self {
         Self {
+            sql_tx,
             function_id,
             resources: SlotMap::new(),
+            bindings_sql,
         }
     }
 
@@ -896,6 +927,16 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::FunctionRequest(serialized), serialized_size)
             },
+            Resource::SqlQueryResult(v) => {
+                let resource = match v {
+                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
+                    FutureResource::Ready(v) => v,
+                };
+
+                let serialized = resource.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (Resource::SqlQueryResult(FutureResource::Ready(serialized)), serialized_size)
+            }
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -938,22 +979,22 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
     let view = memory.data(&context);
 
     let mut message_bytes = &view[req_addr as usize..(req_addr + req_len) as usize];
-    let message_reader = fx_types::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_types::capnp::message::ReaderOptions::default()).unwrap();
-    let message = message_reader.get_root::<fx_types::abi_log_capnp::log_message::Reader>().unwrap();
+    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
+    let message = message_reader.get_root::<abi_log_capnp::log_message::Reader>().unwrap();
 
     let message: LogMessageEvent = logs::LogMessage::new(
         logs::LogSource::function(&caller.data().function_id),
         match message.get_event_type().unwrap() {
-            fx_types::abi_log_capnp::EventType::Begin => logs::LogEventType::Begin,
-            fx_types::abi_log_capnp::EventType::End => logs::LogEventType::End,
-            fx_types::abi_log_capnp::EventType::Instant => logs::LogEventType::Instant,
+            abi_log_capnp::EventType::Begin => logs::LogEventType::Begin,
+            abi_log_capnp::EventType::End => logs::LogEventType::End,
+            abi_log_capnp::EventType::Instant => logs::LogEventType::Instant,
         },
         match message.get_level().unwrap() {
-            fx_types::abi_log_capnp::LogLevel::Trace => logs::LogLevel::Trace,
-            fx_types::abi_log_capnp::LogLevel::Debug => logs::LogLevel::Debug,
-            fx_types::abi_log_capnp::LogLevel::Info => logs::LogLevel::Info,
-            fx_types::abi_log_capnp::LogLevel::Warn => logs::LogLevel::Warn,
-            fx_types::abi_log_capnp::LogLevel::Error => logs::LogLevel::Error,
+            abi_log_capnp::LogLevel::Trace => logs::LogLevel::Trace,
+            abi_log_capnp::LogLevel::Debug => logs::LogLevel::Debug,
+            abi_log_capnp::LogLevel::Info => logs::LogLevel::Info,
+            abi_log_capnp::LogLevel::Warn => logs::LogLevel::Warn,
+            abi_log_capnp::LogLevel::Error => logs::LogLevel::Error,
         },
         message.get_fields().unwrap()
             .into_iter()
@@ -972,6 +1013,10 @@ fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
 fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
         Resource::FunctionRequest(req) => req.into_serialized(),
+        Resource::SqlQueryResult(req) => match req {
+            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
+            FutureResource::Ready(v) => v.into_serialized(),
+        }
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -986,18 +1031,40 @@ fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSta
     let _ = caller.data_mut().resource_remove(&ResourceId::from(resource_id));
 }
 
-fn fx_sql_open_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_name_ptr: u64, binding_name_len: u64) -> u64 {
+fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
 
-    let binding_name = {
-        let ptr = binding_name_ptr as usize;
-        let len = binding_name_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    let mut message_bytes = {
+        let ptr = req_addr as usize;
+        let len = req_len as usize;
+        &view[ptr..ptr+len]
     };
+    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
+    let message = message_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
 
-    unimplemented!("sql open is not implemented yet")
+    let binding = caller.data().bindings_sql.get(message.get_binding().unwrap().to_str().unwrap()).unwrap();
+
+    let (response_tx, response_rx) = oneshot::channel();
+    caller.data().sql_tx.send(SqlMessage::Exec(SqlExecMessage {
+        binding: binding.clone(),
+        statement: message.get_statement().unwrap().to_string().unwrap(),
+        params: message.get_params().unwrap().into_iter()
+            .map(|v| match v.get_value().which().unwrap() {
+                abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
+                abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
+                abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
+                abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
+                abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+            })
+            .collect(),
+        response: response_tx,
+    })).unwrap();
+
+    caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::Future(async move {
+        SerializableResource::Raw(response_rx.await.unwrap())
+    }.boxed()))).as_u64()
 }
 
 #[derive(Debug)]
@@ -1157,6 +1224,7 @@ impl From<u64> for FunctionResourceId {
 
 enum Resource {
     FunctionRequest(SerializableResource<FunctionRequest>),
+    SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
 }
 
 enum SerializableResource<T: SerializeResource> {
@@ -1213,6 +1281,17 @@ impl SerializeResource for FunctionRequest {
     }
 }
 
+impl SerializeResource for QueryResult {
+    fn serialize(self) -> Vec<u8> {
+        todo!("query result serialization is not implemented yet")
+    }
+}
+
+enum FutureResource<T> {
+    Future(BoxFuture<'static, T>),
+    Ready(T),
+}
+
 struct FunctionFuture {
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,
@@ -1231,6 +1310,7 @@ impl Future for FunctionFuture {
     type Output = FunctionResourceId;
 
     fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        // BUG: should not create a new future on each poll.
         let future_poll_future = std::pin::pin!(self.instance.future_poll(&self.resource_id));
 
         match future_poll_future.poll(cx) {
@@ -1240,12 +1320,13 @@ impl Future for FunctionFuture {
     }
 }
 
+#[derive(Debug, Clone)]
 struct SqlBindingConfig {
-    binding_name: String,
     location: SqlBindingConfigLocation,
 }
 
+#[derive(Debug, Clone)]
 enum SqlBindingConfigLocation {
-    InMemory,
+    InMemory(String),
     Path(PathBuf),
 }
