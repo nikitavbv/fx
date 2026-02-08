@@ -126,6 +126,13 @@ impl OwnedResourceId {
         Self::new(ResourceId::new(id))
     }
 
+    pub fn with<T, F: FnOnce(&ResourceId) -> T>(&self, mapper: F) -> T {
+        let resource_id = self.0.replace(None).unwrap();
+        let result = mapper(&resource_id);
+        self.0.replace(Some(resource_id));
+        result
+    }
+
     pub fn consume(self) -> ResourceId {
         self.0.replace(None).unwrap()
     }
@@ -154,7 +161,6 @@ pub(crate) struct FutureHostResource<T: DeserializeHostResource> {
     _t: PhantomData<T>,
 }
 
-
 impl<T: DeserializeHostResource> FutureHostResource<T> {
     pub fn new(resource_id: OwnedResourceId) -> Self {
         Self {
@@ -168,6 +174,8 @@ impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
     type Output = T;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        self.resource_id.borrow().with(|resource_id| {});
+
         todo!("poll host future")
     }
 }

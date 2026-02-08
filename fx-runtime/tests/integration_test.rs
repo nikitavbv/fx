@@ -60,21 +60,7 @@ async fn sql_simple() {
     assert_eq!("52", response.text().await.unwrap());
 }*/
 
-/*#[tokio::test]
-async fn invoke_function_non_existent() {
-    let err = fx_server().await.lock()
-        .invoke_function::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())
-        .await
-        .map(|v| v.0)
-        .err()
-        .unwrap();
-
-    match err {
-        FunctionInvokeAndExecuteError::CodeNotFound => {}
-        other => panic!("unexpected error: {other:?}, expected CodeNotFound"),
-    }
-}
-
+/*
 #[tokio::test]
 async fn invoke_function_non_existent_rpc() {
     let err = fx_server().await.lock()

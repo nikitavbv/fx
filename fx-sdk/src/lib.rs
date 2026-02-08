@@ -201,66 +201,32 @@ impl SqlDatabase {
     }
 
     pub async fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, FxSqlError> {
-        let mut message = capnp::message::Builder::new_default();
-        let mut request = message.init_root::<abi_sql_capnp::sql_exec_request::Builder>();
+        let message = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut request = message.init_root::<abi_sql_capnp::sql_exec_request::Builder>();
 
-        request.set_binding(&self.name);
-        request.set_statement(query.stmt);
+            request.set_binding(&self.name);
+            request.set_statement(query.stmt);
 
-        let mut params = request.init_params(query.params.len() as u32);
-        for (param_index, param) in query.params.into_iter().enumerate() {
-            let mut request_param = params.reborrow().get(param_index as u32).init_value();
-            match param {
-                SqlValue::Null => request_param.set_null(()),
-                SqlValue::Integer(v) => request_param.set_integer(v),
-                SqlValue::Real(v) => request_param.set_real(v),
-                SqlValue::Text(v) => request_param.set_text(v),
-                SqlValue::Blob(v) => request_param.set_blob(&v),
+            let mut params = request.init_params(query.params.len() as u32);
+            for (param_index, param) in query.params.into_iter().enumerate() {
+                let mut request_param = params.reborrow().get(param_index as u32).init_value();
+                match param {
+                    SqlValue::Null => request_param.set_null(()),
+                    SqlValue::Integer(v) => request_param.set_integer(v),
+                    SqlValue::Real(v) => request_param.set_real(v),
+                    SqlValue::Text(v) => request_param.set_text(v),
+                    SqlValue::Blob(v) => request_param.set_blob(&v),
+                }
             }
-        }
 
-        let message = capnp::serialize::write_message_segments_to_words(&message);
+            capnp::serialize::write_message_segments_to_words(&message)
+        };
+
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_sql_exec(message.as_ptr() as u64, message.len() as u64) });
         let resource: FutureHostResource<SqlResult> = FutureHostResource::new(resource_id);
 
-        todo!("sql exec is not implemented yet");
-
-        /*let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-        let op = request.init_op();
-        let mut sql_exec_request = op.init_sql_exec();
-        sql_exec_request.set_database(&self.name);
-        let mut request_query = sql_exec_request.init_query();
-        request_query.set_statement(query.stmt);
-        let mut params = request_query.init_params(query.params.len() as u32);
-        for (param_index, param) in query.params.into_iter().enumerate() {
-            let mut request_param = params.reborrow().get(param_index as u32).init_value();
-            match param {
-                SqlValue::Null => request_param.set_null(()),
-                SqlValue::Integer(v) => request_param.set_integer(v),
-                SqlValue::Real(v) => request_param.set_real(v),
-                SqlValue::Text(v) => request_param.set_text(v),
-                SqlValue::Blob(v) => request_param.set_blob(&v),
-            }
-        }
-
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::SqlExec(v) => {
-                let sql_exec_response = v.unwrap();
-                match sql_exec_response.get_response().which().unwrap() {
-                    abi_capnp::sql_exec_response::response::Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
-                    abi_capnp::sql_exec_response::response::Which::SqlError(v) => Err(FxSqlError::QueryFailed { reason: v.unwrap().get_description().unwrap().to_string().unwrap() }),
-                    abi_capnp::sql_exec_response::response::Which::Rows(rows) => {
-                        let rows = rows.unwrap();
-                        Ok(sql::SqlResult::from(rows))
-                    }
-                }
-            },
-            _other => panic!("unexpected response from sql_exec api"),
-        }*/
+        Ok(resource.await)
     }
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {

@@ -815,6 +815,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_resource_drop", fx_resource_drop_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_exec", fx_sql_exec_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_migrate", fx_sql_migrate_handler).unwrap();
+        linker.func_wrap("fx", "fx_future_poll", fx_future_poll_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1002,6 +1003,21 @@ impl FunctionInstanceState {
         serialized_size
     }
 
+    pub fn resource_poll(&mut self, resource_id: &ResourceId) -> Poll<()> {
+        let resource = self.resources.detach(resource_id.into()).unwrap();
+            /*let (resource, poll_result) = match resource {
+            Resource::FunctionRequest(v) => (Resource::FunctionRequest(v), Poll::Ready(())),
+            Resource::SqlQueryResult(v) => {
+                todo!()
+            },
+            Resource::UnitFuture(v) => {
+                let poll_result = v.poll_unpin(cx);
+            }
+        };*/
+
+        todo!("resource poll")
+    }
+
     pub fn resource_remove(&mut self, resource_id: &ResourceId) -> Resource {
         self.resources.remove(resource_id.into()).unwrap()
     }
@@ -1156,6 +1172,12 @@ fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
         response_rx.await.unwrap();
     }.boxed())).as_u64()
+}
+
+fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> u64 {
+    let resource_id = ResourceId::new(future_resource_id);
+
+    todo!("future poll on host side")
 }
 
 #[derive(Debug)]
@@ -1385,13 +1407,23 @@ enum FutureResource<T> {
 }
 
 struct FunctionFuture {
+    inner: LocalBoxFuture<'static, Poll<()>>,
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,
 }
 
 impl FunctionFuture {
     fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+        let inner = {
+            let instance = instance.clone();
+            let resource_id = resource_id.clone();
+            async move {
+                instance.future_poll(&resource_id).await
+            }.boxed_local()
+        };
+
         Self {
+            inner,
             instance,
             resource_id,
         }
@@ -1401,11 +1433,8 @@ impl FunctionFuture {
 impl Future for FunctionFuture {
     type Output = FunctionResourceId;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        // BUG: should not create a new future on each poll.
-        let future_poll_future = std::pin::pin!(self.instance.future_poll(&self.resource_id));
-
-        match future_poll_future.poll(cx) {
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        match self.inner.poll_unpin(cx) {
             Poll::Pending | Poll::Ready(Poll::Pending) => Poll::Pending,
             Poll::Ready(Poll::Ready(_)) => Poll::Ready(self.resource_id.clone()),
         }
