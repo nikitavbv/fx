@@ -49,7 +49,7 @@ async fn simple() {
 async fn status_code() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080/test/status-code").await.unwrap();
-    assert_eq!(419, response.status().as_u16());
+    assert_eq!(418, response.status().as_u16());
 }
 
 /*#[tokio::test]

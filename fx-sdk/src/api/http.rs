@@ -1,5 +1,7 @@
 use {
+    std::str::FromStr,
     http::Uri,
+    fx_types::{capnp, abi_host_resources_capnp},
     crate::sys::{ResourceId, DeserializableHostResource, DeserializeHostResource},
 };
 
@@ -21,6 +23,11 @@ struct HttpRequestInner {
 
 impl DeserializeHostResource for HttpRequestInner {
     fn deserialize(data: &mut &[u8]) -> Self {
-        unimplemented!()
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
+        let request = resource_reader.get_root::<fx_types::abi_host_resources_capnp::function_request::Reader>().unwrap();
+
+        HttpRequestInner {
+            url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
+        }
     }
 }

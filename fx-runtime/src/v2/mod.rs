@@ -27,7 +27,13 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
-    fx_types::{capnp, abi_capnp, abi_function_resources_capnp, abi::FuturePollResult},
+    fx_types::{
+        capnp,
+        abi_capnp,
+        abi_function_resources_capnp,
+        abi_host_resources_capnp,
+        abi::FuturePollResult,
+    },
     crate::{
         common::LogMessageEvent,
         runtime::{
@@ -1044,7 +1050,23 @@ trait SerializeResource {
 
 impl SerializeResource for FunctionRequest {
     fn serialize(self) -> Vec<u8> {
-        unimplemented!("serialization is not implemented for function requests yet")
+        let mut message = capnp::message::Builder::new_default();
+        let mut resource = message.init_root::<abi_host_resources_capnp::function_request::Builder>();
+
+        fn set_request_common<T>(resource: &mut fx_types::abi_host_resources_capnp::function_request::Builder<'_>, request: &hyper::Request<T>) {
+            resource.set_uri(request.uri().to_string());
+        }
+
+        match self.0 {
+            FunctionRequestInner::Http(request) => {
+                set_request_common(&mut resource, &request);
+            },
+            FunctionRequestInner::HttpInline(request) => {
+                set_request_common(&mut resource, &request);
+            }
+        }
+
+        capnp::serialize::write_message_to_words(&message)
     }
 }
 
