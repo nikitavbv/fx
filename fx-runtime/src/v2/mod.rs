@@ -911,8 +911,9 @@ impl FunctionInstance {
         }
     }
 
-    async fn future_poll(&self, future_id: &FunctionResourceId) -> Poll<()> {
+    async fn future_poll(&self, future_id: &FunctionResourceId, waker: std::task::Waker) -> Poll<()> {
         let mut store = self.store.lock().await;
+        store.data_mut().waker = Some(waker);
         let future_poll_result = self.fn_future_poll.call_async(store.as_context_mut(), future_id.as_u64()).await.unwrap();
         drop(store);
 
@@ -959,6 +960,7 @@ impl FunctionInstance {
 }
 
 struct FunctionInstanceState {
+    waker: Option<std::task::Waker>,
     sql_tx: flume::Sender<SqlMessage>,
     function_id: FunctionId,
     resources: SlotMap<slotmap::DefaultKey, Resource>,
@@ -968,6 +970,7 @@ struct FunctionInstanceState {
 impl FunctionInstanceState {
     pub fn new(sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, bindings_sql: HashMap<String, SqlBindingConfig>) -> Self {
         Self {
+            waker: None,
             sql_tx,
             function_id,
             resources: SlotMap::new(),
@@ -1005,17 +1008,32 @@ impl FunctionInstanceState {
 
     pub fn resource_poll(&mut self, resource_id: &ResourceId) -> Poll<()> {
         let resource = self.resources.detach(resource_id.into()).unwrap();
-            /*let (resource, poll_result) = match resource {
+
+        let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
+        let (resource, poll_result) = match resource {
             Resource::FunctionRequest(v) => (Resource::FunctionRequest(v), Poll::Ready(())),
             Resource::SqlQueryResult(v) => {
-                todo!()
+                let (resource, poll_result) = match v {
+                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                    FutureResource::Future(mut future) => {
+                        let poll_result = future.poll_unpin(&mut cx);
+                        match poll_result {
+                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
+                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                        }
+                    }
+                };
+                (Resource::SqlQueryResult(resource), poll_result)
             },
-            Resource::UnitFuture(v) => {
-                let poll_result = v.poll_unpin(cx);
+            Resource::UnitFuture(mut v) => {
+                let poll_result = v.poll_unpin(&mut cx);
+                (Resource::UnitFuture(v), poll_result)
             }
-        };*/
+        };
 
-        todo!("resource poll")
+        self.resources.reattach(resource_id.into(), resource);
+
+        poll_result
     }
 
     pub fn resource_remove(&mut self, resource_id: &ResourceId) -> Resource {
@@ -1174,10 +1192,12 @@ fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState
     }.boxed())).as_u64()
 }
 
-fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> u64 {
+fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
     let resource_id = ResourceId::new(future_resource_id);
-
-    todo!("future poll on host side")
+    (match caller.data_mut().resource_poll(&resource_id) {
+        Poll::Pending => FuturePollResult::Pending,
+        Poll::Ready(_) => FuturePollResult::Ready,
+    }) as i64
 }
 
 #[derive(Debug)]
@@ -1418,7 +1438,8 @@ impl FunctionFuture {
             let instance = instance.clone();
             let resource_id = resource_id.clone();
             async move {
-                instance.future_poll(&resource_id).await
+                let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+                instance.future_poll(&resource_id, waker).await
             }.boxed_local()
         };
 

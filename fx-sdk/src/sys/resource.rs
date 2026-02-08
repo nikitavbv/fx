@@ -3,10 +3,10 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
-    fx_types::{capnp, abi_function_resources_capnp},
+    fx_types::{capnp, abi::FuturePollResult, abi_function_resources_capnp},
     crate::{
         handler::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
-        sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop},
+        sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
     },
 };
 
@@ -157,14 +157,14 @@ pub trait DeserializeHostResource {
 }
 
 pub(crate) struct FutureHostResource<T: DeserializeHostResource> {
-    resource_id: RefCell<OwnedResourceId>,
+    resource_id: RefCell<Option<OwnedResourceId>>,
     _t: PhantomData<T>,
 }
 
 impl<T: DeserializeHostResource> FutureHostResource<T> {
     pub fn new(resource_id: OwnedResourceId) -> Self {
         Self {
-            resource_id: RefCell::new(resource_id),
+            resource_id: RefCell::new(Some(resource_id)),
             _t: PhantomData,
         }
     }
@@ -173,10 +173,21 @@ impl<T: DeserializeHostResource> FutureHostResource<T> {
 impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
     type Output = T;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        self.resource_id.borrow().with(|resource_id| {});
-
-        todo!("poll host future")
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let poll_result = self.resource_id.borrow().as_ref().unwrap().with(|resource_id| {
+            unsafe { fx_future_poll(resource_id.id) }
+        });
+        let poll_result = FuturePollResult::try_from(poll_result).unwrap();
+        match poll_result {
+            FuturePollResult::Pending => std::task::Poll::Pending,
+            FuturePollResult::Ready => std::task::Poll::Ready({
+                let resource_id = self.resource_id.replace(None).unwrap().consume();
+                let resource_length = unsafe { fx_resource_serialize(resource_id.id) } as usize;
+                let data: Vec<u8> = vec![0u8; resource_length];
+                unsafe { fx_resource_move_from_host(resource_id.id, data.as_ptr() as u64); }
+                T::deserialize(&mut data.as_slice())
+            }),
+        }
     }
 }
 
