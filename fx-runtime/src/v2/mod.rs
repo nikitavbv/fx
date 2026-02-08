@@ -65,6 +65,9 @@ enum WorkerMessage {
     },
 }
 
+#[derive(Debug)]
+enum SqlMessage {}
+
 struct DebugWrapper<T>(T);
 
 impl<T> DebugWrapper<T> {
@@ -121,8 +124,13 @@ impl FxServerV2 {
         };
 
         let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+        let sql_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+
         let (workers_tx, workers_rx) = (0..worker_threads)
             .map(|_| flume::unbounded::<WorkerMessage>())
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+        let (sql_tx, sql_rx) = (0..sql_threads)
+            .map(|_| flume::unbounded::<SqlMessage>())
             .unzip::<_, _, Vec<_>, Vec<_>>();
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
