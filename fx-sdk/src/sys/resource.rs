@@ -1,14 +1,19 @@
 use {
-    std::{sync::{OnceLock, Mutex, Arc}, cell::LazyCell, marker::PhantomData},
-    futures::future::BoxFuture,
+    std::{sync::{OnceLock, Mutex, Arc}, cell::{RefCell, LazyCell, OnceCell}, marker::PhantomData, borrow::BorrowMut},
+    futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
     fx_types::{capnp, abi_function_resources_capnp},
-    crate::handler::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
+    crate::{
+        handler::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
+        sys::{fx_resource_serialize, fx_resource_move_from_host},
+    },
 };
 
 // TODO: implement drop for resources!
-static FUNCTION_RESOURCES: OnceLock<Mutex<SlotMap<DefaultKey, FunctionResource>>> = OnceLock::new();
+thread_local! {
+    static FUNCTION_RESOURCES: RefCell<SlotMap<DefaultKey, FunctionResource>> = RefCell::new(SlotMap::new());
+}
 
 pub struct ResourceId {
     id: u64,
@@ -41,7 +46,7 @@ impl Into<DefaultKey> for &FunctionResourceId {
 }
 
 pub enum FunctionResource {
-    FunctionResponseFuture(BoxFuture<'static, FunctionResponse>),
+    FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
 }
 
@@ -92,14 +97,16 @@ impl SerializeResource for FunctionResponse {
     }
 }
 
-pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T>);
+pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T>>);
 
 impl<T: DeserializeHostResource> From<ResourceId> for DeserializableHostResource<T> {
-    fn from(value: ResourceId) -> Self {
-        Self(LazyCell::new(move || {
-            let data: Vec<u8> = unimplemented!("fetch data by resource id!");
+    fn from(resource_id: ResourceId) -> Self {
+        Self(LazyCell::new(Box::new(move || {
+            let resource_length = unsafe { fx_resource_serialize(resource_id.id) } as usize;
+            let data: Vec<u8> = vec![0u8; resource_length];
+            unsafe { fx_resource_move_from_host(resource_id.id, data.as_ptr() as u64); }
             T::deserialize(&mut data.as_slice())
-        }))
+        })))
     }
 }
 
@@ -114,35 +121,45 @@ pub trait DeserializeHostResource {
 }
 
 pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
-    FunctionResourceId::new(function_resources().lock().unwrap().insert(resource).data().as_ffi())
+    FUNCTION_RESOURCES.with_borrow_mut(|v| FunctionResourceId::new(v.insert(resource).data().as_ffi()))
 }
 
-pub fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource: &FunctionResourceId, mapper: F) -> T {
-    mapper(function_resources().lock().unwrap().get(resource.into()).unwrap())
+pub fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
+    let resource = FUNCTION_RESOURCES.with_borrow_mut(|v| v.detach(resource_id.into()).unwrap());
+
+    let result = mapper(&resource);
+
+    FUNCTION_RESOURCES.with_borrow_mut(|v| v.reattach(resource_id.into(), resource));
+
+    result
 }
 
-pub fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(resource: &FunctionResourceId, mapper: F) -> T {
-    mapper(function_resources().lock().unwrap().get_mut(resource.into()).unwrap())
+pub fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
+    let mut resource = FUNCTION_RESOURCES.with_borrow_mut(|v| v.detach(resource_id.into()).unwrap());
+
+    let result = mapper(&mut resource);
+
+    FUNCTION_RESOURCES.with_borrow_mut(|v| v.reattach(resource_id.into(), resource));
+
+    result
 }
 
 pub fn replace_function_resource(resource_id: &FunctionResourceId, new_resource: FunctionResource) {
-    *function_resources().lock().unwrap().get_mut(resource_id.into()).unwrap() = new_resource;
+    FUNCTION_RESOURCES.with_borrow_mut(|resources| {
+        *resources.get_mut(resource_id.into()).unwrap() = new_resource;
+    })
 }
 
 pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
-    let resources = function_resources();
-    let mut resources = resources.lock().unwrap();
-    let resource = resources.get_mut(resource_id.into()).unwrap();
-    (match &mut *resource {
-        FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
-        FunctionResource::FunctionResponse(v) => v.serialize_inplace(),
-    }) as u64
+    FUNCTION_RESOURCES.with_borrow_mut(|resources| {
+        let resource = resources.get_mut(resource_id.into()).unwrap();
+        (match &mut *resource {
+            FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
+            FunctionResource::FunctionResponse(v) => v.serialize_inplace(),
+        }) as u64
+    })
 }
 
 pub fn drop_function_resource(resource_id: &FunctionResourceId) {
-    function_resources().lock().unwrap().remove(resource_id.into());
-}
-
-fn function_resources() -> &'static Mutex<SlotMap<DefaultKey, FunctionResource>> {
-    FUNCTION_RESOURCES.get_or_init(|| Mutex::new(SlotMap::new()))
+    FUNCTION_RESOURCES.with_borrow_mut(|v| v.remove(resource_id.into()));
 }

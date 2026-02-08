@@ -639,6 +639,7 @@ impl FunctionDeployment {
 
         linker.func_wrap("fx", "fx_log", fx_log_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_serialize", fx_resource_serialize_handler).unwrap();
+        linker.func_wrap("fx", "fx_resource_move_from_host", fx_resource_move_from_host_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -808,6 +809,10 @@ impl FunctionInstanceState {
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
     }
+
+    pub fn resource_remove(&mut self, resource_id: &ResourceId) -> Resource {
+        self.resources.remove(resource_id.into()).unwrap()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -871,6 +876,19 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
 
 fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
+}
+
+fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
+    let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
+        Resource::FunctionRequest(req) => req.into_serialized(),
+    };
+
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let mut context = caller.as_context_mut();
+    let view = memory.data_mut(&mut context);
+    let ptr = ptr as usize;
+
+    view[ptr..ptr+resource.len()].copy_from_slice(&resource);
 }
 
 #[derive(Debug)]
@@ -1009,6 +1027,13 @@ impl<T: SerializeResource> SerializableResource<T> {
         match self {
             Self::Raw(_) => panic!("cannot compute serialized size for resource that is not serialized yet"),
             Self::Serialized(v) => v.len(),
+        }
+    }
+
+    fn into_serialized(self) -> Vec<u8> {
+        match self {
+            Self::Raw(t) => t.serialize(),
+            Self::Serialized(v) => v,
         }
     }
 }
