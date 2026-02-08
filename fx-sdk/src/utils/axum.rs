@@ -2,25 +2,26 @@ use {
     axum::{http::Request, body::Body},
     tower::Service,
     futures::StreamExt,
-    crate::{HttpRequest, HttpResponse, FxStreamImport},
+    crate::{HttpRequestV2, HttpResponse, FxStreamImport},
 };
 
-pub async fn handle_request(router: axum::Router, src_req: HttpRequest) -> HttpResponse {
+pub async fn handle_request(router: axum::Router, src_req: HttpRequestV2) -> HttpResponse {
     let mut service = router.into_service();
 
-    let body = src_req.body.map(|body| body.import());
+    // let body = src_req.body.map(|body| body.import());
 
     let mut request = Request::builder()
-        .uri(src_req.url)
-        .method(src_req.method);
-    for (k, v) in src_req.headers {
+        .uri(src_req.uri());
+    // .method(src_req.method);
+    /*for (k, v) in src_req.headers {
         if let Some(k) = k {
             request = request.header(k, v);
         }
-    }
+    }*/
 
     let fx_response = service.call(request
-        .body(body.map(Body::from_stream).unwrap_or(Body::empty()))
+        .body(Body::empty())
+        //.body(body.map(Body::from_stream).unwrap_or(Body::empty()))
         .unwrap()
     );
     let fx_response = fx_response.await.unwrap();

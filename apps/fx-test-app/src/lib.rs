@@ -1,8 +1,9 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, HttpRequestV2, HttpResponse, FxStream, FxStreamExport, KvError, fetch, metrics::Counter, StatusCode},
+    axum::{Router, routing::get},
     lazy_static::lazy_static,
+    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, HttpRequestV2, HttpResponse, FxStream, FxStreamExport, KvError, fetch, metrics::Counter, StatusCode, utils::axum::handle_request},
 };
 
 mod unknown_import;
@@ -14,16 +15,20 @@ lazy_static! {
 
 #[handler::fetch]
 pub async fn http(req: HttpRequestV2) -> HttpResponse {
-    if req.uri().path().starts_with("/test/status-code") {
-        HttpResponse::new().with_status(StatusCode::IM_A_TEAPOT).with_body("this returns custom status code.\n")
-    } else {
-        HttpResponse::new().with_body("hello fx!")
-    }
+    handle_request(
+        Router::new()
+            .route("/test/status-code", get(status_code))
+            .route("/", get(home)),
+        req
+    ).await
 }
 
-#[handler]
-pub async fn simple(arg: u32) -> fx::Result<u32> {
-    Ok(arg + 42)
+async fn home() -> &'static str {
+    "hello fx!"
+}
+
+async fn status_code() -> (StatusCode, &'static str) {
+    (StatusCode::IM_A_TEAPOT, "this returns custom status code.\n")
 }
 
 #[handler]
