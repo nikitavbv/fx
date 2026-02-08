@@ -129,9 +129,7 @@ impl FxServerV2 {
         let (workers_tx, workers_rx) = (0..worker_threads)
             .map(|_| flume::unbounded::<WorkerMessage>())
             .unzip::<_, _, Vec<_>, Vec<_>>();
-        let (sql_tx, sql_rx) = (0..sql_threads)
-            .map(|_| flume::unbounded::<SqlMessage>())
-            .unzip::<_, _, Vec<_>, Vec<_>>();
+        let (sql_tx, sql_rx) = flume::unbounded::<SqlMessage>();
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
 
@@ -179,6 +177,36 @@ impl FxServerV2 {
             })
         };
 
+        let sql_cores = cpu_info.as_ref()
+            .map(|v| v.logical_processor_ids().iter().take(sql_threads).map(|v| Some(*v)).collect::<Vec<_>>())
+            .unwrap_or(std::iter::repeat(None).take(sql_threads).collect());
+
+        let mut sql_worker_id = 0;
+        let mut sql_worker_handles = Vec::new();
+        for sql_worker in sql_cores.into_iter() {
+            let sql_rx = sql_rx.clone();
+
+            let handle = std::thread::spawn(move || {
+                let worker = sql_worker;
+
+                if let Some(worker_core_id) = worker {
+                    match gdt_cpus::pin_thread_to_core(worker_core_id) {
+                        Ok(_) => {},
+                        Err(gdt_cpus::Error::Unsupported(_)) => {},
+                        Err(err) => error!("failed to pin sql worker thread to core: {err:?}"),
+                    }
+                }
+
+                info!(sql_worker_id, "started sql thread");
+
+                while let Ok(t) = sql_rx.recv() {
+                    unimplemented!("sql message handling is not implemented yet: {t:?}")
+                }
+            });
+            sql_worker_handles.push(handle);
+            sql_worker_id += 1;
+        }
+
         let worker_cores = cpu_info.as_ref()
             .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
             .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
@@ -200,6 +228,7 @@ impl FxServerV2 {
         let mut worker_handles = Vec::new();
         for worker in workers.into_iter() {
             let wasmtime = wasmtime.clone();
+            let sql_tx = sql_tx.clone();
 
             let handle = std::thread::spawn(move || {
                 let mut worker = worker;
@@ -255,7 +284,7 @@ impl FxServerV2 {
                                     } => {
                                         function_deployments.borrow_mut().insert(
                                             deployment_id.clone(),
-                                            Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, function_id.clone(), module).await))
+                                            Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, sql_tx.clone(), function_id.clone(), module).await))
                                         );
                                         // TODO: cleanup old deployments
                                         functions.borrow_mut().insert(function_id.clone(), deployment_id);
@@ -320,6 +349,7 @@ impl FxServerV2 {
             management_tx,
 
             worker_handles,
+            sql_worker_handles,
             compiler_thread_handle,
             management_thread_handle,
         }
@@ -331,11 +361,13 @@ pub struct RunningFxServer {
     management_tx: flume::Sender<ManagementMessage>,
 
     worker_handles: Vec<JoinHandle<()>>,
+    sql_worker_handles: Vec<JoinHandle<()>>,
     compiler_thread_handle: JoinHandle<()>,
     management_thread_handle: JoinHandle<()>,
 }
 
 impl RunningFxServer {
+    #[allow(dead_code)]
     pub async fn deploy_function(&self, function_id: FunctionId, function_config: FunctionConfig) {
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -346,6 +378,9 @@ impl RunningFxServer {
 
     pub fn wait_until_finished(self) {
         for handle in self.worker_handles {
+            handle.join().unwrap();
+        }
+        for handle in self.sql_worker_handles {
             handle.join().unwrap();
         }
         self.compiler_thread_handle.join().unwrap();
@@ -683,7 +718,7 @@ struct FunctionDeployment {
 }
 
 impl FunctionDeployment {
-    pub async fn new(wasmtime: &wasmtime::Engine, function_id: FunctionId, module: wasmtime::Module) -> Self {
+    pub async fn new(wasmtime: &wasmtime::Engine, sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, module: wasmtime::Module) -> Self {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
 
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
@@ -691,7 +726,8 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_log", fx_log_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_serialize", fx_resource_serialize_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_move_from_host", fx_resource_move_from_host_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_drop", fx_resource_drop).unwrap();
+        linker.func_wrap("fx", "fx_resource_drop", fx_resource_drop_handler).unwrap();
+        linker.func_wrap("fx", "fx_sql_open", fx_sql_open_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -712,7 +748,7 @@ impl FunctionDeployment {
 
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
-        let instance = FunctionInstance::new(wasmtime, function_id, &instance_template).await;
+        let instance = FunctionInstance::new(wasmtime, sql_tx, function_id, &instance_template).await;
 
         Self {
             module,
@@ -733,6 +769,7 @@ impl FunctionDeployment {
 }
 
 struct FunctionInstance {
+    sql_tx: flume::Sender<SqlMessage>,
     instance: wasmtime::Instance,
     store: LocalMutex<wasmtime::Store<FunctionInstanceState>>,
     memory: wasmtime::Memory,
@@ -748,6 +785,7 @@ struct FunctionInstance {
 impl FunctionInstance {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
     ) -> Self {
@@ -774,6 +812,7 @@ impl FunctionInstance {
         let store = LocalMutex::new(store, false);
 
         Self {
+            sql_tx,
             instance,
             store,
             memory,
@@ -943,8 +982,22 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
     view[ptr..ptr+resource.len()].copy_from_slice(&resource);
 }
 
-fn fx_resource_drop(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
+fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
     let _ = caller.data_mut().resource_remove(&ResourceId::from(resource_id));
+}
+
+fn fx_sql_open_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_name_ptr: u64, binding_name_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding_name = {
+        let ptr = binding_name_ptr as usize;
+        let len = binding_name_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+
+    unimplemented!("sql open is not implemented yet")
 }
 
 #[derive(Debug)]
@@ -1185,4 +1238,14 @@ impl Future for FunctionFuture {
             Poll::Ready(Poll::Ready(_)) => Poll::Ready(self.resource_id.clone()),
         }
     }
+}
+
+struct SqlBindingConfig {
+    binding_name: String,
+    location: SqlBindingConfigLocation,
+}
+
+enum SqlBindingConfigLocation {
+    InMemory,
+    Path(PathBuf),
 }
