@@ -44,12 +44,38 @@ impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_capnp::sql_resu
     }
 }
 
+impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {
+    fn from(value: fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>) -> Self {
+        let rows = value.into_iter()
+            .map(|v| SqlResultRow {
+                columns: v.get_columns().unwrap()
+                    .into_iter()
+                    .map(|v| {
+                        use fx_types::abi_sql_capnp::sql_value::value::{Which as ProtocolValue};
+
+                        match v.get_value().which().unwrap() {
+                            ProtocolValue::Null(_) => SqlValue::Null,
+                            ProtocolValue::Integer(v) => SqlValue::Integer(v),
+                            ProtocolValue::Real(v) => SqlValue::Real(v),
+                            ProtocolValue::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
+                            ProtocolValue::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+
+        Self {
+            rows,
+        }
+    }
+}
+
 impl DeserializeHostResource for SqlResult {
     fn deserialize(data: &mut &[u8]) -> Self {
         let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_exec_result::Reader>();
-
-        todo!("finish reading sql result")
+        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_exec_result::Reader>().unwrap();
+        SqlResult::from(request.get_rows().unwrap())
     }
 }
 

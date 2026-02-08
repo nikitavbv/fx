@@ -53,12 +53,12 @@ async fn status_code() {
     assert_eq!(418, response.status().as_u16());
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn sql_simple() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080/test/sql-simple").await.unwrap();
     assert_eq!("52", response.text().await.unwrap());
-}*/
+}
 
 /*
 #[tokio::test]

@@ -235,9 +235,10 @@ impl FxServerV2 {
                     let connection = connections.entry(binding.connection_id.clone())
                         .or_insert_with(|| match &binding.location {
                             SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
-                                v,
+                                format!("file:{v}"),
                                 rusqlite::OpenFlags::default()
                                     .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
+                                    .union(rusqlite::OpenFlags::SQLITE_OPEN_SHARED_CACHE)
                             ).unwrap(),
                             SqlBindingConfigLocation::Path(v) => rusqlite::Connection::open(v).unwrap(),
                         });
@@ -1417,7 +1418,25 @@ impl SerializeResource for FunctionRequest {
 
 impl SerializeResource for QueryResult {
     fn serialize(self) -> Vec<u8> {
-        todo!("query result serialization is not implemented yet")
+        let mut message = capnp::message::Builder::new_default();
+        let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
+
+        let mut response_rows = sql_exec_response.init_rows(self.rows.len() as u32);
+        for (index, result_row) in self.rows.into_iter().enumerate() {
+            let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
+            for (column_index, value) in result_row.columns.into_iter().enumerate() {
+                let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
+                match value {
+                    crate::runtime::sql::Value::Null => response_value.set_null(()),
+                    crate::runtime::sql::Value::Integer(v) => response_value.set_integer(v),
+                    crate::runtime::sql::Value::Real(v) => response_value.set_real(v),
+                    crate::runtime::sql::Value::Text(v) => response_value.set_text(v),
+                    crate::runtime::sql::Value::Blob(v) => response_value.set_blob(&v),
+                }
+            }
+        }
+
+        capnp::serialize::write_message_to_words(&message)
     }
 }
 
@@ -1434,20 +1453,18 @@ struct FunctionFuture {
 
 impl FunctionFuture {
     fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
-        let inner = {
-            let instance = instance.clone();
-            let resource_id = resource_id.clone();
-            async move {
-                let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                instance.future_poll(&resource_id, waker).await
-            }.boxed_local()
-        };
-
         Self {
-            inner,
+            inner: Self::start_new_poll_call(instance.clone(), resource_id.clone()),
             instance,
             resource_id,
         }
+    }
+
+    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Poll<()>> {
+        async move {
+            let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+            instance.future_poll(&resource_id, waker).await
+        }.boxed_local()
     }
 }
 
@@ -1456,7 +1473,11 @@ impl Future for FunctionFuture {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         match self.inner.poll_unpin(cx) {
-            Poll::Pending | Poll::Ready(Poll::Pending) => Poll::Pending,
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Poll::Pending) => {
+                self.inner = Self::start_new_poll_call(self.instance.clone(), self.resource_id.clone());
+                Poll::Pending
+            },
             Poll::Ready(Poll::Ready(_)) => Poll::Ready(self.resource_id.clone()),
         }
     }
