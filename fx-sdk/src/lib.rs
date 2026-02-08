@@ -17,7 +17,7 @@ pub use {
     inventory,
     ::http::StatusCode,
     crate::{
-        sys::{PtrWithLen},
+        sys::PtrWithLen,
         fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
@@ -35,7 +35,8 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_capnp, abi_sql_capnp},
     crate::{
-        sys::{ResourceId, invoke_fx_api, fx_sql_exec},
+        sys::{ResourceId, OwnedResourceId, DeserializableHostResource, FutureHostResource, invoke_fx_api, fx_sql_exec},
+        sql::SqlResult,
         logging::FxLoggingLayer,
         fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
     },
@@ -219,7 +220,8 @@ impl SqlDatabase {
         }
 
         let message = capnp::serialize::write_message_segments_to_words(&message);
-        let resource_id = ResourceId::new(unsafe { fx_sql_exec(message.as_ptr() as u64, message.len() as u64) });
+        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_sql_exec(message.as_ptr() as u64, message.len() as u64) });
+        let resource: FutureHostResource<SqlResult> = FutureHostResource::new(resource_id);
 
         todo!("sql exec is not implemented yet");
 

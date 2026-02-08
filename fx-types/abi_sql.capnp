@@ -6,6 +6,10 @@ struct SqlExecRequest {
     params @2 :List(SqlValue);
 }
 
+struct SqlExecResult {
+    rows @0 :List(SqlResultRow);
+}
+
 struct SqlMigrateRequest {
     binding @0 :Text;
     migrations @1 :List(Text);
@@ -19,4 +23,8 @@ struct SqlValue {
         text @3 :Text;
         blob @4 :Data;
     }
+}
+
+struct SqlResultRow {
+    columns @0 :List(SqlValue);
 }

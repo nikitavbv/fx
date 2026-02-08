@@ -16,7 +16,7 @@ pub use self::{
 
 pub(crate) use self::{
     logs::log,
-    resource::{DeserializableHostResource, DeserializeHostResource},
+    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId},
 };
 
 use {

@@ -44,7 +44,7 @@ use {
             definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
             metrics::run_metrics_server,
             logs::{self, BoxLogger, StdoutLogger, NoopLogger},
-            sql::{Value as SqlValue, QueryResult},
+            sql::{Value as SqlValue, Row as SqlRow, QueryResult},
         },
         server::{
             server::FxServer,
@@ -210,6 +210,8 @@ impl FxServerV2 {
             let sql_rx = sql_rx.clone();
 
             let handle = std::thread::spawn(move || {
+                use rusqlite::types::ValueRef;
+
                 let worker = sql_worker;
 
                 if let Some(worker_core_id) = worker {
@@ -222,16 +224,55 @@ impl FxServerV2 {
 
                 info!(sql_worker_id, "started sql thread");
 
-                let mut connections = HashMap::<(), rusqlite::Connection>::new();
+                let mut connections = HashMap::<String, rusqlite::Connection>::new();
 
                 while let Ok(msg) = sql_rx.recv() {
-                    let database_location = match &msg {
-                        SqlMessage::Exec(v) => &v.binding.location,
-                        SqlMessage::Migrate(v) => &v.binding.location,
+                    let binding = match &msg {
+                        SqlMessage::Exec(v) => &v.binding,
+                        SqlMessage::Migrate(v) => &v.binding,
                     };
 
+                    let connection = connections.entry(binding.connection_id.clone())
+                        .or_insert_with(|| match &binding.location {
+                            SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
+                                v,
+                                rusqlite::OpenFlags::default()
+                                    .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
+                            ).unwrap(),
+                            SqlBindingConfigLocation::Path(v) => rusqlite::Connection::open(v).unwrap(),
+                        });
 
-                    unimplemented!("sql message handling is not implemented yet: {msg:?}")
+                    match msg {
+                        SqlMessage::Exec(msg) => {
+                            let mut stmt = connection.prepare(&msg.statement).unwrap();
+                            let result_columns = stmt.column_count();
+
+                            let mut rows = stmt.query(rusqlite::params_from_iter(msg.params.into_iter())).unwrap();
+
+                            let mut result_rows = Vec::new();
+
+                            while let Some(row) = rows.next().unwrap() {
+                                let mut row_columns = Vec::new();
+                                for column in 0..result_columns {
+                                    let column = row.get_ref(column).unwrap();
+
+                                    row_columns.push(match column {
+                                        ValueRef::Null => SqlValue::Null,
+                                        ValueRef::Integer(v) => SqlValue::Integer(v),
+                                        ValueRef::Real(v) => SqlValue::Real(v),
+                                        ValueRef::Text(v) => SqlValue::Text(
+                                            String::from_utf8(v.to_owned()).unwrap()
+                                        ),
+                                        ValueRef::Blob(v) => SqlValue::Blob(v.to_owned()),
+                                    });
+                                }
+                                result_rows.push(SqlRow { columns: row_columns });
+                            }
+
+                            msg.response.send(QueryResult { rows: result_rows }).unwrap();
+                        },
+                        SqlMessage::Migrate(v) => todo!("sql migrate: {v:?}"),
+                    }
                 }
             });
             sql_worker_handles.push(handle);
@@ -712,6 +753,7 @@ impl DefinitionsMonitor {
             .flat_map(|v| v.sql.iter())
             .flat_map(|v| v.iter())
             .map(|v| (v.id.clone(), SqlBindingConfig {
+                connection_id: uuid::Uuid::new_v4().to_string(),
                 location: match v.path.as_str() {
                     ":memory:" => SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string()),
                     path => SqlBindingConfigLocation::Path(path.parse().unwrap()),
@@ -1372,6 +1414,7 @@ impl Future for FunctionFuture {
 
 #[derive(Debug, Clone)]
 struct SqlBindingConfig {
+    connection_id: String,
     location: SqlBindingConfigLocation,
 }
 

@@ -1,6 +1,8 @@
 use {
     std::iter::Iterator,
     fx_common::{SqlResultRow, SqlValue},
+    fx_types::{capnp, abi_sql_capnp},
+    crate::sys::DeserializeHostResource,
 };
 
 pub struct SqlResult {
@@ -39,6 +41,15 @@ impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_capnp::sql_resu
         Self {
             rows,
         }
+    }
+}
+
+impl DeserializeHostResource for SqlResult {
+    fn deserialize(data: &mut &[u8]) -> Self {
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
+        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_exec_result::Reader>();
+
+        todo!("finish reading sql result")
     }
 }
 

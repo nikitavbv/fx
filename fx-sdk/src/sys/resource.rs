@@ -122,6 +122,10 @@ impl OwnedResourceId {
         Self(Cell::new(Some(resource_id)))
     }
 
+    pub fn from_ffi(id: u64) -> Self {
+        Self::new(ResourceId::new(id))
+    }
+
     pub fn consume(self) -> ResourceId {
         self.0.replace(None).unwrap()
     }
@@ -143,6 +147,29 @@ impl<T: DeserializeHostResource> DeserializableHostResource<T> {
 
 pub trait DeserializeHostResource {
     fn deserialize(data: &mut &[u8]) -> Self;
+}
+
+pub(crate) struct FutureHostResource<T: DeserializeHostResource> {
+    resource_id: RefCell<OwnedResourceId>,
+    _t: PhantomData<T>,
+}
+
+
+impl<T: DeserializeHostResource> FutureHostResource<T> {
+    pub fn new(resource_id: OwnedResourceId) -> Self {
+        Self {
+            resource_id: RefCell::new(resource_id),
+            _t: PhantomData,
+        }
+    }
+}
+
+impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
+    type Output = T;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        todo!("poll host future")
+    }
 }
 
 pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
