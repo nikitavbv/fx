@@ -7,7 +7,7 @@ use {
         convert::Infallible,
         pin::Pin,
         rc::Rc,
-        cell::RefCell,
+        cell::{RefCell, Cell},
         task::Poll,
         thread::JoinHandle,
         fmt::Debug,
@@ -396,7 +396,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let body = match &function_response.0 {
                 FunctionResponseInner::HttpResponse(v) => {
-                    FunctionResponseHttpBody::for_function_resource(v.body.clone())
+                    FunctionResponseHttpBody::for_function_resource(v.body.replace(None).unwrap())
                 }
             };
 
@@ -971,27 +971,52 @@ enum FunctionResponseInner {
 
 struct FunctionHttpResponse {
     status: http::status::StatusCode,
-    body: SerializedFunctionResource<Vec<u8>>,
+    body: Cell<Option<SerializedFunctionResource<Vec<u8>>>>,
 }
 
-#[derive(Clone)]
+/// Resource that origins from function side and is not owned by host.
+/// moved lazily from function to host memory.
+/// if dropped before being moved, cleans up resource on function side.
 struct SerializedFunctionResource<T: DeserializeFunctionResource> {
     _t: PhantomData<T>,
-    instance: Rc<FunctionInstance>,
-    resource: FunctionResourceId,
+    resource: OwnedFunctionResourceId,
 }
 
 impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
     pub fn new(instance: Rc<FunctionInstance>, resource: FunctionResourceId) -> Self {
         Self {
             _t: PhantomData,
-            instance,
-            resource,
+            resource: OwnedFunctionResourceId::new(instance, resource),
         }
     }
 
     async fn move_to_host(self) -> T {
-        T::deserialize(&mut self.instance.move_serializable_resource_to_host(&self.resource).await.as_slice(), self.instance.clone())
+        let (instance, resource) = self.resource.consume();
+        T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
+    }
+}
+
+/// Function resource handle that is owned by host.
+/// Cleans up function memory if dropped before being consumed
+pub struct OwnedFunctionResourceId(Cell<Option<(Rc<FunctionInstance>, FunctionResourceId)>>);
+
+impl OwnedFunctionResourceId {
+    pub fn new(function_instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+        Self(Cell::new(Some((function_instance, resource_id))))
+    }
+
+    pub fn consume(self) -> (Rc<FunctionInstance>, FunctionResourceId) {
+        self.0.replace(None).unwrap()
+    }
+}
+
+impl Drop for OwnedFunctionResourceId {
+    fn drop(&mut self) {
+        if let Some((function_instance, resource_id)) = self.0.replace(None) {
+            tokio::task::spawn_local(async move {
+                function_instance.resource_drop(&resource_id).await;
+            });
+        }
     }
 }
 
@@ -1005,7 +1030,7 @@ impl DeserializeFunctionResource for FunctionResponse {
         let response = message_reader.get_root::<abi_function_resources_capnp::function_response::Reader>().unwrap();
         Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: http::StatusCode::from_u16(response.get_status()).unwrap(),
-            body: SerializedFunctionResource::new(instance, FunctionResourceId::from(response.get_body_resource())),
+            body: Cell::new(Some(SerializedFunctionResource::new(instance, FunctionResourceId::from(response.get_body_resource())))),
         }))
     }
 }

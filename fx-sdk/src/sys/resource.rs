@@ -10,7 +10,6 @@ use {
     },
 };
 
-// TODO: implement drop for resources!
 thread_local! {
     static FUNCTION_RESOURCES: RefCell<SlotMap<DefaultKey, FunctionResource>> = RefCell::new(SlotMap::new());
 }
@@ -22,28 +21,6 @@ pub struct ResourceId {
 impl ResourceId {
     pub fn new(id: u64) -> Self {
         Self { id }
-    }
-}
-
-/// Resource handle that is owned by function.
-/// Cleans up host memory if dropped before being consmumed
-pub struct OwnedResourceId(Cell<Option<ResourceId>>);
-
-impl OwnedResourceId {
-    pub fn new(resource_id: ResourceId) -> Self {
-        Self(Cell::new(Some(resource_id)))
-    }
-
-    pub fn consume(self) -> ResourceId {
-        self.0.replace(None).unwrap()
-    }
-}
-
-impl Drop for OwnedResourceId {
-    fn drop(&mut self) {
-        if let Some(resource) = self.0.replace(None) {
-            unsafe { fx_resource_drop(resource.id) }
-        }
     }
 }
 
@@ -125,12 +102,36 @@ pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Bo
 
 impl<T: DeserializeHostResource> From<ResourceId> for DeserializableHostResource<T> {
     fn from(resource_id: ResourceId) -> Self {
+        let resource_id = OwnedResourceId::new(resource_id);
         Self(LazyCell::new(Box::new(move || {
+            let resource_id = resource_id.consume();
             let resource_length = unsafe { fx_resource_serialize(resource_id.id) } as usize;
             let data: Vec<u8> = vec![0u8; resource_length];
             unsafe { fx_resource_move_from_host(resource_id.id, data.as_ptr() as u64); }
             T::deserialize(&mut data.as_slice())
         })))
+    }
+}
+
+/// Resource handle that is owned by function.
+/// Cleans up host memory if dropped before being consmumed
+pub struct OwnedResourceId(Cell<Option<ResourceId>>);
+
+impl OwnedResourceId {
+    pub fn new(resource_id: ResourceId) -> Self {
+        Self(Cell::new(Some(resource_id)))
+    }
+
+    pub fn consume(self) -> ResourceId {
+        self.0.replace(None).unwrap()
+    }
+}
+
+impl Drop for OwnedResourceId {
+    fn drop(&mut self) {
+        if let Some(resource) = self.0.replace(None) {
+            unsafe { fx_resource_drop(resource.id) }
+        }
     }
 }
 
