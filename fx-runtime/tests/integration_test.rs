@@ -43,7 +43,7 @@ async fn simple() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080").await.unwrap();
     assert!(response.status().is_success());
-    // assert_eq!("hello fx!", response.text().await.unwrap());
+    assert_eq!("hello fx!", response.text().await.unwrap());
 }
 
 #[tokio::test]

@@ -398,7 +398,13 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let response = function_future.await;
             let function_response: FunctionResponse = response.move_to_host().await;
 
-            let mut response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("not implemented.\n".as_bytes())));
+            let body = match &function_response.0 {
+                FunctionResponseInner::HttpResponse(v) => {
+                    FunctionResponseHttpBody::for_function_resource(v.body.clone())
+                }
+            };
+
+            let mut response = Response::new(body);
             match function_response.0 {
                 FunctionResponseInner::HttpResponse(v) => {
                     *response.status_mut() = v.status;
@@ -416,6 +422,10 @@ impl FunctionResponseHttpBody {
     pub fn for_bytes(bytes: Bytes) -> Self {
         Self(FunctionResponseHttpBodyInner::Full(RefCell::new(Some(bytes))))
     }
+
+    pub fn for_function_resource(resource: SerializedFunctionResource<Vec<u8>>) -> Self {
+        Self(FunctionResponseHttpBodyInner::FunctionResource(RefCell::new(FunctionResourceReader::Resource(resource))))
+    }
 }
 
 impl hyper::body::Body for FunctionResponseHttpBody {
@@ -427,13 +437,44 @@ impl hyper::body::Body for FunctionResponseHttpBody {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &self.0 {
-            FunctionResponseHttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
+            FunctionResponseHttpBodyInner::Full(b) => return Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
+            FunctionResponseHttpBodyInner::FunctionResource(resource) => {
+                let reader = resource.replace(FunctionResourceReader::Empty);
+
+                let mut reader = match reader {
+                    FunctionResourceReader::Empty => return Poll::Ready(None),
+                    FunctionResourceReader::Future(v) => FunctionResourceReader::Future(v),
+                    FunctionResourceReader::Resource(v) => {
+                        FunctionResourceReader::Future(async move {
+                            v.move_to_host().await
+                        }.boxed_local())
+                    }
+                };
+
+                let poll_result = match &mut reader {
+                    FunctionResourceReader::Empty | FunctionResourceReader::Resource(_) => unreachable!(),
+                    FunctionResourceReader::Future(v) => v.poll_unpin(cx).map(|v| Some(Ok(hyper::body::Frame::data(Bytes::from(v))))),
+                };
+
+                if poll_result.is_pending() {
+                    resource.replace(reader);
+                }
+
+                poll_result
+            },
         }
     }
 }
 
 enum FunctionResponseHttpBodyInner {
     Full(RefCell<Option<Bytes>>),
+    FunctionResource(RefCell<FunctionResourceReader>),
+}
+
+enum FunctionResourceReader {
+    Empty,
+    Resource(SerializedFunctionResource<Vec<u8>>),
+    Future(LocalBoxFuture<'static, Vec<u8>>),
 }
 
 struct DefinitionsMonitor {
@@ -765,7 +806,7 @@ impl FunctionInstance {
         self.fn_resource_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
 
-    async fn move_serialized_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
+    async fn move_serializable_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
         let len = self.resource_serialize(resource_id).await as usize;
         let ptr = self.resource_serialized_ptr(resource_id).await as usize;
 
@@ -929,8 +970,10 @@ enum FunctionResponseInner {
 
 struct FunctionHttpResponse {
     status: http::status::StatusCode,
+    body: SerializedFunctionResource<Vec<u8>>,
 }
 
+#[derive(Clone)]
 struct SerializedFunctionResource<T: DeserializeFunctionResource> {
     _t: PhantomData<T>,
     instance: Rc<FunctionInstance>,
@@ -947,21 +990,28 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
     }
 
     async fn move_to_host(self) -> T {
-        T::deserialize(&mut self.instance.move_serialized_resource_to_host(&self.resource).await.as_slice())
+        T::deserialize(&mut self.instance.move_serializable_resource_to_host(&self.resource).await.as_slice(), self.instance.clone())
     }
 }
 
 trait DeserializeFunctionResource {
-    fn deserialize(resource: &mut &[u8]) -> Self;
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self;
 }
 
 impl DeserializeFunctionResource for FunctionResponse {
-    fn deserialize(resource: &mut &[u8]) -> Self {
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
         let response = message_reader.get_root::<abi_function_resources_capnp::function_response::Reader>().unwrap();
         Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: http::StatusCode::from_u16(response.get_status()).unwrap(),
+            body: SerializedFunctionResource::new(instance, FunctionResourceId::from(response.get_body_resource())),
         }))
+    }
+}
+
+impl DeserializeFunctionResource for Vec<u8> {
+    fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Self {
+        resource.to_vec()
     }
 }
 
@@ -997,7 +1047,7 @@ impl From<u64> for ResourceId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct FunctionResourceId {
     id: u64,
 }
@@ -1009,6 +1059,12 @@ impl FunctionResourceId {
 
     pub fn as_u64(&self) -> u64 {
         self.id
+    }
+}
+
+impl From<u64> for FunctionResourceId {
+    fn from(id: u64) -> Self {
+        Self { id }
     }
 }
 
