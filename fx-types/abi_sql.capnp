@@ -6,6 +6,11 @@ struct SqlExecRequest {
     params @2 :List(SqlValue);
 }
 
+struct SqlMigrateRequest {
+    binding @0 :Text;
+    migrations @1 :List(Text);
+}
+
 struct SqlValue {
     value :union {
         null @0 :Void;

@@ -33,9 +33,9 @@ use {
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    fx_types::{capnp, abi_capnp},
+    fx_types::{capnp, abi_capnp, abi_sql_capnp},
     crate::{
-        sys::{read_memory_owned, invoke_fx_api},
+        sys::{ResourceId, invoke_fx_api, fx_sql_exec},
         logging::FxLoggingLayer,
         fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
     },
@@ -199,8 +199,31 @@ impl SqlDatabase {
         Self { name }
     }
 
-    pub fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, FxSqlError> {
+    pub async fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
+        let mut request = message.init_root::<abi_sql_capnp::sql_exec_request::Builder>();
+
+        request.set_binding(&self.name);
+        request.set_statement(query.stmt);
+
+        let mut params = request.init_params(query.params.len() as u32);
+        for (param_index, param) in query.params.into_iter().enumerate() {
+            let mut request_param = params.reborrow().get(param_index as u32).init_value();
+            match param {
+                SqlValue::Null => request_param.set_null(()),
+                SqlValue::Integer(v) => request_param.set_integer(v),
+                SqlValue::Real(v) => request_param.set_real(v),
+                SqlValue::Text(v) => request_param.set_text(v),
+                SqlValue::Blob(v) => request_param.set_blob(&v),
+            }
+        }
+
+        let message = capnp::serialize::write_message_segments_to_words(&message);
+        let resource_id = ResourceId::new(unsafe { fx_sql_exec(message.as_ptr() as u64, message.len() as u64) });
+
+        todo!("sql exec is not implemented yet");
+
+        /*let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
         let mut sql_exec_request = op.init_sql_exec();
@@ -235,7 +258,7 @@ impl SqlDatabase {
                 }
             },
             _other => panic!("unexpected response from sql_exec api"),
-        }
+        }*/
     }
 
     pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {

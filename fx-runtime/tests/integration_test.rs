@@ -55,10 +55,12 @@ async fn status_code() {
 
 /*#[tokio::test]
 async fn sql_simple() {
-    assert_eq!(52, fx_server().await.lock().invoke_function::<_, u32>(&FunctionId::new("test-app".to_owned()), "sql_simple", ()).await.unwrap().0);
-}
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/sql-simple").await.unwrap();
+    assert_eq!("52", response.text().await.unwrap());
+}*/
 
-#[tokio::test]
+/*#[tokio::test]
 async fn invoke_function_non_existent() {
     let err = fx_server().await.lock()
         .invoke_function::<(), ()>(&FunctionId::new("test-non-existent".to_owned()), "simple", ())

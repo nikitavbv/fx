@@ -73,6 +73,7 @@ enum WorkerMessage {
 #[derive(Debug)]
 enum SqlMessage {
     Exec(SqlExecMessage),
+    Migrate(SqlMigrateMessage),
 }
 
 #[derive(Debug)]
@@ -81,6 +82,13 @@ struct SqlExecMessage {
     statement: String,
     params: Vec<SqlValue>,
     response: oneshot::Sender<QueryResult>,
+}
+
+#[derive(Debug)]
+struct SqlMigrateMessage {
+    binding: SqlBindingConfig,
+    migrations: Vec<String>,
+    response: oneshot::Sender<()>,
 }
 
 struct DebugWrapper<T>(T);
@@ -214,8 +222,16 @@ impl FxServerV2 {
 
                 info!(sql_worker_id, "started sql thread");
 
-                while let Ok(t) = sql_rx.recv() {
-                    unimplemented!("sql message handling is not implemented yet: {t:?}")
+                let mut connections = HashMap::<(), rusqlite::Connection>::new();
+
+                while let Ok(msg) = sql_rx.recv() {
+                    let database_location = match &msg {
+                        SqlMessage::Exec(v) => &v.binding.location,
+                        SqlMessage::Migrate(v) => &v.binding.location,
+                    };
+
+
+                    unimplemented!("sql message handling is not implemented yet: {msg:?}")
                 }
             });
             sql_worker_handles.push(handle);
@@ -756,6 +772,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_resource_move_from_host", fx_resource_move_from_host_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_drop", fx_resource_drop_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_exec", fx_sql_exec_handler).unwrap();
+        linker.func_wrap("fx", "fx_sql_migrate", fx_sql_migrate_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -936,7 +953,8 @@ impl FunctionInstanceState {
                 let serialized = resource.map_to_serialized();
                 let serialized_size = serialized.serialized_size();
                 (Resource::SqlQueryResult(FutureResource::Ready(serialized)), serialized_size)
-            }
+            },
+            Resource::UnitFuture(_) => panic!("unit future cannot be serialized"),
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -1016,7 +1034,8 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
         Resource::SqlQueryResult(req) => match req {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
-        }
+        },
+        Resource::UnitFuture(_) => panic!("unit future cannot be moved to function"),
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -1065,6 +1084,36 @@ fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, 
     caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::Future(async move {
         SerializableResource::Raw(response_rx.await.unwrap())
     }.boxed()))).as_u64()
+}
+
+fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let mut message_bytes = {
+        let ptr = req_addr as usize;
+        let len = req_len as usize;
+
+        &view[ptr..ptr+len]
+    };
+    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
+    let message = message_reader.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().unwrap();
+
+    let binding = caller.data().bindings_sql.get(message.get_binding().unwrap().to_str().unwrap()).unwrap();
+
+    let (response_tx, response_rx) = oneshot::channel();
+    caller.data().sql_tx.send(SqlMessage::Migrate(SqlMigrateMessage {
+        binding: binding.clone(),
+        migrations: message.get_migrations().unwrap().into_iter()
+            .map(|v| v.unwrap().to_string().unwrap())
+            .collect(),
+        response: response_tx,
+    })).unwrap();
+
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        response_rx.await.unwrap();
+    }.boxed())).as_u64()
 }
 
 #[derive(Debug)]
@@ -1225,6 +1274,7 @@ impl From<u64> for FunctionResourceId {
 enum Resource {
     FunctionRequest(SerializableResource<FunctionRequest>),
     SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
+    UnitFuture(BoxFuture<'static, ()>),
 }
 
 enum SerializableResource<T: SerializeResource> {

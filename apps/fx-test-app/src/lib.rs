@@ -18,6 +18,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
     handle_request(
         Router::new()
             .route("/test/status-code", get(status_code))
+            .route("/test/sql-simple", get(sql_simple))
             .route("/", get(home)),
         req
     ).await
@@ -31,15 +32,14 @@ async fn status_code() -> (StatusCode, &'static str) {
     (StatusCode::IM_A_TEAPOT, "this returns custom status code.\n")
 }
 
-#[handler]
-pub async fn sql_simple() -> fx::Result<u64> {
+async fn sql_simple() -> String {
     let database = fx::sql("app");
-    database.exec(SqlQuery::new("create table test_sql_simple (v integer not null)")).unwrap();
-    database.exec(SqlQuery::new("insert into test_sql_simple (v) values (42)")).unwrap();
-    database.exec(SqlQuery::new("insert into test_sql_simple (v) values (10)")).unwrap();
-    let res = database.exec(SqlQuery::new("select sum(v) from test_sql_simple")).unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
-    database.exec(SqlQuery::new("drop table test_sql_simple")).unwrap();
-    Ok(res)
+    database.exec(SqlQuery::new("create table test_sql_simple (v integer not null)")).await.unwrap();
+    database.exec(SqlQuery::new("insert into test_sql_simple (v) values (42)")).await.unwrap();
+    database.exec(SqlQuery::new("insert into test_sql_simple (v) values (10)")).await.unwrap();
+    let res: u64 = database.exec(SqlQuery::new("select sum(v) from test_sql_simple")).await.unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
+    database.exec(SqlQuery::new("drop table test_sql_simple")).await.unwrap();
+    res.to_string()
 }
 
 #[handler]

@@ -18,6 +18,7 @@ pub struct FortunesTemplate<'a> {
 pub async fn http(_req: HttpRequestV2) -> handler::FunctionResponse {
     let db = fx::sql("fortunes");
     let mut fortunes = db.exec(SqlQuery::new("select id, message from fortune"))
+        .await
         .unwrap()
         .into_rows()
         .into_iter()
