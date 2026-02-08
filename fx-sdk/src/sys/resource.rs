@@ -1,12 +1,12 @@
 use {
-    std::{sync::{OnceLock, Mutex, Arc}, cell::{RefCell, LazyCell, OnceCell}, marker::PhantomData, borrow::BorrowMut},
+    std::{sync::{OnceLock, Mutex, Arc}, cell::{RefCell, LazyCell, OnceCell, Cell}, marker::PhantomData, borrow::BorrowMut},
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
     fx_types::{capnp, abi_function_resources_capnp},
     crate::{
         handler::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
-        sys::{fx_resource_serialize, fx_resource_move_from_host},
+        sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop},
     },
 };
 
@@ -22,6 +22,28 @@ pub struct ResourceId {
 impl ResourceId {
     pub fn new(id: u64) -> Self {
         Self { id }
+    }
+}
+
+/// Resource handle that is owned by function.
+/// Cleans up host memory if dropped before being consmumed
+pub struct OwnedResourceId(Cell<Option<ResourceId>>);
+
+impl OwnedResourceId {
+    pub fn new(resource_id: ResourceId) -> Self {
+        Self(Cell::new(Some(resource_id)))
+    }
+
+    pub fn consume(self) -> ResourceId {
+        self.0.replace(None).unwrap()
+    }
+}
+
+impl Drop for OwnedResourceId {
+    fn drop(&mut self) {
+        if let Some(resource) = self.0.replace(None) {
+            unsafe { fx_resource_drop(resource.id) }
+        }
     }
 }
 
@@ -96,6 +118,9 @@ impl SerializeResource for FunctionResponse {
     }
 }
 
+/// Resource that origins from host side and is now owned by function.
+/// moved lazily from host to function memory.
+/// if dropped before being moved, cleans up resource on host side.
 pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T>>);
 
 impl<T: DeserializeHostResource> From<ResourceId> for DeserializableHostResource<T> {

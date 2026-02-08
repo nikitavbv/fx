@@ -157,6 +157,7 @@ unsafe extern "C" {
     pub(crate) fn fx_log(req_addr: i64, req_len: i64);
     pub(crate) fn fx_resource_serialize(resource_id: u64) -> u64;
     pub(crate) fn fx_resource_move_from_host(resource_id: u64, ptr: u64);
+    pub(crate) fn fx_resource_drop(resource_id: u64);
 }
 
 #[derive(Debug)]
