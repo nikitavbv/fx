@@ -311,8 +311,6 @@ impl FxServerV2 {
             worker_tx: workers_tx,
             management_tx,
 
-            invoke_roundrobin_index: tokio::sync::Mutex::new(0),
-
             worker_handles,
             compiler_thread_handle,
             management_thread_handle,
@@ -323,8 +321,6 @@ impl FxServerV2 {
 pub struct RunningFxServer {
     worker_tx: Vec<flume::Sender<WorkerMessage>>,
     management_tx: flume::Sender<ManagementMessage>,
-
-    invoke_roundrobin_index: tokio::sync::Mutex<usize>,
 
     worker_handles: Vec<JoinHandle<()>>,
     compiler_thread_handle: JoinHandle<()>,
