@@ -125,12 +125,6 @@ async fn test_time() {
 
 /*
 #[tokio::test]
-async fn time() {
-    let millis = fx_server().await.lock().invoke_function::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
-    assert!((950..=1050).contains(&millis));
-}
-
-#[tokio::test]
 async fn kv_simple() {
     let _cleanup_guard = DataCleanupGuard;
 

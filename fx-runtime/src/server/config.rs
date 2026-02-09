@@ -174,6 +174,7 @@ pub struct FunctionBindingsConfig {
     pub sql: Option<Vec<SqlBindingConfig>>,
     pub rpc: Option<Vec<RpcBindingConfig>>,
     pub kv: Option<Vec<KvBindingConfig>>,
+    pub blob: Option<Vec<BlobBindingConfig>>,
 }
 
 impl FunctionBindingsConfig {
@@ -182,6 +183,7 @@ impl FunctionBindingsConfig {
             sql: None,
             rpc: None,
             kv: None,
+            blob: None,
         }
     }
 
@@ -236,6 +238,12 @@ pub struct RpcBindingConfig {
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct KvBindingConfig {
+    pub id: String,
+    pub path: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct BlobBindingConfig {
     pub id: String,
     pub path: String,
 }

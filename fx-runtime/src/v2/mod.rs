@@ -72,6 +72,7 @@ enum WorkerMessage {
         http_listeners: Vec<FunctionHttpListener>,
 
         bindings_sql: HashMap<String, SqlBindingConfig>,
+        bindings_blob: HashMap<String, BlobBindingConfig>,
     },
 }
 
@@ -360,10 +361,18 @@ impl FxServerV2 {
                                         module,
                                         http_listeners,
                                         bindings_sql,
+                                        bindings_blob,
                                     } => {
                                         function_deployments.borrow_mut().insert(
                                             deployment_id.clone(),
-                                            Rc::new(RefCell::new(FunctionDeployment::new(&wasmtime, sql_tx.clone(), function_id.clone(), module, bindings_sql).await))
+                                            Rc::new(RefCell::new(FunctionDeployment::new(
+                                                &wasmtime,
+                                                sql_tx.clone(),
+                                                function_id.clone(),
+                                                module,
+                                                bindings_sql,
+                                                bindings_blob,
+                                            ).await))
                                         );
                                         // TODO: cleanup old deployments
                                         functions.borrow_mut().insert(function_id.clone(), deployment_id);
@@ -777,8 +786,16 @@ impl DefinitionsMonitor {
                 connection_id: uuid::Uuid::new_v4().to_string(),
                 location: match v.path.as_str() {
                     ":memory:" => SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string()),
-                    path => SqlBindingConfigLocation::Path(path.parse().unwrap()),
+                    path => SqlBindingConfigLocation::Path(config.config_path.as_ref().unwrap().parent().unwrap().join(&path)),
                 },
+            }))
+            .collect::<HashMap<_, _>>();
+
+        let bindings_blob = config.bindings.iter()
+            .flat_map(|v| v.blob.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| (v.id.clone(), BlobBindingConfig {
+                storage_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&v.path),
             }))
             .collect::<HashMap<_, _>>();
 
@@ -789,6 +806,7 @@ impl DefinitionsMonitor {
                 module: module.clone(),
                 http_listeners: http_listeners.clone(),
                 bindings_sql: bindings_sql.clone(),
+                bindings_blob: bindings_blob.clone(),
             }).await.unwrap();
         }
     }
@@ -825,7 +843,14 @@ struct FunctionDeployment {
 }
 
 impl FunctionDeployment {
-    pub async fn new(wasmtime: &wasmtime::Engine, sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, module: wasmtime::Module, bindings_sql: HashMap<String, SqlBindingConfig>) -> Self {
+    pub async fn new(
+        wasmtime: &wasmtime::Engine,
+        sql_tx: flume::Sender<SqlMessage>,
+        function_id: FunctionId,
+        module: wasmtime::Module,
+        bindings_sql: HashMap<String, SqlBindingConfig>,
+        bindings_blob: HashMap<String, BlobBindingConfig>,
+    ) -> Self {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
 
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
@@ -840,6 +865,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_sleep", fx_sleep_handler).unwrap();
         linker.func_wrap("fx", "fx_random", fx_random_handler).unwrap();
         linker.func_wrap("fx", "fx_time", fx_time_handler).unwrap();
+        linker.func_wrap("fx", "fx_blob_put", fx_blob_put_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -860,7 +886,7 @@ impl FunctionDeployment {
 
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
-        let instance = FunctionInstance::new(wasmtime, sql_tx, function_id, &instance_template, bindings_sql).await;
+        let instance = FunctionInstance::new(wasmtime, sql_tx, function_id, &instance_template, bindings_sql, bindings_blob).await;
 
         Self {
             module,
@@ -903,8 +929,9 @@ impl FunctionInstance {
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
+        bindings_blob: HashMap<String, BlobBindingConfig>,
     ) -> Self {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(sql_tx, function_id, bindings_sql));
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(sql_tx, function_id, bindings_sql, bindings_blob));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -1000,16 +1027,23 @@ struct FunctionInstanceState {
     function_id: FunctionId,
     resources: SlotMap<slotmap::DefaultKey, Resource>,
     bindings_sql: HashMap<String, SqlBindingConfig>,
+    bindings_blob: HashMap<String, BlobBindingConfig>,
 }
 
 impl FunctionInstanceState {
-    pub fn new(sql_tx: flume::Sender<SqlMessage>, function_id: FunctionId, bindings_sql: HashMap<String, SqlBindingConfig>) -> Self {
+    pub fn new(
+        sql_tx: flume::Sender<SqlMessage>,
+        function_id: FunctionId,
+        bindings_sql: HashMap<String, SqlBindingConfig>,
+        bindings_blob: HashMap<String, BlobBindingConfig>
+    ) -> Self {
         Self {
             waker: None,
             sql_tx,
             function_id,
             resources: SlotMap::new(),
             bindings_sql,
+            bindings_blob,
         }
     }
 
@@ -1251,8 +1285,12 @@ fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, pt
     rand::rngs::OsRng.try_fill_bytes(&mut view[ptr..ptr+len]).unwrap();
 }
 
-fn fx_time_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 {
+fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+}
+
+fn fx_blob_put_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64 {
+    todo!("blob_but handler on host side")
 }
 
 #[derive(Debug)]
@@ -1558,4 +1596,9 @@ struct SqlBindingConfig {
 enum SqlBindingConfigLocation {
     InMemory(String),
     Path(PathBuf),
+}
+
+#[derive(Debug, Clone)]
+struct BlobBindingConfig {
+    storage_directory: PathBuf,
 }
