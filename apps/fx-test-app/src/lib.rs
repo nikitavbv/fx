@@ -3,7 +3,23 @@ use {
     tracing::info,
     axum::{Router, routing::get},
     lazy_static::lazy_static,
-    fx_sdk::{self as fx, handler, SqlQuery, sleep, HttpRequest, HttpRequestV2, HttpResponse, FxStream, FxStreamExport, KvError, fetch, metrics::Counter, StatusCode, utils::axum::handle_request},
+    fx_sdk::{
+        self as fx,
+        handler,
+        SqlQuery,
+        sleep,
+        HttpRequest,
+        HttpRequestV2,
+        HttpResponse,
+        FxStream,
+        FxStreamExport,
+        KvError,
+        fetch,
+        metrics::Counter,
+        StatusCode,
+        utils::axum::handle_request,
+        random,
+    },
 };
 
 mod unknown_import;
@@ -21,6 +37,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/sql-simple", get(test_sql_simple))
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
+            .route("/test/random", get(test_random))
             .route("/", get(home)),
         req
     ).await
@@ -51,6 +68,11 @@ async fn test_panic_page() -> String {
 async fn test_sleep() -> &'static str {
     sleep(Duration::from_secs(3)).await;
     "slept for a few seconds"
+}
+
+async fn test_random() -> String {
+    use base64::prelude::*;
+    BASE64_STANDARD.encode(random(32))
 }
 
 #[handler]
@@ -115,11 +137,6 @@ pub async fn test_stream_simple() -> fx::Result<FxStream> {
         }
     };
     Ok(FxStream::wrap(stream).unwrap())
-}
-
-#[handler]
-pub async fn test_random(len: u64) -> fx::Result<Vec<u8>> {
-    Ok(fx::random(len))
 }
 
 #[handler]

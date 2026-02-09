@@ -28,6 +28,7 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
+    rand::TryRngCore,
     fx_types::{
         capnp,
         abi_capnp,
@@ -837,6 +838,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_sql_migrate", fx_sql_migrate_handler).unwrap();
         linker.func_wrap("fx", "fx_future_poll", fx_future_poll_handler).unwrap();
         linker.func_wrap("fx", "fx_sleep", fx_sleep_handler).unwrap();
+        linker.func_wrap("fx", "fx_random", fx_random_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1236,6 +1238,16 @@ fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sle
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
         tokio::time::sleep(Duration::from_millis(sleep_millis)).await;
     }.boxed())).as_u64()
+}
+
+fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let mut context = caller.as_context_mut();
+    let view = memory.data_mut(&mut context);
+    let ptr = ptr as usize;
+    let len = len as usize;
+
+    rand::rngs::OsRng.try_fill_bytes(&mut view[ptr..ptr+len]).unwrap();
 }
 
 #[derive(Debug)]

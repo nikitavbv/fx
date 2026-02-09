@@ -35,7 +35,7 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_capnp, abi_sql_capnp},
     crate::{
-        sys::{ResourceId, OwnedResourceId, DeserializableHostResource, FutureHostResource, invoke_fx_api, fx_sql_exec, fx_sleep, HostUnitFuture},
+        sys::{ResourceId, OwnedResourceId, DeserializableHostResource, FutureHostResource, invoke_fx_api, fx_sql_exec, fx_sleep, HostUnitFuture, fx_random},
         sql::SqlResult,
         logging::FxLoggingLayer,
         fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
@@ -59,19 +59,9 @@ mod http;
 pub type FxResult<T> = anyhow::Result<T>;
 
 pub fn random(len: u64) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-    let op = request.init_op();
-    let mut random_request = op.init_random();
-    random_request.set_length(len);
-
-    let response = invoke_fx_api(message);
-    let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-    match response.get_op().which().unwrap() {
-        abi_capnp::fx_api_call_result::op::Which::Random(v) => v.unwrap().get_data().unwrap().to_vec(),
-        _other => panic!("unexpected response from random api"),
-    }
+    let random_data = vec![0; len as usize];
+    unsafe { fx_random(random_data.as_ptr() as u64, len); }
+    random_data
 }
 
 pub fn now() -> FxInstant {

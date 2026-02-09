@@ -12,4 +12,5 @@ tracing = "0.1.41"
 lazy_static = "1.5.0"
 async-stream = "0.3.6"
 axum = { version = "0.8.8", default-features = false }
+base64 = "0.22.1"
 fx-sdk = { path = "../../fx-sdk" }

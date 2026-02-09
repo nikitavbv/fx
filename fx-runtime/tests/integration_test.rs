@@ -70,7 +70,7 @@ async fn function_panic() {
 }
 
 #[tokio::test]
-async fn function_async_simple() {
+async fn async_simple() {
     init_fx_server();
 
     let started_at = Instant::now();
@@ -79,79 +79,41 @@ async fn function_async_simple() {
 
     assert!(response.status().is_success());
     assert!(total_time >= 2);
+    assert!(total_time <= 4);
+}
+
+#[tokio::test]
+async fn async_conurrent() {
+    init_fx_server();
+
+    let started_at = Instant::now();
+    let _ = join!(
+        async {
+            let response = reqwest::get("http://localhost:8080/test/sleep").await.unwrap();
+            assert!(response.status().is_success());
+        },
+        async {
+            let response = reqwest::get("http://localhost:8080/test/sleep").await.unwrap();
+            assert!(response.status().is_success());
+        },
+    );
+    let total_time = (Instant::now() - started_at).as_secs();
+    assert!(total_time >= 2);
+    assert!(total_time <= 4);
+}
+
+#[tokio::test]
+async fn test_random() {
+    init_fx_server();
+
+    let response1 = reqwest::get("http://localhost:8080/test/random").await.unwrap().text().await.unwrap();
+    let response2 = reqwest::get("http://localhost:8080/test/random").await.unwrap().text().await.unwrap();
+    assert!(response1 != response2);
+    assert!((30..50).contains(&response1.len()));
+    assert!((30..50).contains(&response2.len()));
 }
 
 /*
-#[tokio::test]
-async fn async_handler_simple() {
-    let started_at = Instant::now();
-    let result = fx_server().await.lock()
-        .invoke_function::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
-    let total_time = (Instant::now() - started_at).as_secs();
-    assert_eq!(42, result);
-    assert!(total_time >= 2); // async_simple is expected to sleep for 3 seconds
-}
-
-#[tokio::test]
-async fn async_concurrent() {
-    // pre-warm the function
-    let fx = fx_server().await;
-    let fx = fx.lock();
-    let _ = fx.invoke_function::<u64, u64>(&FunctionId::new("test-app".to_owned()), "async_simple", 42).await.unwrap().0;
-
-    // measure time to wait for both
-    let function = FunctionId::new("test-app".to_owned());
-    let started_at = Instant::now();
-    let result = join!(
-        async {
-            fx.invoke_function::<u64, u64>(&function, "async_simple", 42).await.unwrap().0
-        },
-        async {
-            fx.invoke_function::<u64, u64>(&function, "async_simple", 43).await.unwrap().0
-        }
-    );
-    let total_time = (Instant::now() - started_at).as_secs();
-    assert_eq!((42, 43), result);
-    println!("waited for {total_time}");
-    assert!(total_time <= 4); // async_simple is expected to sleep for 3 seconds, two requests are served concurrentlys
-}
-
-/*#[tokio::test]
-async fn stream_simple() {
-    let fx = fx_server().await.lock();
-    let stream: FxStream = fx.invoke_function::<(), FxStream>(&FunctionId::new("test-app".to_owned()), "test_stream_simple", ()).await.unwrap().0;
-    let mut stream = fx.read_stream(&stream).unwrap().unwrap();
-    let started_at = Instant::now();
-    let mut n = 0;
-    while let Some(v) = stream.next().await {
-        let v = v.unwrap();
-        if n != v[0] || v.len() > 1 {
-            panic!("recieved unexpected data in stream: {v:?}");
-        }
-
-        let millis_passed = (Instant::now() - started_at).as_millis();
-        if !(millis_passed >= (n as u128) * 1000 && millis_passed < (n as u128 + 1) * 1000) {
-            panic!("unexpected amount of time passed: {millis_passed}");
-        }
-
-        n += 1;
-    }
-
-    if n != 5 {
-        panic!("unexpected number of items read from stream: {n}");
-    }
-}*/
-
-#[tokio::test]
-async fn random() {
-    let random_bytes_0: Vec<u8> = fx_server().await.lock().invoke_function::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
-    let random_bytes_1: Vec<u8> = fx_server().await.lock().invoke_function::<u64, Vec<u8>>(&FunctionId::new("test-app".to_owned()), "test_random", 32).await.unwrap().0;
-
-    assert_eq!(32, random_bytes_0.len());
-    assert_eq!(32, random_bytes_1.len());
-    assert!(random_bytes_0 != random_bytes_1);
-}
-
 #[tokio::test]
 async fn time() {
     let millis = fx_server().await.lock().invoke_function::<(), u64>(&FunctionId::new("test-app".to_owned()), "test_time", ()).await.unwrap().0;
