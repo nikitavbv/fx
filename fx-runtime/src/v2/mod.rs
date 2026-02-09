@@ -51,7 +51,10 @@ use {
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
         },
     },
+    self::errors::{FunctionFuturePollError, FunctionFutureError, FunctionDeploymentHandleRequestError},
 };
+
+mod errors;
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
 const DEFINITION_FILE_SUFFIX: &str = ".fx.yaml";
@@ -509,18 +512,33 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
             let response = function_future.await;
-            let function_response: FunctionResponse = response.move_to_host().await;
+            let function_response = match response {
+                Ok(v) => Ok(v.move_to_host().await),
+                Err(err) => Err(err),
+            };
 
-            let body = match &function_response.0 {
-                FunctionResponseInner::HttpResponse(v) => {
-                    FunctionResponseHttpBody::for_function_resource(v.body.replace(None).unwrap())
+            let body = match &function_response {
+                Ok(response) => match &response.0 {
+                    FunctionResponseInner::HttpResponse(v) => {
+                        FunctionResponseHttpBody::for_function_resource(v.body.replace(None).unwrap())
+                    }
+                },
+                Err(err) => match err {
+                    FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionResponseHttpBody::for_bytes(Bytes::from("function panicked while handling request.\n"))
                 }
             };
 
             let mut response = Response::new(body);
-            match function_response.0 {
-                FunctionResponseInner::HttpResponse(v) => {
-                    *response.status_mut() = v.status;
+            match function_response {
+                Ok(function_response) => match &function_response.0 {
+                    FunctionResponseInner::HttpResponse(v) => {
+                        *response.status_mut() = v.status;
+                    }
+                },
+                Err(err) => match err {
+                    FunctionDeploymentHandleRequestError::FunctionPanicked => {
+                        *response.status_mut() = StatusCode::BAD_GATEWAY;
+                    }
                 }
             }
 
@@ -846,13 +864,16 @@ impl FunctionDeployment {
         }
     }
 
-    fn handle_request(&self, req: FunctionRequest) -> Pin<Box<dyn Future<Output = SerializedFunctionResource<FunctionResponse>>>> {
+    fn handle_request(&self, req: FunctionRequest) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         Box::pin(async move {
             let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(SerializableResource::Raw(req)));
-            let response_resource = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
-            SerializedFunctionResource::new(instance, response_resource)
+            FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await
+                .map(|response_resource| SerializedFunctionResource::new(instance, response_resource))
+                .map_err(|err| match err {
+                    FunctionFutureError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
+                })
         })
     }
 }
@@ -912,16 +933,24 @@ impl FunctionInstance {
         }
     }
 
-    async fn future_poll(&self, future_id: &FunctionResourceId, waker: std::task::Waker) -> Poll<()> {
+    async fn future_poll(&self, future_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, FunctionFuturePollError> {
         let mut store = self.store.lock().await;
         store.data_mut().waker = Some(waker);
-        let future_poll_result = self.fn_future_poll.call_async(store.as_context_mut(), future_id.as_u64()).await.unwrap();
+        let future_poll_result = self.fn_future_poll.call_async(store.as_context_mut(), future_id.as_u64()).await;
         drop(store);
 
-        match FuturePollResult::try_from(future_poll_result).unwrap() {
+        let future_poll_result = future_poll_result.map_err(|err| {
+            let trap = err.downcast::<wasmtime::Trap>().unwrap();
+            match trap {
+                wasmtime::Trap::UnreachableCodeReached => FunctionFuturePollError::FunctionPanicked,
+                other => panic!("unexpected trap: {other:?}"),
+            }
+        })?;
+
+        Ok(match FuturePollResult::try_from(future_poll_result).unwrap() {
             FuturePollResult::Pending => Poll::Pending,
             FuturePollResult::Ready => Poll::Ready(()),
-        }
+        })
     }
 
     async fn resource_serialize(&self, resource_id: &FunctionResourceId) -> u64 {
@@ -1446,7 +1475,7 @@ enum FutureResource<T> {
 }
 
 struct FunctionFuture {
-    inner: LocalBoxFuture<'static, Poll<()>>,
+    inner: LocalBoxFuture<'static, Result<Poll<()>, FunctionFuturePollError>>,
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,
 }
@@ -1460,7 +1489,7 @@ impl FunctionFuture {
         }
     }
 
-    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Poll<()>> {
+    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Result<Poll<()>, FunctionFuturePollError>> {
         async move {
             let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
             instance.future_poll(&resource_id, waker).await
@@ -1469,16 +1498,27 @@ impl FunctionFuture {
 }
 
 impl Future for FunctionFuture {
-    type Output = FunctionResourceId;
+    type Output = Result<FunctionResourceId, FunctionFutureError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         match self.inner.poll_unpin(cx) {
             Poll::Pending => Poll::Pending,
-            Poll::Ready(Poll::Pending) => {
-                self.inner = Self::start_new_poll_call(self.instance.clone(), self.resource_id.clone());
-                Poll::Pending
+            Poll::Ready(v) => {
+                let poll = match v {
+                    Ok(v) => v,
+                    Err(err) => return Poll::Ready(Err(match err {
+                        FunctionFuturePollError::FunctionPanicked => FunctionFutureError::FunctionPanicked,
+                    })),
+                };
+
+                match poll {
+                    Poll::Pending => {
+                        self.inner = Self::start_new_poll_call(self.instance.clone(), self.resource_id.clone());
+                        Poll::Pending
+                    },
+                    Poll::Ready(_) => Poll::Ready(Ok(self.resource_id.clone()))
+                }
             },
-            Poll::Ready(Poll::Ready(_)) => Poll::Ready(self.resource_id.clone()),
         }
     }
 }

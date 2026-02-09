@@ -19,6 +19,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
         Router::new()
             .route("/test/status-code", get(status_code))
             .route("/test/sql-simple", get(sql_simple))
+            .route("/test/panic", get(panic_page))
             .route("/", get(home)),
         req
     ).await
@@ -40,6 +41,10 @@ async fn sql_simple() -> String {
     let res: u64 = database.exec(SqlQuery::new("select sum(v) from test_sql_simple")).await.unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
     database.exec(SqlQuery::new("drop table test_sql_simple")).await.unwrap();
     res.to_string()
+}
+
+async fn panic_page() -> String {
+    panic!("test function panic")
 }
 
 #[handler]

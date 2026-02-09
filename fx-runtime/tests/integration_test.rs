@@ -60,53 +60,16 @@ async fn sql_simple() {
     assert_eq!("52", response.text().await.unwrap());
 }
 
+// TODO: recover from panicks?
+#[tokio::test]
+async fn function_panic() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/panic").await.unwrap();
+    assert_eq!(502, response.status().as_u16());
+    assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
+}
+
 /*
-#[tokio::test]
-async fn invoke_function_non_existent_rpc() {
-    let err = fx_server().await.lock()
-        .invoke_function::<(), ()>(&FunctionId::new("test-app".to_owned()), "function_non_existent", ())
-        .await
-        .map(|v| v.0);
-
-    match err {
-        Err(FunctionInvokeAndExecuteError::HandlerNotDefined) => {}
-        other => panic!("unexpected error: {other:?}, expected HandlerNotDefined"),
-    }
-}
-
-#[tokio::test]
-async fn invoke_function_no_module_code() {
-    let err = fx_server().await.lock()
-        .invoke_function::<(), ()>(&FunctionId::new("test-no-module-code".to_owned()), "simple", ())
-        .await
-        .map(|v| v.0);
-
-    match err {
-        Err(FunctionInvokeAndExecuteError::CodeNotFound) => {}
-        other => panic!("unexpected error: {other:?}, expected CodeNotFound"),
-    }
-}
-
-#[tokio::test]
-async fn invoke_function_panic() {
-    let result = fx_server().await.lock()
-        .invoke_function::<(), ()>(&FunctionId::new("test-app-for-panic".to_owned()), "test_panic", ()).await.map(|v| v.0);
-    match result.err().unwrap() {
-        FunctionInvokeAndExecuteError::FunctionPanicked => {}
-        other => panic!("expected function panicked error, got: {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn invoke_function_wrong_argument() {
-    let result = fx_server().await.lock()
-        .invoke_function::<String, u32>(&FunctionId::new("test-app".to_owned()), "simple", "wrong argument".to_owned()).await.err().unwrap();
-    match result {
-        FunctionInvokeAndExecuteError::FunctionRuntimeError => {}
-        other => panic!("unexpected fx error: {other:?}"),
-    }
-}
-
 #[tokio::test]
 async fn async_handler_simple() {
     let started_at = Instant::now();
