@@ -60,13 +60,25 @@ async fn sql_simple() {
     assert_eq!("52", response.text().await.unwrap());
 }
 
-// TODO: recover from panicks?
+// TODO: recover from panics?
 #[tokio::test]
 async fn function_panic() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080/test/panic").await.unwrap();
     assert_eq!(502, response.status().as_u16());
     assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn function_async_simple() {
+    init_fx_server();
+
+    let started_at = Instant::now();
+    let response = reqwest::get("http://localhost:8080/test/sleep").await.unwrap();
+    let total_time = (Instant::now() - started_at).as_secs();
+
+    assert!(response.status().is_success());
+    assert!(total_time >= 2);
 }
 
 /*

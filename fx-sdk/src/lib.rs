@@ -35,7 +35,7 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_capnp, abi_sql_capnp},
     crate::{
-        sys::{ResourceId, OwnedResourceId, DeserializableHostResource, FutureHostResource, invoke_fx_api, fx_sql_exec},
+        sys::{ResourceId, OwnedResourceId, DeserializableHostResource, FutureHostResource, invoke_fx_api, fx_sql_exec, fx_sleep, HostUnitFuture},
         sql::SqlResult,
         logging::FxLoggingLayer,
         fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
@@ -272,29 +272,7 @@ impl SqlDatabase {
 }
 
 pub async fn sleep(duration: Duration) {
-    let future_id = {
-        let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-        let op = request.init_op();
-        let mut sleep_request = op.init_sleep();
-        sleep_request.set_millis(duration.as_millis() as u64);
-
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::Sleep(v) => {
-                let sleep = v.unwrap();
-                match sleep.get_response().which().unwrap() {
-                    abi_capnp::sleep_response::response::Which::FutureId(v) => v,
-                    abi_capnp::sleep_response::response::Which::SleepError(err) => panic!("failed to sleep: {err:?}"),
-                }
-            },
-            _other => panic!("unexpected response from sleep api"),
-        }
-    };
-
-    FxHostFuture::new(PoolIndex(future_id)).await.unwrap();
+    HostUnitFuture::new(OwnedResourceId::from_ffi(unsafe { fx_sleep(duration.as_millis() as u64) })).await
 }
 
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {

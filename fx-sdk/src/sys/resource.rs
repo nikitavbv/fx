@@ -191,6 +191,32 @@ impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
     }
 }
 
+pub(crate) struct HostUnitFuture {
+    resource_id: OwnedResourceId,
+}
+
+impl HostUnitFuture {
+    pub fn new(resource_id: OwnedResourceId) -> Self {
+        Self {
+            resource_id,
+        }
+    }
+}
+
+impl Future for HostUnitFuture {
+    type Output = ();
+
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let poll_result = self.resource_id.with(|resource_id| {
+            unsafe { fx_future_poll(resource_id.id) }
+        });
+        match FuturePollResult::try_from(poll_result).unwrap() {
+            FuturePollResult::Pending => std::task::Poll::Pending,
+            FuturePollResult::Ready => std::task::Poll::Ready(()),
+        }
+    }
+}
+
 pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
     FUNCTION_RESOURCES.with_borrow_mut(|v| FunctionResourceId::new(v.insert(resource).data().as_ffi()))
 }

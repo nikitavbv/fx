@@ -17,9 +17,10 @@ lazy_static! {
 pub async fn http(req: HttpRequestV2) -> HttpResponse {
     handle_request(
         Router::new()
-            .route("/test/status-code", get(status_code))
-            .route("/test/sql-simple", get(sql_simple))
-            .route("/test/panic", get(panic_page))
+            .route("/test/status-code", get(test_status_code))
+            .route("/test/sql-simple", get(test_sql_simple))
+            .route("/test/panic", get(test_panic_page))
+            .route("/test/sleep", get(test_sleep))
             .route("/", get(home)),
         req
     ).await
@@ -29,11 +30,11 @@ async fn home() -> &'static str {
     "hello fx!"
 }
 
-async fn status_code() -> (StatusCode, &'static str) {
+async fn test_status_code() -> (StatusCode, &'static str) {
     (StatusCode::IM_A_TEAPOT, "this returns custom status code.\n")
 }
 
-async fn sql_simple() -> String {
+async fn test_sql_simple() -> String {
     let database = fx::sql("app");
     database.exec(SqlQuery::new("create table test_sql_simple (v integer not null)")).await.unwrap();
     database.exec(SqlQuery::new("insert into test_sql_simple (v) values (42)")).await.unwrap();
@@ -43,8 +44,13 @@ async fn sql_simple() -> String {
     res.to_string()
 }
 
-async fn panic_page() -> String {
+async fn test_panic_page() -> String {
     panic!("test function panic")
+}
+
+async fn test_sleep() -> &'static str {
+    sleep(Duration::from_secs(3)).await;
+    "slept for a few seconds"
 }
 
 #[handler]

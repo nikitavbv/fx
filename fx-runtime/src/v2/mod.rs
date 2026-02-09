@@ -12,6 +12,7 @@ use {
         thread::JoinHandle,
         fmt::Debug,
         marker::PhantomData,
+        time::Duration,
     },
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
@@ -835,6 +836,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_sql_exec", fx_sql_exec_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_migrate", fx_sql_migrate_handler).unwrap();
         linker.func_wrap("fx", "fx_future_poll", fx_future_poll_handler).unwrap();
+        linker.func_wrap("fx", "fx_sleep", fx_sleep_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1228,6 +1230,12 @@ fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState
         Poll::Pending => FuturePollResult::Pending,
         Poll::Ready(_) => FuturePollResult::Ready,
     }) as i64
+}
+
+fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        tokio::time::sleep(Duration::from_millis(sleep_millis)).await;
+    }.boxed())).as_u64()
 }
 
 #[derive(Debug)]

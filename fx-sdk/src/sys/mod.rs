@@ -16,7 +16,7 @@ pub use self::{
 
 pub(crate) use self::{
     logs::log,
-    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId},
+    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId, HostUnitFuture},
 };
 
 use {
@@ -160,6 +160,7 @@ unsafe extern "C" {
     pub(crate) fn fx_resource_drop(resource_id: u64);
     pub(crate) fn fx_sql_exec(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_future_poll(future_resource_id: u64) -> i64;
+    pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
 }
 
 #[derive(Debug)]
