@@ -1290,6 +1290,22 @@ fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 
 }
 
 fn fx_blob_put_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let key = {
+        let ptr = key_ptr as usize;
+        let len = key_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+
+    let value = {
+        let ptr = value_ptr as usize;
+        let len = value_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+
     todo!("blob_but handler on host side")
 }
 
