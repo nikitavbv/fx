@@ -35,7 +35,16 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_capnp, abi_sql_capnp},
     crate::{
-        sys::{ResourceId, OwnedResourceId, DeserializableHostResource, FutureHostResource, invoke_fx_api, fx_sql_exec, fx_sleep, HostUnitFuture, fx_random},
+        sys::{
+            OwnedResourceId,
+            FutureHostResource,
+            invoke_fx_api,
+            fx_sql_exec,
+            fx_sleep,
+            HostUnitFuture,
+            fx_random,
+            fx_time,
+        },
         sql::SqlResult,
         logging::FxLoggingLayer,
         fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
@@ -275,24 +284,8 @@ pub struct FxInstant {
 
 impl FxInstant {
     pub fn now() -> Self {
-        let mut message = capnp::message::Builder::new_default();
-        message.init_root::<abi_capnp::fx_api_call::Builder>()
-            .init_op()
-            .init_time();
-
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-        let timestamp = match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::Time(v) => {
-                let time_response = v.unwrap();
-                time_response.get_timestamp()
-            },
-            _other => panic!("unexpected response from time api"),
-        };
-
         Self {
-            millis_since_unix: timestamp as i64,
+            millis_since_unix: unsafe { fx_time() } as i64,
         }
     }
 

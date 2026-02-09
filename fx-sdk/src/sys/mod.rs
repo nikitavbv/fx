@@ -162,6 +162,7 @@ unsafe extern "C" {
     pub(crate) fn fx_future_poll(future_resource_id: u64) -> i64;
     pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
     pub(crate) fn fx_random(ptr: u64, len: u64);
+    pub(crate) fn fx_time() -> u64;
 }
 
 #[derive(Debug)]

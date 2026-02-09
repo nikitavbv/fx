@@ -6,7 +6,7 @@ run:
 
 test:
     cargo build --target wasm32-unknown-unknown -p fx-test-app --release
-    cargo test -p fx-runtime --release
+    cargo test -p fx-runtime --release -- --show-output
 
 coverage:
     cargo llvm-cov --html run -p fx-tests --release

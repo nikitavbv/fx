@@ -38,6 +38,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
+            .route("/test/time", get(test_time))
             .route("/", get(home)),
         req
     ).await
@@ -73,6 +74,12 @@ async fn test_sleep() -> &'static str {
 async fn test_random() -> String {
     use base64::prelude::*;
     BASE64_STANDARD.encode(random(32))
+}
+
+async fn test_time() -> String {
+    let started_at = fx::now();
+    sleep(Duration::from_secs(1)).await;
+    (fx::now() - started_at).as_millis().to_string()
 }
 
 #[handler]
@@ -137,13 +144,6 @@ pub async fn test_stream_simple() -> fx::Result<FxStream> {
         }
     };
     Ok(FxStream::wrap(stream).unwrap())
-}
-
-#[handler]
-pub async fn test_time() -> fx::Result<u64> {
-    let started_at = fx::now();
-    sleep(Duration::from_secs(1)).await;
-    Ok((fx::now() - started_at).as_millis() as u64)
 }
 
 #[handler]

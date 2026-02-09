@@ -113,6 +113,16 @@ async fn test_random() {
     assert!((30..50).contains(&response2.len()));
 }
 
+#[tokio::test]
+async fn test_time() {
+    init_fx_server();
+
+    let millis: u64 = reqwest::get("http://localhost:8080/test/time").await.unwrap()
+        .text().await.unwrap()
+        .parse().unwrap();
+    assert!((950..=1050).contains(&millis));
+}
+
 /*
 #[tokio::test]
 async fn time() {
