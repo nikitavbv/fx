@@ -866,6 +866,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_random", fx_random_handler).unwrap();
         linker.func_wrap("fx", "fx_time", fx_time_handler).unwrap();
         linker.func_wrap("fx", "fx_blob_put", fx_blob_put_handler).unwrap();
+        linker.func_wrap("fx", "fx_blob_get", fx_blob_get_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1070,6 +1071,16 @@ impl FunctionInstanceState {
                 (Resource::SqlQueryResult(FutureResource::Ready(serialized)), serialized_size)
             },
             Resource::UnitFuture(_) => panic!("unit future cannot be serialized"),
+            Resource::BlobGetResult(v) => {
+                let resource = match v {
+                    FutureResource::Future(_) => panic!("resout is not yet ready for serialization"),
+                    FutureResource::Ready(v) => v,
+                };
+
+                let serialized = resource.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (Resource::BlobGetResult(FutureResource::Ready(serialized)), serialized_size)
+            }
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -1097,6 +1108,19 @@ impl FunctionInstanceState {
             Resource::UnitFuture(mut v) => {
                 let poll_result = v.poll_unpin(&mut cx);
                 (Resource::UnitFuture(v), poll_result)
+            },
+            Resource::BlobGetResult(v) => {
+                let (resource, poll_result) = match v {
+                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                    FutureResource::Future(mut future) => {
+                        let poll_result = future.poll_unpin(&mut cx);
+                        match poll_result {
+                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
+                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                        }
+                    }
+                };
+                (Resource::BlobGetResult(resource), poll_result)
             }
         };
 
@@ -1181,6 +1205,10 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
             FutureResource::Ready(v) => v.into_serialized(),
         },
         Resource::UnitFuture(_) => panic!("unit future cannot be moved to function"),
+        Resource::BlobGetResult(res) => match res {
+            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
+            FutureResource::Ready(v) => v.into_serialized(),
+        }
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -1289,24 +1317,72 @@ fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
-fn fx_blob_put_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64 {
+fn fx_blob_put_handler(
+    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
+    binding_ptr: u64,
+    binding_len: u64,
+    key_ptr: u64,
+    key_len: u64,
+    value_ptr: u64,
+    value_len: u64
+) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_ptr as usize;
+        let len = binding_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+
+    let binding = caller.data().bindings_blob.get(&binding).unwrap();
 
     let key = {
         let ptr = key_ptr as usize;
         let len = key_len as usize;
         String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
     };
+    // TODO: add a check to prevent exiting the directory, lol
+    let key_path = binding.storage_directory.join(key);
 
     let value = {
         let ptr = value_ptr as usize;
         let len = value_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+        view[ptr..ptr+len].to_vec()
     };
 
-    todo!("blob_but handler on host side")
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        tokio::fs::write(key_path, value).await.unwrap();
+    }.boxed())).as_u64()
+}
+
+fn fx_blob_get_handler(
+    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
+    binding_ptr: u64,
+    binding_len: u64,
+    key_ptr: u64,
+    key_len: u64,
+) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_ptr as usize;
+        let len = binding_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+    let binding = caller.data().bindings_blob.get(&binding).unwrap();
+
+    let key = {
+        let ptr = key_ptr as usize;
+        let len = key_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+    let key_path = binding.storage_directory.join(key);
+
+    todo!("add blob read result")
 }
 
 #[derive(Debug)]
@@ -1468,6 +1544,7 @@ enum Resource {
     FunctionRequest(SerializableResource<FunctionRequest>),
     SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
     UnitFuture(BoxFuture<'static, ()>),
+    BlobGetResult(FutureResource<SerializableResource<Vec<u8>>>),
 }
 
 enum SerializableResource<T: SerializeResource> {
@@ -1545,6 +1622,12 @@ impl SerializeResource for QueryResult {
         }
 
         capnp::serialize::write_message_to_words(&message)
+    }
+}
+
+impl SerializeResource for Vec<u8> {
+    fn serialize(self) -> Vec<u8> {
+        self
     }
 }
 

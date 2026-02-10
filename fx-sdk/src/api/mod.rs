@@ -1,4 +1,7 @@
-pub use self::http::{HttpRequest as HttpRequestV2};
+pub use self::{
+    http::{HttpRequest as HttpRequestV2},
+    blob::{BlobBucket, blob},
+};
 
 use {
     std::task::Poll,
@@ -12,6 +15,7 @@ use {
     },
 };
 
+mod blob;
 mod http;
 
 pub(crate) fn handle_future_poll(

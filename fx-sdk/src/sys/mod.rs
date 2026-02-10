@@ -163,6 +163,8 @@ unsafe extern "C" {
     pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
     pub(crate) fn fx_random(ptr: u64, len: u64);
     pub(crate) fn fx_time() -> u64;
+    pub(crate) fn fx_blob_put(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64;
+    pub(crate) fn fx_blob_get(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64) -> u64;
 }
 
 #[derive(Debug)]

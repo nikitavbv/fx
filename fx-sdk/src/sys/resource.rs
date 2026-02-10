@@ -156,6 +156,12 @@ pub trait DeserializeHostResource {
     fn deserialize(data: &mut &[u8]) -> Self;
 }
 
+impl DeserializeHostResource for Vec<u8> {
+    fn deserialize(data: &mut &[u8]) -> Self {
+        data.to_vec()
+    }
+}
+
 pub(crate) struct FutureHostResource<T: DeserializeHostResource> {
     resource_id: RefCell<Option<OwnedResourceId>>,
     _t: PhantomData<T>,

@@ -83,29 +83,6 @@ async fn test_time() -> String {
 }
 
 #[handler]
-pub async fn async_simple(arg: u64) -> fx::Result<u64> {
-    sleep(Duration::from_secs(3)).await;
-    Ok(arg)
-}
-
-#[handler]
-pub async fn rpc_responder(arg: u64) -> fx::Result<u64> {
-    sleep(Duration::from_secs(1)).await;
-    Ok(arg * 2)
-}
-
-#[handler]
-pub async fn rpc_responder_panic() -> fx::Result<u64> {
-    panic!("test panic");
-}
-
-#[handler]
-pub async fn rpc_responder_panic_async() -> fx::Result<u64> {
-    sleep(Duration::from_secs(1)).await;
-    panic!("test panic");
-}
-
-#[handler]
 pub async fn test_fetch() -> fx::Result<Result<String, String>> {
     let response = fetch(
         HttpRequest::get("https://fx.nikitavbv.com/api/mock/get").unwrap()
