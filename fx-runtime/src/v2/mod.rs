@@ -868,6 +868,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_time", fx_time_handler).unwrap();
         linker.func_wrap("fx", "fx_blob_put", fx_blob_put_handler).unwrap();
         linker.func_wrap("fx", "fx_blob_get", fx_blob_get_handler).unwrap();
+        linker.func_wrap("fx", "fx_blob_delete", fx_blob_delete_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1354,6 +1355,11 @@ fn fx_blob_put_handler(
     };
 
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        let parent = key_path.parent().unwrap();
+        if !parent.exists() {
+            tokio::fs::create_dir_all(parent).await.unwrap();
+        }
+
         tokio::fs::write(key_path, value).await.unwrap();
     }.boxed())).as_u64()
 }
@@ -1395,6 +1401,40 @@ fn fx_blob_get_handler(
             }
         })
     }.boxed()))).as_u64()
+}
+
+fn fx_blob_delete_handler(
+    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
+    binding_ptr: u64,
+    binding_len: u64,
+    key_ptr: u64,
+    key_len: u64,
+) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_ptr as usize;
+        let len = binding_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+    let binding = caller.data().bindings_blob.get(&binding).unwrap();
+
+    let key = {
+        let ptr = key_ptr as usize;
+        let len = key_len as usize;
+        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+    };
+    let key_path = binding.storage_directory.join(key);
+
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        if let Err(err) = tokio::fs::remove_file(&key_path).await {
+            if err.kind() != std::io::ErrorKind::NotFound {
+                todo!("error handling is not implemented for fx_blob_delete: {:?}", err.kind());
+            }
+        }
+    }.boxed())).as_u64()
 }
 
 #[derive(Debug)]
@@ -1598,6 +1638,15 @@ impl SerializeResource for FunctionRequest {
 
         fn set_request_common<T>(resource: &mut fx_types::abi_host_resources_capnp::function_request::Builder<'_>, request: &hyper::Request<T>) {
             resource.set_uri(request.uri().to_string());
+            resource.set_method(match &*request.method() {
+                &hyper::Method::GET => abi_host_resources_capnp::HttpMethod::Get,
+                &hyper::Method::POST => abi_host_resources_capnp::HttpMethod::Post,
+                &hyper::Method::PUT => abi_host_resources_capnp::HttpMethod::Put,
+                &hyper::Method::PATCH => abi_host_resources_capnp::HttpMethod::Patch,
+                &hyper::Method::DELETE => abi_host_resources_capnp::HttpMethod::Delete,
+                &hyper::Method::OPTIONS => abi_host_resources_capnp::HttpMethod::Options,
+                other => todo!("this http method not supported: {other:?}"),
+            });
         }
 
         match self.0 {

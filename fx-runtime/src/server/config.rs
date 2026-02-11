@@ -90,6 +90,18 @@ impl FunctionConfig {
         self
     }
 
+    /// Used to configure server externally, for example, in integration tests.
+    #[allow(dead_code)]
+    pub fn with_binding_blob(mut self, id: String, path: String) -> Self {
+        if self.bindings.is_none() {
+            self.bindings = Some(FunctionBindingsConfig::new());
+        }
+
+        self.bindings = self.bindings.map(|v| v.with_blob(id, path));
+
+        self
+    }
+
     pub fn with_binding_sql(mut self, id: String, path: String) -> Self {
         if self.bindings.is_none() {
             self.bindings = Some(FunctionBindingsConfig::new());
@@ -173,8 +185,8 @@ pub struct FunctionRabbitmqTriggerConfig {
 pub struct FunctionBindingsConfig {
     pub sql: Option<Vec<SqlBindingConfig>>,
     pub rpc: Option<Vec<RpcBindingConfig>>,
-    pub kv: Option<Vec<KvBindingConfig>>,
     pub blob: Option<Vec<BlobBindingConfig>>,
+    pub kv: Option<Vec<KvBindingConfig>>,
 }
 
 impl FunctionBindingsConfig {
@@ -185,6 +197,19 @@ impl FunctionBindingsConfig {
             kv: None,
             blob: None,
         }
+    }
+
+    pub fn with_blob(mut self, id: String, path: String) -> Self {
+        if self.blob.is_none() {
+            self.blob = Some(Vec::new());
+        }
+
+        self.blob.as_mut().unwrap().push(BlobBindingConfig {
+            id,
+            path,
+        });
+
+        self
     }
 
     pub fn with_kv(mut self, id: String, path: String) -> Self {

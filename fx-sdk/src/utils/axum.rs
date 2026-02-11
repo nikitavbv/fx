@@ -10,9 +10,9 @@ pub async fn handle_request(router: axum::Router, src_req: HttpRequestV2) -> Htt
 
     // let body = src_req.body.map(|body| body.import());
 
-    let mut request = Request::builder()
-        .uri(src_req.uri());
-    // .method(src_req.method);
+    let request = Request::builder()
+        .uri(src_req.uri())
+        .method(src_req.method());
     /*for (k, v) in src_req.headers {
         if let Some(k) = k {
             request = request.header(k, v);

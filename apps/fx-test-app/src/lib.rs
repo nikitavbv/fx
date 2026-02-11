@@ -40,8 +40,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
             .route("/test/time", get(test_time))
-            .route("/test/blob", get(test_blob_get))
-            .route("/test/blob", post(test_blob_put))
+            .route("/test/blob", get(test_blob_get).post(test_blob_put).delete(test_blob_delete))
             .route("/", get(home)),
         req
     ).await
@@ -94,6 +93,10 @@ async fn test_blob_get() -> (StatusCode, String) {
 
 async fn test_blob_put() {
     blob("test-blob").put("test-key".to_owned(), "test-value".as_bytes().to_vec()).await;
+}
+
+async fn test_blob_delete() {
+    blob("test-blob").delete("test-key".to_owned()).await;
 }
 
 #[handler]

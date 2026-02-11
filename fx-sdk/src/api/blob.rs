@@ -3,6 +3,7 @@ use {
     crate::sys::{
         fx_blob_put,
         fx_blob_get,
+        fx_blob_delete,
         FutureHostResource,
         HostUnitFuture,
         OwnedResourceId,
@@ -42,6 +43,15 @@ impl BlobBucket {
             BlobGetResponse::NotFound => None,
             BlobGetResponse::Ok(v) => Some(v),
         }
+    }
+
+    pub async fn delete(&self, key: String) {
+        HostUnitFuture::new(OwnedResourceId::from_ffi(unsafe { fx_blob_delete(
+            self.binding.as_ptr() as u64,
+            self.binding.len() as u64,
+            key.as_ptr() as u64,
+            key.len() as u64,
+        ) })).await;
     }
 }
 

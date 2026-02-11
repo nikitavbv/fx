@@ -27,14 +27,6 @@ use {
 
 mod logger;
 
-struct DataCleanupGuard;
-
-impl Drop for DataCleanupGuard {
-    fn drop(&mut self) {
-        fs::remove_file("data/test-kv/test-key").unwrap();
-    }
-}
-
 static LOGGER: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 
@@ -123,20 +115,30 @@ async fn test_time() {
     assert!((950..=1050).contains(&millis));
 }
 
-/*
 #[tokio::test]
-async fn kv_simple() {
-    let _cleanup_guard = DataCleanupGuard;
+async fn blob_simple() {
+    init_fx_server();
 
-    let result = fx_server().await.lock().invoke_function::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0;
-    assert!(result.is_none());
+    let client = reqwest::Client::new();
 
-    fx_server().await.lock().invoke_function::<String, ()>(&FunctionId::new("test-app"), "test_kv_set", "Hello World!".to_owned()).await.unwrap();
+    let result = client.delete("http://localhost:8080/test/blob").send().await.unwrap();
+    assert!(result.status().is_success());
 
-    let result = fx_server().await.lock().invoke_function::<(), Option<String>>(&FunctionId::new("test-app"), "test_kv_get", ()).await.unwrap().0.unwrap();
-    assert_eq!("Hello World!", result);
+    let result = client.get("http://localhost:8080/test/blob").send().await.unwrap();
+    assert_eq!(404, result.status().as_u16());
+
+    let result = client.post("http://localhost:8080/test/blob").send().await.unwrap();
+    assert_eq!(200, result.status().as_u16());
+
+    let result = client.get("http://localhost:8080/test/blob").send().await.unwrap();
+    assert!(result.status().is_success());
+    assert_eq!("test-value", result.text().await.unwrap());
+
+    let result = client.delete("http://localhost:8080/test/blob").send().await.unwrap();
+    assert!(result.status().is_success());
 }
 
+/*
 #[tokio::test]
 async fn kv_wrong_binding_name() {
     fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
@@ -240,6 +242,7 @@ fn init_fx_server() {
                 FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
                     .with_trigger_http()
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                    .with_binding_blob("test-blob".to_owned(), "/tmp/fx-test/test-blob".to_owned())
                     .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
                     .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
@@ -300,3 +303,4 @@ fn init_fx_server() {
 // TODO: test a lot of async calls in a loop with random response times to verify that multiple concurrent requests are handled correctly
 // TODO: test what happens if function responds with incorrect type
 // TODO: test compiler error
+// TODO: test request bodies
