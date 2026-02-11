@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    axum::{Router, routing::get},
+    axum::{Router, routing::{get, post}},
     lazy_static::lazy_static,
     fx_sdk::{
         self as fx,
@@ -19,6 +19,7 @@ use {
         StatusCode,
         utils::axum::handle_request,
         random,
+        blob,
     },
 };
 
@@ -39,6 +40,8 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
             .route("/test/time", get(test_time))
+            .route("/test/blob", get(test_blob_get))
+            .route("/test/blob", post(test_blob_put))
             .route("/", get(home)),
         req
     ).await
@@ -80,6 +83,17 @@ async fn test_time() -> String {
     let started_at = fx::now();
     sleep(Duration::from_secs(1)).await;
     (fx::now() - started_at).as_millis().to_string()
+}
+
+async fn test_blob_get() -> (StatusCode, String) {
+    match blob("test-blob").get("test-key".to_owned()).await {
+        None => (StatusCode::NOT_FOUND, "key not set".to_owned()),
+        Some(v) => (StatusCode::OK, String::from_utf8(v).unwrap())
+    }
+}
+
+async fn test_blob_put() {
+    blob("test-blob").put("test-key".to_owned(), "test-value".as_bytes().to_vec()).await;
 }
 
 #[handler]

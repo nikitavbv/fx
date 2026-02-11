@@ -36,6 +36,7 @@ use {
         abi_host_resources_capnp,
         abi_log_capnp,
         abi_sql_capnp,
+        abi_blob_capnp,
         abi::FuturePollResult,
     },
     crate::{
@@ -1382,7 +1383,18 @@ fn fx_blob_get_handler(
     };
     let key_path = binding.storage_directory.join(key);
 
-    todo!("add blob read result")
+    caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::Future(async move {
+        SerializableResource::Raw(match tokio::fs::read(key_path).await {
+            Ok(v) => BlobGetResponse::Ok(v),
+            Err(err) => {
+                if err.kind() == tokio::io::ErrorKind::NotFound {
+                    BlobGetResponse::NotFound
+                } else {
+                    todo!("handling for this error kind is not implemented: {err:?}");
+                }
+            }
+        })
+    }.boxed()))).as_u64()
 }
 
 #[derive(Debug)]
@@ -1544,7 +1556,7 @@ enum Resource {
     FunctionRequest(SerializableResource<FunctionRequest>),
     SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
     UnitFuture(BoxFuture<'static, ()>),
-    BlobGetResult(FutureResource<SerializableResource<Vec<u8>>>),
+    BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
 }
 
 enum SerializableResource<T: SerializeResource> {
@@ -1700,4 +1712,24 @@ enum SqlBindingConfigLocation {
 #[derive(Debug, Clone)]
 struct BlobBindingConfig {
     storage_directory: PathBuf,
+}
+
+enum BlobGetResponse {
+    NotFound,
+    Ok(Vec<u8>),
+}
+
+impl SerializeResource for BlobGetResponse {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let blob_get_response = message.init_root::<abi_blob_capnp::blob_get_response::Builder>();
+        let mut response = blob_get_response.init_response();
+
+        match self {
+            Self::NotFound => response.set_not_found(()),
+            Self::Ok(v) => response.set_value(&v),
+        }
+
+        capnp::serialize::write_message_to_words(&message)
+    }
 }
