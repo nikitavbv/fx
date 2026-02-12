@@ -138,12 +138,15 @@ async fn blob_simple() {
     assert!(result.status().is_success());
 }
 
-/*
 #[tokio::test]
-async fn kv_wrong_binding_name() {
-    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_kv_wrong_binding_name", ()).await.unwrap();
+async fn blob_wrong_binding_name() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/blob/wrong-binding-name").await.unwrap();
+    assert!(result.status().is_success());
 }
 
+/*
 /*#[tokio::test]
 async fn fetch() {
     let result = fx_server().await.lock()

@@ -1,6 +1,6 @@
 pub use self::{
     http::{HttpRequest as HttpRequestV2},
-    blob::{BlobBucket, blob},
+    blob::{BlobBucket, blob, BlobGetError},
 };
 
 use {

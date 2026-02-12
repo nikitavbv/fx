@@ -1,5 +1,6 @@
 use {
     fx_types::{capnp, abi_blob_capnp},
+    thiserror::Error,
     crate::sys::{
         fx_blob_put,
         fx_blob_get,
@@ -32,7 +33,7 @@ impl BlobBucket {
         HostUnitFuture::new(resource_id).await;
     }
 
-    pub async fn get(&self, key: String) -> Option<Vec<u8>> {
+    pub async fn get(&self, key: String) -> Result<Option<Vec<u8>>, BlobGetError> {
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_blob_get(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
@@ -40,8 +41,9 @@ impl BlobBucket {
             key.len() as u64
         ) });
         match FutureHostResource::<BlobGetResponse>::new(resource_id).await {
-            BlobGetResponse::NotFound => None,
-            BlobGetResponse::Ok(v) => Some(v),
+            BlobGetResponse::NotFound => Ok(None),
+            BlobGetResponse::Ok(v) => Ok(Some(v)),
+            BlobGetResponse::BindingNotExists => Err(BlobGetError::BindingNotExists),
         }
     }
 
@@ -62,6 +64,7 @@ pub fn blob(binding: impl Into<String>) -> BlobBucket {
 enum BlobGetResponse {
     NotFound,
     Ok(Vec<u8>),
+    BindingNotExists,
 }
 
 impl DeserializeHostResource for BlobGetResponse {
@@ -71,6 +74,13 @@ impl DeserializeHostResource for BlobGetResponse {
         match request.get_response().which().unwrap() {
             abi_blob_capnp::blob_get_response::response::Which::NotFound(_) => BlobGetResponse::NotFound,
             abi_blob_capnp::blob_get_response::response::Which::Value(v) => BlobGetResponse::Ok(v.unwrap().to_vec()),
+            abi_blob_capnp::blob_get_response::response::Which::BindingNotExists(_) => BlobGetResponse::BindingNotExists,
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum BlobGetError {
+    #[error("blob binding with this name does not exist")]
+    BindingNotExists,
 }

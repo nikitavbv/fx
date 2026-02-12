@@ -20,6 +20,7 @@ use {
         utils::axum::handle_request,
         random,
         blob,
+        BlobGetError,
     },
 };
 
@@ -41,6 +42,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/random", get(test_random))
             .route("/test/time", get(test_time))
             .route("/test/blob", get(test_blob_get).post(test_blob_put).delete(test_blob_delete))
+            .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
             .route("/", get(home)),
         req
     ).await
@@ -85,7 +87,7 @@ async fn test_time() -> String {
 }
 
 async fn test_blob_get() -> (StatusCode, String) {
-    match blob("test-blob").get("test-key".to_owned()).await {
+    match blob("test-blob").get("test-key".to_owned()).await.unwrap() {
         None => (StatusCode::NOT_FOUND, "key not set".to_owned()),
         Some(v) => (StatusCode::OK, String::from_utf8(v).unwrap())
     }
@@ -97,6 +99,13 @@ async fn test_blob_put() {
 
 async fn test_blob_delete() {
     blob("test-blob").delete("test-key".to_owned()).await;
+}
+
+async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
+    match blob("test-blob-wrong-binding-name").get("test-key".to_owned()).await {
+        Err(BlobGetError::BindingNotExists) => (StatusCode::OK, "got BindingNotExists, as expected".to_owned()),
+        other => (StatusCode::INTERNAL_SERVER_ERROR, format!("unexpected result when getting key from binding that does not exist: {other:?}"))
+    }
 }
 
 #[handler]

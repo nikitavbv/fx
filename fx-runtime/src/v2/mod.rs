@@ -1380,24 +1380,28 @@ fn fx_blob_get_handler(
         let len = binding_len as usize;
         String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
     };
-    let binding = caller.data().bindings_blob.get(&binding).unwrap();
+    let binding = caller.data().bindings_blob.get(&binding);
 
-    let key = {
+    let key_path = binding.map(|v| v.storage_directory.join({
         let ptr = key_ptr as usize;
         let len = key_len as usize;
         String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
-    };
-    let key_path = binding.storage_directory.join(key);
+    }));
 
     caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::Future(async move {
-        SerializableResource::Raw(match tokio::fs::read(key_path).await {
-            Ok(v) => BlobGetResponse::Ok(v),
-            Err(err) => {
-                if err.kind() == tokio::io::ErrorKind::NotFound {
-                    BlobGetResponse::NotFound
-                } else {
-                    todo!("handling for this error kind is not implemented: {err:?}");
-                }
+        SerializableResource::Raw({
+            match key_path {
+                Some(v) => match tokio::fs::read(v).await {
+                    Ok(v) => BlobGetResponse::Ok(v),
+                    Err(err) => {
+                        if err.kind() == tokio::io::ErrorKind::NotFound {
+                            BlobGetResponse::NotFound
+                        } else {
+                            todo!("handling for this error kind is not implemented: {err:?}");
+                        }
+                    }
+                },
+                None => BlobGetResponse::BindingNotExists
             }
         })
     }.boxed()))).as_u64()
@@ -1766,6 +1770,7 @@ struct BlobBindingConfig {
 enum BlobGetResponse {
     NotFound,
     Ok(Vec<u8>),
+    BindingNotExists,
 }
 
 impl SerializeResource for BlobGetResponse {
@@ -1777,6 +1782,7 @@ impl SerializeResource for BlobGetResponse {
         match self {
             Self::NotFound => response.set_not_found(()),
             Self::Ok(v) => response.set_value(&v),
+            Self::BindingNotExists => response.set_binding_not_exists(()),
         }
 
         capnp::serialize::write_message_to_words(&message)

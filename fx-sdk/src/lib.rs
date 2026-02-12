@@ -23,7 +23,7 @@ pub use {
         error::FxError,
         http::{FxHttpRequest, fetch},
         handler::{Handler, IntoHandler},
-        api::{HttpRequestV2, BlobBucket, blob},
+        api::{HttpRequestV2, BlobBucket, blob, BlobGetError},
         FxResult as Result,
     },
 };

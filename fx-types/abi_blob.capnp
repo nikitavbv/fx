@@ -4,5 +4,6 @@ struct BlobGetResponse {
     response :union {
         notFound @0 :Void;
         value @1 :Data;
+        bindingNotExists @2 :Void;
     }
 }
