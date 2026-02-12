@@ -4,6 +4,7 @@ fn main() {
         .file("abi_blob.capnp")
         .file("abi_function_resources.capnp")
         .file("abi_host_resources.capnp")
+        .file("abi_http.capnp")
         .file("abi_log.capnp")
         .file("abi_sql.capnp")
         .file("events.capnp")

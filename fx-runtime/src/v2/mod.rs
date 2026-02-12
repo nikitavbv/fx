@@ -37,6 +37,7 @@ use {
         abi_log_capnp,
         abi_sql_capnp,
         abi_blob_capnp,
+        abi_http_capnp,
         abi::FuturePollResult,
     },
     crate::{
@@ -869,6 +870,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_blob_put", fx_blob_put_handler).unwrap();
         linker.func_wrap("fx", "fx_blob_get", fx_blob_get_handler).unwrap();
         linker.func_wrap("fx", "fx_blob_delete", fx_blob_delete_handler).unwrap();
+        linker.func_wrap("fx", "fx_fetch", fx_fetch_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1439,6 +1441,29 @@ fn fx_blob_delete_handler(
             }
         }
     }.boxed())).as_u64()
+}
+
+fn fx_fetch_handler(
+    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
+    req_ptr: u64,
+    req_len: u64,
+) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let mut request = {
+        let ptr = req_ptr as usize;
+        let len = req_len as usize;
+        &view[ptr..ptr+len]
+    };
+
+    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
+    let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
+
+    let fetch_request_builder = hyper::Request::builder();
+
+    todo!("fetch handler is not implemented yet");
 }
 
 #[derive(Debug)]

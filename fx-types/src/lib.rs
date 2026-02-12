@@ -6,6 +6,7 @@ capnp::generated_code!(pub mod abi_capnp);
 capnp::generated_code!(pub mod abi_blob_capnp);
 capnp::generated_code!(pub mod abi_function_resources_capnp);
 capnp::generated_code!(pub mod abi_host_resources_capnp);
+capnp::generated_code!(pub mod abi_http_capnp);
 capnp::generated_code!(pub mod abi_log_capnp);
 capnp::generated_code!(pub mod abi_sql_capnp);
 capnp::generated_code!(pub mod events_capnp);
