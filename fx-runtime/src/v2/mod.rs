@@ -873,13 +873,23 @@ impl FunctionInstanceState {
             Resource::UnitFuture(_) => panic!("unit future cannot be serialized"),
             Resource::BlobGetResult(v) => {
                 let resource = match v {
-                    FutureResource::Future(_) => panic!("resout is not yet ready for serialization"),
+                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
                     FutureResource::Ready(v) => v,
                 };
 
                 let serialized = resource.map_to_serialized();
                 let serialized_size = serialized.serialized_size();
                 (Resource::BlobGetResult(FutureResource::Ready(serialized)), serialized_size)
+            },
+            Resource::FetchResult(v) => {
+                let resource = match v {
+                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
+                    FutureResource::Ready(v) => v,
+                };
+
+                let serialized = resource.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (Resource::FetchResult(FutureResource::Ready(serialized)), serialized_size)
             }
         };
         self.resources.reattach(resource_id.into(), resource);
@@ -921,6 +931,19 @@ impl FunctionInstanceState {
                     }
                 };
                 (Resource::BlobGetResult(resource), poll_result)
+            },
+            Resource::FetchResult(v) => {
+                let (resource, poll_result) = match v {
+                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                    FutureResource::Future(mut future) => {
+                        let poll_result = future.poll_unpin(&mut cx);
+                        match poll_result {
+                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
+                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                        }
+                    }
+                };
+                (Resource::FetchResult(resource), poll_result)
             }
         };
 
@@ -995,7 +1018,11 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
         Resource::BlobGetResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
-        }
+        },
+        Resource::FetchResult(res) => match res {
+            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
+            FutureResource::Ready(v) => v.into_serialized(),
+        },
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -1244,9 +1271,24 @@ fn fx_fetch_handler(
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
     let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
 
-    let fetch_request_builder = hyper::Request::builder();
+    let fetch_request_builder = hyper::Request::builder()
+        .method({
+            match request.get_method().unwrap() {
+                abi_http_capnp::HttpMethod::Get => http::Method::GET,
+                abi_http_capnp::HttpMethod::Put => http::Method::PUT,
+                abi_http_capnp::HttpMethod::Post => http::Method::POST,
+                abi_http_capnp::HttpMethod::Patch => http::Method::PATCH,
+                abi_http_capnp::HttpMethod::Delete => http::Method::DELETE,
+                abi_http_capnp::HttpMethod::Options => http::Method::OPTIONS,
+            }
+        })
+        .uri(request.get_uri().unwrap().to_str().unwrap());
 
-    todo!("fetch handler is not implemented yet");
+    caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
+        SerializableResource::Raw({
+            todo!();
+        })
+    }.boxed()))).as_u64()
 }
 
 #[derive(Debug)]
@@ -1409,6 +1451,7 @@ enum Resource {
     SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
+    FetchResult(FutureResource<SerializableResource<FetchResult>>),
 }
 
 enum SerializableResource<T: SerializeResource> {
@@ -1577,6 +1620,14 @@ impl SerializeResource for BlobGetResponse {
         }
 
         capnp::serialize::write_message_to_words(&message)
+    }
+}
+
+struct FetchResult {}
+
+impl SerializeResource for FetchResult {
+    fn serialize(self) -> Vec<u8> {
+        todo!("serialize for FetchResult");
     }
 }
 
