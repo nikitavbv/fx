@@ -21,9 +21,9 @@ pub use {
         fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
-        http::{FxHttpRequest, fetch},
+        http::{FxHttpRequest},
         handler::{Handler, IntoHandler},
-        api::{HttpRequestV2, BlobBucket, blob, BlobGetError},
+        api::{HttpRequestV2, BlobBucket, blob, BlobGetError, fetch},
         FxResult as Result,
     },
 };

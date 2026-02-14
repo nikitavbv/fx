@@ -146,15 +146,16 @@ async fn blob_wrong_binding_name() {
     assert!(result.status().is_success());
 }
 
-/*
-/*#[tokio::test]
+#[tokio::test]
 async fn fetch() {
-    let result = fx_server().await.lock()
-        .invoke_function::<(), Result<String, String>>(&FunctionId::new("test-app".to_owned()), "test_fetch", ()).await.unwrap().0
-        .unwrap();
-    assert_eq!("hello fx!", &result);
-}*/
+    init_fx_server();
 
+    let result = reqwest::get("http://localhost:8080/test/fetch").await.unwrap();
+    assert!(result.status().is_success());
+    assert!(result.text().await.unwrap().contains("httpbin.org/get"));
+}
+
+/*
 #[tokio::test]
 async fn log() {
     fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();

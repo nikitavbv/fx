@@ -43,6 +43,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/time", get(test_time))
             .route("/test/blob", get(test_blob_get).post(test_blob_put).delete(test_blob_delete))
             .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
+            .route("/test/fetch", get(test_fetch))
             .route("/", get(home)),
         req
     ).await
@@ -108,17 +109,12 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
     }
 }
 
-#[handler]
-pub async fn test_fetch() -> fx::Result<Result<String, String>> {
+async fn test_fetch() -> String {
     let response = fetch(
-        HttpRequest::get("https://fx.nikitavbv.com/api/mock/get").unwrap()
+        HttpRequestV2::get("https://httpbin.org/get").unwrap()
     ).await.unwrap();
 
-    if !response.status.is_success() {
-        return Ok(Err(format!("mock endpoint returned unexpected status code: {:?}, request id: {:?}", response.status, response.headers().get("x-request-id"))));
-    }
-
-    Ok(Ok(String::from_utf8(response.body).unwrap()))
+    String::from_utf8(response.body).unwrap()
 }
 
 #[handler]

@@ -98,7 +98,7 @@ impl SerializeResource for FunctionResponse {
 /// Resource that origins from host side and is now owned by function.
 /// moved lazily from host to function memory.
 /// if dropped before being moved, cleans up resource on host side.
-pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T>>);
+pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T + Send>>);
 
 impl<T: DeserializeHostResource> From<ResourceId> for DeserializableHostResource<T> {
     fn from(resource_id: ResourceId) -> Self {

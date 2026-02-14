@@ -1,6 +1,7 @@
 use {
     std::str::FromStr,
     http::{Uri, Method},
+    thiserror::Error,
     fx_types::{capnp, abi_host_resources_capnp, abi_http_capnp},
     crate::sys::{
         ResourceId,
@@ -25,6 +26,10 @@ enum HttpRequestInner {
 impl HttpRequest {
     pub fn new(method: Method, url: Uri) -> Self {
         Self(HttpRequestInner::Function(HttpRequestData::new(method, url)))
+    }
+
+    pub fn get(url: impl Into<String>) -> Result<Self, ()> {
+        Ok(Self::new(Method::GET, url.into().parse().unwrap()))
     }
 
     pub fn from_host_resource(resource: ResourceId) -> Self {
@@ -78,30 +83,32 @@ impl DeserializeHostResource for HttpRequestData {
 }
 
 pub struct HttpResponse {
-    status: http::StatusCode,
-    body: Vec<u8>,
+    pub status: http::StatusCode,
+    pub body: Vec<u8>,
 }
 
-pub async fn fetch(request: HttpRequest) -> HttpResponse {
-    let mut message = capnp::message::Builder::new_default();
-    let mut fetch = message.init_root::<abi_http_capnp::http_request::Builder>();
-    fetch.set_method(match request.method() {
-        &Method::GET => abi_http_capnp::HttpMethod::Get,
-        &Method::DELETE => abi_http_capnp::HttpMethod::Delete,
-        &Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
-        &Method::PATCH => abi_http_capnp::HttpMethod::Patch,
-        &Method::POST => abi_http_capnp::HttpMethod::Post,
-        &Method::PUT => abi_http_capnp::HttpMethod::Put,
-        other => todo!("http method not supported: {other:?}"),
-    });
-    fetch.set_uri(request.uri().to_string());
-    let fetch = capnp::serialize::write_message_to_words(&message);
+pub async fn fetch(request: HttpRequest) -> Result<HttpResponse, FetchError> {
+    let fetch = {
+        let mut message = capnp::message::Builder::new_default();
+        let mut fetch = message.init_root::<abi_http_capnp::http_request::Builder>();
+        fetch.set_method(match request.method() {
+            &Method::GET => abi_http_capnp::HttpMethod::Get,
+            &Method::DELETE => abi_http_capnp::HttpMethod::Delete,
+            &Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
+            &Method::PATCH => abi_http_capnp::HttpMethod::Patch,
+            &Method::POST => abi_http_capnp::HttpMethod::Post,
+            &Method::PUT => abi_http_capnp::HttpMethod::Put,
+            other => todo!("http method not supported: {other:?}"),
+        });
+        fetch.set_uri(request.uri().to_string());
+        capnp::serialize::write_message_to_words(&message)
+    };
 
     let response_resource = OwnedResourceId::from_ffi(
         unsafe { fx_fetch(fetch.as_ptr() as u64, fetch.len() as u64) }
     );
 
-    FutureHostResource::<HttpResponse>::new(response_resource).await
+    Ok(FutureHostResource::<HttpResponse>::new(response_resource).await)
 }
 
 impl DeserializeHostResource for HttpResponse {
@@ -115,3 +122,6 @@ impl DeserializeHostResource for HttpResponse {
         }
     }
 }
+
+#[derive(Debug, Error)]
+pub enum FetchError {}

@@ -1,5 +1,5 @@
 pub use self::{
-    http::{HttpRequest as HttpRequestV2},
+    http::{HttpRequest as HttpRequestV2, fetch},
     blob::{BlobBucket, blob, BlobGetError},
 };
 
