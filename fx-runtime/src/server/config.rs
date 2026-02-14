@@ -70,12 +70,12 @@ impl FunctionConfig {
         self
     }
 
-    pub fn with_trigger_http(mut self) -> Self {
+    pub fn with_trigger_http(mut self, host: Option<String>) -> Self {
         if self.triggers.is_none() {
             self.triggers = Some(FunctionTriggersConfig::new());
         }
 
-        self.triggers = self.triggers.map(|v| v.with_http());
+        self.triggers = self.triggers.map(|v| v.with_http(host));
 
         self
     }
@@ -149,8 +149,8 @@ impl FunctionTriggersConfig {
         }
     }
 
-    pub fn with_http(mut self) -> Self {
-        self.http = Some(vec![FunctionHttpEndpointConfig::new()]);
+    pub fn with_http(mut self, host: Option<String>) -> Self {
+        self.http = Some(vec![FunctionHttpEndpointConfig::new(host)]);
         self
     }
 }
@@ -161,9 +161,9 @@ pub struct FunctionHttpEndpointConfig {
 }
 
 impl FunctionHttpEndpointConfig {
-    pub fn new() -> Self {
+    pub fn new(host: Option<String>) -> Self {
         Self {
-            host: None,
+            host,
         }
     }
 }

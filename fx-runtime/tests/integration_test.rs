@@ -155,10 +155,13 @@ async fn fetch() {
     assert!(result.text().await.unwrap().contains("httpbin.org/get"));
 }
 
-/*
-#[tokio::test]
+/*#[tokio::test]
 async fn log() {
-    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_log", ()).await.unwrap();
+    init_fx_server();
+
+    let client = reqwest::Client::new();
+    let result = client.get("http://localhost:8080/test/fetch").header("Host", "custom-logger.fx.local").send().await.unwrap();
+    assert!(result.status().is_success());
 
     let events = LOGGER.events();
     let found_expected_event = events.iter()
@@ -168,8 +171,9 @@ async fn log() {
     if !found_expected_event {
         panic!("didn't find expected event. All events: {events:?}");
     }
-}
+}*/
 
+/*
 #[tokio::test]
 async fn log_span() {
     fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
@@ -244,7 +248,7 @@ fn init_fx_server() {
             server.deploy_function(
                 FunctionId::new("test-app"),
                 FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                    .with_trigger_http()
+                    .with_trigger_http(None)
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                     .with_binding_blob("test-blob".to_owned(), "/tmp/fx-test/test-blob".to_owned())
                     .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
@@ -252,17 +256,19 @@ fn init_fx_server() {
                     .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
             ).await;
 
+            server.deploy_function(
+                FunctionId::new("test-app-custom-logger"),
+                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                    .with_trigger_http(Some("custom-logger.fx.local".to_owned()))
+                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                    .with_logger(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone()))))
+            ).await;
+
             server
         })).join().unwrap()
     });
 
-    /*static FX_SERVER: Mutex<Option<Arc<ReentrantMutex<FxServer>>>> = Mutex::const_new(None);
-
-    let mut fx_server = FX_SERVER.lock().await;
-    if let Some(fx_server) = fx_server.as_ref() {
-        return fx_server.clone();
-    }
-
+    /*
     let server = FxServer::new(
         ServerConfig {
             config_path: Some("/tmp/fx".into()),
