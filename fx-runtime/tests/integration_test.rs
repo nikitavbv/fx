@@ -155,12 +155,12 @@ async fn fetch() {
     assert!(result.text().await.unwrap().contains("httpbin.org/get"));
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn log() {
     init_fx_server();
 
     let client = reqwest::Client::new();
-    let result = client.get("http://localhost:8080/test/fetch").header("Host", "custom-logger.fx.local").send().await.unwrap();
+    let result = client.get("http://localhost:8080/test/log").header("Host", "custom-logger.fx.local").send().await.unwrap();
     assert!(result.status().is_success());
 
     let events = LOGGER.events();
@@ -171,7 +171,7 @@ async fn log() {
     if !found_expected_event {
         panic!("didn't find expected event. All events: {events:?}");
     }
-}*/
+}
 
 /*
 #[tokio::test]

@@ -44,6 +44,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/blob", get(test_blob_get).post(test_blob_put).delete(test_blob_delete))
             .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
             .route("/test/fetch", get(test_fetch))
+            .route("/test/log", get(test_log))
             .route("/", get(home)),
         req
     ).await
@@ -117,6 +118,11 @@ async fn test_fetch() -> String {
     String::from_utf8(response.body).unwrap()
 }
 
+async fn test_log() -> &'static str {
+    info!("this is a test log");
+    "ok.\n"
+}
+
 #[handler]
 pub async fn global_counter_inc() -> fx::Result<u64> {
     let mut counter = COUNTER.lock().unwrap();
@@ -163,12 +169,6 @@ pub async fn test_kv_wrong_binding_name() -> fx::Result<()> {
     let kv = fx::kv("test-kv-wrong");
     let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
     assert_eq!(KvError::BindingDoesNotExist, err);
-    Ok(())
-}
-
-#[handler]
-pub async fn test_log() -> fx::Result<()> {
-    info!("this is a test log");
     Ok(())
 }
 

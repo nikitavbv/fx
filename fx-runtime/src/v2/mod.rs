@@ -47,12 +47,12 @@ use {
             kv::{BoxedStorage, FsStorage, SuffixStorage, KVStorage},
             definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
             metrics::run_metrics_server,
-            logs::{self, BoxLogger, StdoutLogger, NoopLogger},
+            logs::{self, BoxLogger, StdoutLogger, NoopLogger, Logger},
             sql::{Value as SqlValue, Row as SqlRow, QueryResult},
         },
         server::{
             server::FxServer,
-            config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
+            config::{ServerConfig, FunctionConfig, FunctionCodeConfig, LoggerConfig},
         },
     },
     self::{
@@ -164,8 +164,10 @@ impl FxServerV2 {
         let (sql_tx, sql_rx) = flume::unbounded::<SqlMessage>();
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
+        let (logger_tx, logger_rx) = flume::unbounded::<LogMessageEvent>();
 
         let management_thread_handle = {
+            let config = self.config.clone();
             let workers_tx = workers_tx.clone();
 
             std::thread::spawn(move || {
@@ -177,7 +179,7 @@ impl FxServerV2 {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let mut definitions_monitor = DefinitionsMonitor::new(&self.config, workers_tx, compiler_tx);
+                let mut definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
@@ -205,6 +207,20 @@ impl FxServerV2 {
                     info!(function_id, "compiling");
                     msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
                     info!(function_id, "done compiling");
+                }
+            })
+        };
+
+        let logger_thread_handle = {
+            let logger_config = self.config.logger.clone().unwrap_or(LoggerConfig::Stdout);
+
+            std::thread::spawn(move || {
+                info!("started logger thread");
+
+                let logger = create_logger(&logger_config);
+
+                while let Ok(msg) = logger_rx.recv() {
+                    logger.log(msg);
                 }
             })
         };
@@ -311,6 +327,7 @@ impl FxServerV2 {
         for worker in workers.into_iter() {
             let wasmtime = wasmtime.clone();
             let sql_tx = sql_tx.clone();
+            let logger_tx = logger_tx.clone();
 
             let handle = std::thread::spawn(move || {
                 let mut worker = worker;
@@ -370,6 +387,7 @@ impl FxServerV2 {
                                             deployment_id.clone(),
                                             Rc::new(RefCell::new(FunctionDeployment::new(
                                                 &wasmtime,
+                                                logger_tx.clone(),
                                                 sql_tx.clone(),
                                                 function_id.clone(),
                                                 module,
@@ -443,6 +461,7 @@ impl FxServerV2 {
             sql_worker_handles,
             compiler_thread_handle,
             management_thread_handle,
+            logger_thread_handle,
         }
     }
 }
@@ -455,6 +474,7 @@ pub struct RunningFxServer {
     sql_worker_handles: Vec<JoinHandle<()>>,
     compiler_thread_handle: JoinHandle<()>,
     management_thread_handle: JoinHandle<()>,
+    logger_thread_handle: JoinHandle<()>,
 }
 
 impl RunningFxServer {
@@ -475,6 +495,7 @@ impl RunningFxServer {
             handle.join().unwrap();
         }
         self.compiler_thread_handle.join().unwrap();
+        self.logger_thread_handle.join().unwrap();
         self.management_thread_handle.join().unwrap();
     }
 }
@@ -643,6 +664,7 @@ struct FunctionDeployment {
 impl FunctionDeployment {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         module: wasmtime::Module,
@@ -687,7 +709,7 @@ impl FunctionDeployment {
 
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
-        let instance = FunctionInstance::new(wasmtime, sql_tx, function_id, &instance_template, bindings_sql, bindings_blob).await;
+        let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id, &instance_template, bindings_sql, bindings_blob).await;
 
         Self {
             module,
@@ -726,13 +748,14 @@ struct FunctionInstance {
 impl FunctionInstance {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
     ) -> Self {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(sql_tx, function_id, bindings_sql, bindings_blob));
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(logger_tx, sql_tx, function_id, bindings_sql, bindings_blob));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -824,6 +847,7 @@ impl FunctionInstance {
 
 struct FunctionInstanceState {
     waker: Option<std::task::Waker>,
+    logger_tx: flume::Sender<LogMessageEvent>,
     sql_tx: flume::Sender<SqlMessage>,
     function_id: FunctionId,
     resources: SlotMap<slotmap::DefaultKey, Resource>,
@@ -834,6 +858,7 @@ struct FunctionInstanceState {
 
 impl FunctionInstanceState {
     pub fn new(
+        logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         bindings_sql: HashMap<String, SqlBindingConfig>,
@@ -841,6 +866,7 @@ impl FunctionInstanceState {
     ) -> Self {
         Self {
             waker: None,
+            logger_tx,
             sql_tx,
             function_id,
             resources: SlotMap::new(),
@@ -1001,8 +1027,7 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
             .collect()
     ).into();
 
-    // TODO: support custom loggers
-    println!("{message:?}");
+    caller.data().logger_tx.send(message).unwrap();
 }
 
 fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
@@ -1681,4 +1706,12 @@ enum SqlBindingConfigLocation {
 #[derive(Debug, Clone)]
 struct BlobBindingConfig {
     storage_directory: PathBuf,
+}
+
+fn create_logger(logger: &LoggerConfig) -> BoxLogger {
+    match logger {
+        LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
+        LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
+        LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
+    }
 }

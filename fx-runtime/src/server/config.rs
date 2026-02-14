@@ -6,7 +6,7 @@ use {
     crate::runtime::logs::BoxLogger,
 };
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct ServerConfig {
     #[serde(skip_deserializing)]
     pub config_path: Option<PathBuf>,
@@ -37,7 +37,7 @@ pub enum LoggerConfig {
     Custom(Arc<BoxLogger>),
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct IntrospectionConfig {
     pub enabled: bool,
 }
