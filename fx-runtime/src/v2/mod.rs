@@ -829,6 +829,7 @@ struct FunctionInstanceState {
     resources: SlotMap<slotmap::DefaultKey, Resource>,
     bindings_sql: HashMap<String, SqlBindingConfig>,
     bindings_blob: HashMap<String, BlobBindingConfig>,
+    http_client: reqwest::Client,
 }
 
 impl FunctionInstanceState {
@@ -845,6 +846,7 @@ impl FunctionInstanceState {
             resources: SlotMap::new(),
             bindings_sql,
             bindings_blob,
+            http_client: reqwest::Client::new(),
         }
     }
 
@@ -1271,22 +1273,24 @@ fn fx_fetch_handler(
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
     let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
 
-    let fetch_request_builder = hyper::Request::builder()
-        .method({
-            match request.get_method().unwrap() {
-                abi_http_capnp::HttpMethod::Get => http::Method::GET,
-                abi_http_capnp::HttpMethod::Put => http::Method::PUT,
-                abi_http_capnp::HttpMethod::Post => http::Method::POST,
-                abi_http_capnp::HttpMethod::Patch => http::Method::PATCH,
-                abi_http_capnp::HttpMethod::Delete => http::Method::DELETE,
-                abi_http_capnp::HttpMethod::Options => http::Method::OPTIONS,
-            }
-        })
-        .uri(request.get_uri().unwrap().to_str().unwrap());
+    let fetch_request = reqwest::Request::new(
+        match request.get_method().unwrap() {
+            abi_http_capnp::HttpMethod::Get => http::Method::GET,
+            abi_http_capnp::HttpMethod::Put => http::Method::PUT,
+            abi_http_capnp::HttpMethod::Post => http::Method::POST,
+            abi_http_capnp::HttpMethod::Patch => http::Method::PATCH,
+            abi_http_capnp::HttpMethod::Delete => http::Method::DELETE,
+            abi_http_capnp::HttpMethod::Options => http::Method::OPTIONS,
+        },
+        request.get_uri().unwrap().to_str().unwrap().try_into().unwrap()
+    );
+
+    let client = caller.data().http_client.clone();
 
     caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
         SerializableResource::Raw({
-            todo!();
+            let result = client.execute(fetch_request).await.unwrap();
+            FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
         })
     }.boxed()))).as_u64()
 }
@@ -1623,11 +1627,29 @@ impl SerializeResource for BlobGetResponse {
     }
 }
 
-struct FetchResult {}
+struct FetchResult {
+    status: http::StatusCode,
+    body: Vec<u8>,
+}
+
+impl FetchResult {
+    pub fn new(status: http::StatusCode, body: Vec<u8>) -> Self {
+        Self {
+            status,
+            body,
+        }
+    }
+}
 
 impl SerializeResource for FetchResult {
     fn serialize(self) -> Vec<u8> {
-        todo!("serialize for FetchResult");
+        let mut message = capnp::message::Builder::new_default();
+        let mut fetch_response = message.init_root::<abi_http_capnp::http_response::Builder>();
+
+        fetch_response.set_status(self.status.as_u16());
+        fetch_response.set_body(&self.body);
+
+        capnp::serialize::write_message_to_words(&message)
     }
 }
 

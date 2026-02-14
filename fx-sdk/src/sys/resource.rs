@@ -77,7 +77,7 @@ impl<T: SerializeResource> SerializableResource<T> {
     }
 }
 
-trait SerializeResource {
+pub(crate) trait SerializeResource {
     fn serialize(self) -> Vec<u8>;
 }
 

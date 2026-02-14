@@ -13,3 +13,8 @@ enum HttpMethod {
     delete @4;
     options @5;
 }
+
+struct HttpResponse {
+    status @0 :UInt16;
+    body @1 :Data;
+}

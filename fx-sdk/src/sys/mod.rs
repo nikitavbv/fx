@@ -16,7 +16,7 @@ pub use self::{
 
 pub(crate) use self::{
     logs::log,
-    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId, HostUnitFuture},
+    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId, HostUnitFuture, SerializeResource},
 };
 
 use {
@@ -166,6 +166,7 @@ unsafe extern "C" {
     pub(crate) fn fx_blob_put(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64;
     pub(crate) fn fx_blob_get(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64) -> u64;
     pub(crate) fn fx_blob_delete(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64) -> u64;
+    pub(crate) fn fx_fetch(req_addr: u64, req_len: u64) -> u64;
 }
 
 #[derive(Debug)]

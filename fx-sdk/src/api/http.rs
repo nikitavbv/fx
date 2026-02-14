@@ -5,33 +5,56 @@ use {
     crate::sys::{ResourceId, DeserializableHostResource, DeserializeHostResource},
 };
 
-pub struct HttpRequest(DeserializableHostResource<HttpRequestInner>);
+pub struct HttpRequest(HttpRequestInner);
+
+/// http request can be owned by host or function
+enum HttpRequestInner {
+    Host(DeserializableHostResource<HttpRequestData>),
+    Function(HttpRequestData),
+}
 
 impl HttpRequest {
+    pub fn new(method: Method, url: Uri) -> Self {
+        Self(HttpRequestInner::Function(HttpRequestData::new(method, url)))
+    }
+
     pub fn from_host_resource(resource: ResourceId) -> Self {
-        Self(DeserializableHostResource::from(resource))
+        Self(HttpRequestInner::Host(DeserializableHostResource::from(resource)))
+    }
+
+    fn request_data(&self) -> &HttpRequestData {
+        match &self.0 {
+            HttpRequestInner::Host(v) => v.get_raw(),
+            HttpRequestInner::Function(v) => v,
+        }
     }
 
     pub fn method(&self) -> &Method {
-        &self.0.get_raw().method
+        &self.request_data().method
     }
 
     pub fn uri(&self) -> &Uri {
-        &self.0.get_raw().url
+        &self.request_data().url
     }
 }
 
-struct HttpRequestInner {
+struct HttpRequestData {
     method: Method,
     url: Uri,
 }
 
-impl DeserializeHostResource for HttpRequestInner {
+impl HttpRequestData {
+    pub fn new(method: Method, url: Uri) -> Self {
+        Self { method, url }
+    }
+}
+
+impl DeserializeHostResource for HttpRequestData {
     fn deserialize(data: &mut &[u8]) -> Self {
         let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
         let request = resource_reader.get_root::<fx_types::abi_host_resources_capnp::function_request::Reader>().unwrap();
 
-        HttpRequestInner {
+        HttpRequestData {
             method: match &request.get_method().unwrap() {
                 abi_host_resources_capnp::HttpMethod::Get => Method::GET,
                 abi_host_resources_capnp::HttpMethod::Delete => Method::DELETE,
@@ -43,4 +66,10 @@ impl DeserializeHostResource for HttpRequestInner {
             url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
         }
     }
+}
+
+pub struct HttpResponse;
+
+pub async fn fetch(request: HttpRequest) -> HttpResponse {
+    todo!()
 }
