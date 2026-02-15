@@ -18,11 +18,8 @@ pub use {
     ::http::StatusCode,
     crate::{
         sys::PtrWithLen,
-        fx_futures::FxFuture,
         fx_streams::{FxStream, FxStreamExport, FxStreamImport},
         error::FxError,
-        http::{FxHttpRequest},
-        handler::{Handler, IntoHandler},
         api::{HttpRequestV2, BlobBucket, blob, BlobGetError, fetch, metrics},
         FxResult as Result,
     },
@@ -47,7 +44,6 @@ use {
         },
         sql::SqlResult,
         logging::FxLoggingLayer,
-        fx_futures::{FxHostFuture, PoolIndex, HostFutureError, HostFuturePollRuntimeError, HostFutureAsyncApiError},
     },
 };
 
@@ -60,9 +56,7 @@ pub mod sql;
 
 mod api;
 mod error;
-mod fx_futures;
 mod fx_streams;
-mod http;
 
 pub type FxResult<T> = anyhow::Result<T>;
 
@@ -74,105 +68,6 @@ pub fn random(len: u64) -> Vec<u8> {
 
 pub fn now() -> FxInstant {
     FxInstant::now()
-}
-
-pub fn kv(namespace: impl Into<String>) -> KvStore {
-    KvStore::new(namespace)
-}
-
-#[derive(Error, Debug)]
-pub enum RpcError {
-    /// rpc error failed because of error in runtime implementation
-    /// Should never happen. If you see this error it means there is a bug somewhere.
-    #[error("error in runtime implementation: {0:?}")]
-    RuntimeError(RpcRuntimeError),
-
-    /// Function being invoked returned an error
-    #[error("received application error when invoked target function: {message:?}")]
-    UserApplicationError {
-        message: String,
-    },
-
-    /// Function being invoked panicked
-    #[error("target function panicked")]
-    FunctionPanicked,
-
-    /// Handler not found within the function being invoked
-    #[error("target function does not contain handler with this name")]
-    HandlerNotFound,
-}
-
-#[derive(Error, Debug)]
-pub enum RpcRuntimeError {
-    #[error("failed to poll future: {0:?}")]
-    FutureError(HostFuturePollRuntimeError),
-
-    #[error("received unexpected async api response")]
-    UnexpectedAsyncApiError,
-
-    #[error("runtime error in rpc implementation on host side")]
-    RpcRuntimeError,
-
-    #[error("runtime error in rpc implementation on target function side (or it is not behaving properly)")]
-    FunctionRuntimeError,
-}
-
-pub struct KvStore {
-    binding: String,
-}
-
-impl KvStore {
-    pub(crate) fn new(binding: impl Into<String>) -> Self {
-        Self {
-            binding: binding.into(),
-        }
-    }
-
-    pub fn get(&self, key: &str) -> StdResult<Option<Vec<u8>>, KvError> {
-        let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-        let op = request.init_op();
-        let mut kv_get_request = op.init_kv_get();
-        kv_get_request.set_key(key.as_bytes());
-        kv_get_request.set_binding_id(self.binding.as_str());
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::KvGet(v) => {
-                let kv_get_response = v.unwrap();
-                match kv_get_response.get_response().which().unwrap() {
-                    abi_capnp::kv_get_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
-                    abi_capnp::kv_get_response::response::Which::KeyNotFound(_) => Ok(None),
-                    abi_capnp::kv_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
-                }
-            },
-            _other => panic!("unexpected response from kv_get api"),
-        }
-    }
-
-    pub fn set(&self, key: &str, value: &[u8]) -> StdResult<(), KvError> {
-        let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-        let op = request.init_op();
-        let mut kv_set_request = op.init_kv_set();
-        kv_set_request.set_binding_id(self.binding.as_str());
-        kv_set_request.set_key(key.as_bytes());
-        kv_set_request.set_value(value);
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
-
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::KvSet(v) => {
-                let kv_set_response = v.unwrap();
-                match kv_set_response.get_response().which().unwrap() {
-                    abi_capnp::kv_set_response::response::Which::BindingNotFound(_) => Err(KvError::BindingDoesNotExist),
-                    abi_capnp::kv_set_response::response::Which::Ok(_) => Ok(()),
-                }
-            },
-            _other => panic!("unexpected response from kv_set api"),
-        }
-    }
 }
 
 pub fn sql(name: impl Into<String>) -> SqlDatabase {

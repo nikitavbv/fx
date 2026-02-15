@@ -24,10 +24,8 @@ use {
     futures::FutureExt,
     fx_types::{capnp, abi_capnp, abi::FuturePollResult},
     crate::{
-        fx_futures::{FUTURE_POOL, PoolIndex},
         fx_streams::STREAM_POOL,
         logging::{set_panic_hook, init_logger},
-        api::{handle_future_poll, handle_future_drop, handle_stream_drop, handle_stream_poll_next},
     },
 };
 
@@ -36,16 +34,6 @@ mod logs;
 mod resource;
 
 // exports:
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_malloc(size: i64) -> i64 {
-    unsafe { std::alloc::alloc(std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) as i64 }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_dealloc(ptr: i64, size: i64) {
-    unsafe { std::alloc::dealloc(ptr as *mut u8, std::alloc::Layout::from_size_align(size as usize, 1).unwrap()) }
-}
-
 /// returns fx_types::abi::FunctionPollResult
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
@@ -94,60 +82,6 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_resource_drop(resource_id: u64) {
     drop_function_resource(&FunctionResourceId::new(resource_id));
-}
-
-// main entrypoint for capnp-based api (global dispatch will be deprecated soon)
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_api(req_addr: i64, req_len: i64) -> i64 {
-    set_panic_hook();
-    init_logger();
-
-    let mut message_bytes = unsafe { Vec::from_raw_parts(req_addr as *mut u8, req_len as usize, req_len as usize) };
-    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-    let request = message_reader.get_root::<fx_types::abi_capnp::fx_function_api_call::Reader>().unwrap();
-    let op = request.get_op();
-
-    let mut response_message = capnp::message::Builder::new_default();
-    let response = response_message.init_root::<abi_capnp::fx_function_api_call_result::Builder>();
-    let mut response_op = response.init_op();
-
-    use abi_capnp::fx_function_api_call::op::{Which as Operation};
-    match op.which().unwrap() {
-        Operation::FuturePoll(v) => {
-            handle_future_poll(v.unwrap(), response_op.init_future_poll());
-        },
-        Operation::FutureDrop(v) => {
-            handle_future_drop(v.unwrap(), response_op.init_future_drop());
-        },
-        Operation::StreamDrop(v) => {
-            handle_stream_drop(v.unwrap(), response_op.init_stream_drop());
-        },
-        Operation::StreamPollNext(v) => {
-            handle_stream_poll_next(v.unwrap(), response_op.init_stream_poll_next());
-        },
-        Operation::Invoke(v) => {
-            unimplemented!("legacy invoke api is not supported anymore")
-        }
-    };
-
-    let response_size = capnp::serialize::compute_serialized_size_in_words(&response_message) * 8;
-    let response_size_bytes = response_size.to_le_bytes();
-
-    let response_header_prefix_size = response_size_bytes.len(); // add header in the front to store response length
-    assert!(response_header_prefix_size == 4);
-
-    let ptr = unsafe { std::alloc::alloc(
-        std::alloc::Layout::from_size_align(response_size as usize + response_header_prefix_size, 1).unwrap()
-    ) };
-    let mut response_slice = unsafe { std::slice::from_raw_parts_mut(ptr, response_size + response_header_prefix_size) };
-    assert!(response_slice.len() == response_size + response_header_prefix_size);
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(response_size_bytes.as_ptr(), ptr, response_header_prefix_size);
-    }
-    capnp::serialize::write_message(&mut response_slice[response_header_prefix_size..], &response_message).unwrap();
-
-    ptr as i64
 }
 
 // imports:
