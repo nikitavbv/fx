@@ -38,6 +38,7 @@ use {
         abi_sql_capnp,
         abi_blob_capnp,
         abi_http_capnp,
+        abi_metrics_capnp,
         abi::FuturePollResult,
     },
     crate::{
@@ -98,6 +99,16 @@ struct SqlMigrateMessage {
     binding: SqlBindingConfig,
     migrations: Vec<String>,
     response: oneshot::Sender<()>,
+}
+
+#[derive(Debug)]
+struct MetricsFlushMessage {
+    function_metrics: HashMap<FunctionId, FunctionMetricsDelta>,
+}
+
+#[derive(Debug)]
+struct FunctionMetricsDelta {
+    counters_delta: HashMap<MetricKey, u64>,
 }
 
 struct DebugWrapper<T>(T);
@@ -371,6 +382,8 @@ impl FxServerV2 {
                     let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
                     let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
+                    let mut metrics_flush_interval = tokio::time::interval(Duration::from_secs(2));
+
                     loop {
                         tokio::select! {
                             message = worker.messages_rx.recv_async() => {
@@ -444,6 +457,10 @@ impl FxServerV2 {
                                         }
                                     }
                                 });
+                            },
+
+                            _ = metrics_flush_interval.tick() => {
+                                info!("time to report metrics");
                             }
                         }
                     }
@@ -690,6 +707,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_blob_delete", fx_blob_delete_handler).unwrap();
         linker.func_wrap("fx", "fx_fetch", fx_fetch_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_register", fx_metrics_counter_register_handler).unwrap();
+        linker.func_wrap("fx", "fx_metrics_counter_increment", fx_metrics_counter_increment_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -855,6 +873,7 @@ struct FunctionInstanceState {
     bindings_sql: HashMap<String, SqlBindingConfig>,
     bindings_blob: HashMap<String, BlobBindingConfig>,
     http_client: reqwest::Client,
+    metrics: FunctionMetricsState,
 }
 
 impl FunctionInstanceState {
@@ -863,7 +882,7 @@ impl FunctionInstanceState {
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         bindings_sql: HashMap<String, SqlBindingConfig>,
-        bindings_blob: HashMap<String, BlobBindingConfig>
+        bindings_blob: HashMap<String, BlobBindingConfig>,
     ) -> Self {
         Self {
             waker: None,
@@ -874,6 +893,7 @@ impl FunctionInstanceState {
             bindings_sql,
             bindings_blob,
             http_client: reqwest::Client::new(),
+            metrics: FunctionMetricsState::new(),
         }
     }
 
@@ -1333,7 +1353,26 @@ fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, Function
     };
 
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
-    todo!("finish counter registration");
+    let request = request_reader.get_root::<abi_metrics_capnp::counter_register::Reader>().unwrap();
+
+    let metric_key = MetricKey {
+        name: request.get_name().unwrap().to_string().unwrap(),
+        labels: {
+            let mut labels = request.get_labels().unwrap().into_iter()
+                .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+                .collect::<Vec<_>>();
+
+            labels.sort();
+
+            labels
+        },
+    };
+
+    caller.data_mut().metrics.counter_register(metric_key).into_abi()
+}
+
+fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
+    caller.data_mut().metrics.counter_increment(MetricId::new(counter_id), delta);
 }
 
 #[derive(Debug)]
@@ -1729,5 +1768,58 @@ fn create_logger(logger: &LoggerConfig) -> BoxLogger {
         LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
         LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
         LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Hash, Clone)]
+struct MetricKey {
+    name: String,
+    labels: Vec<(String, String)>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Hash)]
+struct MetricId {
+    id: u64,
+}
+
+impl MetricId {
+    pub fn new(id: u64) -> Self {
+        Self { id }
+    }
+
+    pub fn from_abi(id: u64) -> Self {
+        Self::new(id)
+    }
+
+    pub fn into_abi(&self) -> u64 {
+        self.id
+    }
+}
+
+struct FunctionMetricsState {
+    metrics_series: Vec<MetricKey>,
+    metric_key_to_ids: HashMap<MetricKey, MetricId>,
+    metrics_counter_delta: HashMap<MetricId, u64>,
+}
+
+impl FunctionMetricsState {
+    pub fn new() -> Self {
+        Self {
+            metrics_series: Vec::new(),
+            metric_key_to_ids: HashMap::new(),
+            metrics_counter_delta: HashMap::new(),
+        }
+    }
+
+    fn counter_register(&mut self, key: MetricKey) -> MetricId {
+        *self.metric_key_to_ids.entry(key.clone()).or_insert_with(|| {
+            let index = self.metrics_series.len() as u64;
+            self.metrics_series.push(key);
+            MetricId::new(index)
+        })
+    }
+
+    fn counter_increment(&mut self, key: MetricId, delta: u64) {
+        *self.metrics_counter_delta.entry(key).or_insert(0) += delta;
     }
 }
