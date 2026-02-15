@@ -118,7 +118,7 @@ jobs:
         push: true
         tags: |
           ghcr.io/nikitavbv/fx/fx:latest
-          ghcr.io/nikitavbv/fx/fx:0.1.${{ github.run_number }}
+          ghcr.io/nikitavbv/fx/fx:0.2.${{ github.run_number }}
         platforms: linux/amd64,linux/arm64
         cache-from: type=gha
         cache-to: type=gha,mode=max
