@@ -230,7 +230,7 @@ async fn metrics_counter_increment() {
         assert!(result.status().is_success());
 
         let result = result.text().await.unwrap();
-        if result.is_empty() {
+        if !result.contains("function_test_app_test_counter") {
             sleep(Duration::from_secs(1)).await;
             continue;
         }
@@ -243,11 +243,37 @@ async fn metrics_counter_increment() {
     panic!("failed to check if counter value is present in /metrics");
 }
 
-/*
 #[tokio::test]
-async fn metrics_counter_increment_twice_with_tags() {
-    fx_server().invoke_function(FunctionId::new("test-app"), "test_counter_increment_twice_with_tags", ()).await.unwrap();
-}*/
+async fn metrics_counter_with_labels_increment() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/metrics/counter-with-labels-increment").await.unwrap();
+    assert!(result.status().is_success());
+
+    for _ in 0..10 {
+        let result = match reqwest::get("http://localhost:9000/metrics").await {
+            Ok(v) => v,
+            Err(err) => {
+                if err.is_connect() {
+                    sleep(Duration::from_secs(1)).await;
+                    continue;
+                }
+                panic!("unexpected error when querying /metrics: {err:?}");
+            }
+        };
+
+        assert!(result.status().is_success());
+
+        let result = result.text().await.unwrap();
+        if !result.contains("function_test_app_test_counter_with_label") {
+            sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        assert!(result.contains("function_test_app_test_counter_with_label{label_name=\"value1\"} 1\n"));
+        assert!(result.contains("function_test_app_test_counter_with_label{label_name=\"value2\"} 2\n"));
+    }
+}
 
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();

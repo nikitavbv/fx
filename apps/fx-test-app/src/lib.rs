@@ -47,6 +47,8 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
+            .route("/test/metrics/counter-with-labels-increment", get(test_metrics_counter_with_labels_increment))
+            .route("/test/unknown-import", get(test_unknown_import))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
         req
@@ -141,34 +143,36 @@ async fn test_metrics_counter_increment(Extension(metrics): Extension<Metrics>) 
     "ok.\n"
 }
 
-/*#[handler]
-pub async fn test_counter_increment() -> fx::Result<()> {
-    Counter::new("test_counter").increment(1);
-    Ok(())
+async fn test_metrics_counter_with_labels_increment(Extension(metrics): Extension<Metrics>) -> &'static str {
+    metrics.test_counter_with_label1.increment();
+    metrics.test_counter_with_label2.increment_by(2);
+    "ok.\n"
 }
 
-#[handler]
-pub async fn test_counter_increment_twice_with_tags() -> fx::Result<()> {
-    Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value1".to_owned()], 1);
-    Counter::new_with_tags("test_counter_with_label", vec!["label_name".to_owned()]).increment_with_tag_values(vec!["value2".to_owned()], 1);
-    Ok(())
-}
-
-#[handler]
-pub async fn test_unknown_import() -> fx::Result<()> {
+async fn test_unknown_import() -> &'static str {
     unsafe { crate::unknown_import::_test_unknown_import(-1) };
-    Ok(())
-}*/
+    "ok.\n"
+}
 
 #[derive(Clone)]
 struct Metrics {
     test_counter: Counter,
+    test_counter_with_label1: Counter,
+    test_counter_with_label2: Counter,
 }
 
 impl Metrics {
     pub fn new() -> Self {
         Self {
             test_counter: Counter::new("test_counter"),
+            test_counter_with_label1: Counter::new_with_labels(
+                "test_counter_with_label",
+                vec!["label_name".to_owned()]
+            ).with_label_values(vec!["value1".to_owned()]),
+            test_counter_with_label2: Counter::new_with_labels(
+                "test_counter_with_label",
+                vec!["label_name".to_owned()]
+            ).with_label_values(vec!["value2".to_owned()]),
         }
     }
 }
