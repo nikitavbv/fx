@@ -86,7 +86,6 @@ pub extern "C" fn _fx_resource_drop(resource_id: u64) {
 // imports:
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
-    pub(crate) fn fx_api(req_addr: i64, req_len: i64, output_ptr: i64);
     pub(crate) fn fx_log(req_addr: i64, req_len: i64);
     pub(crate) fn fx_resource_serialize(resource_id: u64) -> u64;
     pub(crate) fn fx_resource_move_from_host(resource_id: u64, ptr: u64);
@@ -151,12 +150,4 @@ pub(crate) fn read_memory<'a>(ptr: i64, len: i64) -> &'a [u8] {
 
 pub(crate) fn read_memory_owned(ptr: i64, len: i64) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize) }
-}
-
-pub(crate) fn invoke_fx_api(message: capnp::message::Builder<capnp::message::HeapAllocator>) -> capnp::message::Reader<capnp::serialize::OwnedSegments> {
-    let message = capnp::serialize::write_message_to_words(&message);
-    let output_ptr = PtrWithLen::default();
-    unsafe { fx_api(message.as_ptr() as i64, message.len() as i64, output_ptr.ptr_to_self()) };
-    let response = output_ptr.read_owned();
-    capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap()
 }

@@ -21,7 +21,6 @@ use {
         sys::{
             OwnedResourceId,
             FutureHostResource,
-            invoke_fx_api,
             fx_sql_exec,
             fx_sleep,
             HostUnitFuture,
@@ -111,7 +110,7 @@ impl SqlDatabase {
         Ok(resource.await)
     }
 
-    pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {
+    /*pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {
         let mut message = capnp::message::Builder::new_default();
         let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
         let op = request.init_op();
@@ -150,7 +149,7 @@ impl SqlDatabase {
             },
             _other => panic!("unexpected response from sql_batch api"),
         }
-    }
+    }*/
 }
 
 pub async fn sleep(duration: Duration) {
