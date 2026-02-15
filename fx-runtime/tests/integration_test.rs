@@ -173,10 +173,13 @@ async fn log() {
     }
 }
 
-/*
 #[tokio::test]
 async fn log_span() {
-    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_log_span", ()).await.unwrap();
+    init_fx_server();
+
+    let client = reqwest::Client::new();
+    let result = client.get("http://localhost:8080/test/log/span").header("Host", "custom-logger.fx.local").send().await.unwrap();
+    assert!(result.status().is_success());
 
     // both events include fields inherited from span
     let first_message = LOGGER.events()
@@ -205,7 +208,7 @@ async fn log_span() {
     );
 }
 
-#[tokio::test]
+/*#[tokio::test]
 async fn logger_override() {
     fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app-logger-override"), "test_log", ()).await.unwrap();
 

@@ -45,6 +45,7 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
             .route("/test/fetch", get(test_fetch))
             .route("/test/log", get(test_log))
+            .route("/test/log/span", get(test_log_span))
             .route("/", get(home)),
         req
     ).await
@@ -123,6 +124,16 @@ async fn test_log() -> &'static str {
     "ok.\n"
 }
 
+async fn test_log_span() -> &'static str {
+    let span = tracing::info_span!("test_log_span", request_id="some-request-id");
+    let _guard = span.enter();
+
+    info!("first message");
+    info!("second message");
+
+    "ok.\n"
+}
+
 #[handler]
 pub async fn global_counter_inc() -> fx::Result<u64> {
     let mut counter = COUNTER.lock().unwrap();
@@ -169,17 +180,6 @@ pub async fn test_kv_wrong_binding_name() -> fx::Result<()> {
     let kv = fx::kv("test-kv-wrong");
     let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
     assert_eq!(KvError::BindingDoesNotExist, err);
-    Ok(())
-}
-
-#[handler]
-pub async fn test_log_span() -> fx::Result<()> {
-    let span = tracing::info_span!("test_log_span", request_id="some-request-id");
-    let _guard = span.enter();
-
-    info!("first message");
-    info!("second message");
-
     Ok(())
 }
 
