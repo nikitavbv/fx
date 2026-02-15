@@ -111,6 +111,18 @@ struct FunctionMetricsDelta {
     counters_delta: HashMap<MetricKey, u64>,
 }
 
+impl FunctionMetricsDelta {
+    fn is_empty(&self) -> bool {
+        self.counters_delta.is_empty()
+    }
+
+    fn append(&mut self, other: FunctionMetricsDelta) {
+        for (metric_key, delta) in other.counters_delta {
+            *self.counters_delta.entry(metric_key).or_insert(0) += delta;
+        }
+    }
+}
+
 struct DebugWrapper<T>(T);
 
 impl<T> DebugWrapper<T> {
@@ -137,7 +149,12 @@ struct CompilerMessage {
     response: oneshot::Sender<wasmtime::Module>,
 }
 
-struct ManagementMessage {
+enum ManagementMessage {
+    DeployFunction(DeployFunctionMessage),
+    WorkerMetrics(MetricsFlushMessage),
+}
+
+struct DeployFunctionMessage {
     function_id: FunctionId,
     function_config: FunctionConfig,
     on_ready: oneshot::Sender<()>,
@@ -190,15 +207,22 @@ impl FxServerV2 {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let mut definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
+                let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
                         definitions_monitor.scan_definitions(),
                         async {
                             while let Ok(msg) = management_rx.recv_async().await {
-                                definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
-                                msg.on_ready.send(()).unwrap();
+                                match msg {
+                                    ManagementMessage::DeployFunction(msg) => {
+                                        definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
+                                        msg.on_ready.send(()).unwrap();
+                                    },
+                                    ManagementMessage::WorkerMetrics(msg) => {
+                                        todo!("received metrics!");
+                                    },
+                                }
                             }
                         }
                     )
@@ -339,9 +363,10 @@ impl FxServerV2 {
             let wasmtime = wasmtime.clone();
             let sql_tx = sql_tx.clone();
             let logger_tx = logger_tx.clone();
+            let management_tx = management_tx.clone();
 
             let handle = std::thread::spawn(move || {
-                let mut worker = worker;
+                let worker = worker;
 
                 if let Some(worker_core_id) = worker.core_id {
                     match gdt_cpus::pin_thread_to_core(worker_core_id) {
@@ -461,6 +486,38 @@ impl FxServerV2 {
 
                             _ = metrics_flush_interval.tick() => {
                                 info!("time to report metrics");
+
+                                // copying references to instances to avoid holding references to instances across store lock await point
+                                let instances = function_deployments
+                                    .borrow()
+                                    .values()
+                                    .map(|deployment| {
+                                        let deployment = deployment.borrow();
+                                        (deployment.function_id.clone(), deployment.instance.clone())
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                let mut function_metrics = HashMap::<FunctionId, FunctionMetricsDelta, _>::new();
+
+                                for (function_id, instance) in instances {
+                                    let mut store = instance.store.lock().await;
+                                    let state = store.data_mut();
+
+                                    let metrics_delta = state.metrics.flush_delta();
+                                    if metrics_delta.is_empty() {
+                                        continue;
+                                    }
+
+                                    if let Some(metrics) = function_metrics.get_mut(&function_id) {
+                                        metrics.append(metrics_delta);
+                                    } else {
+                                        function_metrics.insert(function_id, metrics_delta);
+                                    }
+                                }
+
+                                if !function_metrics.is_empty() {
+                                    management_tx.send(ManagementMessage::WorkerMetrics(MetricsFlushMessage { function_metrics })).unwrap();
+                                }
                             }
                         }
                     }
@@ -499,7 +556,7 @@ impl RunningFxServer {
     pub async fn deploy_function(&self, function_id: FunctionId, function_config: FunctionConfig) {
         let (response_tx, response_rx) = oneshot::channel();
 
-        self.management_tx.send_async(ManagementMessage { function_id, function_config, on_ready: response_tx }).await.unwrap();
+        self.management_tx.send_async(ManagementMessage::DeployFunction(DeployFunctionMessage { function_id, function_config, on_ready: response_tx })).await.unwrap();
 
         response_rx.await.unwrap();
     }
@@ -673,6 +730,7 @@ impl FunctionDeploymentId {
 }
 
 struct FunctionDeployment {
+    function_id: FunctionId,
     module: wasmtime::Module,
     instance_template: wasmtime::InstancePre<FunctionInstanceState>,
     instance: Rc<FunctionInstance>,
@@ -728,9 +786,10 @@ impl FunctionDeployment {
 
         let instance_template = linker.instantiate_pre(&module).unwrap();
 
-        let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id, &instance_template, bindings_sql, bindings_blob).await;
+        let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob).await;
 
         Self {
+            function_id,
             module,
             instance_template,
             instance: Rc::new(instance),
@@ -1821,5 +1880,16 @@ impl FunctionMetricsState {
 
     fn counter_increment(&mut self, key: MetricId, delta: u64) {
         *self.metrics_counter_delta.entry(key).or_insert(0) += delta;
+    }
+
+    fn flush_delta(&mut self) -> FunctionMetricsDelta {
+        let counters_delta = std::mem::replace(&mut self.metrics_counter_delta, HashMap::new())
+            .into_iter()
+            .map(|(metric_id, delta)| (self.metrics_series.get(metric_id.id as usize).unwrap().clone(), delta))
+            .collect();
+
+        FunctionMetricsDelta {
+            counters_delta,
+        }
     }
 }
