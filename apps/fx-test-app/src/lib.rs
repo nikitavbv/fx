@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    axum::{Router, routing::{get, post}},
+    axum::{Router, routing::{get, post}, Extension},
     lazy_static::lazy_static,
     fx_sdk::{
         self as fx,
@@ -15,12 +15,12 @@ use {
         FxStreamExport,
         KvError,
         fetch,
-        metrics::Counter,
         StatusCode,
         utils::axum::handle_request,
         random,
         blob,
         BlobGetError,
+        metrics::Counter,
     },
 };
 
@@ -46,7 +46,9 @@ pub async fn http(req: HttpRequestV2) -> HttpResponse {
             .route("/test/fetch", get(test_fetch))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
-            .route("/", get(home)),
+            .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
+            .route("/", get(home))
+            .layer(Extension(Metrics::new())),
         req
     ).await
 }
@@ -134,7 +136,12 @@ async fn test_log_span() -> &'static str {
     "ok.\n"
 }
 
-#[handler]
+async fn test_metrics_counter_increment(Extension(metrics): Extension<Metrics>) -> &'static str {
+    metrics.test_counter.increment();
+    "ok.\n"
+}
+
+/*#[handler]
 pub async fn test_counter_increment() -> fx::Result<()> {
     Counter::new("test_counter").increment(1);
     Ok(())
@@ -151,4 +158,17 @@ pub async fn test_counter_increment_twice_with_tags() -> fx::Result<()> {
 pub async fn test_unknown_import() -> fx::Result<()> {
     unsafe { crate::unknown_import::_test_unknown_import(-1) };
     Ok(())
+}*/
+
+#[derive(Clone)]
+struct Metrics {
+    test_counter: Counter,
+}
+
+impl Metrics {
+    pub fn new() -> Self {
+        Self {
+            test_counter: Counter::new("test_counter"),
+        }
+    }
 }

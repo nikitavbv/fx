@@ -13,6 +13,7 @@ use {
         fmt::Debug,
         marker::PhantomData,
         time::{Duration, SystemTime, UNIX_EPOCH},
+        sync::{Arc, RwLock},
     },
     tracing::{Level, info, error, warn},
     tracing_subscriber::FmtSubscriber,
@@ -29,6 +30,8 @@ use {
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
     rand::TryRngCore,
+    axum::{Router, routing::get, response::Response as AxumResponse, Extension},
+    leptos::prelude::*,
     fx_types::{
         capnp,
         abi_capnp,
@@ -112,6 +115,12 @@ struct FunctionMetricsDelta {
 }
 
 impl FunctionMetricsDelta {
+    pub fn empty() -> Self {
+        Self {
+            counters_delta: HashMap::new(),
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.counters_delta.is_empty()
     }
@@ -208,6 +217,7 @@ impl FxServerV2 {
                 let local_set = tokio::task::LocalSet::new();
 
                 let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
+                let metrics = Arc::new(MetricsRegistry::new());
 
                 tokio_runtime.block_on(local_set.run_until(async {
                     tokio::join!(
@@ -220,11 +230,14 @@ impl FxServerV2 {
                                         msg.on_ready.send(()).unwrap();
                                     },
                                     ManagementMessage::WorkerMetrics(msg) => {
-                                        todo!("received metrics!");
+                                        metrics.update(msg.function_metrics);
                                     },
                                 }
                             }
-                        }
+                        },
+                        async {
+                            run_introspection_server(metrics.clone()).await;
+                        },
                     )
                 }));
             })
@@ -485,8 +498,6 @@ impl FxServerV2 {
                             },
 
                             _ = metrics_flush_interval.tick() => {
-                                info!("time to report metrics");
-
                                 // copying references to instances to avoid holding references to instances across store lock await point
                                 let instances = function_deployments
                                     .borrow()
@@ -1418,7 +1429,10 @@ fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, Function
         name: request.get_name().unwrap().to_string().unwrap(),
         labels: {
             let mut labels = request.get_labels().unwrap().into_iter()
-                .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+                .map(|v| (
+                    v.get_name().unwrap().to_string().unwrap(),
+                    v.get_value().unwrap().to_string().unwrap()
+                ))
                 .collect::<Vec<_>>();
 
             labels.sort();
@@ -1892,4 +1906,135 @@ impl FunctionMetricsState {
             counters_delta,
         }
     }
+}
+
+struct MetricsRegistry {
+    function_metrics: RwLock<HashMap<FunctionId, FunctionMetricsDelta>>,
+}
+
+impl MetricsRegistry {
+    pub fn new() -> Self {
+        Self {
+            function_metrics: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn update(&self, function_metrics: HashMap<FunctionId, FunctionMetricsDelta>) {
+        let mut all_metrics = self.function_metrics.write().unwrap();
+
+        for (function_id, metrics) in function_metrics {
+            all_metrics.entry(function_id)
+                .or_insert_with(|| FunctionMetricsDelta::empty())
+                .append(metrics);
+        }
+    }
+
+    pub fn encode(&self) -> String {
+        let mut result = String::new();
+        let all_metrics = self.function_metrics.read().unwrap();
+
+        for (function_id, function_metrics) in all_metrics.iter() {
+            let function_id = sanitize_metric_name(function_id.as_str());
+
+            for (counter_key, counter_value) in function_metrics.counters_delta.iter() {
+                let metric_name = {
+                    let mut metric_name = String::new();
+                    metric_name.push_str("function_");
+                    metric_name.push_str(sanitize_metric_name(function_id.as_str()).as_str());
+                    metric_name.push('_');
+                    metric_name.push_str(sanitize_metric_name(counter_key.name.as_str()).as_str());
+                    metric_name
+                };
+
+                result.push_str("# TYPE ");
+                result.push_str(metric_name.as_str());
+                result.push_str(" counter\n");
+                result.push_str(metric_name.as_str());
+
+                if !counter_key.labels.is_empty() {
+                    result.push('{');
+
+                    for (index, (label_key, label_value)) in counter_key.labels.iter().enumerate() {
+                        if index > 0 {
+                            result.push(',');
+                        }
+                        result.push_str(sanitize_label_name(label_key.as_str()).as_str());
+                        result.push_str("=\"");
+                        result.push_str(escape_label_value(label_value.as_str()).as_str());
+                        result.push('"');
+                    }
+
+                    result.push('}')
+                }
+
+                result.push(' ');
+                result.push_str(counter_value.to_string().as_str());
+                result.push('\n');
+            }
+        }
+
+        result
+    }
+}
+
+fn sanitize_metric_name(s: &str) -> String {
+    s.chars()
+        .enumerate()
+        .map(|(i, c)| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == ':' {
+                c
+            } else if i == 0 && c.is_ascii_digit() {
+                '_'
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn sanitize_label_name(s: &str) -> String {
+    s.chars()
+        .enumerate()
+        .map(|(i, c)| {
+            if c.is_ascii_alphabetic() || c == '_' || (i > 0 && c.is_ascii_digit()) { c } else { '_' }
+        })
+        .collect()
+}
+
+fn escape_label_value(s: &str) -> String {
+    s.replace('\\', "\\\\")
+     .replace('"', "\\\"")
+     .replace('\n', "\\n")
+}
+
+async fn run_introspection_server(metrics: Arc<MetricsRegistry>) {
+    let app = Router::new()
+        .route("/", get(introspection_home))
+        .route("/metrics", get(introspection_metrics))
+        .layer(Extension(metrics));
+
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn introspection_home() -> AxumResponse {
+    render_component(view! {
+        <>
+            <h2>"fx runtime"</h2>
+            <br></br>
+            <a href="/introspection">"/introspection"</a>" - realtime dashboard for troubleshooting and insights."<br></br>
+            <a href="/metrics">"/metrics"</a>" - metrics exported in prometheus format."<br></br>
+        </>
+    })
+}
+
+async fn introspection_metrics(Extension(metrics): Extension<Arc<MetricsRegistry>>) -> String {
+    metrics.encode()
+}
+
+fn render_component(component: impl IntoView + 'static) -> AxumResponse {
+    Response::builder()
+        .header("content-type", "text/html; charset=utf-8")
+        .body(component.to_html().into())
+        .unwrap()
 }

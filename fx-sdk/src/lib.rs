@@ -23,7 +23,7 @@ pub use {
         error::FxError,
         http::{FxHttpRequest},
         handler::{Handler, IntoHandler},
-        api::{HttpRequestV2, BlobBucket, blob, BlobGetError, fetch},
+        api::{HttpRequestV2, BlobBucket, blob, BlobGetError, fetch, metrics},
         FxResult as Result,
     },
 };
@@ -56,7 +56,6 @@ pub mod utils;
 
 pub mod handler;
 pub mod logging;
-pub mod metrics;
 pub mod sql;
 
 mod api;

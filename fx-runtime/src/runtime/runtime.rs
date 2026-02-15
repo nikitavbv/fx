@@ -119,6 +119,10 @@ impl FunctionId {
     pub fn as_string(&self) -> String {
         self.id.clone()
     }
+
+    pub fn as_str(&self) -> &str {
+        self.id.as_str()
+    }
 }
 
 impl Into<String> for FunctionId {
