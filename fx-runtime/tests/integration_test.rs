@@ -84,7 +84,7 @@ async fn sql_migrate() {
 #[tokio::test]
 async fn function_panic() {
     init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/panic").await.unwrap();
+    let response = reqwest::Client::new().get("http://localhost:8080/test/panic").header("Host", "panics.fx.local").send().await.unwrap();
     assert_eq!(502, response.status().as_u16());
     assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
 }
@@ -181,6 +181,17 @@ async fn fetch() {
     let result = reqwest::get("http://localhost:8080/test/fetch").await.unwrap();
     assert!(result.status().is_success());
     assert!(result.text().await.unwrap().contains("httpbin.org/get"));
+}
+
+#[tokio::test]
+async fn fetch_post() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/fetch/post").await.unwrap();
+    assert!(result.status().is_success());
+    let result = result.text().await.unwrap();
+    assert!(result.contains("httpbin.org/post"));
+    assert!(result.contains("test fx request body"));
 }
 
 #[tokio::test]
@@ -343,6 +354,13 @@ fn init_fx_server() {
                     .with_trigger_http(Some("custom-logger.fx.local".to_owned()))
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                     .with_logger(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone()))))
+            ).await;
+
+            server.deploy_function(
+                FunctionId::new("test-app-for-panics"),
+                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                    .with_trigger_http(Some("panics.fx.local".to_owned()))
+                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             ).await;
 
             server

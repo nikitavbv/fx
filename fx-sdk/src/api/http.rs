@@ -34,6 +34,10 @@ impl HttpRequest {
         Ok(Self::new(Method::GET, url.into().parse().unwrap()))
     }
 
+    pub fn post(url: impl Into<String>) -> Result<Self, ()> {
+        Ok(Self::new(Method::POST, url.into().parse().unwrap()))
+    }
+
     pub fn from_host_resource(resource: ResourceId) -> Self {
         Self(HttpRequestInner::Host(DeserializableHostResource::from(resource)))
     }
@@ -68,12 +72,32 @@ impl HttpRequest {
     pub fn headers(&self) -> &HeaderMap {
         &self.request_data().headers
     }
+
+    fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
+        tracing::info!("running into-bytese");
+        std::mem::replace(&mut self.request_data_mut().body, None)
+            .map(|v| match v {
+                HttpRequestBodyInner::Bytes(v) => v,
+            })
+    }
+
+    pub fn with_body(mut self, body: impl IntoHttpRequestBody) -> Self {
+        self.request_data_mut().body = Some(body.into_request_body().0);
+        self
+    }
 }
 
 pub(crate) struct HttpRequestData {
     method: Method,
     url: Uri,
     headers: HeaderMap,
+    body: Option<HttpRequestBodyInner>,
+}
+
+pub struct HttpRequestBody(HttpRequestBodyInner);
+
+pub(crate) enum HttpRequestBodyInner {
+    Bytes(Vec<u8>),
 }
 
 impl HttpRequestData {
@@ -82,6 +106,7 @@ impl HttpRequestData {
             method,
             url,
             headers: HeaderMap::new(),
+            body: None,
         }
     }
 }
@@ -107,6 +132,7 @@ impl DeserializeHostResource for HttpRequestData {
                     HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap()
                 ))
                 .collect(),
+            body: None, // TODO: pass request body as resource id
         }
     }
 }
@@ -135,7 +161,7 @@ impl HttpResponse {
     }
 }
 
-pub async fn fetch(request: HttpRequest) -> Result<HttpResponse, FetchError> {
+pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError> {
     let fetch = {
         let mut message = capnp::message::Builder::new_default();
         let mut fetch = message.init_root::<abi_http_capnp::http_request::Builder>();
@@ -149,6 +175,13 @@ pub async fn fetch(request: HttpRequest) -> Result<HttpResponse, FetchError> {
             other => todo!("http method not supported: {other:?}"),
         });
         fetch.set_uri(request.uri().to_string());
+
+        let mut request_body = fetch.init_body().init_body();
+        match request.body_into_bytes() {
+            Some(v) => request_body.set_bytes(&v),
+            None => request_body.set_empty(()),
+        }
+
         capnp::serialize::write_message_to_words(&message)
     };
 
@@ -174,6 +207,28 @@ impl DeserializeHostResource for HttpResponse {
 #[derive(Debug, Error)]
 pub enum FetchError {}
 
+pub trait IntoHttpRequestBody {
+    fn into_request_body(self) -> HttpRequestBody;
+}
+
+impl IntoHttpRequestBody for Vec<u8> {
+    fn into_request_body(self) -> HttpRequestBody {
+        HttpRequestBody(HttpRequestBodyInner::Bytes(self))
+    }
+}
+
+impl IntoHttpRequestBody for String {
+    fn into_request_body(self) -> HttpRequestBody {
+        HttpRequestBody(HttpRequestBodyInner::Bytes(self.as_bytes().to_vec()))
+    }
+}
+
+impl IntoHttpRequestBody for &str {
+    fn into_request_body(self) -> HttpRequestBody {
+        HttpRequestBody(HttpRequestBodyInner::Bytes(self.as_bytes().to_vec()))
+    }
+}
+
 pub trait HttpResponseBody {
     fn into_bytes(self) -> Vec<u8>;
 }
@@ -183,7 +238,7 @@ impl HttpResponseBody for Vec<u8> {
 }
 
 impl HttpResponseBody for String {
-    fn into_bytes(self) -> Vec<u8> { self.into_bytes() }
+    fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
 }
 
 impl HttpResponseBody for &str {

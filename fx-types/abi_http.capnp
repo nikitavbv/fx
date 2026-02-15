@@ -4,6 +4,7 @@ struct HttpRequest {
     uri @0 :Text;
     method @1 :HttpMethod;
     headers @2 :List(HttpHeader);
+    body @3 :HttpRequestBody;
 }
 
 enum HttpMethod {
@@ -18,6 +19,13 @@ enum HttpMethod {
 struct HttpHeader {
     name @0 :Text;
     value @1 :Text;
+}
+
+struct HttpRequestBody {
+    body :union {
+        empty @0 :Void;
+        bytes @1 :Data;
+    }
 }
 
 struct HttpResponse {

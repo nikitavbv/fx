@@ -1399,7 +1399,7 @@ fn fx_fetch_handler(
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
     let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
 
-    let fetch_request = reqwest::Request::new(
+    let mut fetch_request = reqwest::Request::new(
         match request.get_method().unwrap() {
             abi_http_capnp::HttpMethod::Get => http::Method::GET,
             abi_http_capnp::HttpMethod::Put => http::Method::PUT,
@@ -1410,6 +1410,13 @@ fn fx_fetch_handler(
         },
         request.get_uri().unwrap().to_str().unwrap().try_into().unwrap()
     );
+
+    match request.get_body().unwrap().get_body().which().unwrap() {
+        abi_http_capnp::http_request_body::body::Which::Empty(_) => {},
+        abi_http_capnp::http_request_body::body::Which::Bytes(v) => {
+            *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
+        }
+    }
 
     let client = caller.data().http_client.clone();
 

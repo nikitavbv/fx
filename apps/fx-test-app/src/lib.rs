@@ -50,6 +50,7 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
             .route("/test/blob", get(test_blob_get).post(test_blob_put).delete(test_blob_delete))
             .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
             .route("/test/fetch", get(test_fetch))
+            .route("/test/fetch/post", get(test_fetch_post))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -141,6 +142,14 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
 async fn test_fetch() -> String {
     let response = fetch(
         HttpRequest::get("https://httpbin.org/get").unwrap()
+    ).await.unwrap();
+
+    String::from_utf8(response.body).unwrap()
+}
+
+async fn test_fetch_post() -> String {
+    let response = fetch(
+        HttpRequest::post("https://httpbin.org/post").unwrap().with_body("test fx request body")
     ).await.unwrap();
 
     String::from_utf8(response.body).unwrap()
