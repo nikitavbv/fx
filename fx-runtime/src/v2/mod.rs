@@ -640,7 +640,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            let function_future = target_function_deployment.borrow().handle_request(FetchRequest::from(req));
+            let (header, body) = req.into_parts();
+
+            let function_future = target_function_deployment.borrow().handle_request(FetchRequestHeader::from(header), FetchRequestBody::from(body));
             let response = function_future.await;
             let function_response = match response {
                 Ok(v) => Ok(v.move_to_host().await),
@@ -817,11 +819,18 @@ impl FunctionDeployment {
         }
     }
 
-    fn handle_request(&self, req: FetchRequest) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    fn handle_request(&self, header: FetchRequestHeader, body: FetchRequestBody) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         Box::pin(async move {
-            let resource = instance.store.lock().await.data_mut().resource_add(Resource::FetchRequest(SerializableResource::Raw(req)));
+            let mut header = header;
+            let resource = {
+                let mut data = instance.store.lock().await;
+                let data = data.data_mut();
+                header.body_resource_id = Some(data.resource_add(Resource::RequestBody(body)));
+                data.resource_add(Resource::FetchRequest(SerializableResource::Raw(header)))
+            };
+
             FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await
                 .map(|response_resource| SerializedFunctionResource::new(instance, response_resource))
                 .map_err(|err| match err {
@@ -1019,7 +1028,8 @@ impl FunctionInstanceState {
                 let serialized = resource.map_to_serialized();
                 let serialized_size = serialized.serialized_size();
                 (Resource::FetchResult(FutureResource::Ready(serialized)), serialized_size)
-            }
+            },
+            Resource::RequestBody(v) => panic!("resource of this type cannot be serialized"),
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -1073,7 +1083,8 @@ impl FunctionInstanceState {
                     }
                 };
                 (Resource::FetchResult(resource), poll_result)
-            }
+            },
+            Resource::RequestBody(v) => unimplemented!(),
         };
 
         self.resources.reattach(resource_id.into(), resource);
@@ -1151,6 +1162,7 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
+        Resource::RequestBody(_) => panic!("resource of this type cannot be moved"),
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -1465,28 +1477,45 @@ fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, Functio
     caller.data_mut().metrics.counter_increment(MetricId::new(counter_id), delta);
 }
 
-#[derive(Debug)]
-pub struct FetchRequest(FunctionRequestInner);
+pub struct FetchRequestHeader {
+    inner: http::request::Parts,
+    body_resource_id: Option<ResourceId>,
+}
 
-impl From<hyper::Request<hyper::body::Incoming>> for FetchRequest {
-    fn from(value: hyper::Request<hyper::body::Incoming>) -> Self {
-        FetchRequest(FunctionRequestInner::Http(value))
+impl FetchRequestHeader {
+    fn uri(&self) -> &http::Uri {
+        &self.inner.uri
+    }
+
+    fn method(&self) -> &http::Method {
+        &self.inner.method
+    }
+
+    fn headers(&self) -> &http::HeaderMap {
+        &self.inner.headers
     }
 }
 
-impl From<hyper::Request<http_body_util::Full<hyper::body::Bytes>>> for FetchRequest {
-    fn from(value: hyper::Request<http_body_util::Full<hyper::body::Bytes>>) -> Self {
-        FetchRequest(FunctionRequestInner::HttpInline(value))
+impl From<http::request::Parts> for FetchRequestHeader {
+    fn from(value: http::request::Parts) -> Self {
+        Self {
+            inner: value,
+            body_resource_id: None,
+        }
     }
 }
 
-impl FetchRequest {
+pub struct FetchRequestBody(FetchRequestBodyInner);
+
+impl From<hyper::body::Incoming> for FetchRequestBody {
+    fn from(value: hyper::body::Incoming) -> Self {
+        Self(FetchRequestBodyInner::Stream(value))
+    }
 }
 
-#[derive(Debug)]
-enum FunctionRequestInner {
-    Http(hyper::Request<hyper::body::Incoming>),
-    HttpInline(hyper::Request<Full<Bytes>>),
+enum FetchRequestBodyInner {
+    Stream(hyper::body::Incoming),
+    Full(Vec<u8>),
 }
 
 struct FunctionResponse(FunctionResponseInner);
@@ -1621,7 +1650,8 @@ impl From<u64> for FunctionResourceId {
 }
 
 enum Resource {
-    FetchRequest(SerializableResource<FetchRequest>),
+    FetchRequest(SerializableResource<FetchRequestHeader>),
+    RequestBody(FetchRequestBody),
     SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
@@ -1660,38 +1690,27 @@ trait SerializeResource {
     fn serialize(self) -> Vec<u8>;
 }
 
-impl SerializeResource for FetchRequest {
+impl SerializeResource for FetchRequestHeader {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
         let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
 
-        fn set_request_common<T>(resource: &mut abi_http_capnp::http_request::Builder<'_>, request: &hyper::Request<T>) {
-            resource.set_uri(request.uri().to_string());
-            resource.set_method(match &*request.method() {
-                &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
-                &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
-                &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,
-                &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
-                &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
-                &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
-                other => todo!("this http method not supported: {other:?}"),
-            });
+        resource.set_uri(self.uri().to_string());
+        resource.set_method(match &*self.method() {
+            &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
+            &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
+            &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,
+            &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
+            &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
+            &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
+            other => todo!("this http method not supported: {other:?}"),
+        });
 
-            let mut request_headers = resource.reborrow().init_headers(request.headers().len() as u32);
-            for (index, (header_name, header_value)) in request.headers().iter().enumerate() {
-                let mut request_header = request_headers.reborrow().get(index as u32);
-                request_header.set_name(header_name.as_str());
-                request_header.set_value(header_value.to_str().unwrap());
-            }
-        }
-
-        match self.0 {
-            FunctionRequestInner::Http(request) => {
-                set_request_common(&mut resource, &request);
-            },
-            FunctionRequestInner::HttpInline(request) => {
-                set_request_common(&mut resource, &request);
-            }
+        let mut request_headers = resource.reborrow().init_headers(self.headers().len() as u32);
+        for (index, (header_name, header_value)) in self.headers().iter().enumerate() {
+            let mut request_header = request_headers.reborrow().get(index as u32);
+            request_header.set_name(header_name.as_str());
+            request_header.set_value(header_value.to_str().unwrap());
         }
 
         capnp::serialize::write_message_to_words(&message)

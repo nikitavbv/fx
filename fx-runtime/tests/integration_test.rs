@@ -20,7 +20,7 @@ use {
             server::FxServer,
             config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig},
         },
-        v2::{FxServerV2, RunningFxServer, FetchRequest},
+        v2::{FxServerV2, RunningFxServer},
     },
     crate::logger::TestLogger,
 };
