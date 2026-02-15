@@ -191,14 +191,22 @@ async fn log() {
     let result = client.get("http://localhost:8080/test/log").header("Host", "custom-logger.fx.local").send().await.unwrap();
     assert!(result.status().is_success());
 
-    let events = LOGGER.events();
-    let found_expected_event = events.iter()
-        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("this is a test log".to_owned())).unwrap_or(false))
-        .is_some();
-
-    if !found_expected_event {
-        panic!("didn't find expected event. All events: {events:?}");
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        events = LOGGER.events();
+        let found_expected_event = events.iter()
+            .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("this is a test log".to_owned())).unwrap_or(false))
+            .is_some();
+        if found_expected_event {
+            return;
+        } else {
+            // logs are processed asynchronously, so there can be a delay
+            sleep(Duration::from_secs(1)).await;
+            continue;
+        }
     }
+
+    panic!("didn't find expected event. All events: {events:?}");
 }
 
 #[tokio::test]
