@@ -48,8 +48,15 @@ async fn status_code() {
 #[tokio::test]
 async fn sql_simple() {
     init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql-simple").await.unwrap();
+    let response = reqwest::get("http://localhost:8080/test/sql/simple").await.unwrap();
     assert_eq!("52", response.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn sql_migrate() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/sql/migrate").await.unwrap();
+    assert_eq!("67", response.text().await.unwrap());
 }
 
 // TODO: recover from panics?

@@ -12,7 +12,7 @@ use {
         HttpResponse,
         io::http::fetch,
         StatusCode,
-        utils::axum::handle_request,
+        utils::{axum::handle_request, migrations::{Migrations, Migration}},
         random,
         io::blob::BlobGetError,
         blob,
@@ -32,7 +32,8 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
     handle_request(
         Router::new()
             .route("/test/status-code", get(test_status_code))
-            .route("/test/sql-simple", get(test_sql_simple))
+            .route("/test/sql/simple", get(test_sql_simple))
+            .route("/test/sql/migrate", get(test_sql_migrate))
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
@@ -66,6 +67,19 @@ async fn test_sql_simple() -> String {
     database.exec(SqlQuery::new("insert into test_sql_simple (v) values (10)")).await.unwrap();
     let res: u64 = database.exec(SqlQuery::new("select sum(v) from test_sql_simple")).await.unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
     database.exec(SqlQuery::new("drop table test_sql_simple")).await.unwrap();
+    res.to_string()
+}
+
+async fn test_sql_migrate() -> String {
+    let database = fx::sql("app");
+
+    Migrations::new()
+        .with_migration(Migration::new("create table test_sql_table_migrations (v integer not null)"))
+        .with_migration(Migration::new("insert into test_sql_table_migrations (v) values (67)"))
+        .run(&database)
+        .await;
+
+    let res: u64 = database.exec(SqlQuery::new("select v from test_sql_table_migrations")).await.unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
     res.to_string()
 }
 

@@ -345,7 +345,18 @@ impl FxServerV2 {
 
                             msg.response.send(QueryResult { rows: result_rows }).unwrap();
                         },
-                        SqlMessage::Migrate(v) => todo!("sql migrate: {v:?}"),
+                        SqlMessage::Migrate(msg) => {
+                            let mut rusqlite_migrations = Vec::new();
+                            for migration in &msg.migrations {
+                                rusqlite_migrations.push(rusqlite_migration::M::up(migration));
+                            }
+
+                            let migrations = rusqlite_migration::Migrations::new(rusqlite_migrations);
+
+                            migrations.to_latest(connection).unwrap();
+
+                            msg.response.send(()).unwrap();
+                        },
                     }
                 }
             });

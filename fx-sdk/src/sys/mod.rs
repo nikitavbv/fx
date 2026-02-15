@@ -92,6 +92,7 @@ unsafe extern "C" {
     pub(crate) fn fx_resource_move_from_host(resource_id: u64, ptr: u64);
     pub(crate) fn fx_resource_drop(resource_id: u64);
     pub(crate) fn fx_sql_exec(req_addr: u64, req_len: u64) -> u64;
+    pub(crate) fn fx_sql_migrate(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_future_poll(future_resource_id: u64) -> i64;
     pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
     pub(crate) fn fx_random(ptr: u64, len: u64);

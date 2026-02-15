@@ -1,7 +1,7 @@
 use {
     fx_common::{SqlMigrations, FxSqlError},
-    fx_types::{capnp, abi_capnp},
-    crate::{SqlDatabase, sys::{self, invoke_fx_api}},
+    fx_types::{capnp, abi_sql_capnp},
+    crate::{SqlDatabase, sys::{fx_sql_migrate, HostUnitFuture, OwnedResourceId}},
 };
 
 pub struct Migrations {
@@ -20,34 +20,23 @@ impl Migrations {
         self
     }
 
-    pub fn run(&self, database: &SqlDatabase) -> Result<(), FxSqlError> {
-        let mut message = capnp::message::Builder::new_default();
-        let request = message.init_root::<abi_capnp::fx_api_call::Builder>();
-        let op = request.init_op();
-        let mut sql_migrate_request = op.init_sql_migrate();
-        sql_migrate_request.set_database(&database.name);
+    pub async fn run(&self, database: &SqlDatabase) -> Result<(), FxSqlError> {
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut request = message.init_root::<abi_sql_capnp::sql_migrate_request::Builder>();
+            request.set_binding(&database.name);
 
-        let mut migrations = sql_migrate_request.init_migrations(self.migrations.len() as u32);
-        for (index, migration) in self.migrations.iter().enumerate() {
-            migrations.set(index as u32, &migration.statement);
-        }
+            let mut migrations = request.init_migrations(self.migrations.len() as u32);
+            for (index, migration) in self.migrations.iter().enumerate() {
+                migrations.set(index as u32, &migration.statement);
+            }
 
-        let response = invoke_fx_api(message);
-        let response = response.get_root::<abi_capnp::fx_api_call_result::Reader>().unwrap();
+            capnp::serialize::write_message_to_words(&message)
+        };
 
-        match response.get_op().which().unwrap() {
-            abi_capnp::fx_api_call_result::op::Which::SqlMigrate(v) => {
-                let migrate_response = v.unwrap();
+        HostUnitFuture::new(OwnedResourceId::from_ffi(unsafe { fx_sql_migrate(request.as_ptr() as u64, request.len() as u64) })).await;
 
-                use abi_capnp::sql_migrate_response::response::Which;
-                match migrate_response.get_response().which().unwrap() {
-                    Which::Ok(_) => Ok(()),
-                    Which::BindingNotFound(_) => Err(FxSqlError::BindingNotExists),
-                    Which::SqlError(err) => Err(FxSqlError::QueryFailed { reason: err.unwrap().get_description().unwrap().to_string().unwrap() }),
-                }
-            },
-            _other => panic!("unexpected response for migrate api"),
-        }
+        Ok(())
     }
 }
 
