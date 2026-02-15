@@ -1,8 +1,3 @@
-pub use self::{
-    http::{HttpRequest as HttpRequestV2, fetch},
-    blob::{BlobBucket, blob, BlobGetError},
-};
+pub mod blob;
+pub mod http;
 pub mod metrics;
-
-mod blob;
-mod http;

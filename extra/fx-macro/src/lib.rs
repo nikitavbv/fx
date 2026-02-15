@@ -5,26 +5,6 @@ use {
 };
 
 #[proc_macro_attribute]
-pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input_fn = parse_macro_input!(item as ItemFn);
-
-    let fn_name = &input_fn.sig.ident;
-    let ffi_fn = quote! {
-        ::fx_sdk::inventory::submit! {
-            ::fx_sdk::Handler::new(stringify!(#fn_name), || { ::fx_sdk::IntoHandler::into_boxed(#fn_name) })
-        }
-    };
-
-    let output = quote! {
-        #input_fn
-
-        #ffi_fn
-    };
-
-    output.into()
-}
-
-#[proc_macro_attribute]
 pub fn fetch(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(item as ItemFn);
 
@@ -36,7 +16,7 @@ pub fn fetch(_attr: TokenStream, item: TokenStream) -> TokenStream {
             ::fx_sdk::logging::init_logger();
 
             let request_resource = ::fx_sdk::sys::ResourceId::new(request_resource);
-            let request = ::fx_sdk::HttpRequestV2::from_host_resource(request_resource);
+            let request = ::fx_sdk::HttpRequest::from_host_resource(request_resource);
 
             let response_future = #fn_name(request);
 

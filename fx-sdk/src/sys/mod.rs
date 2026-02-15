@@ -24,7 +24,6 @@ use {
     futures::FutureExt,
     fx_types::{capnp, abi_capnp, abi::FuturePollResult},
     crate::{
-        fx_streams::STREAM_POOL,
         logging::{set_panic_hook, init_logger},
     },
 };

@@ -8,7 +8,7 @@ use {
     serde::{de::DeserializeOwned, Serialize},
     lazy_static::lazy_static,
     futures::FutureExt,
-    crate::{sys::{FunctionResourceId, FunctionResource, add_function_resource}},
+    crate::{sys::{FunctionResourceId, FunctionResource, add_function_resource}, api::http::HttpResponse},
 };
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
@@ -18,7 +18,7 @@ pub struct FunctionRequest {}
 
 impl FunctionRequest {
     pub fn into_legacy_http_request(self) -> crate::HttpRequest {
-        crate::HttpRequest::new()
+        crate::HttpRequest::new(http::Method::GET, "/".parse().unwrap())
     }
 }
 
@@ -49,7 +49,7 @@ impl IntoFunctionResponse for FunctionResponse {
     }
 }
 
-impl IntoFunctionResponse for fx_common::HttpResponse {
+impl IntoFunctionResponse for HttpResponse {
     fn into_function_response(self) -> FunctionResponse {
         FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: self.status,

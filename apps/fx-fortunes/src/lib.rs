@@ -1,5 +1,5 @@
 use {
-    fx_sdk::{self as fx, handler, HttpRequest, HttpRequestV2, SqlQuery, HttpResponse, HeaderValue},
+    fx_sdk::{self as fx, handler, HttpRequest, SqlQuery, HttpResponse, io::http::HeaderValue},
     yarte::Template,
 };
 
@@ -15,7 +15,7 @@ pub struct FortunesTemplate<'a> {
 }
 
 #[fx::handler::fetch]
-pub async fn http(_req: HttpRequestV2) -> handler::FunctionResponse {
+pub async fn http(_req: HttpRequest) -> handler::FunctionResponse {
     let db = fx::sql("fortunes");
     let mut fortunes = db.exec(SqlQuery::new("select id, message from fortune"))
         .await

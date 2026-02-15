@@ -9,17 +9,13 @@ use {
         SqlQuery,
         sleep,
         HttpRequest,
-        HttpRequestV2,
         HttpResponse,
-        FxStream,
-        FxStreamExport,
-        KvError,
-        fetch,
+        io::http::fetch,
         StatusCode,
         utils::axum::handle_request,
         random,
+        io::blob::BlobGetError,
         blob,
-        BlobGetError,
         metrics::Counter,
     },
 };
@@ -32,7 +28,7 @@ lazy_static! {
 }
 
 #[handler::fetch]
-pub async fn http(req: HttpRequestV2) -> HttpResponse {
+pub async fn http(req: HttpRequest) -> HttpResponse {
     handle_request(
         Router::new()
             .route("/test/status-code", get(test_status_code))
@@ -117,7 +113,7 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
 
 async fn test_fetch() -> String {
     let response = fetch(
-        HttpRequestV2::get("https://httpbin.org/get").unwrap()
+        HttpRequest::get("https://httpbin.org/get").unwrap()
     ).await.unwrap();
 
     String::from_utf8(response.body).unwrap()

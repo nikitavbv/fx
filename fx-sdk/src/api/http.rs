@@ -1,3 +1,5 @@
+pub use http::HeaderValue;
+
 use {
     std::str::FromStr,
     http::{Uri, Method},
@@ -87,6 +89,25 @@ pub struct HttpResponse {
     pub body: Vec<u8>,
 }
 
+impl HttpResponse {
+    pub fn new() -> Self {
+        Self {
+            status: http::StatusCode::OK,
+            body: Vec::new(),
+        }
+    }
+
+    pub fn with_status(mut self, status: http::StatusCode) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub fn with_body(mut self, body: impl HttpResponseBody) -> Self {
+        self.body = body.into_bytes();
+        self
+    }
+}
+
 pub async fn fetch(request: HttpRequest) -> Result<HttpResponse, FetchError> {
     let fetch = {
         let mut message = capnp::message::Builder::new_default();
@@ -125,3 +146,19 @@ impl DeserializeHostResource for HttpResponse {
 
 #[derive(Debug, Error)]
 pub enum FetchError {}
+
+pub trait HttpResponseBody {
+    fn into_bytes(self) -> Vec<u8>;
+}
+
+impl HttpResponseBody for Vec<u8> {
+    fn into_bytes(self) -> Vec<u8> { self }
+}
+
+impl HttpResponseBody for String {
+    fn into_bytes(self) -> Vec<u8> { self.into_bytes() }
+}
+
+impl HttpResponseBody for &str {
+    fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
+}

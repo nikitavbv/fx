@@ -2,10 +2,10 @@ use {
     axum::{http::Request, body::Body},
     tower::Service,
     futures::StreamExt,
-    crate::{HttpRequestV2, HttpResponse, FxStreamImport},
+    crate::{HttpRequest, HttpResponse},
 };
 
-pub async fn handle_request(router: axum::Router, src_req: HttpRequestV2) -> HttpResponse {
+pub async fn handle_request(router: axum::Router, src_req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
     // let body = src_req.body.map(|body| body.import());
@@ -26,8 +26,8 @@ pub async fn handle_request(router: axum::Router, src_req: HttpRequestV2) -> Htt
     );
     let fx_response = fx_response.await.unwrap();
     let response = HttpResponse::new()
-        .with_status(fx_response.status())
-        .with_headers(fx_response.headers().clone());
+        .with_status(fx_response.status());
+    //.with_headers(fx_response.headers().clone());
 
     let body = fx_response.into_body();
     let mut stream = body.into_data_stream();
