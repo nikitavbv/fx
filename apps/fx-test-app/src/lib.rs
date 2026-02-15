@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    axum::{Router, routing::{get, post}, Extension},
+    axum::{Router, routing::get, Extension},
     lazy_static::lazy_static,
     fx_sdk::{
         self as fx,
@@ -29,6 +29,10 @@ lazy_static! {
 
 #[handler::fetch]
 pub async fn http(req: HttpRequest) -> HttpResponse {
+    if req.uri().path().starts_with("/test/http/header-get-simple") {
+        return HttpResponse::new().with_body(format!("ok: {}\n", req.headers().get("x-test-header").unwrap().to_str().unwrap()))
+    }
+
     handle_request(
         Router::new()
             .route("/test/status-code", get(test_status_code))

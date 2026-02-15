@@ -20,7 +20,7 @@ use {
             server::FxServer,
             config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig},
         },
-        v2::{FxServerV2, RunningFxServer, FunctionRequest},
+        v2::{FxServerV2, RunningFxServer, FetchRequest},
     },
     crate::logger::TestLogger,
 };
@@ -36,6 +36,19 @@ async fn simple() {
     let response = reqwest::get("http://localhost:8080").await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("hello fx!", response.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn test_http_header() {
+    init_fx_server();
+    let response = reqwest::Client::new()
+        .get("http://localhost:8080/test/http/header-get-simple")
+        .header("x-test-header", "some header value")
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("ok: some header value\n", response.text().await.unwrap());
 }
 
 #[tokio::test]

@@ -1,10 +1,10 @@
-pub use http::HeaderValue;
+pub use http::{HeaderName, HeaderValue};
 
 use {
     std::str::FromStr,
-    http::{Uri, Method},
+    http::{Uri, Method, HeaderMap},
     thiserror::Error,
-    fx_types::{capnp, abi_host_resources_capnp, abi_http_capnp},
+    fx_types::{capnp, abi_http_capnp},
     crate::sys::{
         ResourceId,
         DeserializableHostResource,
@@ -52,34 +52,49 @@ impl HttpRequest {
     pub fn uri(&self) -> &Uri {
         &self.request_data().url
     }
+
+    pub fn headers(&self) -> &HeaderMap {
+        &self.request_data().headers
+    }
 }
 
 pub(crate) struct HttpRequestData {
     method: Method,
     url: Uri,
+    headers: HeaderMap,
 }
 
 impl HttpRequestData {
     pub fn new(method: Method, url: Uri) -> Self {
-        Self { method, url }
+        Self {
+            method,
+            url,
+            headers: HeaderMap::new(),
+        }
     }
 }
 
 impl DeserializeHostResource for HttpRequestData {
     fn deserialize(data: &mut &[u8]) -> Self {
         let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<fx_types::abi_host_resources_capnp::function_request::Reader>().unwrap();
+        let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_request::Reader>().unwrap();
 
         HttpRequestData {
             method: match &request.get_method().unwrap() {
-                abi_host_resources_capnp::HttpMethod::Get => Method::GET,
-                abi_host_resources_capnp::HttpMethod::Delete => Method::DELETE,
-                abi_host_resources_capnp::HttpMethod::Options => Method::OPTIONS,
-                abi_host_resources_capnp::HttpMethod::Patch => Method::PATCH,
-                abi_host_resources_capnp::HttpMethod::Post => Method::POST,
-                abi_host_resources_capnp::HttpMethod::Put => Method::PUT,
+                abi_http_capnp::HttpMethod::Get => Method::GET,
+                abi_http_capnp::HttpMethod::Delete => Method::DELETE,
+                abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
+                abi_http_capnp::HttpMethod::Patch => Method::PATCH,
+                abi_http_capnp::HttpMethod::Post => Method::POST,
+                abi_http_capnp::HttpMethod::Put => Method::PUT,
             },
             url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
+            headers: request.get_headers().unwrap().into_iter()
+                .map(|header| (
+                    HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap(),
+                    HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap()
+                ))
+                .collect(),
         }
     }
 }

@@ -36,7 +36,6 @@ use {
         capnp,
         abi_capnp,
         abi_function_resources_capnp,
-        abi_host_resources_capnp,
         abi_log_capnp,
         abi_sql_capnp,
         abi_blob_capnp,
@@ -641,7 +640,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            let function_future = target_function_deployment.borrow().handle_request(FunctionRequest::from(req));
+            let function_future = target_function_deployment.borrow().handle_request(FetchRequest::from(req));
             let response = function_future.await;
             let function_response = match response {
                 Ok(v) => Ok(v.move_to_host().await),
@@ -818,11 +817,11 @@ impl FunctionDeployment {
         }
     }
 
-    fn handle_request(&self, req: FunctionRequest) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    fn handle_request(&self, req: FetchRequest) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         Box::pin(async move {
-            let resource = instance.store.lock().await.data_mut().resource_add(Resource::FunctionRequest(SerializableResource::Raw(req)));
+            let resource = instance.store.lock().await.data_mut().resource_add(Resource::FetchRequest(SerializableResource::Raw(req)));
             FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await
                 .map(|response_resource| SerializedFunctionResource::new(instance, response_resource))
                 .map_err(|err| match err {
@@ -985,10 +984,10 @@ impl FunctionInstanceState {
     pub fn resource_serialize(&mut self, resource_id: &ResourceId) -> usize {
         let resource = self.resources.detach(resource_id.into()).unwrap();
         let (resource, serialized_size) = match resource {
-            Resource::FunctionRequest(req) => {
+            Resource::FetchRequest(req) => {
                 let serialized = req.map_to_serialized();
                 let serialized_size = serialized.serialized_size();
-                (Resource::FunctionRequest(serialized), serialized_size)
+                (Resource::FetchRequest(serialized), serialized_size)
             },
             Resource::SqlQueryResult(v) => {
                 let resource = match v {
@@ -1031,7 +1030,7 @@ impl FunctionInstanceState {
 
         let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
         let (resource, poll_result) = match resource {
-            Resource::FunctionRequest(v) => (Resource::FunctionRequest(v), Poll::Ready(())),
+            Resource::FetchRequest(v) => (Resource::FetchRequest(v), Poll::Ready(())),
             Resource::SqlQueryResult(v) => {
                 let (resource, poll_result) = match v {
                     FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
@@ -1138,7 +1137,7 @@ fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
 
 fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
-        Resource::FunctionRequest(req) => req.into_serialized(),
+        Resource::FetchRequest(req) => req.into_serialized(),
         Resource::SqlQueryResult(req) => match req {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
@@ -1460,21 +1459,21 @@ fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, Functio
 }
 
 #[derive(Debug)]
-pub struct FunctionRequest(FunctionRequestInner);
+pub struct FetchRequest(FunctionRequestInner);
 
-impl From<hyper::Request<hyper::body::Incoming>> for FunctionRequest {
+impl From<hyper::Request<hyper::body::Incoming>> for FetchRequest {
     fn from(value: hyper::Request<hyper::body::Incoming>) -> Self {
-        FunctionRequest(FunctionRequestInner::Http(value))
+        FetchRequest(FunctionRequestInner::Http(value))
     }
 }
 
-impl From<hyper::Request<http_body_util::Full<hyper::body::Bytes>>> for FunctionRequest {
+impl From<hyper::Request<http_body_util::Full<hyper::body::Bytes>>> for FetchRequest {
     fn from(value: hyper::Request<http_body_util::Full<hyper::body::Bytes>>) -> Self {
-        FunctionRequest(FunctionRequestInner::HttpInline(value))
+        FetchRequest(FunctionRequestInner::HttpInline(value))
     }
 }
 
-impl FunctionRequest {
+impl FetchRequest {
 }
 
 #[derive(Debug)]
@@ -1615,7 +1614,7 @@ impl From<u64> for FunctionResourceId {
 }
 
 enum Resource {
-    FunctionRequest(SerializableResource<FunctionRequest>),
+    FetchRequest(SerializableResource<FetchRequest>),
     SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
@@ -1654,22 +1653,29 @@ trait SerializeResource {
     fn serialize(self) -> Vec<u8>;
 }
 
-impl SerializeResource for FunctionRequest {
+impl SerializeResource for FetchRequest {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
-        let mut resource = message.init_root::<abi_host_resources_capnp::function_request::Builder>();
+        let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
 
-        fn set_request_common<T>(resource: &mut fx_types::abi_host_resources_capnp::function_request::Builder<'_>, request: &hyper::Request<T>) {
+        fn set_request_common<T>(resource: &mut abi_http_capnp::http_request::Builder<'_>, request: &hyper::Request<T>) {
             resource.set_uri(request.uri().to_string());
             resource.set_method(match &*request.method() {
-                &hyper::Method::GET => abi_host_resources_capnp::HttpMethod::Get,
-                &hyper::Method::POST => abi_host_resources_capnp::HttpMethod::Post,
-                &hyper::Method::PUT => abi_host_resources_capnp::HttpMethod::Put,
-                &hyper::Method::PATCH => abi_host_resources_capnp::HttpMethod::Patch,
-                &hyper::Method::DELETE => abi_host_resources_capnp::HttpMethod::Delete,
-                &hyper::Method::OPTIONS => abi_host_resources_capnp::HttpMethod::Options,
+                &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
+                &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
+                &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,
+                &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
+                &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
+                &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
                 other => todo!("this http method not supported: {other:?}"),
             });
+
+            let mut request_headers = resource.reborrow().init_headers(request.headers().len() as u32);
+            for (index, (header_name, header_value)) in request.headers().iter().enumerate() {
+                let mut request_header = request_headers.reborrow().get(index as u32);
+                request_header.set_name(header_name.as_str());
+                request_header.set_value(header_value.to_str().unwrap());
+            }
         }
 
         match self.0 {

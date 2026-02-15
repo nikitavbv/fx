@@ -3,6 +3,7 @@
 struct HttpRequest {
     uri @0 :Text;
     method @1 :HttpMethod;
+    headers @2 :List(HttpHeader);
 }
 
 enum HttpMethod {
@@ -12,6 +13,11 @@ enum HttpMethod {
     patch @3;
     delete @4;
     options @5;
+}
+
+struct HttpHeader {
+    name @0 :Text;
+    value @1 :Text;
 }
 
 struct HttpResponse {
