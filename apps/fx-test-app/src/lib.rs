@@ -135,55 +135,6 @@ async fn test_log_span() -> &'static str {
 }
 
 #[handler]
-pub async fn global_counter_inc() -> fx::Result<u64> {
-    let mut counter = COUNTER.lock().unwrap();
-    *counter += 1;
-    Ok(*counter)
-}
-
-#[handler]
-pub async fn get_invoke_count(function_id: String) -> fx::Result<u64> {
-    Ok(*INVOCATION_COUNT.lock().unwrap().get(&function_id).unwrap_or(&0))
-}
-
-#[handler]
-pub async fn test_panic() -> fx::Result<()> {
-    panic!("test panic");
-}
-
-#[handler]
-pub async fn test_stream_simple() -> fx::Result<FxStream> {
-    let stream = async_stream::stream! {
-        for i in 0..5 {
-            yield vec![i];
-            sleep(Duration::from_secs(1)).await;
-        }
-    };
-    Ok(FxStream::wrap(stream).unwrap())
-}
-
-#[handler]
-pub async fn test_kv_set(value: String) -> fx::Result<()> {
-    let kv = fx::kv("test-kv");
-    kv.set("test-key", value.as_bytes()).unwrap();
-    Ok(())
-}
-
-#[handler]
-pub async fn test_kv_get() -> fx::Result<Option<String>> {
-    let kv = fx::kv("test-kv");
-    Ok(kv.get("test-key").unwrap().map(|v| String::from_utf8(v).unwrap()))
-}
-
-#[handler]
-pub async fn test_kv_wrong_binding_name() -> fx::Result<()> {
-    let kv = fx::kv("test-kv-wrong");
-    let err = kv.set("test-key", "hello world!".as_bytes()).err().unwrap();
-    assert_eq!(KvError::BindingDoesNotExist, err);
-    Ok(())
-}
-
-#[handler]
 pub async fn test_counter_increment() -> fx::Result<()> {
     Counter::new("test_counter").increment(1);
     Ok(())

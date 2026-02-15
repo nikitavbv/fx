@@ -689,6 +689,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_blob_get", fx_blob_get_handler).unwrap();
         linker.func_wrap("fx", "fx_blob_delete", fx_blob_delete_handler).unwrap();
         linker.func_wrap("fx", "fx_fetch", fx_fetch_handler).unwrap();
+        linker.func_wrap("fx", "fx_metrics_counter_register", fx_metrics_counter_register_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1318,6 +1319,21 @@ fn fx_fetch_handler(
             FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
         })
     }.boxed()))).as_u64()
+}
+
+fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let mut request = {
+        let ptr = req_ptr as usize;
+        let len = req_len as usize;
+        &view[ptr..ptr+len]
+    };
+
+    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
+    todo!("finish counter registration");
 }
 
 #[derive(Debug)]

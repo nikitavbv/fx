@@ -208,20 +208,7 @@ async fn log_span() {
     );
 }
 
-/*#[tokio::test]
-async fn logger_override() {
-    fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app-logger-override"), "test_log", ()).await.unwrap();
-
-    let events = LOGGER_CUSTOM_FUNCTION.events();
-    let found_expected_event = events.iter()
-        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("this is a test log".to_owned())).unwrap_or(false))
-        .is_some();
-
-    if !found_expected_event {
-        panic!("didn't find expected event. All events: {events:?}");
-    }
-}
-
+/*
 #[tokio::test]
 async fn metrics_counter_increment() {
     fx_server().await.lock().invoke_function::<(), ()>(&FunctionId::new("test-app"), "test_counter_increment", ()).await.unwrap();
