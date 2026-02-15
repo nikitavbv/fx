@@ -29,13 +29,18 @@ lazy_static! {
 
 #[handler::fetch]
 pub async fn http(req: HttpRequest) -> HttpResponse {
-    if req.uri().path().starts_with("/test/http/header-get-simple") {
+    let req = if req.uri().path().starts_with("/test/http/header-get-simple") {
         return HttpResponse::new().with_body(format!("ok: {}\n", req.headers().get("x-test-header").unwrap().to_str().unwrap()))
-    }
+    } else if req.uri().path().starts_with("/test/http/uri-overwrite") {
+        req.with_uri("http://localhost:8080/test/http/uri-overwritten".parse().unwrap())
+    } else {
+        req
+    };
 
     handle_request(
         Router::new()
             .route("/test/status-code", get(test_status_code))
+            .route("/test/http/uri-overwritten", get(test_uri_overwritten))
             .route("/test/sql/simple", get(test_sql_simple))
             .route("/test/sql/migrate", get(test_sql_migrate))
             .route("/test/panic", get(test_panic_page))
@@ -62,6 +67,10 @@ async fn home() -> &'static str {
 
 async fn test_status_code() -> (StatusCode, &'static str) {
     (StatusCode::IM_A_TEAPOT, "this returns custom status code.\n")
+}
+
+async fn test_uri_overwritten() -> &'static str {
+    "hello from overwritten uri"
 }
 
 async fn test_sql_simple() -> String {

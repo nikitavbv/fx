@@ -45,12 +45,24 @@ impl HttpRequest {
         }
     }
 
+    fn request_data_mut(&mut self) -> &mut HttpRequestData {
+        match &mut self.0 {
+            HttpRequestInner::Host(v) => v.get_raw_mut(),
+            HttpRequestInner::Function(v) => v,
+        }
+    }
+
     pub fn method(&self) -> &Method {
         &self.request_data().method
     }
 
     pub fn uri(&self) -> &Uri {
         &self.request_data().url
+    }
+
+    pub fn with_uri(mut self, uri: Uri) -> Self {
+        self.request_data_mut().url = uri;
+        self
     }
 
     pub fn headers(&self) -> &HeaderMap {

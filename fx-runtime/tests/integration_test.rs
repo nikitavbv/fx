@@ -52,6 +52,14 @@ async fn test_http_header() {
 }
 
 #[tokio::test]
+async fn uri_overwrite() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/http/uri-overwrite").await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("hello from overwritten uri", response.text().await.unwrap());
+}
+
+#[tokio::test]
 async fn status_code() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080/test/status-code").await.unwrap();

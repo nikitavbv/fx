@@ -150,6 +150,10 @@ impl<T: DeserializeHostResource> DeserializableHostResource<T> {
     pub(crate) fn get_raw(&self) -> &T {
         &*self.0
     }
+
+    pub(crate) fn get_raw_mut(&mut self) -> &mut T {
+        &mut *self.0
+    }
 }
 
 pub trait DeserializeHostResource {
