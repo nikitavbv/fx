@@ -495,7 +495,6 @@ impl FxServerV2 {
                                         continue;
                                     }
                                 };
-                                info!(worker_id, "new http connection");
 
                                 let io = TokioIo::new(tcp);
                                 let conn = http1::Builder::new()
