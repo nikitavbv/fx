@@ -14,4 +14,3 @@ pub mod metrics;
 mod profiling;
 mod queue;
 pub mod sql;
-pub mod streams;

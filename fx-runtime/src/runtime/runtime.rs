@@ -38,7 +38,6 @@ use {
             error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
             sql::{self, SqlDatabase},
             futures::FuturesPool,
-            streams::StreamsPool,
             metrics::Metrics,
             definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition, DefinitionError},
             logs::{self, Logger, BoxLogger, StdoutLogger},
@@ -166,7 +165,6 @@ pub struct Engine {
     module_code_storage: RwLock<BoxedStorage>,
 
     pub futures_pool: FuturesPool,
-    pub streams_pool: StreamsPool,
 
     logger: RwLock<BoxLogger>,
 }
@@ -187,7 +185,6 @@ impl Engine {
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
 
             futures_pool: FuturesPool::new(),
-            streams_pool: StreamsPool::new(),
 
             logger: RwLock::new(BoxLogger::new(StdoutLogger::new())),
         }

@@ -98,7 +98,7 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_future_drop(caller.data(), v.unwrap(), response_op.init_future_drop());
         },
         Operation::StreamExport(v) => {
-            handle_stream_export(caller.data(), v.unwrap(), response_op.init_stream_export());
+            unimplemented!("deprecated")
         },
         Operation::StreamPollNext(v) => {
             unimplemented!("deprecated")
@@ -386,16 +386,7 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: abi_capnp::fetch_request::Re
 
     let request = if let Ok(body) = fetch_request.get_body() {
         let body = fx_common::FxStream { index: body.get_id() as i64 };
-        let stream = data.engine.streams_pool.read(data.engine.clone(), &body);
-
-        match stream {
-            Ok(Some(stream)) => request.body(reqwest::Body::wrap_stream(stream)),
-            Ok(None) => request,
-            Err(err) => {
-                fetch_response.set_fetch_error(format!("failed to read stream: {err:?}"));
-                return;
-            }
-        }
+        unimplemented!("deprecated")
     } else {
         request
     };
@@ -501,17 +492,4 @@ fn handle_future_poll(data: &ExecutionEnv, future_poll_request: abi_capnp::futur
 
 fn handle_future_drop(data: &ExecutionEnv, future_drop_request: abi_capnp::future_drop_request::Reader, _future_drop_response: abi_capnp::future_drop_response::Builder) {
     data.engine.futures_pool.remove(&crate::runtime::futures::HostPoolIndex(future_drop_request.get_future_id()));
-}
-
-fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: abi_capnp::stream_export_request::Reader, stream_export_response: abi_capnp::stream_export_response::Builder) {
-    let mut response = stream_export_response.init_response();
-
-    match data.engine.streams_pool.push_function_stream(data.execution_context_id.clone()) {
-        Ok(v) => {
-            response.set_stream_id(v.0);
-        },
-        Err(err) => {
-            response.set_error(err.to_string());
-        }
-    }
 }

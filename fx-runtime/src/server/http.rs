@@ -67,16 +67,11 @@ impl<'a> HttpHandlerFuture<'a> {
                 )
                 .boxed();
 
-            let (fx_response, invocation_event) = match engine.streams_pool.push(body) {
-                Ok(body_stream_index) => {
-                    let body_stream_cleanup_guard = StreamPoolCleanupGuard::wrap(engine.clone(), body_stream_index.clone());
-                    let body = FxStream { index: body_stream_index.0 as i64 };
-
                     let request = HttpRequest {
                         method,
                         url,
                         headers,
-                        body: Some(body),
+                        body: None,
                     };
 
                     engine.metrics.http_functions_in_flight.inc();
@@ -122,15 +117,7 @@ impl<'a> HttpHandlerFuture<'a> {
                     };
 
                     drop(metric_guard_http_functions_in_flight);
-                    drop(body_stream_cleanup_guard);
 
-                    (fx_response, invocation_event)
-                },
-                Err(err) => {
-                    error!("failed to push stream: {err:?}");
-                    (response_internal_error(), None)
-                }
-            };
 
             let mut response = Response::new(Full::new(Bytes::from(fx_response.body)));
             *response.status_mut() = fx_response.status;
@@ -166,23 +153,13 @@ impl<'a> Future for HttpHandlerFuture<'a> {
 // for simplicity, this wrapper will cleanup stream from arena. Ideally, items in arena would have reference count.
 struct StreamPoolCleanupGuard {
     engine: Arc<Engine>,
-    body_stream_index: crate::runtime::streams::HostPoolIndex,
 }
 
 impl StreamPoolCleanupGuard {
-    fn wrap(engine: Arc<Engine>, body_stream_index: crate::runtime::streams::HostPoolIndex) -> Self {
+    fn wrap(engine: Arc<Engine>) -> Self {
         Self {
             engine,
-            body_stream_index,
         }
-    }
-}
-
-impl Drop for StreamPoolCleanupGuard {
-    fn drop(&mut self) {
-        if let Err(err) = self.engine.streams_pool.remove(&self.body_stream_index) {
-            error!("failed to drop body stream from streams arena: {err:?}");
-        };
     }
 }
 

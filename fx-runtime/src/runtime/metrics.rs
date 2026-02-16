@@ -205,12 +205,6 @@ pub async fn run_metrics_server(engine: Arc<Engine>, port: u16) {
 async fn collect_metrics(engine: Arc<Engine>) {
     let metrics = engine.metrics.clone();
     loop {
-        match engine.streams_pool.len() {
-            Ok(v) => metrics.arena_streams_size.set(v as i64),
-            Err(err) => {
-                error!("failed to get streams arena size: {err:?}");
-            }
-        }
         match engine.futures_pool.len() {
             Ok(v) => metrics.arena_futures_size.set(v as i64),
             Err(err) => {
