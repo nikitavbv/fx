@@ -73,17 +73,21 @@ impl HttpRequest {
         &self.request_data().headers
     }
 
-    fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
-        tracing::info!("running into-bytese");
-        std::mem::replace(&mut self.request_data_mut().body, None)
-            .map(|v| match v {
-                HttpRequestBodyInner::Bytes(v) => v,
-            })
-    }
-
     pub fn with_body(mut self, body: impl IntoHttpRequestBody) -> Self {
         self.request_data_mut().body = Some(body.into_request_body().0);
         self
+    }
+
+    pub fn body(&mut self) -> Option<HttpRequestBody> {
+        self.request_data_mut().read_body().map(|v| HttpRequestBody(v))
+    }
+
+    fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
+        if let Some(v) = self.body() {
+            v.read_all()
+        } else {
+            None
+        }
     }
 }
 
@@ -96,8 +100,48 @@ pub(crate) struct HttpRequestData {
 
 pub struct HttpRequestBody(HttpRequestBodyInner);
 
+impl HttpRequestBody {
+    fn read_all(self) -> Option<Vec<u8>> {
+        match self.0 {
+            HttpRequestBodyInner::Empty => None,
+            HttpRequestBodyInner::Bytes(v) => Some(v),
+            HttpRequestBodyInner::HostResource(v) => todo!("host resource reading into bytes vec"),
+        }
+    }
+}
+
+impl Default for HttpRequestBody {
+    fn default() -> Self {
+        Self(HttpRequestBodyInner::Empty)
+    }
+}
+
+impl http_body::Body for HttpRequestBody {
+    type Data = bytes::Bytes;
+    type Error = ReadBodyError;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let body = std::mem::replace(&mut self.0, HttpRequestBodyInner::Empty);
+        let (new_body, poll) = match body {
+            HttpRequestBodyInner::Empty => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(None)),
+            HttpRequestBodyInner::Bytes(v) => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes::Bytes::from(v)))))),
+            HttpRequestBodyInner::HostResource(v) => todo!("reading host resource body"),
+        };
+        let _ = std::mem::replace(&mut self.0, new_body);
+        poll
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ReadBodyError {}
+
 pub(crate) enum HttpRequestBodyInner {
+    Empty,
     Bytes(Vec<u8>),
+    HostResource(OwnedResourceId),
 }
 
 impl HttpRequestData {
@@ -108,6 +152,10 @@ impl HttpRequestData {
             headers: HeaderMap::new(),
             body: None,
         }
+    }
+
+    fn read_body(&mut self) -> Option<HttpRequestBodyInner> {
+        std::mem::replace(&mut self.body, None)
     }
 }
 
@@ -132,7 +180,11 @@ impl DeserializeHostResource for HttpRequestData {
                     HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap()
                 ))
                 .collect(),
-            body: None, // TODO: pass request body as resource id
+            body: match request.get_body().unwrap().get_body().which().unwrap() {
+                abi_http_capnp::http_request_body::body::Which::Empty(_) => None,
+                abi_http_capnp::http_request_body::body::Which::Bytes(v) => Some(HttpRequestBodyInner::Bytes(v.unwrap().to_vec())),
+                abi_http_capnp::http_request_body::body::Which::HostResource(v) => Some(HttpRequestBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
+            },
         }
     }
 }

@@ -5,25 +5,19 @@ use {
     crate::{HttpRequest, HttpResponse},
 };
 
-pub async fn handle_request(router: axum::Router, src_req: HttpRequest) -> HttpResponse {
+pub async fn handle_request(router: axum::Router, mut src_req: HttpRequest) -> HttpResponse {
     let mut service = router.into_service();
 
-    // let body = src_req.body.map(|body| body.import());
-
-    let request = Request::builder()
+    let mut request = Request::builder()
         .uri(src_req.uri())
         .method(src_req.method());
-    /*for (k, v) in src_req.headers {
-        if let Some(k) = k {
-            request = request.header(k, v);
-        }
-    }*/
+    for (k, v) in src_req.headers() {
+        request = request.header(k, v);
+    }
 
-    let fx_response = service.call(request
-        .body(Body::empty())
-        //.body(body.map(Body::from_stream).unwrap_or(Body::empty()))
-        .unwrap()
-    );
+    let request = request.body(src_req.body().unwrap_or_default()).unwrap();
+
+    let fx_response = service.call(request);
     let fx_response = fx_response.await.unwrap();
     let response = HttpResponse::new()
         .with_status(fx_response.status());

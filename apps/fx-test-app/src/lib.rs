@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::Mutex},
     tracing::info,
-    axum::{Router, routing::get, Extension},
+    axum::{Router, routing::{get, post}, Extension},
     lazy_static::lazy_static,
     fx_sdk::{
         self as fx,
@@ -41,6 +41,7 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
         Router::new()
             .route("/test/status-code", get(test_status_code))
             .route("/test/http/uri-overwritten", get(test_uri_overwritten))
+            .route("/test/http/body", post(test_http_body))
             .route("/test/sql/simple", get(test_sql_simple))
             .route("/test/sql/migrate", get(test_sql_migrate))
             .route("/test/panic", get(test_panic_page))
@@ -72,6 +73,10 @@ async fn test_status_code() -> (StatusCode, &'static str) {
 
 async fn test_uri_overwritten() -> &'static str {
     "hello from overwritten uri"
+}
+
+async fn test_http_body(body_text: String) -> String {
+    body_text.chars().rev().collect()
 }
 
 async fn test_sql_simple() -> String {

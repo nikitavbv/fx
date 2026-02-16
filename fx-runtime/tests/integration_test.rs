@@ -66,6 +66,14 @@ async fn status_code() {
     assert_eq!(418, response.status().as_u16());
 }
 
+/*#[tokio::test]
+async fn http_body() {
+    init_fx_server();
+    let response = reqwest::Client::new().post("http://localhost:8080/test/http/body").body("hello fx!".to_owned()).send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("test", response.text().await.unwrap());
+}*/
+
 #[tokio::test]
 async fn sql_simple() {
     init_fx_server();

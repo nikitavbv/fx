@@ -1427,7 +1427,8 @@ fn fx_fetch_handler(
         abi_http_capnp::http_request_body::body::Which::Empty(_) => {},
         abi_http_capnp::http_request_body::body::Which::Bytes(v) => {
             *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
-        }
+        },
+        abi_http_capnp::http_request_body::body::Which::HostResource(v) => todo!("bytes from host resource are not implemented as a source for fetch body yet"),
     }
 
     let client = caller.data().http_client.clone();
@@ -1479,7 +1480,7 @@ fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, Functio
 
 pub struct FetchRequestHeader {
     inner: http::request::Parts,
-    body_resource_id: Option<ResourceId>,
+    body_resource_id: Option<ResourceId>, // TODO: drop body if FetchRequestHeader is dropped without consumption
 }
 
 impl FetchRequestHeader {
@@ -1711,6 +1712,12 @@ impl SerializeResource for FetchRequestHeader {
             let mut request_header = request_headers.reborrow().get(index as u32);
             request_header.set_name(header_name.as_str());
             request_header.set_value(header_value.to_str().unwrap());
+        }
+
+        let mut resource_body = resource.init_body().init_body();
+        match self.body_resource_id {
+            None => resource_body.set_empty(()),
+            Some(resource_id) => resource_body.set_host_resource(resource_id.as_u64()),
         }
 
         capnp::serialize::write_message_to_words(&message)
