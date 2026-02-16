@@ -15,6 +15,8 @@ use {
         FutureHostResource,
         fx_fetch,
         fx_future_poll,
+        fx_resource_serialize,
+        fx_stream_frame_read,
     },
 };
 
@@ -129,12 +131,26 @@ impl http_body::Body for HttpRequestBody {
         let (new_body, poll) = match body {
             HttpRequestBodyInner::Empty => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpRequestBodyInner::Bytes(v) => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes::Bytes::from(v)))))),
-            HttpRequestBodyInner::HostResource(v) => {
-                let poll_result = v.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
+            HttpRequestBodyInner::HostResource(resource_id) => {
+                let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
                 let poll_result = FuturePollResult::try_from(poll_result).unwrap();
                 match poll_result {
-                    FuturePollResult::Pending => (HttpRequestBodyInner::HostResource(v), std::task::Poll::Pending),
-                    FuturePollResult::Ready => todo!("handle resource body ready"),
+                    FuturePollResult::Pending => (HttpRequestBodyInner::HostResource(resource_id), std::task::Poll::Pending),
+                    FuturePollResult::Ready => {
+                        let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
+                        let data: Vec<u8> = vec![0u8; resource_length as usize];
+                        resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
+
+                        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                        let request = resource_reader.get_root::<abi_http_capnp::http_request_body_frame::Reader>().unwrap();
+                        match request.get_body().which().unwrap() {
+                            abi_http_capnp::http_request_body_frame::body::Which::StreamEnd(_) => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(None)),
+                            abi_http_capnp::http_request_body_frame::body::Which::Bytes(v) => (
+                                HttpRequestBodyInner::HostResource(resource_id),
+                                std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes::Bytes::from(v.unwrap().to_vec())))))
+                            )
+                        }
+                    },
                 }
             },
         };

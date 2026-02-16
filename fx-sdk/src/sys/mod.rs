@@ -102,6 +102,7 @@ unsafe extern "C" {
     pub(crate) fn fx_fetch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_metrics_counter_register(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_metrics_counter_increment(metric_id: u64, delta: u64);
+    pub(crate) fn fx_stream_frame_read(resource_id: u64, ptr: u64);
 }
 
 #[derive(Debug)]

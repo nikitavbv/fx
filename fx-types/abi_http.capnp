@@ -29,6 +29,13 @@ struct HttpRequestBody {
     }
 }
 
+struct HttpRequestBodyFrame {
+    body :union {
+        streamEnd @0 :Void;
+        bytes @1 :Data;
+    }
+}
+
 struct HttpResponse {
     status @0 :UInt16;
     body @1 :Data;

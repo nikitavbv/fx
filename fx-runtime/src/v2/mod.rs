@@ -789,6 +789,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_fetch", fx_fetch_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_register", fx_metrics_counter_register_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_increment", fx_metrics_counter_increment_handler).unwrap();
+        linker.func_wrap("fx", "fx_stream_frame_read", fx_stream_frame_read_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -1142,6 +1143,33 @@ impl FunctionInstanceState {
     pub fn resource_remove(&mut self, resource_id: &ResourceId) -> Resource {
         self.resources.remove(resource_id.into()).unwrap()
     }
+
+    pub(crate) fn stream_read_frame(&mut self, resource_id: &ResourceId) -> Vec<u8> {
+        let resource = self.resources.detach(resource_id.into()).unwrap();
+
+        let (resource, serialized_frame) = match resource {
+            Resource::BlobGetResult(_)
+            | Resource::FetchRequest(_)
+            | Resource::FetchResult(_)
+            | Resource::SqlQueryResult(_)
+            | Resource::UnitFuture(_) => panic!("resource of this type does not support reading frames"),
+            Resource::RequestBody(v) => match v.0 {
+                FetchRequestBodyInner::Full(_)
+                | FetchRequestBodyInner::Stream(_)
+                | FetchRequestBodyInner::PartiallyReadStream { .. } => panic!("request body has to be serialized first"),
+                FetchRequestBodyInner::FullSerialized(v) => (None, v),
+                FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => (Some(Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Stream(stream)))), frame_serialized),
+            },
+        };
+
+        if let Some(resource) = resource {
+            self.resources.reattach(resource_id.into(), resource);
+        } else {
+            self.resources.remove(resource_id.into());
+        }
+
+        serialized_frame
+    }
 }
 
 fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64, output_ptr: i64) {
@@ -1222,6 +1250,17 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
 
 fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
     let _ = caller.data_mut().resource_remove(&ResourceId::from(resource_id));
+}
+
+fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
+    let serialized_frame = caller.data_mut().stream_read_frame(&ResourceId::from(resource_id));
+
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let mut context = caller.as_context_mut();
+    let view = memory.data_mut(&mut context);
+    let ptr = ptr as usize;
+
+    view[ptr..ptr+serialized_frame.len()].copy_from_slice(&serialized_frame);
 }
 
 fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
@@ -1919,7 +1958,17 @@ fn serialize_request_body_full(body: Vec<u8>) -> Vec<u8> {
 }
 
 fn serialize_partially_read_stream(frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>) -> Vec<u8> {
-    todo!("serialize request frame")
+    let mut message = capnp::message::Builder::new_default();
+    let serialized_frame = message.init_root::<abi_http_capnp::http_request_body_frame::Builder>();
+    let mut serialized_frame = serialized_frame.init_body();
+
+    match frame {
+        None => serialized_frame.set_stream_end(()),
+        Some(Err(err)) => todo!("handle error: {err:?}"),
+        Some(Ok(frame)) => serialized_frame.set_bytes(&frame.into_data().unwrap()),
+    }
+
+    capnp::serialize::write_message_to_words(&message)
 }
 
 #[derive(Clone, Debug)]
