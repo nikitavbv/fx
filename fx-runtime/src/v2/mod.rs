@@ -444,17 +444,28 @@ impl FxServerV2 {
                                         bindings_sql,
                                         bindings_blob,
                                     } => {
+                                        let deployment = FunctionDeployment::new(
+                                            &wasmtime,
+                                            logger_tx.clone(),
+                                            sql_tx.clone(),
+                                            function_id.clone(),
+                                            module,
+                                            bindings_sql,
+                                            bindings_blob,
+                                        ).await;
+                                        let deployment = match deployment {
+                                            Ok(v) => v,
+                                            Err(err) => {
+                                                match err {
+                                                    DeploymentInitError::MissingImport => warn!(function_id=function_id.as_str(), "failed to deploy because of missing import"),
+                                                };
+                                                continue;
+                                            },
+                                        };
+
                                         function_deployments.borrow_mut().insert(
                                             deployment_id.clone(),
-                                            Rc::new(RefCell::new(FunctionDeployment::new(
-                                                &wasmtime,
-                                                logger_tx.clone(),
-                                                sql_tx.clone(),
-                                                function_id.clone(),
-                                                module,
-                                                bindings_sql,
-                                                bindings_blob,
-                                            ).await))
+                                            Rc::new(RefCell::new(deployment))
                                         );
                                         // TODO: cleanup old deployments
                                         functions.borrow_mut().insert(function_id.clone(), deployment_id);
@@ -768,7 +779,7 @@ impl FunctionDeployment {
         module: wasmtime::Module,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
-    ) -> Self {
+    ) -> Result<Self, DeploymentInitError> {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
 
         linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
@@ -808,16 +819,23 @@ impl FunctionDeployment {
             }
         }
 
-        let instance_template = linker.instantiate_pre(&module).unwrap();
+        let instance_template = linker.instantiate_pre(&module)
+            .map_err(|err| {
+                if let Some(_) = err.downcast_ref::<wasmtime::UnknownImportError>() {
+                    return DeploymentInitError::MissingImport;
+                } else {
+                    todo!("handle other error: {err:?}")
+                }
+            })?;
 
         let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob).await;
 
-        Self {
+        Ok(Self {
             function_id,
             module,
             instance_template,
             instance: Rc::new(instance),
-        }
+        })
     }
 
     fn handle_request(&self, header: FetchRequestHeader, body: FetchRequestBody) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
@@ -839,6 +857,12 @@ impl FunctionDeployment {
                 })
         })
     }
+}
+
+#[derive(Debug, Error)]
+enum DeploymentInitError {
+    #[error("failed to instantiate function because of missing import")]
+    MissingImport,
 }
 
 struct FunctionInstance {

@@ -12,4 +12,5 @@ members = [
     "apps/fx-app-mocks",
     "apps/fx-fortunes",
     "apps/fx-test-app",
+    "apps/fx-test-wrong-import"
 ]

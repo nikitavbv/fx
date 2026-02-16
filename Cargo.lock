@@ -1300,6 +1300,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-test-wrong-import"
+version = "0.1.0"
+dependencies = [
+ "fx-sdk",
+]
+
+[[package]]
 name = "fx-types"
 version = "0.1.0"
 dependencies = [
