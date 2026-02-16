@@ -457,7 +457,9 @@ impl FxServerV2 {
                                             Ok(v) => v,
                                             Err(err) => {
                                                 match err {
-                                                    DeploymentInitError::MissingImport => warn!(function_id=function_id.as_str(), "failed to deploy because of missing import"),
+                                                    // TODO: report issues with user function somewhere
+                                                    DeploymentInitError::MissingImport => warn!(function_id=function_id.as_str(), "failed to deploy because of function requested import that fx runtime does not provide"),
+                                                    DeploymentInitError::MissingExport => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide export that fx runtime expects"),
                                                 };
                                                 continue;
                                             },
@@ -828,7 +830,10 @@ impl FunctionDeployment {
                 }
             })?;
 
-        let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob).await;
+        let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob).await
+            .map_err(|err| match err {
+                FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
+            })?;
 
         Ok(Self {
             function_id,
@@ -861,8 +866,10 @@ impl FunctionDeployment {
 
 #[derive(Debug, Error)]
 enum DeploymentInitError {
-    #[error("failed to instantiate function because of missing import")]
+    #[error("function requested import that fx runtime does not provide")]
     MissingImport,
+    #[error("function does not provide export that fx runtime expects")]
+    MissingExport,
 }
 
 struct FunctionInstance {
@@ -887,18 +894,23 @@ impl FunctionInstance {
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
-    ) -> Self {
+    ) -> Result<Self, FunctionInstanceInitError> {
         let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(logger_tx, sql_tx, function_id, bindings_sql, bindings_blob));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
 
-        let fn_future_poll = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_future_poll").unwrap();
-        let fn_resource_serialize = instance.get_typed_func::<u64, u64>(store.as_context_mut(), "_fx_resource_serialize").unwrap();
-        let fn_resource_serialized_ptr = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_resource_serialized_ptr").unwrap();
-        let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop").unwrap();
+        let fn_future_poll = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_future_poll")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_resource_serialize = instance.get_typed_func::<u64, u64>(store.as_context_mut(), "_fx_resource_serialize")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_resource_serialized_ptr = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_resource_serialized_ptr")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
-        let fn_trigger_http = instance.get_typed_func(store.as_context_mut(), "__fx_handler_http").unwrap();
+        let fn_trigger_http = instance.get_typed_func(store.as_context_mut(), "__fx_handler_http")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         // We are using async calls to exported functions to enable epoch-based preemption.
         // We also allow functions to handle concurrent requests. That introduces an interesting
@@ -910,7 +922,7 @@ impl FunctionInstance {
         // so given this is a single-threaded runtime, we can use LocalMutex instead.
         let store = LocalMutex::new(store, false);
 
-        Self {
+        Ok(Self {
             instance,
             store,
             memory,
@@ -919,7 +931,7 @@ impl FunctionInstance {
             fn_resource_serialized_ptr,
             fn_resource_drop,
             fn_trigger_http,
-        }
+        })
     }
 
     async fn future_poll(&self, future_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, FunctionFuturePollError> {
@@ -976,6 +988,12 @@ impl FunctionInstance {
         let store = self.store.lock();
         FunctionResourceId::new(self.fn_trigger_http.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
     }
+}
+
+#[derive(Debug, Error)]
+enum FunctionInstanceInitError {
+    #[error("function does not provide export that fx runtime expects to be present")]
+    MissingExport,
 }
 
 struct FunctionInstanceState {

@@ -1300,6 +1300,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-test-missing-export"
+version = "0.1.0"
+
+[[package]]
 name = "fx-test-wrong-import"
 version = "0.1.0"
 dependencies = [

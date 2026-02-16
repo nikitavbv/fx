@@ -377,6 +377,12 @@ fn init_fx_server() {
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_wrong_import.wasm").unwrap())
             ).await;
 
+            server.deploy_function(
+                FunctionId::new("test-missing-export"),
+                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_missing_export.wasm").unwrap())
+            ).await;
+
             server
         })).join().unwrap()
     });
