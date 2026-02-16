@@ -153,7 +153,7 @@ async fn test_fetch() -> String {
         HttpRequest::get("https://httpbin.org/get").unwrap()
     ).await.unwrap();
 
-    String::from_utf8(response.body).unwrap()
+    String::from_utf8(response.into_body()).unwrap()
 }
 
 async fn test_fetch_post() -> String {
@@ -161,7 +161,7 @@ async fn test_fetch_post() -> String {
         HttpRequest::post("https://httpbin.org/post").unwrap().with_body("test fx request body")
     ).await.unwrap();
 
-    String::from_utf8(response.body).unwrap()
+    String::from_utf8(response.into_body()).unwrap()
 }
 
 async fn test_fetch_query() -> String {
@@ -170,7 +170,7 @@ async fn test_fetch_query() -> String {
             .with_query(&[("param1", "value1"), ("param2", "value2")])
     ).await.unwrap();
 
-    String::from_utf8(response.body).unwrap()
+    String::from_utf8(response.into_body()).unwrap()
 }
 
 async fn test_log() -> &'static str {

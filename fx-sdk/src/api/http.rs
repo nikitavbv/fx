@@ -236,8 +236,8 @@ impl DeserializeHostResource for HttpRequestData {
 }
 
 pub struct HttpResponse {
-    pub status: http::StatusCode,
-    pub body: Vec<u8>,
+    pub(crate) status: http::StatusCode,
+    pub(crate) body: Vec<u8>,
 }
 
 impl HttpResponse {
@@ -248,9 +248,21 @@ impl HttpResponse {
         }
     }
 
+    pub fn status(&self) -> &http::StatusCode {
+        &self.status
+    }
+
     pub fn with_status(mut self, status: http::StatusCode) -> Self {
         self.status = status;
         self
+    }
+
+    pub fn body(&self) -> &Vec<u8> {
+        &self.body
+    }
+
+    pub fn into_body(self) -> Vec<u8> {
+        self.body
     }
 
     pub fn with_body(mut self, body: impl HttpResponseBody) -> Self {
