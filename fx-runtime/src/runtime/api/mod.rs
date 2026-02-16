@@ -82,13 +82,13 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_fetch(caller.data(), v.unwrap(), response_op.init_fetch());
         },
         Operation::Sleep(v) => {
-            handle_sleep(caller.data(), v.unwrap(), response_op.init_sleep());
+            unimplemented!("deprecated");
         },
         Operation::Random(v) => {
-            handle_random(v.unwrap(), response_op.init_random());
+            unimplemented!("deprecated");
         },
         Operation::Time(_) => {
-            handle_time(response_op.init_time());
+            unimplemented!("deprecated");
         },
         Operation::FuturePoll(v) => {
             unimplemented!("deprecated")
@@ -409,21 +409,4 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: abi_capnp::fetch_request::Re
     }.boxed();
 
     unimplemented!("deprecated")
-}
-
-fn handle_sleep(data: &ExecutionEnv, sleep_request: abi_capnp::sleep_request::Reader, sleep_response: abi_capnp::sleep_response::Builder) {
-    let mut response = sleep_response.init_response();
-
-    let sleep = tokio::time::sleep(std::time::Duration::from_millis(sleep_request.get_millis()));
-    unimplemented!("deprecated")
-}
-
-fn handle_random(random_request: abi_capnp::random_request::Reader, mut random_response: abi_capnp::random_response::Builder) {
-    let mut random_data = vec![0; random_request.get_length() as usize];
-    rand::rngs::OsRng.try_fill_bytes(&mut random_data).unwrap();
-    random_response.set_data(&random_data);
-}
-
-fn handle_time(mut time_response: abi_capnp::time_response::Builder) {
-    time_response.set_timestamp(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
 }
