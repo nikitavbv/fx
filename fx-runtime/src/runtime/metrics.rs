@@ -205,13 +205,6 @@ pub async fn run_metrics_server(engine: Arc<Engine>, port: u16) {
 async fn collect_metrics(engine: Arc<Engine>) {
     let metrics = engine.metrics.clone();
     loop {
-        match engine.futures_pool.len() {
-            Ok(v) => metrics.arena_futures_size.set(v as i64),
-            Err(err) => {
-                error!("failed to get futures arena size: {err:?}");
-            }
-        }
-
         match engine.execution_contexts.read() {
             Ok(execution_contexts) => for (_execution_context_id, execution_env) in execution_contexts.iter() {
                 let function_id = execution_env.function_id.as_string();

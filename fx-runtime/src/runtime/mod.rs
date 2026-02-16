@@ -7,7 +7,6 @@ mod api;
 pub mod runtime;
 pub mod definition;
 pub mod error;
-mod futures;
 pub mod kv;
 pub mod logs;
 pub mod metrics;

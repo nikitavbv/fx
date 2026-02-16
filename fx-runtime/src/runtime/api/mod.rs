@@ -15,7 +15,6 @@ use {
         kv::KVStorage,
         error::FunctionInvokeError,
         logs::{self, Logger},
-        futures::{HostFutureError, HostFuturePollError},
     },
 };
 
@@ -92,10 +91,10 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_time(response_op.init_time());
         },
         Operation::FuturePoll(v) => {
-            handle_future_poll(caller.data(), v.unwrap(), response_op.init_future_poll());
+            unimplemented!("deprecated")
         },
         Operation::FutureDrop(v) => {
-            handle_future_drop(caller.data(), v.unwrap(), response_op.init_future_drop());
+            unimplemented!("deprecated")
         },
         Operation::StreamExport(v) => {
             unimplemented!("deprecated")
@@ -404,26 +403,19 @@ fn handle_fetch(data: &ExecutionEnv, fetch_request: abi_capnp::fetch_request::Re
             })
             .await
             .map_err(FetchApiAsyncError::from)
-            .map_err(HostFutureAsyncApiError::from)
-            .map_err(HostFutureError::from)
+            .map_err(HostFutureAsyncApiError::from);
+
+        unimplemented!("deprecated")
     }.boxed();
 
-    let index = data.engine.futures_pool.push(request_future).unwrap();
-    fetch_response.set_future_id(index.0);
+    unimplemented!("deprecated")
 }
 
 fn handle_sleep(data: &ExecutionEnv, sleep_request: abi_capnp::sleep_request::Reader, sleep_response: abi_capnp::sleep_response::Builder) {
     let mut response = sleep_response.init_response();
 
     let sleep = tokio::time::sleep(std::time::Duration::from_millis(sleep_request.get_millis()));
-    match data.engine.futures_pool.push(sleep.map(|_| Ok(Vec::new())).boxed()) {
-        Ok(v) => {
-            response.set_future_id(v.0);
-        },
-        Err(err) => {
-            response.set_sleep_error(err.to_string());
-        }
-    }
+    unimplemented!("deprecated")
 }
 
 fn handle_random(random_request: abi_capnp::random_request::Reader, mut random_response: abi_capnp::random_response::Builder) {
@@ -434,62 +426,4 @@ fn handle_random(random_request: abi_capnp::random_request::Reader, mut random_r
 
 fn handle_time(mut time_response: abi_capnp::time_response::Builder) {
     time_response.set_timestamp(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64)
-}
-
-fn handle_future_poll(data: &ExecutionEnv, future_poll_request: abi_capnp::future_poll_request::Reader, future_poll_response: abi_capnp::future_poll_response::Builder) {
-    use futures::task::Poll;
-
-    let mut response = future_poll_response.init_response();
-
-    let result = data.engine.futures_pool.poll(&crate::runtime::futures::HostPoolIndex(future_poll_request.get_future_id()), &mut futures::task::Context::from_waker(data.futures_waker.as_ref().unwrap()));
-
-    match result {
-        Poll::Pending => {
-            response.set_pending(());
-        },
-        Poll::Ready(res) => {
-            match res {
-                Ok(v) => response.set_result(&v),
-                Err(error) => {
-                    let mut response_error = response.init_error().init_error();
-                    match error {
-                        HostFuturePollError::NotFound => response_error.set_not_found(()),
-                        HostFuturePollError::Runtime(err) => {
-                            error!("runtime error when handling host future poll api: {err:?}");
-                            response_error.set_runtime_error(());
-                        },
-                        HostFuturePollError::FutureError(error) => match error {
-                            HostFutureError::AsyncApiError(async_api_error) => {
-                                let mut response_async_api_error = response_error.init_async_api_error().init_op();
-                                match async_api_error {
-                                    HostFutureAsyncApiError::Rpc(error) => {
-                                        let mut response_rpc_error = response_async_api_error.init_rpc().init_error();
-                                        match error {
-                                            RpcApiAsyncError::FunctionInvocation(error) => match error {
-                                                FunctionExecutionError::RuntimeError(_) => response_rpc_error.set_runtime_error(()),
-                                                FunctionExecutionError::FunctionRuntimeError => response_rpc_error.set_function_runtime_error(()),
-                                                FunctionExecutionError::UserApplicationError { description } => response_rpc_error.set_user_application_error(description),
-                                                FunctionExecutionError::FunctionPanicked => response_rpc_error.set_function_panicked(()),
-                                                FunctionExecutionError::HandlerNotDefined => response_rpc_error.set_handler_not_found(()),
-                                            }
-                                        }
-                                    },
-                                    HostFutureAsyncApiError::Fetch(error) => {
-                                        let mut response_fetch_error = response_async_api_error.init_fetch();
-                                        match error {
-                                            FetchApiAsyncError::NetworkRequestFailed(error) => response_fetch_error.set_network_error(format!("{error:?}")),
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-            }
-        }
-    }
-}
-
-fn handle_future_drop(data: &ExecutionEnv, future_drop_request: abi_capnp::future_drop_request::Reader, _future_drop_response: abi_capnp::future_drop_response::Builder) {
-    data.engine.futures_pool.remove(&crate::runtime::futures::HostPoolIndex(future_drop_request.get_future_id()));
 }

@@ -37,7 +37,6 @@ use {
             kv::{KVStorage, NamespacedStorage, EmptyStorage, BoxedStorage, FsStorage, StorageError},
             error::{FxRuntimeError, FunctionInvokeError, FunctionInvokeInternalRuntimeError},
             sql::{self, SqlDatabase},
-            futures::FuturesPool,
             metrics::Metrics,
             definition::{DefinitionProvider, FunctionDefinition, SqlStorageDefinition, DefinitionError},
             logs::{self, Logger, BoxLogger, StdoutLogger},
@@ -164,8 +163,6 @@ pub struct Engine {
     // internal storage where .wasm is loaded from:
     module_code_storage: RwLock<BoxedStorage>,
 
-    pub futures_pool: FuturesPool,
-
     logger: RwLock<BoxLogger>,
 }
 
@@ -183,8 +180,6 @@ impl Engine {
             definition_provider: RwLock::new(DefinitionProvider::new(BoxedStorage::new(EmptyStorage))),
 
             module_code_storage: RwLock::new(BoxedStorage::new(NamespacedStorage::new(b"services/", EmptyStorage))),
-
-            futures_pool: FuturesPool::new(),
 
             logger: RwLock::new(BoxLogger::new(StdoutLogger::new())),
         }
