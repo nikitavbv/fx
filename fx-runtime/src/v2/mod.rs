@@ -1029,7 +1029,27 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::FetchResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::RequestBody(v) => panic!("resource of this type cannot be serialized"),
+            Resource::RequestBody(v) => match v.0 {
+                FetchRequestBodyInner::Full(v) => {
+                    let serialized = serialize_request_body_full(v);
+                    let serialized_size = serialized.len();
+                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::FullSerialized(serialized))), serialized_size)
+                },
+                FetchRequestBodyInner::FullSerialized(serialized) => {
+                    let serialized_size = serialized.len();
+                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::FullSerialized(serialized))), serialized_size)
+                },
+                FetchRequestBodyInner::Stream(_) => panic!("resource is not yet ready for serialization"),
+                FetchRequestBodyInner::PartiallyReadStream { stream, frame } => {
+                    let frame_serialized = serialize_partially_read_stream(frame);
+                    let serialized_size = frame_serialized.len();
+                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { frame_serialized, stream })), serialized_size)
+                },
+                FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => {
+                    let serialized_size = frame_serialized.len();
+                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { frame_serialized, stream })), serialized_size)
+                }
+            },
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -1084,7 +1104,34 @@ impl FunctionInstanceState {
                 };
                 (Resource::FetchResult(resource), poll_result)
             },
-            Resource::RequestBody(v) => unimplemented!(),
+            Resource::RequestBody(v) => match v.0 {
+                FetchRequestBodyInner::Full(v) => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Full(v))), Poll::Ready(())),
+                FetchRequestBodyInner::FullSerialized(v) => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::FullSerialized(v))), Poll::Ready(())),
+                FetchRequestBodyInner::Stream(mut stream) => {
+                    use hyper::body::Body;
+
+                    let poll_result = stream.as_mut().poll_frame(&mut cx);
+
+                    match poll_result {
+                        Poll::Pending => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Stream(stream))), Poll::Pending),
+                        Poll::Ready(frame) => (
+                            Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStream {
+                                frame,
+                                stream,
+                            })),
+                            Poll::Ready(()),
+                        ),
+                    }
+                },
+                FetchRequestBodyInner::PartiallyReadStream { stream, frame } => (
+                    Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStream { stream, frame })),
+                    Poll::Ready(()),
+                ),
+                FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => (
+                    Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized })),
+                    Poll::Ready(())
+                ),
+            },
         };
 
         self.resources.reattach(resource_id.into(), resource);
@@ -1510,13 +1557,24 @@ pub struct FetchRequestBody(FetchRequestBodyInner);
 
 impl From<hyper::body::Incoming> for FetchRequestBody {
     fn from(value: hyper::body::Incoming) -> Self {
-        Self(FetchRequestBodyInner::Stream(value))
+        Self(FetchRequestBodyInner::Stream(Box::pin(value)))
     }
 }
 
 enum FetchRequestBodyInner {
-    Stream(hyper::body::Incoming),
+    // full body:
     Full(Vec<u8>),
+    FullSerialized(Vec<u8>),
+    // streaming body:
+    Stream(Pin<Box<hyper::body::Incoming>>),
+    PartiallyReadStream {
+        stream: Pin<Box<hyper::body::Incoming>>,
+        frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>,
+    },
+    PartiallyReadStreamSerialized {
+        stream: Pin<Box<hyper::body::Incoming>>,
+        frame_serialized: Vec<u8>,
+    },
 }
 
 struct FunctionResponse(FunctionResponseInner);
@@ -1854,6 +1912,14 @@ impl SerializeResource for FetchResult {
 
         capnp::serialize::write_message_to_words(&message)
     }
+}
+
+fn serialize_request_body_full(body: Vec<u8>) -> Vec<u8> {
+    todo!("serialize request body full")
+}
+
+fn serialize_partially_read_stream(frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>) -> Vec<u8> {
+    todo!("serialize request frame")
 }
 
 #[derive(Clone, Debug)]

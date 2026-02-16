@@ -22,6 +22,10 @@ impl ResourceId {
     pub fn new(id: u64) -> Self {
         Self { id }
     }
+
+    pub(crate) fn as_ffi(&self) -> u64 {
+        self.id
+    }
 }
 
 pub struct FunctionResourceId {

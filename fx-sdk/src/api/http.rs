@@ -4,7 +4,7 @@ use {
     std::str::FromStr,
     http::{Uri, Method, HeaderMap},
     thiserror::Error,
-    fx_types::{capnp, abi_http_capnp},
+    fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
         ResourceId,
         DeserializableHostResource,
@@ -14,6 +14,7 @@ use {
         OwnedResourceId,
         FutureHostResource,
         fx_fetch,
+        fx_future_poll,
     },
 };
 
@@ -122,13 +123,20 @@ impl http_body::Body for HttpRequestBody {
 
     fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         let body = std::mem::replace(&mut self.0, HttpRequestBodyInner::Empty);
         let (new_body, poll) = match body {
             HttpRequestBodyInner::Empty => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpRequestBodyInner::Bytes(v) => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes::Bytes::from(v)))))),
-            HttpRequestBodyInner::HostResource(v) => todo!("reading host resource body"),
+            HttpRequestBodyInner::HostResource(v) => {
+                let poll_result = v.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
+                let poll_result = FuturePollResult::try_from(poll_result).unwrap();
+                match poll_result {
+                    FuturePollResult::Pending => (HttpRequestBodyInner::HostResource(v), std::task::Poll::Pending),
+                    FuturePollResult::Ready => todo!("handle resource body ready"),
+                }
+            },
         };
         let _ = std::mem::replace(&mut self.0, new_body);
         poll
