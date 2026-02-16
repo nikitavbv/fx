@@ -101,7 +101,7 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_stream_export(caller.data(), v.unwrap(), response_op.init_stream_export());
         },
         Operation::StreamPollNext(v) => {
-            handle_stream_poll_next(caller.data(), v.unwrap(), response_op.init_stream_poll_next());
+            unimplemented!("deprecated")
         }
     };
 
@@ -512,36 +512,6 @@ fn handle_stream_export(data: &ExecutionEnv, _stream_export_request: abi_capnp::
         },
         Err(err) => {
             response.set_error(err.to_string());
-        }
-    }
-}
-
-fn handle_stream_poll_next(data: &ExecutionEnv, stream_poll_next_request: abi_capnp::stream_poll_next_request::Reader, stream_poll_next_response: abi_capnp::stream_poll_next_response::Builder) {
-    let mut response = stream_poll_next_response.init_response();
-
-    let result = data.engine.streams_pool.poll_next(
-        data.engine.clone(),
-        &crate::runtime::streams::HostPoolIndex(stream_poll_next_request.get_stream_id()),
-        &mut task::Context::from_waker(data.futures_waker.as_ref().unwrap())
-    );
-
-    match result {
-        Poll::Pending => {
-            response.set_pending(());
-        },
-        Poll::Ready(Some(v)) => {
-            let mut item = response.init_ready().init_item();
-            match v {
-                Ok(v) => {
-                    item.set_result(&v);
-                },
-                Err(err) => {
-                    item.set_error(err.to_string());
-                }
-            }
-        },
-        Poll::Ready(None) => {
-            response.set_finished(());
         }
     }
 }
