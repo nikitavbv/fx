@@ -3,6 +3,7 @@ pub use http::{HeaderName, HeaderValue, Uri};
 use {
     std::str::FromStr,
     http::{Method, HeaderMap},
+    serde::Serialize,
     thiserror::Error,
     fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
@@ -69,6 +70,27 @@ impl HttpRequest {
 
     pub fn with_uri(mut self, uri: Uri) -> Self {
         self.request_data_mut().url = uri;
+        self
+    }
+
+    pub fn with_query(mut self, query: &impl Serialize) -> Self {
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+
+        let uri = self.request_data().url.clone();
+        let mut parts = uri.into_parts();
+
+        let new_path_and_query = match parts.path_and_query {
+            Some(ref pq) => {
+                match pq.query() {
+                    Some(existing) => format!("{}?{}&{}", pq.path(), existing, query_string),
+                    None => format!("{}?{}", pq.path(), query_string),
+                }
+            },
+            None => format!("/?{}", query_string),
+        };
+
+        parts.path_and_query = Some(new_path_and_query.parse().unwrap());
+        self.request_data_mut().url = Uri::from_parts(parts).unwrap();
         self
     }
 

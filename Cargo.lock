@@ -1279,6 +1279,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "slotmap",
  "thiserror 2.0.17",
  "tower",

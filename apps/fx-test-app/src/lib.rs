@@ -54,6 +54,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
             .route("/test/fetch", get(test_fetch))
             .route("/test/fetch/post", get(test_fetch_post))
+            .route("/test/fetch/query", get(test_fetch_query))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -98,7 +99,8 @@ async fn test_sql_migrate() -> String {
         .with_migration(Migration::new("create table test_sql_table_migrations (v integer not null)"))
         .with_migration(Migration::new("insert into test_sql_table_migrations (v) values (67)"))
         .run(&database)
-        .await;
+        .await
+        .unwrap();
 
     let res: u64 = database.exec(SqlQuery::new("select v from test_sql_table_migrations")).await.unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
     res.to_string()
@@ -157,6 +159,15 @@ async fn test_fetch() -> String {
 async fn test_fetch_post() -> String {
     let response = fetch(
         HttpRequest::post("https://httpbin.org/post").unwrap().with_body("test fx request body")
+    ).await.unwrap();
+
+    String::from_utf8(response.body).unwrap()
+}
+
+async fn test_fetch_query() -> String {
+    let response = fetch(
+        HttpRequest::get("https://httpbin.org/get").unwrap()
+            .with_query(&[("param1", "value1"), ("param2", "value2")])
     ).await.unwrap();
 
     String::from_utf8(response.body).unwrap()

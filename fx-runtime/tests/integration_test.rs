@@ -214,6 +214,16 @@ async fn fetch_body_passthrough() {
 }
 
 #[tokio::test]
+async fn fetch_query() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/fetch/query").await.unwrap();
+    assert!(result.status().is_success());
+    let result = result.text().await.unwrap();
+    assert!(result.contains("https://httpbin.org/get?param1=value1&param2=value2"));
+}
+
+#[tokio::test]
 async fn log() {
     init_fx_server();
 
