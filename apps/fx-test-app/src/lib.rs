@@ -10,11 +10,10 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::http::fetch,
+        io::{http::fetch, blob::BlobGetError},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration}},
         random,
-        io::blob::BlobGetError,
         blob,
         metrics::Counter,
     },
@@ -28,11 +27,14 @@ lazy_static! {
 }
 
 #[handler::fetch]
-pub async fn http(req: HttpRequest) -> HttpResponse {
+pub async fn http(mut req: HttpRequest) -> HttpResponse {
     let req = if req.uri().path().starts_with("/test/http/header-get-simple") {
         return HttpResponse::new().with_body(format!("ok: {}\n", req.headers().get("x-test-header").unwrap().to_str().unwrap()))
     } else if req.uri().path().starts_with("/test/http/uri-overwrite") {
         req.with_uri("http://localhost:8080/test/http/uri-overwritten".parse().unwrap())
+    } else if req.uri().path().starts_with("/test/fetch/body-passthrough") {
+        let body = req.body().unwrap();
+        return fetch(req.with_uri("https://httpbin.org/post".parse().unwrap()).with_body(body)).await.unwrap();
     } else {
         req
     };

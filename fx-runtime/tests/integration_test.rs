@@ -203,6 +203,17 @@ async fn fetch_post() {
 }
 
 #[tokio::test]
+async fn fetch_body_passthrough() {
+    init_fx_server();
+
+    let result = reqwest::Client::new().post("http://localhost:8080/test/fetch/body-passthrough").body("fx test: body passthrough").send().await.unwrap();
+    assert!(result.status().is_success());
+    let result = result.text().await.unwrap();
+    assert!(result.contains("httpbin.org/post"));
+    assert!(result.contains("fx test: body passthrough"));
+}
+
+#[tokio::test]
 async fn log() {
     init_fx_server();
 

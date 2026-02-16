@@ -1,8 +1,8 @@
-pub use http::{HeaderName, HeaderValue};
+pub use http::{HeaderName, HeaderValue, Uri};
 
 use {
     std::str::FromStr,
-    http::{Uri, Method, HeaderMap},
+    http::{Method, HeaderMap},
     thiserror::Error,
     fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
@@ -253,8 +253,12 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
         fetch.set_uri(request.uri().to_string());
 
         let mut request_body = fetch.init_body().init_body();
-        match request.body_into_bytes() {
-            Some(v) => request_body.set_bytes(&v),
+        match request.body() {
+            Some(body) => match body.0 {
+                HttpRequestBodyInner::Empty => request_body.set_empty(()),
+                HttpRequestBodyInner::Bytes(v) => request_body.set_bytes(&v),
+                HttpRequestBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
+            },
             None => request_body.set_empty(()),
         }
 
@@ -302,6 +306,12 @@ impl IntoHttpRequestBody for String {
 impl IntoHttpRequestBody for &str {
     fn into_request_body(self) -> HttpRequestBody {
         HttpRequestBody(HttpRequestBodyInner::Bytes(self.as_bytes().to_vec()))
+    }
+}
+
+impl IntoHttpRequestBody for HttpRequestBody {
+    fn into_request_body(self) -> HttpRequestBody {
+        self
     }
 }
 
