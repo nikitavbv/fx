@@ -594,5 +594,6 @@ async fn create_logger(logger: &LoggerConfig) -> BoxLogger {
         LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
         LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
         LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
+        _ => unimplemented!("legacy code"),
     }
 }

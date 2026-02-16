@@ -32,6 +32,7 @@ use {
     rand::TryRngCore,
     axum::{Router, routing::get, response::Response as AxumResponse, Extension},
     leptos::prelude::*,
+    serde::Serialize,
     fx_types::{
         capnp,
         abi_capnp,
@@ -2074,8 +2075,86 @@ fn create_logger(logger: &LoggerConfig) -> BoxLogger {
     match logger {
         LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
         LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),
+        LoggerConfig::HttpLogger { endpoint } => BoxLogger::new(HttpLogger::new(endpoint.clone())),
         LoggerConfig::Custom(v) => BoxLogger::new(v.clone()),
     }
+}
+
+struct HttpLogger {
+    client: reqwest::blocking::Client,
+    endpoint: String,
+}
+
+impl HttpLogger {
+    pub fn new(endpoint: String) -> Self {
+        Self {
+            client: reqwest::blocking::Client::new(),
+            endpoint,
+        }
+    }
+}
+
+impl Logger for HttpLogger {
+    fn log(&self, message: LogMessageEvent) {
+        let response = self.client.post(&self.endpoint)
+            .header("content-type", "application/stream+json")
+            .body(serde_json::to_vec(&HttpLogEvent {
+                source: "fx".to_owned(),
+                function_id: match message.source {
+                    crate::common::LogSource::FxRuntime => None,
+                    crate::common::LogSource::Function { id } => Some(id),
+                },
+                message: message.fields.get("message")
+                    .map(|v| match v {
+                        crate::common::EventFieldValue::Text(v) => v.clone(),
+                        other => format!("{other:?}"),
+                    })
+                    .unwrap_or(format!("fx log")),
+                request_id: message.fields.get("request_id")
+                    .map(|v| match v {
+                        crate::common::EventFieldValue::Text(v) => v.clone(),
+                        other => format!("{other:?}"),
+                    }),
+                level: message.level,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                fields: message.fields.into_iter()
+                    .map(|(key, value)| (
+                        key.clone(),
+                        map_log_value_to_serde_json(&value)
+                    ))
+                    .collect()
+            }).unwrap())
+            .send()
+            .unwrap();
+        if !response.status().is_success() {
+            error!(status_code=response.status().as_u16(), "failed to send logs over http");
+        }
+    }
+}
+
+fn map_log_value_to_serde_json(value: &crate::common::EventFieldValue) -> serde_json::Value {
+    match value {
+        crate::common::EventFieldValue::Text(v) => serde_json::Value::String(v.clone()),
+        crate::common::EventFieldValue::F64(v) => serde_json::Value::Number(serde_json::Number::from_f64(*v).unwrap()),
+        crate::common::EventFieldValue::I64(v) => serde_json::Value::Number((*v).into()),
+        crate::common::EventFieldValue::U64(v) => serde_json::Value::Number((*v).into()),
+        crate::common::EventFieldValue::Object(v) => serde_json::Value::Object(
+            v.iter()
+                .map(|(key, value)| (key.clone(), map_log_value_to_serde_json(value)))
+                .collect()
+        )
+    }
+}
+
+#[derive(Serialize)]
+struct HttpLogEvent {
+    fields: HashMap<String, serde_json::Value>,
+    level: crate::common::LogEventLevel,
+    message: String,
+    request_id: Option<String>,
+    source: String,
+    function_id: Option<String>,
+    timestamp: String,
 }
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]

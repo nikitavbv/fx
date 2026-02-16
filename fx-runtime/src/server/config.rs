@@ -33,6 +33,10 @@ pub enum LoggerConfig {
     Stdout,
     #[serde(rename = "noop")]
     Noop,
+    #[serde(rename = "http")]
+    HttpLogger {
+        endpoint: String,
+    },
     #[serde(skip)]
     Custom(Arc<BoxLogger>),
 }
