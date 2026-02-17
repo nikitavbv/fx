@@ -16,6 +16,7 @@ use {
         random,
         blob,
         metrics::Counter,
+        sql::SqlError,
     },
 };
 
@@ -49,6 +50,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/sql/contention/setup", get(test_sql_contention_setup))
             .route("/test/sql/contention/expensive-write", get(test_sql_contention_expensive_write))
             .route("/test/sql/contention/read", get(test_sql_contention_read))
+            .route("/test/sql/contention-busy", get(test_sql_contention_busy))
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
@@ -144,6 +146,31 @@ async fn test_sql_contention_read() -> String {
     };
 
     format!("ok.\n{v}")
+}
+
+async fn test_sql_contention_busy() -> &'static str {
+    let database = fx::sql("contention-busy");
+
+    Migrations::new()
+        .with_migration(Migration::new("create table contention_busy (v blob not null)"))
+        .run(&database)
+        .await
+        .unwrap();
+
+    let result = database.exec(SqlQuery::new("with recursive cnt(x) AS (select 1 union all select x + 1 from cnt where x < 1000) insert into contention_busy (v) select randomblob(10000) from cnt")).await;
+    if let Err(err) = result {
+        match err {
+            SqlError::DatabaseBusy => return "busy.\n",
+        }
+    }
+    let result = database.exec(SqlQuery::new("delete from contention_busy where 1")).await;
+    if let Err(err) = result {
+        match err {
+            SqlError::DatabaseBusy => return "busy.\n",
+        }
+    }
+
+    "ok.\n"
 }
 
 async fn test_panic_page() -> String {

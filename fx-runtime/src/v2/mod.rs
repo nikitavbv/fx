@@ -52,7 +52,7 @@ use {
             definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
             metrics::run_metrics_server,
             logs::{self, BoxLogger, StdoutLogger, NoopLogger, Logger},
-            sql::{Value as SqlValue, Row as SqlRow, QueryResult},
+            sql::{Value as SqlValue, Row as SqlRow},
         },
         server::{
             server::FxServer,
@@ -94,7 +94,19 @@ struct SqlExecMessage {
     binding: SqlBindingConfig,
     statement: String,
     params: Vec<SqlValue>,
-    response: oneshot::Sender<QueryResult>,
+    response: oneshot::Sender<SqlQueryResult>,
+}
+
+#[derive(Debug)]
+enum SqlQueryResult {
+    Ok(Vec<SqlRow>),
+    Error(SqlQueryExecutionError),
+}
+
+#[derive(Debug, Error)]
+enum SqlQueryExecutionError {
+    #[error("database is locked")]
+    DatabaseBusy,
 }
 
 #[derive(Debug)]
@@ -305,8 +317,9 @@ impl FxServerV2 {
                         SqlMessage::Migrate(v) => &v.binding,
                     };
 
-                    let connection = connections.entry(binding.connection_id.clone())
-                        .or_insert_with(|| {
+                    let connection = match connections.entry(binding.connection_id.clone()) {
+                        std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
+                        std::collections::hash_map::Entry::Vacant(entry) => {
                             let connection = match &binding.location {
                                 SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
                                     format!("file:{v}"),
@@ -319,21 +332,52 @@ impl FxServerV2 {
                             if let Some(busy_timeout) = binding.busy_timeout {
                                 connection.busy_timeout(busy_timeout).unwrap();
                             }
-                            connection.pragma_update(None, "journal_mode", "WAL").unwrap();
-                            connection.pragma_update(None, "synchronous", "NORMAL").unwrap();
-                            connection
-                        });
+                            if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
+                                if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
+                                    Err(SqlQueryExecutionError::DatabaseBusy)
+                                } else {
+                                    panic!("unexpected sqlite error: {err:?}")
+                                }
+                            } else {
+                                connection.pragma_update(None, "synchronous", "NORMAL").unwrap();
+                                Ok(entry.insert(connection))
+                            }
+                        }
+                    };
 
                     match msg {
                         SqlMessage::Exec(msg) => {
+                            let connection = match connection {
+                                Ok(v) => v,
+                                Err(err) => {
+                                    msg.response.send(SqlQueryResult::Error(SqlQueryExecutionError::DatabaseBusy)).unwrap();
+                                    continue;
+                                }
+                            };
+
                             let mut stmt = connection.prepare(&msg.statement).unwrap();
                             let result_columns = stmt.column_count();
 
                             let mut rows = stmt.query(rusqlite::params_from_iter(msg.params.into_iter())).unwrap();
 
                             let mut result_rows = Vec::new();
+                            let response_message = loop {
+                                let row = rows.next();
+                                let row = match row {
+                                    Ok(v) => v,
+                                    Err(err) => {
+                                        if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
+                                            break SqlQueryResult::Error(SqlQueryExecutionError::DatabaseBusy);
+                                        } else {
+                                            panic!("unexpected sqlite error: {err:?}")
+                                        }
+                                    }
+                                };
+                                let row = match row {
+                                    Some(v) => v,
+                                    None => break SqlQueryResult::Ok(result_rows),
+                                };
 
-                            while let Some(row) = rows.next().unwrap() {
                                 let mut row_columns = Vec::new();
                                 for column in 0..result_columns {
                                     let column = row.get_ref(column).unwrap();
@@ -349,11 +393,12 @@ impl FxServerV2 {
                                     });
                                 }
                                 result_rows.push(SqlRow { columns: row_columns });
-                            }
+                            };
 
-                            msg.response.send(QueryResult { rows: result_rows }).unwrap();
+                            msg.response.send(response_message).unwrap();
                         },
                         SqlMessage::Migrate(msg) => {
+                            let connection = connection.unwrap();
                             let mut rusqlite_migrations = Vec::new();
                             for migration in &msg.migrations {
                                 rusqlite_migrations.push(rusqlite_migration::M::up(migration));
@@ -1827,7 +1872,7 @@ impl From<u64> for FunctionResourceId {
 enum Resource {
     FetchRequest(SerializableResource<FetchRequestHeader>),
     RequestBody(FetchRequestBody),
-    SqlQueryResult(FutureResource<SerializableResource<QueryResult>>),
+    SqlQueryResult(FutureResource<SerializableResource<SqlQueryResult>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FutureResource<SerializableResource<FetchResult>>),
@@ -1898,22 +1943,33 @@ impl SerializeResource for FetchRequestHeader {
     }
 }
 
-impl SerializeResource for QueryResult {
+impl SerializeResource for SqlQueryResult {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
         let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
+        let sql_exec_response = sql_exec_response.init_result();
 
-        let mut response_rows = sql_exec_response.init_rows(self.rows.len() as u32);
-        for (index, result_row) in self.rows.into_iter().enumerate() {
-            let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
-            for (column_index, value) in result_row.columns.into_iter().enumerate() {
-                let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
-                match value {
-                    crate::runtime::sql::Value::Null => response_value.set_null(()),
-                    crate::runtime::sql::Value::Integer(v) => response_value.set_integer(v),
-                    crate::runtime::sql::Value::Real(v) => response_value.set_real(v),
-                    crate::runtime::sql::Value::Text(v) => response_value.set_text(v),
-                    crate::runtime::sql::Value::Blob(v) => response_value.set_blob(&v),
+        match self {
+            Self::Ok(rows) => {
+                let mut response_rows = sql_exec_response.init_rows(rows.len() as u32);
+                for (index, result_row) in rows.into_iter().enumerate() {
+                    let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
+                    for (column_index, value) in result_row.columns.into_iter().enumerate() {
+                        let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
+                        match value {
+                            crate::runtime::sql::Value::Null => response_value.set_null(()),
+                            crate::runtime::sql::Value::Integer(v) => response_value.set_integer(v),
+                            crate::runtime::sql::Value::Real(v) => response_value.set_real(v),
+                            crate::runtime::sql::Value::Text(v) => response_value.set_text(v),
+                            crate::runtime::sql::Value::Blob(v) => response_value.set_blob(&v),
+                        }
+                    }
+                }
+            },
+            Self::Error(err) => {
+                let mut response_error = sql_exec_response.init_error();
+                match err {
+                    SqlQueryExecutionError::DatabaseBusy => response_error.set_database_busy(()),
                 }
             }
         }

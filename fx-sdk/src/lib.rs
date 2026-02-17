@@ -27,7 +27,7 @@ use {
             fx_random,
             fx_time,
         },
-        sql::SqlResult,
+        sql::{SqlResult, SqlError},
         logging::FxLoggingLayer,
     },
 };
@@ -81,7 +81,7 @@ impl SqlDatabase {
         Self { name }
     }
 
-    pub async fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, FxSqlError> {
+    pub async fn exec(&self, query: SqlQuery) -> StdResult<sql::SqlResult, SqlError> {
         let message = {
             let mut message = capnp::message::Builder::new_default();
             let mut request = message.init_root::<abi_sql_capnp::sql_exec_request::Builder>();
@@ -105,9 +105,9 @@ impl SqlDatabase {
         };
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_sql_exec(message.as_ptr() as u64, message.len() as u64) });
-        let resource: FutureHostResource<SqlResult> = FutureHostResource::new(resource_id);
+        let resource: FutureHostResource<StdResult<SqlResult, SqlError>> = FutureHostResource::new(resource_id);
 
-        Ok(resource.await)
+        resource.await
     }
 
     /*pub fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), FxSqlError> {

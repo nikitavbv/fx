@@ -7,7 +7,14 @@ struct SqlExecRequest {
 }
 
 struct SqlExecResult {
-    rows @0 :List(SqlResultRow);
+    result :union {
+        rows @0 :List(SqlResultRow);
+        error @1 :SqlExecError;
+    }
+}
+
+struct SqlExecError {
+    databaseBusy @0 :Void;
 }
 
 struct SqlMigrateRequest {

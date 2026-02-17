@@ -102,7 +102,7 @@ async fn sql_simple_contention() {
 
     let futures: FuturesUnordered<_> = std::iter::once(reqwest::get("http://localhost:8080/test/sql/contention/expensive-write").boxed())
         .chain((0..20).map(|_| async {
-            sleep(Duration::from_millis(50)).await;
+            sleep(Duration::from_millis(5)).await;
             reqwest::get("http://localhost:8080/test/sql/contention/read").await
         }.boxed()))
         .collect();
@@ -114,6 +114,23 @@ async fn sql_simple_contention() {
         assert!(response.text().await.unwrap().starts_with("ok.\n"));
     }
 }
+
+/// It is still possible to lock database, because of slow disk for example.
+/// In that case, DatabaseBusy error should propagate to application and be handled correctly.
+/*#[tokio::test]
+async fn sql_contention_busy() {
+    init_fx_server();
+
+    let futures: FuturesUnordered<_> = (0..20).map(|n| async move {
+        sleep(Duration::from_millis(n)).await;
+        let result = reqwest::get("http://localhost:8080/test/sql/contention-busy").await.unwrap();
+        assert!(result.status().is_success());
+        result.text().await.unwrap()
+    }).collect();
+    let results: Vec<_> = futures.collect().await;
+
+    assert_eq!(Vec::<String>::new(), results);
+}*/
 
 // TODO: recover from panics?
 #[tokio::test]
@@ -403,6 +420,10 @@ fn init_fx_server() {
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
                     .with_binding_sql_config(
                         SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
+                            .with_busy_timeout_ms(10)
+                    )
+                    .with_binding_sql_config(
+                        SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
                             .with_busy_timeout_ms(10)
                     )
                     .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
