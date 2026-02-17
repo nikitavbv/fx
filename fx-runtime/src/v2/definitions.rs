@@ -1,14 +1,7 @@
 use {
-    std::{path::{PathBuf, Path}, cell::RefCell, collections::HashMap},
-    tracing::{info, warn, error},
-    tokio::{fs, sync::oneshot},
-    walkdir::WalkDir,
-    notify::Watcher,
-    thiserror::Error,
     crate::{
-        v2::{WorkerMessage, CompilerMessage, FunctionId, FunctionDeploymentId, FunctionHttpListener, SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig},
-        server::config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
-    },
+        server::config::{FunctionCodeConfig, FunctionConfig, ServerConfig}, v2::{BlobBindingConfig, CompilerMessage, FunctionDeploymentId, FunctionHttpListener, FunctionId, SqlBindingConfig, SqlBindingConfigLocation, WorkerMessage}
+    }, notify::Watcher, std::{cell::RefCell, collections::HashMap, path::{Path, PathBuf}, time::Duration}, thiserror::Error, tokio::{fs, sync::oneshot}, tracing::{error, info, warn}, walkdir::WalkDir
 };
 
 const FILE_EXTENSION_WASM: &str = ".wasm";
@@ -183,6 +176,7 @@ impl DefinitionsMonitor {
                     ":memory:" => SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string()),
                     path => SqlBindingConfigLocation::Path(config.config_path.as_ref().unwrap().parent().unwrap().join(&path)),
                 },
+                busy_timeout: v.busy_timeout_ms.map(|v| Duration::from_millis(v)),
             }))
             .collect::<HashMap<_, _>>();
 

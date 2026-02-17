@@ -106,12 +106,16 @@ impl FunctionConfig {
         self
     }
 
-    pub fn with_binding_sql(mut self, id: String, path: String) -> Self {
+    pub fn with_binding_sql(self, id: String, path: String) -> Self {
+        self.with_binding_sql_config(SqlBindingConfig { id, path, busy_timeout_ms: None })
+    }
+
+    pub fn with_binding_sql_config(mut self, config: SqlBindingConfig) -> Self {
         if self.bindings.is_none() {
             self.bindings = Some(FunctionBindingsConfig::new());
         }
 
-        self.bindings = self.bindings.map(|v| v.with_sql(id, path));
+        self.bindings = self.bindings.map(|v| v.with_sql(config));
 
         self
     }
@@ -229,15 +233,12 @@ impl FunctionBindingsConfig {
         self
     }
 
-    pub fn with_sql(mut self, id: String, path: String) -> Self {
+    pub fn with_sql(mut self, config: SqlBindingConfig) -> Self {
         if self.sql.is_none() {
             self.sql = Some(Vec::new());
         }
 
-        self.sql.as_mut().unwrap().push(SqlBindingConfig {
-            id,
-            path,
-        });
+        self.sql.as_mut().unwrap().push(config);
 
         self
     }
@@ -257,6 +258,23 @@ impl FunctionBindingsConfig {
 pub struct SqlBindingConfig {
     pub id: String,
     pub path: String,
+    #[serde(skip)]
+    pub busy_timeout_ms: Option<u64>,
+}
+
+impl SqlBindingConfig {
+    pub fn new(id: String, path: String) -> Self {
+        Self {
+            id,
+            path,
+            busy_timeout_ms: None,
+        }
+    }
+
+    pub fn with_busy_timeout_ms(mut self, busy_timeout_ms: u64) -> Self {
+        self.busy_timeout_ms = Some(busy_timeout_ms);
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

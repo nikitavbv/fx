@@ -306,14 +306,22 @@ impl FxServerV2 {
                     };
 
                     let connection = connections.entry(binding.connection_id.clone())
-                        .or_insert_with(|| match &binding.location {
-                            SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
-                                format!("file:{v}"),
-                                rusqlite::OpenFlags::default()
-                                    .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
-                                    .union(rusqlite::OpenFlags::SQLITE_OPEN_SHARED_CACHE)
-                            ).unwrap(),
-                            SqlBindingConfigLocation::Path(v) => rusqlite::Connection::open(v).unwrap(),
+                        .or_insert_with(|| {
+                            let connection = match &binding.location {
+                                SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
+                                    format!("file:{v}"),
+                                    rusqlite::OpenFlags::default()
+                                        .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
+                                        .union(rusqlite::OpenFlags::SQLITE_OPEN_SHARED_CACHE)
+                                ).unwrap(),
+                                SqlBindingConfigLocation::Path(v) => rusqlite::Connection::open(v).unwrap(),
+                            };
+                            if let Some(busy_timeout) = binding.busy_timeout {
+                                connection.busy_timeout(busy_timeout).unwrap();
+                            }
+                            connection.pragma_update(None, "journal_mode", "WAL").unwrap();
+                            connection.pragma_update(None, "synchronous", "NORMAL").unwrap();
+                            connection
                         });
 
                     match msg {
@@ -2057,6 +2065,7 @@ impl FunctionHttpListener {
 pub(crate) struct SqlBindingConfig {
     pub(crate) connection_id: String,
     pub(crate) location: SqlBindingConfigLocation,
+    pub(crate) busy_timeout: Option<Duration>,
 }
 
 #[derive(Debug, Clone)]

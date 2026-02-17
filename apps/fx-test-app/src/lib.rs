@@ -46,6 +46,9 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/http/body", post(test_http_body))
             .route("/test/sql/simple", get(test_sql_simple))
             .route("/test/sql/migrate", get(test_sql_migrate))
+            .route("/test/sql/contention/setup", get(test_sql_contention_setup))
+            .route("/test/sql/contention/expensive-write", get(test_sql_contention_expensive_write))
+            .route("/test/sql/contention/read", get(test_sql_contention_read))
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
@@ -104,6 +107,43 @@ async fn test_sql_migrate() -> String {
 
     let res: u64 = database.exec(SqlQuery::new("select v from test_sql_table_migrations")).await.unwrap().into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
     res.to_string()
+}
+
+async fn test_sql_contention_setup() -> &'static str {
+    let database = fx::sql("contention-test");
+
+    Migrations::new()
+        .with_migration(Migration::new("create table simple_contention (v blob not null)"))
+        .run(&database)
+        .await
+        .unwrap();
+
+    "ok.\n"
+}
+
+async fn test_sql_contention_expensive_write() -> &'static str {
+    let database = fx::sql("contention-test");
+
+    database.exec(SqlQuery::new("with recursive cnt(x) AS (select 1 union all select x + 1 from cnt where x < 1000) insert into simple_contention (v) select randomblob(10000) from cnt")).await.unwrap();
+    database.exec(SqlQuery::new("delete from simple_contention where 1")).await.unwrap();
+
+    "ok.\n"
+}
+
+async fn test_sql_contention_read() -> String {
+    let database = fx::sql("contention-test");
+
+    let rows = database.exec(SqlQuery::new("select v from simple_contention limit 1")).await.unwrap().into_rows();
+    if rows.is_empty() {
+        return "ok.\nempty".to_owned();
+    }
+
+    let v = match &rows[0].columns[0] {
+        fx_sdk::SqlValue::Blob(v) => v.len(),
+        _other => panic!("unexpected sql value"),
+    };
+
+    format!("ok.\n{v}")
 }
 
 async fn test_panic_page() -> String {

@@ -3,7 +3,7 @@ use {
     once_cell::sync::Lazy,
     tokio::{join, sync::{OnceCell, Mutex}, time::{sleep, Duration}},
     parking_lot::ReentrantMutex,
-    futures::StreamExt,
+    futures::{StreamExt, stream::FuturesUnordered, FutureExt},
     fx_common::FxExecutionError,
     fx_runtime::{
         runtime::{
@@ -18,7 +18,7 @@ use {
         },
         server::{
             server::FxServer,
-            config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig},
+            config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig},
         },
         v2::{FxServerV2, RunningFxServer},
     },
@@ -86,6 +86,33 @@ async fn sql_migrate() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080/test/sql/migrate").await.unwrap();
     assert_eq!("67", response.text().await.unwrap());
+}
+
+/// This test verifies that database behaves correctly in a simple contention scenario:
+/// - we have one expensive write query
+/// - we have a lot of inexpensive reads
+/// write query should not block reads.
+/// In practice this means that this test can only pass if sqlite has WAL enabled.
+#[tokio::test]
+async fn sql_simple_contention() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/sql/contention/setup").await.unwrap();
+    assert!(result.status().is_success());
+
+    let futures: FuturesUnordered<_> = std::iter::once(reqwest::get("http://localhost:8080/test/sql/contention/expensive-write").boxed())
+        .chain((0..20).map(|_| async {
+            sleep(Duration::from_millis(50)).await;
+            reqwest::get("http://localhost:8080/test/sql/contention/read").await
+        }.boxed()))
+        .collect();
+    let results: Vec<_> = futures.collect().await;
+
+    for response in results {
+        let response = response.unwrap();
+        assert!(response.status().is_success());
+        assert!(response.text().await.unwrap().starts_with("ok.\n"));
+    }
 }
 
 // TODO: recover from panics?
@@ -374,6 +401,10 @@ fn init_fx_server() {
                     .with_binding_blob("test-blob".to_owned(), "/tmp/fx-test/test-blob".to_owned())
                     .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
+                    .with_binding_sql_config(
+                        SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
+                            .with_busy_timeout_ms(10)
+                    )
                     .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
             ).await;
 
