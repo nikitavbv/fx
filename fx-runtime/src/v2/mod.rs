@@ -429,9 +429,19 @@ impl FxServerV2 {
 
                             let migrations = rusqlite_migration::Migrations::new(rusqlite_migrations);
 
-                            migrations.to_latest(connection).unwrap();
+                            let response = match migrations.to_latest(connection) {
+                                Ok(_) => SqlMigrationResult::Ok(()),
+                                Err(err) => match err {
+                                    rusqlite_migration::Error::RusqliteError { query: _, err } => if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
+                                        SqlMigrationResult::Error(SqlMigrationError::DatabaseBusy)
+                                    } else {
+                                        panic!("unexpected sqlite error: {err:?}");
+                                    },
+                                    other => panic!("unexpected sqlite error: {other:?}"),
+                                }
+                            };
 
-                            msg.response.send(SqlMigrationResult::Ok(())).unwrap();
+                            msg.response.send(response).unwrap();
                         },
                     }
                 }
