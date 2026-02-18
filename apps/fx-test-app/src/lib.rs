@@ -12,7 +12,7 @@ use {
         HttpResponse,
         io::{http::fetch, blob::BlobGetError},
         StatusCode,
-        utils::{axum::handle_request, migrations::{Migrations, Migration}},
+        utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
         blob,
         metrics::Counter,
@@ -151,11 +151,15 @@ async fn test_sql_contention_read() -> String {
 async fn test_sql_contention_busy() -> &'static str {
     let database = fx::sql("contention-busy");
 
-    Migrations::new()
+    let result = Migrations::new()
         .with_migration(Migration::new("create table contention_busy (v blob not null)"))
         .run(&database)
-        .await
-        .unwrap();
+        .await;
+    if let Err(err) = result {
+        match err {
+            SqlMigrationError::DatabaseBusy => return "busy.\n",
+        }
+    }
 
     let result = database.exec(SqlQuery::new("with recursive cnt(x) AS (select 1 union all select x + 1 from cnt where x < 1000) insert into contention_busy (v) select randomblob(10000) from cnt")).await;
     if let Err(err) = result {

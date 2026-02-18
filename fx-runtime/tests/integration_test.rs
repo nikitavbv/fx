@@ -117,7 +117,7 @@ async fn sql_simple_contention() {
 
 /// It is still possible to lock database, because of slow disk for example.
 /// In that case, DatabaseBusy error should propagate to application and be handled correctly.
-/*#[tokio::test]
+#[tokio::test]
 async fn sql_contention_busy() {
     init_fx_server();
 
@@ -129,8 +129,9 @@ async fn sql_contention_busy() {
     }).collect();
     let results: Vec<_> = futures.collect().await;
 
-    assert_eq!(Vec::<String>::new(), results);
-}*/
+    assert!(results.contains(&"ok.\n".to_owned()));
+    assert!(results.contains(&"busy.\n".to_owned()));
+}
 
 // TODO: recover from panics?
 #[tokio::test]
