@@ -22,6 +22,17 @@ struct SqlMigrateRequest {
     migrations @1 :List(Text);
 }
 
+struct SqlMigrateResult {
+    result :union {
+        ok @0 :Void;
+        error @1 :SqlMigrateError;
+    }
+}
+
+struct SqlMigrateError {
+    databaseBusy @0 :Void;
+}
+
 struct SqlValue {
     value :union {
         null @0 :Void;

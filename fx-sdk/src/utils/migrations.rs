@@ -1,7 +1,8 @@
 use {
+    thiserror::Error,
     fx_common::{SqlMigrations, FxSqlError},
     fx_types::{capnp, abi_sql_capnp},
-    crate::{SqlDatabase, sys::{fx_sql_migrate, HostUnitFuture, OwnedResourceId}},
+    crate::{SqlDatabase, sys::{fx_sql_migrate, FutureHostResource, OwnedResourceId, DeserializeHostResource}},
 };
 
 pub struct Migrations {
@@ -20,7 +21,7 @@ impl Migrations {
         self
     }
 
-    pub async fn run(&self, database: &SqlDatabase) -> Result<(), FxSqlError> {
+    pub async fn run(&self, database: &SqlDatabase) -> Result<(), SqlMigrationError> {
         let request = {
             let mut message = capnp::message::Builder::new_default();
             let mut request = message.init_root::<abi_sql_capnp::sql_migrate_request::Builder>();
@@ -34,9 +35,10 @@ impl Migrations {
             capnp::serialize::write_message_to_words(&message)
         };
 
-        HostUnitFuture::new(OwnedResourceId::from_ffi(unsafe { fx_sql_migrate(request.as_ptr() as u64, request.len() as u64) })).await;
+        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_sql_migrate(request.as_ptr() as u64, request.len() as u64) });
+        let result: FutureHostResource<Result<(), SqlMigrationError>> = FutureHostResource::new(resource_id);
 
-        Ok(())
+        result.await
     }
 }
 
@@ -54,6 +56,24 @@ impl Migration {
     pub fn new(statement: impl Into<String>) -> Self {
         Self {
             statement: statement.into(),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum SqlMigrationError {
+    #[error("database is locked")]
+    DatabaseBusy,
+}
+
+impl DeserializeHostResource for Result<(), SqlMigrationError> {
+    fn deserialize(data: &mut &[u8]) -> Self {
+        let result_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
+        let result = result_reader.get_root::<abi_sql_capnp::sql_migrate_result::Reader>().unwrap();
+
+        match result.get_result().which().unwrap() {
+            abi_sql_capnp::sql_migrate_result::result::Which::Ok(_) => Ok(()),
+            abi_sql_capnp::sql_migrate_result::result::Which::Error(_err) => Err(SqlMigrationError::DatabaseBusy),
         }
     }
 }

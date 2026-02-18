@@ -110,10 +110,22 @@ enum SqlQueryExecutionError {
 }
 
 #[derive(Debug)]
+enum SqlMigrationResult {
+    Ok(()),
+    Error(SqlMigrationError),
+}
+
+#[derive(Debug, Error)]
+enum SqlMigrationError {
+    #[error("database is locked")]
+    DatabaseBusy,
+}
+
+#[derive(Debug)]
 struct SqlMigrateMessage {
     binding: SqlBindingConfig,
     migrations: Vec<String>,
-    response: oneshot::Sender<()>,
+    response: oneshot::Sender<SqlMigrationResult>,
 }
 
 #[derive(Debug)]
@@ -349,9 +361,11 @@ impl FxServerV2 {
                         SqlMessage::Exec(msg) => {
                             let connection = match connection {
                                 Ok(v) => v,
-                                Err(err) => {
-                                    msg.response.send(SqlQueryResult::Error(SqlQueryExecutionError::DatabaseBusy)).unwrap();
-                                    continue;
+                                Err(err) => match err {
+                                    SqlQueryExecutionError::DatabaseBusy => {
+                                        msg.response.send(SqlQueryResult::Error(SqlQueryExecutionError::DatabaseBusy)).unwrap();
+                                        continue;
+                                    }
                                 }
                             };
 
@@ -398,7 +412,16 @@ impl FxServerV2 {
                             msg.response.send(response_message).unwrap();
                         },
                         SqlMessage::Migrate(msg) => {
-                            let connection = connection.unwrap();
+                            let connection = match connection {
+                                Ok(v) => v,
+                                Err(err) => match err {
+                                    SqlQueryExecutionError::DatabaseBusy => {
+                                        msg.response.send(SqlMigrationResult::Error(SqlMigrationError::DatabaseBusy)).unwrap();
+                                        continue;
+                                    }
+                                }
+                            };
+
                             let mut rusqlite_migrations = Vec::new();
                             for migration in &msg.migrations {
                                 rusqlite_migrations.push(rusqlite_migration::M::up(migration));
@@ -408,7 +431,7 @@ impl FxServerV2 {
 
                             migrations.to_latest(connection).unwrap();
 
-                            msg.response.send(()).unwrap();
+                            msg.response.send(SqlMigrationResult::Ok(())).unwrap();
                         },
                     }
                 }
@@ -1104,6 +1127,16 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::SqlQueryResult(FutureResource::Ready(serialized)), serialized_size)
             },
+            Resource::SqlMigrationResult(v) => {
+                let resource = match v {
+                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
+                    FutureResource::Ready(v) => v,
+                };
+
+                let serialized = resource.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (Resource::SqlMigrationResult(FutureResource::Ready(serialized)), serialized_size)
+            }
             Resource::UnitFuture(_) => panic!("unit future cannot be serialized"),
             Resource::BlobGetResult(v) => {
                 let resource = match v {
@@ -1170,6 +1203,19 @@ impl FunctionInstanceState {
                 };
                 (Resource::SqlQueryResult(resource), poll_result)
             },
+            Resource::SqlMigrationResult(v) => {
+                let (resource, poll_result) = match v {
+                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                    FutureResource::Future(mut future) => {
+                        let poll_result = future.poll_unpin(&mut cx);
+                        match poll_result {
+                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
+                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
+                        }
+                    }
+                };
+                (Resource::SqlMigrationResult(resource), poll_result)
+            }
             Resource::UnitFuture(mut v) => {
                 let poll_result = v.poll_unpin(&mut cx);
                 (Resource::UnitFuture(v), poll_result)
@@ -1247,6 +1293,7 @@ impl FunctionInstanceState {
             | Resource::FetchRequest(_)
             | Resource::FetchResult(_)
             | Resource::SqlQueryResult(_)
+            | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_) => panic!("resource of this type does not support reading frames"),
             Resource::RequestBody(v) => match v.0 {
                 FetchRequestBodyInner::Full(_)
@@ -1320,6 +1367,10 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
         Resource::FetchRequest(req) => req.into_serialized(),
         Resource::SqlQueryResult(req) => match req {
+            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
+            FutureResource::Ready(v) => v.into_serialized(),
+        },
+        Resource::SqlMigrationResult(req) => match req {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
@@ -1419,9 +1470,9 @@ fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState
         response: response_tx,
     })).unwrap();
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
-        response_rx.await.unwrap();
-    }.boxed())).as_u64()
+    caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::Future(async move {
+        SerializableResource::Raw(response_rx.await.unwrap())
+    }.boxed()))).as_u64()
 }
 
 fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
@@ -1616,6 +1667,7 @@ fn fx_fetch_handler(
                 | Resource::FetchRequest(_)
                 | Resource::FetchResult(_)
                 | Resource::SqlQueryResult(_)
+                | Resource::SqlMigrationResult(_)
                 | Resource::UnitFuture(_) => panic!("this resource cannot be used as request body"),
                 Resource::RequestBody(v) => match v.0 {
                     FetchRequestBodyInner::FullSerialized(_)
@@ -1873,6 +1925,7 @@ enum Resource {
     FetchRequest(SerializableResource<FetchRequestHeader>),
     RequestBody(FetchRequestBody),
     SqlQueryResult(FutureResource<SerializableResource<SqlQueryResult>>),
+    SqlMigrationResult(FutureResource<SerializableResource<SqlMigrationResult>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FutureResource<SerializableResource<FetchResult>>),
@@ -1970,6 +2023,28 @@ impl SerializeResource for SqlQueryResult {
                 let mut response_error = sql_exec_response.init_error();
                 match err {
                     SqlQueryExecutionError::DatabaseBusy => response_error.set_database_busy(()),
+                }
+            }
+        }
+
+        capnp::serialize::write_message_to_words(&message)
+    }
+}
+
+impl SerializeResource for SqlMigrationResult {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
+        let mut sql_migrate_result = sql_migrate_result.init_result();
+
+        match self {
+            Self::Ok(_) => {
+                sql_migrate_result.set_ok(());
+            },
+            Self::Error(err) => {
+                let mut response_error = sql_migrate_result.init_error();
+                match err {
+                    SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
                 }
             }
         }
