@@ -30,10 +30,6 @@ pub enum HostFutureAsyncApiError {
     /// Error caused by rpc api that is being wrapped
     #[error("rpc api error: {0:?}")]
     Rpc(#[from] RpcApiAsyncError),
-
-    /// Error caused by fetch api that is being wrapped
-    #[error("fetch api error: {0:?}")]
-    Fetch(#[from] FetchApiAsyncError),
 }
 
 pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::ExecutionEnv>, req_addr: i64, req_len: i64, output_ptr: i64) {
@@ -73,13 +69,13 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_sql_batch(caller.data(), v.unwrap(), response_op.init_sql_batch());
         },
         Operation::SqlMigrate(v) => {
-            handle_sql_migrate(caller.data(), v.unwrap(), response_op.init_sql_migrate());
+            unimplemented!("deprecated");
         },
         Operation::Log(v) => {
-            handle_log(caller.data(), v.unwrap(), response_op.init_log());
+            unimplemented!("deprecated");
         },
         Operation::Fetch(v) => {
-            handle_fetch(caller.data(), v.unwrap(), response_op.init_fetch());
+            unimplemented!("deprecated");
         },
         Operation::Sleep(v) => {
             unimplemented!("deprecated");
@@ -273,140 +269,4 @@ fn sql_query_from_reader(request_query: abi_capnp::sql_query::Reader<'_>) -> cra
         })
     }
     query
-}
-
-fn handle_sql_migrate(data: &ExecutionEnv, sql_migrate_request: abi_capnp::sql_migrate_request::Reader, sql_migrate_response: abi_capnp::sql_migrate_response::Builder) {
-    let mut sql_migrate_response = sql_migrate_response.init_response();
-
-    let binding = sql_migrate_request.get_database().unwrap().to_string().unwrap();
-    let database = match data.sql.get(&binding) {
-        Some(v) => v,
-        None => {
-            sql_migrate_response.set_binding_not_found(());
-            return;
-        }
-    };
-
-    let migrations = sql_migrate_request.get_migrations().unwrap().into_iter().map(|v| v.unwrap().to_string().unwrap()).collect();
-    match database.migrate(migrations) {
-        Ok(_) => {
-            sql_migrate_response.set_ok(());
-        },
-        Err(err) => {
-            sql_migrate_response.init_sql_error().set_description(err.to_string());
-        }
-    }
-}
-
-fn handle_log(data: &ExecutionEnv, log_request: abi_capnp::log_request::Reader, _log_response: abi_capnp::log_response::Builder) {
-    let message = logs::LogMessage::new(
-        logs::LogSource::function(&data.function_id),
-        match log_request.get_event_type().unwrap() {
-            abi_capnp::EventType::Begin => logs::LogEventType::Begin,
-            abi_capnp::EventType::End => logs::LogEventType::End,
-            abi_capnp::EventType::Instant => logs::LogEventType::Instant,
-        },
-        match log_request.get_level().unwrap() {
-            abi_capnp::LogLevel::Trace => logs::LogLevel::Trace,
-            abi_capnp::LogLevel::Debug => logs::LogLevel::Debug,
-            abi_capnp::LogLevel::Info => logs::LogLevel::Info,
-            abi_capnp::LogLevel::Warn => logs::LogLevel::Warn,
-            abi_capnp::LogLevel::Error => logs::LogLevel::Error,
-        },
-        log_request.get_fields().unwrap()
-            .into_iter()
-            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
-            .collect()
-    ).into();
-
-    if let Some(custom_logger) = data.logger.as_ref() {
-        custom_logger.log(message);
-    } else {
-        data.engine.log(message);
-    }
-}
-
-#[derive(Error, Debug)]
-enum FetchApiAsyncError {
-    #[error("network request failed: {0:?}")]
-    NetworkRequestFailed(#[from] reqwest::Error),
-}
-
-fn handle_fetch(data: &ExecutionEnv, fetch_request: abi_capnp::fetch_request::Reader, fetch_response: abi_capnp::fetch_response::Builder) {
-    let mut fetch_response = fetch_response.init_response();
-
-    let method = match fetch_request.get_method() {
-        Ok(v) => v,
-        Err(err) => {
-            fetch_response.set_fetch_error(format!("failed to read http method from fetch_request: unknown http method: {err:?}"));
-            return;
-        }
-    };
-
-    let url = match fetch_request.get_url() {
-        Ok(v) => v,
-        Err(err) => {
-            fetch_response.set_fetch_error(format!("failed to read target url from fetch_request: {err:?}"));
-            return;
-        }
-    };
-
-    let url = match url.to_str() {
-        Ok(v) => v,
-        Err(err) => {
-            fetch_response.set_fetch_error(format!("failed to decode target url as string: {err:?}"));
-            return;
-        }
-    };
-
-    let request = data.fetch_client
-        .request(
-            match method {
-                abi_capnp::HttpMethod::Get => http::Method::GET,
-                abi_capnp::HttpMethod::Post => http::Method::POST,
-                abi_capnp::HttpMethod::Put => http::Method::PUT,
-                abi_capnp::HttpMethod::Patch => http::Method::PATCH,
-                abi_capnp::HttpMethod::Delete => http::Method::DELETE,
-            },
-            url
-        )
-        .headers({
-            let mut headers = http::HeaderMap::new();
-
-            for header in fetch_request.get_headers().unwrap().into_iter() {
-                headers.append(
-                    http::HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap(),
-                    header.get_value().unwrap().to_string().unwrap().parse().unwrap()
-                );
-            }
-
-            headers
-        });
-
-    let request = if let Ok(body) = fetch_request.get_body() {
-        let body = fx_common::FxStream { index: body.get_id() as i64 };
-        unimplemented!("deprecated")
-    } else {
-        request
-    };
-
-    let request_future = async move {
-        use futures::TryFutureExt;
-
-        request.send()
-            .and_then(|response| async {
-                Ok(rmp_serde::to_vec(&fx_common::HttpResponse {
-                    status: response.status(),
-                    headers: response.headers().clone(),
-                    body: response.bytes().await.unwrap().to_vec(),
-                }).unwrap())
-            })
-            .await
-            .map_err(FetchApiAsyncError::from)
-            .map_err(HostFutureAsyncApiError::from);
-
-        unimplemented!("deprecated")
-    }.boxed();
-
-    unimplemented!("deprecated")
 }
