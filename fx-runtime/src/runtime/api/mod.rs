@@ -60,13 +60,13 @@ pub fn fx_api_handler(mut caller: wasmtime::Caller<'_, crate::runtime::runtime::
             handle_kv_get(caller.data(), v.unwrap(), response_op.init_kv_get());
         },
         Operation::KvSet(v) => {
-            handle_kv_set(caller.data(), v.unwrap(), response_op.init_kv_set());
+            unimplemented!("deprecated")
         },
         Operation::SqlExec(v) => {
-            handle_sql_exec(caller.data(), v.unwrap(), response_op.init_sql_exec());
+            unimplemented!("deprecated");
         },
         Operation::SqlBatch(v) => {
-            handle_sql_batch(caller.data(), v.unwrap(), response_op.init_sql_batch());
+            unimplemented!("deprecated");
         },
         Operation::SqlMigrate(v) => {
             unimplemented!("deprecated");
@@ -164,109 +164,4 @@ fn handle_kv_get(data: &ExecutionEnv, kv_get_request: abi_capnp::kv_get_request:
     kv_get_response.set_value(&value);
 
     data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::get"]).inc();
-}
-
-fn handle_kv_set(data: &ExecutionEnv, kv_set_request: abi_capnp::kv_set_request::Reader, kv_set_response: abi_capnp::kv_set_response::Builder) {
-    let mut kv_set_response = kv_set_response.init_response();
-
-    let binding = kv_set_request.get_binding_id().unwrap().to_str().unwrap();
-    let storage = match data.storage.get(binding) {
-        Some(v) => v,
-        None => {
-            kv_set_response.set_binding_not_found(());
-            return;
-        }
-    };
-
-    storage.set(kv_set_request.get_key().unwrap(), kv_set_request.get_value().unwrap()).unwrap();
-
-    kv_set_response.set_ok(());
-
-    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "kv::set"]).inc();
-}
-
-fn handle_sql_exec(data: &ExecutionEnv, sql_exec_request: abi_capnp::sql_exec_request::Reader, sql_exec_response: abi_capnp::sql_exec_response::Builder) {
-    let mut sql_exec_response = sql_exec_response.init_response();
-
-    let binding = sql_exec_request.get_database().unwrap().to_string().unwrap();
-    let database = match data.sql.get(&binding) {
-        Some(v) => v,
-        None => {
-            sql_exec_response.set_binding_not_found(());
-            return;
-        }
-    };
-
-    let request_query = sql_exec_request.get_query().unwrap();
-    let query = sql_query_from_reader(request_query);
-
-    let result = match database.exec(query) {
-        Ok(v) => v,
-        Err(err) => {
-            let mut error_response = sql_exec_response.init_sql_error();
-            error_response.set_description(err.to_string());
-            return;
-        }
-    };
-
-    let mut response_rows = sql_exec_response.init_rows(result.rows.len() as u32);
-    for (index, result_row) in result.rows.into_iter().enumerate() {
-        let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
-        for (column_index, value) in result_row.columns.into_iter().enumerate() {
-            let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
-            match value {
-                crate::runtime::sql::Value::Null => response_value.set_null(()),
-                crate::runtime::sql::Value::Integer(v) => response_value.set_integer(v),
-                crate::runtime::sql::Value::Real(v) => response_value.set_real(v),
-                crate::runtime::sql::Value::Text(v) => response_value.set_text(v),
-                crate::runtime::sql::Value::Blob(v) => response_value.set_blob(&v),
-            }
-        }
-    }
-
-    data.engine.metrics.function_fx_api_calls.with_label_values(&[data.function_id.as_string().as_str(), "sql::exec"]).inc();
-}
-
-fn handle_sql_batch(data: &ExecutionEnv, sql_batch_request: abi_capnp::sql_batch_request::Reader, sql_batch_response: abi_capnp::sql_batch_response::Builder) {
-    let mut sql_batch_response = sql_batch_response.init_response();
-
-    let binding = sql_batch_request.get_database().unwrap().to_string().unwrap();
-    let database = match data.sql.get(&binding) {
-        Some(v) => v,
-        None => {
-            sql_batch_response.set_binding_not_found(());
-            return;
-        }
-    };
-
-    let queries = sql_batch_request.get_queries()
-        .unwrap()
-        .into_iter()
-        .map(sql_query_from_reader)
-        .collect::<Vec<_>>();
-
-    match database.batch(queries) {
-        Ok(_) => {
-            sql_batch_response.set_ok(());
-        },
-        Err(err) => {
-            sql_batch_response.init_sql_error().set_description(err.to_string());
-        }
-    }
-}
-
-fn sql_query_from_reader(request_query: abi_capnp::sql_query::Reader<'_>) -> crate::runtime::sql::Query {
-    let mut query = crate::runtime::sql::Query::new(request_query.get_statement().unwrap().to_string().unwrap());
-    for param in request_query.get_params().unwrap().into_iter() {
-        use abi_capnp::sql_value::value::{Which as SqlValue};
-
-        query = query.with_param(match param.get_value().which().unwrap() {
-            SqlValue::Null(_) => crate::runtime::sql::Value::Null,
-            SqlValue::Integer(v) => crate::runtime::sql::Value::Integer(v),
-            SqlValue::Real(v) => crate::runtime::sql::Value::Real(v),
-            SqlValue::Text(v) => crate::runtime::sql::Value::Text(v.unwrap().to_string().unwrap()),
-            SqlValue::Blob(v) => crate::runtime::sql::Value::Blob(v.unwrap().to_vec()),
-        })
-    }
-    query
 }
