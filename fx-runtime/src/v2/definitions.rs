@@ -130,7 +130,7 @@ impl DefinitionsMonitor {
     fn remove_function(&self, function_id: FunctionId) {
         info!("removing function: {:?}", function_id.as_string());
         for worker in self.workers_tx.iter() {
-            worker.send(WorkerMessage::RemoveFunction(function_id.clone())).unwrap();
+            worker.send(WorkerMessage::RemoveFunction { function_id: function_id.clone(), on_ready: None }).unwrap();
         }
     }
 

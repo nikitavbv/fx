@@ -396,6 +396,8 @@ async fn metrics_counter_with_labels_increment() {
     }
 }
 
+// TODO: check that function being removed is handled correctly.
+
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
@@ -460,41 +462,6 @@ fn init_fx_server() {
             server
         })).join().unwrap()
     });
-
-    /*
-    let server = FxServer::new(
-        ServerConfig {
-            config_path: Some("/tmp/fx".into()),
-
-            functions_dir: "/tmp/fx/functions".to_owned(),
-            cron_data_path: None,
-
-            logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
-
-            introspection: None,
-        },
-        FxRuntime::new()
-    ).await;
-
-    server.define_function(
-        FunctionId::new("test-app-logger-override"),
-        FunctionConfig::new("/tmp/fx/functions/test-app-logger-override.fx.yaml".into())
-            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-            .with_logger(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER_CUSTOM_FUNCTION.clone()))))
-    ).await;
-
-    for function_id in ["test-app-for-panic", "test-app-for-system", "other-app"] {
-        server.define_function(
-            FunctionId::new(function_id),
-            FunctionConfig::new("/tmp/fx/functions/test-app-for-panic.fx.yaml".into())
-                .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-        ).await;
-    }
-
-    let server = Arc::new(ReentrantMutex::new(server));
-    *fx_server = Some(server.clone());
-
-    server*/
 }
 
 // TODO: add test that verifies that counter metrics with labels are recorded correctly

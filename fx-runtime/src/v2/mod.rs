@@ -19,7 +19,7 @@ use {
     tracing_subscriber::FmtSubscriber,
     tokio::{fs, sync::oneshot},
     clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
-    ::futures::{FutureExt, StreamExt, future::BoxFuture, future::LocalBoxFuture},
+    ::futures::{FutureExt, StreamExt, future::BoxFuture, future::LocalBoxFuture, stream::FuturesUnordered},
     hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
     hyper_util::rt::{TokioIo, TokioTimer},
     http_body_util::{Full, BodyStream},
@@ -30,9 +30,9 @@ use {
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
     rand::TryRngCore,
-    axum::{Router, routing::get, response::Response as AxumResponse, Extension},
+    axum::{Router, routing::{get, delete}, response::Response as AxumResponse, Extension, extract},
     leptos::prelude::*,
-    serde::Serialize,
+    serde::{Serialize, Deserialize},
     fx_types::{
         capnp,
         abi_capnp,
@@ -70,7 +70,10 @@ mod errors;
 
 #[derive(Debug)]
 enum WorkerMessage {
-    RemoveFunction(FunctionId),
+    RemoveFunction {
+        function_id: FunctionId,
+        on_ready: Option<oneshot::Sender<()>>,
+    },
     FunctionDeploy {
         function_id: FunctionId,
         deployment_id: FunctionDeploymentId,
@@ -240,7 +243,7 @@ impl FxServerV2 {
                     .unwrap();
                 let local_set = tokio::task::LocalSet::new();
 
-                let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx, compiler_tx);
+                let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx);
                 let metrics = Arc::new(MetricsRegistry::new());
 
                 tokio_runtime.block_on(local_set.run_until(async {
@@ -260,7 +263,7 @@ impl FxServerV2 {
                             }
                         },
                         async {
-                            run_introspection_server(metrics.clone()).await;
+                            run_introspection_server(metrics.clone(), WorkersController::new(workers_tx)).await;
                         },
                     )
                 }));
@@ -569,7 +572,22 @@ impl FxServerV2 {
                                             *http_default.borrow_mut() = Some(function_id.clone());
                                         }
                                     },
-                                    other => unimplemented!("unsupported message: {other:?}"),
+                                    WorkerMessage::RemoveFunction { function_id, on_ready } => {
+                                        http_hosts.borrow_mut().retain(|_k, v| v != &function_id);
+                                        {
+                                            let mut http_default = http_default.borrow_mut();
+                                            if http_default.is_some() && http_default.as_ref().unwrap() == &function_id {
+                                                *http_default = None;
+                                            }
+                                        }
+
+                                        let deployment = functions.borrow_mut().remove(&function_id).unwrap();
+                                        function_deployments.borrow_mut().remove(&deployment);
+
+                                        if let Some(on_ready) = on_ready {
+                                            on_ready.send(()).unwrap();
+                                        }
+                                    },
                                 }
                             },
 
@@ -2469,11 +2487,13 @@ fn escape_label_value(s: &str) -> String {
      .replace('\n', "\\n")
 }
 
-async fn run_introspection_server(metrics: Arc<MetricsRegistry>) {
+async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController) {
     let app = Router::new()
         .route("/", get(introspection_home))
         .route("/metrics", get(introspection_metrics))
-        .layer(Extension(metrics));
+        .route("/api/functions/{function_id}", delete(management_api_function_remove))
+        .layer(Extension(metrics))
+        .layer(Extension(Arc::new(workers_controller)));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -2499,4 +2519,46 @@ fn render_component(component: impl IntoView + 'static) -> AxumResponse {
         .header("content-type", "text/html; charset=utf-8")
         .body(component.to_html().into())
         .unwrap()
+}
+
+#[derive(Deserialize)]
+struct FunctionIdPathArgument {
+    function_id: String,
+}
+
+async fn management_api_function_remove(
+    Extension(workers_controller): Extension<Arc<WorkersController>>,
+    extract::Path(function_id): extract::Path<FunctionIdPathArgument>
+) -> &'static str {
+    workers_controller.function_remove(&FunctionId::new(&function_id.function_id)).await;
+    "ok.\n"
+}
+
+struct WorkersController {
+    workers_tx: Vec<flume::Sender<WorkerMessage>>,
+}
+
+impl WorkersController {
+    pub fn new(workers_tx: Vec<flume::Sender<WorkerMessage>>) -> Self {
+        Self {
+            workers_tx,
+        }
+    }
+
+    async fn function_remove(&self, function_id: &FunctionId) {
+        let subtasks = FuturesUnordered::new();
+
+        for worker in &self.workers_tx {
+            subtasks.push(async {
+                let (on_ready_tx, on_ready_rx) = oneshot::channel();
+                worker.send_async(WorkerMessage::RemoveFunction {
+                    function_id: function_id.clone(),
+                    on_ready: Some(on_ready_tx),
+                }).await.unwrap();
+                on_ready_rx.await.unwrap();
+            });
+        }
+
+        subtasks.collect::<Vec<_>>().await;
+    }
 }
