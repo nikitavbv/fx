@@ -396,7 +396,40 @@ async fn metrics_counter_with_labels_increment() {
     }
 }
 
-// TODO: check that function being removed is handled correctly.
+#[tokio::test]
+async fn function_remove() {
+    init_fx_server();
+
+    // intially, function should be live
+    let client = reqwest::Client::new();
+    let result = client.get("http://localhost:8080/")
+        .header("Host", "for-remove.fx.local")
+        .send()
+        .await
+        .unwrap();
+
+    assert!(result.status().is_success());
+    let result = result.text().await.unwrap();
+    assert_eq!("hello from function to remove!", result);
+
+    // remove function
+    let result = client.delete("http://localhost:9000/api/functions/test-app-for-remove")
+        .send()
+        .await
+        .unwrap();
+    assert!(result.status().is_success());
+
+    // check that function is not available anymore
+    let result = client.get("http://localhost:8080/")
+        .header("Host", "for-remove.fx.local")
+        .send()
+        .await
+        .unwrap();
+
+    // response comes from default function now
+    assert!(result.status().is_success());
+    assert_eq!("hello fx!", result.text().await.unwrap());
+}
 
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
@@ -457,6 +490,13 @@ fn init_fx_server() {
                 FunctionId::new("test-missing-export"),
                 FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_missing_export.wasm").unwrap())
+            ).await;
+
+            server.deploy_function(
+                FunctionId::new("test-app-for-remove"),
+                FunctionConfig::new("/tmp/fx/functions/test-app-for-remove.fx.yaml".into())
+                    .with_trigger_http(Some("for-remove.fx.local".to_owned()))
+                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_remove.wasm").unwrap())
             ).await;
 
             server

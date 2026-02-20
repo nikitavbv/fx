@@ -1,0 +1,11 @@
+[package]
+name = "fx-test-remove"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+axum = { version = "0.8.8", default-features = false }
+fx-sdk = { path = "../../fx-sdk" }

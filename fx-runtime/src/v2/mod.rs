@@ -654,6 +654,7 @@ impl FxServerV2 {
                                 }
 
                                 if !function_metrics.is_empty() {
+                                    // TODO: handle this
                                     management_tx.send(ManagementMessage::WorkerMetrics(MetricsFlushMessage { function_metrics })).unwrap();
                                 }
                             }

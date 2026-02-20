@@ -1305,6 +1305,14 @@ name = "fx-test-missing-export"
 version = "0.1.0"
 
 [[package]]
+name = "fx-test-remove"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "fx-sdk",
+]
+
+[[package]]
 name = "fx-test-wrong-import"
 version = "0.1.0"
 dependencies = [
