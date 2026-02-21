@@ -16,7 +16,7 @@ use {
             error::FxRuntimeError,
             FunctionInvokeAndExecuteError,
         },
-        v2::{FxServerV2, RunningFxServer, config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig}},
+        v2::{FxServerV2, config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig}, runtime::RunningFxServer},
     },
     crate::logger::TestLogger,
 };

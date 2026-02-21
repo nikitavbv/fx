@@ -71,7 +71,7 @@ mod definitions;
 mod http;
 mod function;
 mod errors;
-mod runtime;
+pub mod runtime;
 
 #[derive(Debug)]
 enum WorkerMessage {
