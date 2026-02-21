@@ -35,7 +35,6 @@ use {
     serde::{Serialize, Deserialize},
     fx_types::{
         capnp,
-        abi_capnp,
         abi_function_resources_capnp,
         abi_log_capnp,
         abi_sql_capnp,
@@ -408,8 +407,6 @@ impl FunctionDeployment {
         bindings_blob: HashMap<String, BlobBindingConfig>,
     ) -> Result<Self, DeploymentInitError> {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
-
-        linker.func_wrap("fx", "fx_api", fx_api_handler).unwrap();
 
         linker.func_wrap("fx", "fx_log", fx_log_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_serialize", fx_resource_serialize_handler).unwrap();
@@ -861,19 +858,6 @@ impl FunctionInstanceState {
 
         serialized_frame
     }
-}
-
-fn fx_api_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64, output_ptr: i64) {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let mut message_bytes = &view[req_addr as usize..(req_addr + req_len) as usize];
-    let message_reader = fx_types::capnp::serialize::read_message_from_flat_slice(&mut message_bytes, fx_types::capnp::message::ReaderOptions::default()).unwrap();
-    let request = message_reader.get_root::<fx_types::abi_capnp::fx_api_call::Reader>().unwrap();
-    let op = request.get_op();
-
-    unimplemented!("fx apis are deprecated: {:?}", op)
 }
 
 fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {

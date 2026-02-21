@@ -1,6 +1,5 @@
 fn main() {
     ::capnpc::CompilerCommand::new()
-        .file("abi.capnp")
         .file("abi_blob.capnp")
         .file("abi_function_resources.capnp")
         .file("abi_http.capnp")

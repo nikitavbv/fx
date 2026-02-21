@@ -22,7 +22,7 @@ pub(crate) use self::{
 use {
     std::{task::Poll, io::Cursor},
     futures::FutureExt,
-    fx_types::{capnp, abi_capnp, abi::FuturePollResult},
+    fx_types::{capnp, abi::FuturePollResult},
     crate::{
         logging::{set_panic_hook, init_logger},
     },

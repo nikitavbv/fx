@@ -31,7 +31,7 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
-    fx_types::{capnp, abi_capnp, abi::FuturePollResult},
+    fx_types::{capnp, abi::FuturePollResult},
     crate::{
         common::LogMessageEvent,
         runtime::{

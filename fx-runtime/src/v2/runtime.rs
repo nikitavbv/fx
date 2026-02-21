@@ -38,6 +38,10 @@ use {
     },
 };
 
+// TODO:
+// - rate limiting - use governor crate and have a set of rate limits defined in FunctionDefinition
+// - permissions - based on capabilities
+
 pub struct FxServerV2 {
     config: ServerConfig,
 }

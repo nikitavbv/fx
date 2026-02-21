@@ -16,7 +16,7 @@ use {
     lazy_static::lazy_static,
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    fx_types::{capnp, abi_capnp, abi_sql_capnp},
+    fx_types::{capnp, abi_sql_capnp},
     crate::{
         sys::{
             OwnedResourceId,

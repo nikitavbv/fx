@@ -3,7 +3,6 @@ use {
     tracing::{Subscriber, Event, field::{Field, Visit}, span::Attributes, Id},
     tracing_subscriber::{Layer, layer},
     fx_common::{LogMessage, LogLevel, LogEventType},
-    fx_types::{capnp, abi_capnp},
     crate::sys::log,
 };
 

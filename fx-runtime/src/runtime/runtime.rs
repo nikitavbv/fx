@@ -30,7 +30,6 @@ use {
         FxSqlError,
         SqlMigrations,
     },
-    fx_types::{capnp, abi_capnp},
     crate::{
         common::{LogMessageEvent, LogSource},
         runtime::{
@@ -396,22 +395,6 @@ impl Engine {
         execution_context
     }
 
-    pub(crate) fn stream_poll_next(&self, execution_context_id: &ExecutionContextId, index: i64) -> Poll<Option<Result<Vec<u8>, FxRuntimeError>>> {
-        let ctxs = self.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(execution_context_id).unwrap();
-        let mut store_lock = ctx.store.lock().unwrap();
-
-        // TODO: measure points
-        function_stream_poll_next(&mut store_lock, index as u64)
-            .map(|v| Ok(v).transpose())
-    }
-
-    pub(crate) fn stream_drop(&self, execution_context_id: &ExecutionContextId, index: i64) {
-        let ctxs = self.execution_contexts.read().unwrap();
-        let ctx = ctxs.get(execution_context_id).unwrap();
-        ctx.streams_to_drop.lock().unwrap().push_back(index);
-    }
-
     pub fn log(&self, message: LogMessageEvent) {
         self.logger.read().unwrap().log(message);
     }
@@ -526,129 +509,7 @@ impl FunctionRuntimeFuture {
 impl Future for FunctionRuntimeFuture {
     type Output = Result<(Vec<u8>, FunctionInvocationEvent), FunctionExecutionError>;
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let started_at = Instant::now();
-
-        let rpc_future_index = self.rpc_future_index.clone();
-        let mut rpc_future_index = rpc_future_index.lock().unwrap();
-
-        let request = self.request.clone();
-        let ctx = {
-            let ctxs = self.engine.execution_contexts.read().unwrap();
-            ctxs.get(&self.execution_context_id).unwrap().clone()
-        };
-        let mut store = match ctx.store.lock() {
-            Ok(v) => v,
-            Err(err) => {
-                error!("failed to lock ctx.store: {err:?}");
-                return std::task::Poll::Ready(Err(FunctionExecutionError::from(
-                    FunctionExecutionInternalRuntimeError::StoreFailedToLock
-                )));
-            }
-        };
-
-        {
-            let function_env = store.data();
-            if function_env.execution_context.read().unwrap().is_none() {
-                let mut f_env_execution_context = function_env.execution_context.write().unwrap();
-                *f_env_execution_context = Some(ctx.clone());
-            }
-        }
-
-        // cleanup futures
-        if let Ok(mut futures_to_drop) = ctx.futures_to_drop.try_lock() {
-            while let Some(future_to_drop) = futures_to_drop.pop_front() {
-                function_future_drop(&mut store, future_to_drop as u64);
-            }
-        }
-
-        // cleanup streams
-        if let Ok(mut streams_to_drop) = ctx.streams_to_drop.try_lock() {
-            while let Some(stream_to_drop) = streams_to_drop.pop_front() {
-                function_stream_drop(&mut store, stream_to_drop as u64);
-            }
-        }
-
-        // poll this future
-        if let Some(rpc_future_index_value) = rpc_future_index.as_ref().clone() {
-            // TODO: measure points
-            let future_poll_result = function_future_poll(&mut store, *rpc_future_index_value as u64)
-                .map_err(|err| match err {
-                    FunctionFuturePollApiError::FunctionRuntimeError => FunctionExecutionError::FunctionRuntimeError,
-                    FunctionFuturePollApiError::UserApplicationError { description } => FunctionExecutionError::UserApplicationError { description },
-                    FunctionFuturePollApiError::FunctionPanicked => FunctionExecutionError::FunctionPanicked,
-                })?;
-            match future_poll_result {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(response) => {
-                    *rpc_future_index = None;
-                    self.record_function_invocation();
-                    Poll::Ready(Ok((response, FunctionInvocationEvent {
-                    })))
-                }
-            }
-        } else {
-            store.data_mut().futures_waker = Some(cx.waker().clone());
-            store.data_mut().instance = Some(ctx.instance.clone());
-
-            let points_before = u64::MAX;
-            // store.set_fuel(points_before).unwrap();
-
-            let future_index = match function_invoke(&mut store, request) {
-                Ok(v) => v,
-                Err(err) => return Poll::Ready(Err(match err {
-                    FunctionInvokeApiError::HandlerNotDefined => {
-                        // recreating context would not help in this case, so we are not doing that
-                        FunctionExecutionError::HandlerNotDefined
-                    },
-                    FunctionInvokeApiError::FunctionPanicked => {
-                        // panics are usually not recoverable, so we need to re-create context or following
-                        // invocations will also fail
-                        ctx.needs_recreate.store(true, Ordering::SeqCst);
-                        FunctionExecutionError::FunctionPanicked
-                    }
-                })),
-            };
-
-            let result = match function_future_poll(&mut store, future_index as u64) {
-                Ok(v) => v,
-                Err(err) => return std::task::Poll::Ready(Err(match err {
-                    FunctionFuturePollApiError::FunctionRuntimeError => {
-                        // recoverable error, internal runtime error does not mean that function crashed
-                        FunctionExecutionError::FunctionRuntimeError
-                    },
-                    FunctionFuturePollApiError::UserApplicationError { description } => {
-                        // user application error is recoverable, no need to re-create context
-                        FunctionExecutionError::UserApplicationError { description }
-                    },
-                    FunctionFuturePollApiError::FunctionPanicked => {
-                        // panics are usually not recoverable, so we need to re-create context or following
-                        // invocations will also fail
-                        ctx.needs_recreate.store(true, Ordering::SeqCst);
-                        FunctionExecutionError::FunctionPanicked
-                    }
-                }))
-            };
-            let result = match result {
-                Poll::Pending => {
-                    *rpc_future_index = Some(future_index as i64);
-                    std::task::Poll::Pending
-                },
-                Poll::Ready(response) => {
-                    std::task::Poll::Ready(Ok((response, FunctionInvocationEvent {
-                    })))
-                }
-            };
-
-            // TODO: record fuel used
-
-            if result.is_ready() {
-                self.record_function_invocation();
-            }
-
-            self.engine.metrics.function_poll_time.with_label_values(&[&self.function_id.id]).inc_by((Instant::now() - started_at).as_millis() as u64);
-
-            result
-        }
+        unimplemented!("deprecated")
     }
 }
 
@@ -703,46 +564,7 @@ impl ExecutionContext {
         allow_log: bool,
         logger: Option<BoxLogger>,
     ) -> Result<Self, FunctionInvokeError> {
-        let execution_env = ExecutionEnv::new(engine.clone(), function_id.clone(), execution_context_id, storage.clone(), sql.clone(), rpc.clone(), allow_fetch, allow_log, logger);
-
-        let mut store = wasmtime::Store::new(&engine.wasmtime, execution_env);
-        let mut linker = wasmtime::Linker::new(&engine.wasmtime);
-        linker.func_wrap("fx", "fx_api", crate::runtime::api::fx_api_handler).unwrap();
-        for import in module.imports() {
-            if import.module() == "fx" {
-                continue;
-            }
-
-            if let Some(f) = import.ty().func() {
-                linker.func_new(
-                    import.module(),
-                    import.name(),
-                    f.clone(),
-                    move |_, _, _| {
-                        Err(wasmtime::Error::msg("requested function is not implemented by fx runtime"))
-                    }
-                ).unwrap();
-            }
-        }
-
-        let instance_template = linker.instantiate_pre(&module)
-            .map_err(|err| FunctionInvokeError::FailedToInstantiate(err))?;
-
-        let instance = instance_template.instantiate(&mut store)
-            .map_err(|err| FunctionInvokeError::FailedToInstantiate(err))?;
-
-        let memory = instance.get_memory(&mut store, "memory").unwrap();
-        store.data_mut().memory = Some(memory.clone());
-
-        Ok(Self {
-            function_id,
-            instance_template,
-            instance: RefCell::new(instance),
-            store: Arc::new(Mutex::new(store)),
-            needs_recreate: Arc::new(AtomicBool::new(false)),
-            futures_to_drop: Arc::new(Mutex::new(VecDeque::new())),
-            streams_to_drop: Arc::new(Mutex::new(VecDeque::new())),
-        })
+        unimplemented!("deprecated")
     }
 
     fn reset(&self, engine: Arc<Engine>) -> Result<(), FunctionInvokeError> {
@@ -878,45 +700,6 @@ pub(crate) enum FunctionRequest {
     },
 }
 
-fn function_invoke(ctx: &mut Store<ExecutionEnv>, request: FunctionRequest) -> Result<u64, FunctionInvokeApiError> {
-    let mut message = capnp::message::Builder::new_default();
-    let message_request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-    let op = message_request.init_op();
-    let mut function_invoke_request = op.init_invoke();
-    match request {
-        FunctionRequest::Http => {
-            let mut function_request_http = function_invoke_request.init_http();
-        },
-        FunctionRequest::Cron { task_name } => unimplemented!(),
-    }
-
-    // TODO: mape request to function_request_http
-
-    let response = invoke_fx_api(ctx, message)
-        .map_err(|err| match err {
-            FunctionApiError::FunctionPanicked => FunctionInvokeApiError::FunctionPanicked,
-        })?;
-    let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
-    match response.get_op().which().unwrap() {
-        abi_capnp::fx_function_api_call_result::op::Which::Invoke(v) => {
-            let invoke_response = v.unwrap();
-            match invoke_response.get_result().which().unwrap() {
-                abi_capnp::function_invoke_response::result::Which::FutureId(v) => {
-                    Ok(v)
-                },
-                abi_capnp::function_invoke_response::result::Which::Error(err) => {
-                    let err = err.unwrap().get_error();
-                    match err.which().unwrap() {
-                        abi_capnp::function_invoke_error::error::Which::HandlerNotFound(_v) => Err(FunctionInvokeApiError::HandlerNotDefined),
-                        _other => panic!("error when invoking function"),
-                    }
-                }
-            }
-        }
-        _other => panic!("unexpected response from function invoke api"),
-    }
-}
-
 /// Error that occurred while calling future_poll api of the function
 #[derive(Error, Debug)]
 enum FunctionFuturePollApiError {
@@ -937,150 +720,12 @@ enum FunctionFuturePollApiError {
     FunctionPanicked,
 }
 
-fn function_future_poll(ctx: &mut Store<ExecutionEnv>, future_id: u64) -> Result<Poll<Vec<u8>>, FunctionFuturePollApiError> {
-    let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-    let op = request.init_op();
-    let mut future_poll_request = op.init_future_poll();
-    future_poll_request.set_future_id(future_id);
-
-    let response = invoke_fx_api(ctx, message)
-        .map_err(|err| match err {
-            FunctionApiError::FunctionPanicked => FunctionFuturePollApiError::FunctionPanicked,
-        })?;
-    let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
-
-    Ok(match response.get_op().which().unwrap() {
-        abi_capnp::fx_function_api_call_result::op::Which::FuturePoll(v) => {
-            let future_poll_response = v.unwrap();
-            match future_poll_response.get_response().which().unwrap() {
-                abi_capnp::function_future_poll_response::response::Which::Pending(_) => Poll::Pending,
-                abi_capnp::function_future_poll_response::response::Which::Ready(v) => {
-                    Poll::Ready(v.unwrap().to_vec())
-                },
-                abi_capnp::function_future_poll_response::response::Which::Error(error) => {
-                    let error = error.unwrap();
-                    // TODO: refactor FxRuntimeError into something more granular
-                    return Err(match error.get_error().which().unwrap() {
-                        abi_capnp::function_future_poll_error::error::Which::InternalRuntimeError(_v) => FunctionFuturePollApiError::FunctionRuntimeError,
-                        abi_capnp::function_future_poll_error::error::Which::UserApplicationError(v) => FunctionFuturePollApiError::UserApplicationError {
-                            description: v.unwrap().to_string().unwrap(),
-                        },
-                    });
-                }
-            }
-        },
-        _other => panic!("unexpected response from future_poll api"),
-    })
-}
-
-fn function_future_drop(ctx: &mut Store<ExecutionEnv>, future_id: u64) {
-    let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-    let op = request.init_op();
-    let mut future_drop_request = op.init_future_drop();
-    future_drop_request.set_future_id(future_id);
-
-    let _response = invoke_fx_api(ctx, message).unwrap();
-}
-
-fn function_stream_poll_next(ctx: &mut Store<ExecutionEnv>, stream_id: u64) -> Poll<Option<Vec<u8>>> {
-    let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-    let op = request.init_op();
-    let mut stream_poll_next_request = op.init_stream_poll_next();
-    stream_poll_next_request.set_stream_id(stream_id);
-
-    let response = invoke_fx_api(ctx, message).unwrap();
-    let response = response.get_root::<abi_capnp::fx_function_api_call_result::Reader>().unwrap();
-
-    match response.get_op().which().unwrap() {
-        abi_capnp::fx_function_api_call_result::op::Which::StreamPollNext(v) => {
-            let stream_poll_next_response = v.unwrap();
-            match stream_poll_next_response.get_response().which().unwrap() {
-                abi_capnp::function_stream_poll_next_response::response::Which::Pending(_) => Poll::Pending,
-                abi_capnp::function_stream_poll_next_response::response::Which::Ready(v) => {
-                    Poll::Ready(Some(v.unwrap().to_vec()))
-                },
-                abi_capnp::function_stream_poll_next_response::response::Which::Finished(_) => Poll::Ready(None),
-            }
-        },
-        _other => panic!("unexpected response from stream_poll_next api"),
-    }
-}
-
-fn function_stream_drop(ctx: &mut Store<ExecutionEnv>, stream_id: u64) {
-    let mut message = capnp::message::Builder::new_default();
-    let request = message.init_root::<abi_capnp::fx_function_api_call::Builder>();
-    let op = request.init_op();
-    let mut stream_drop_request = op.init_stream_drop();
-    stream_drop_request.set_stream_id(stream_id);
-
-    let _response = invoke_fx_api(ctx, message).unwrap();
-}
-
 /// Error that occurred while communicating with function api
 #[derive(Error, Debug)]
 enum FunctionApiError {
     /// Api request failed because function code panicked
     #[error("function panicked")]
     FunctionPanicked,
-}
-
-pub(crate) fn invoke_fx_api(
-    ctx: &mut Store<ExecutionEnv>,
-    message: capnp::message::Builder<capnp::message::HeapAllocator>
-) -> Result<capnp::message::Reader<capnp::serialize::OwnedSegments>, FunctionApiError> {
-    let instance = ctx.data().instance.as_ref().unwrap().clone();
-    let memory = instance.borrow().get_memory(ctx.as_context_mut(), "memory").unwrap();
-
-    let response_ptr = {
-        let message_size = capnp::serialize::compute_serialized_size_in_words(&message) * 8;
-        let ptr = instance.borrow().get_typed_func::<i64, i64>(ctx.as_context_mut(), "_fx_malloc").unwrap()
-            .call(ctx.as_context_mut(), message_size as i64)
-            .unwrap() as usize;
-
-        let view = memory.data_mut(ctx.as_context_mut());
-
-        unsafe {
-            capnp::serialize::write_message(
-                &mut view[ptr..ptr+message_size],
-                &message
-            ).unwrap();
-        }
-
-        instance.borrow().get_typed_func::<(i64, i64), i64>(ctx.as_context_mut(), "_fx_api").unwrap()
-            .call(ctx.as_context_mut(), (ptr as i64, message_size as i64))
-            .map_err(|err| {
-                let trap = err.downcast::<wasmtime::Trap>().unwrap();
-                match trap {
-                    wasmtime::Trap::UnreachableCodeReached => FunctionApiError::FunctionPanicked,
-                    other => panic!("unexpected trap: {other:?}"),
-                }
-            })? as usize
-    };
-
-    let header_length = 4;
-    let (response, response_length) = {
-        let view = memory.data(ctx.as_context());
-        let header_bytes = {
-            &view[response_ptr..response_ptr+header_length]
-        };
-        let response_length = u32::from_le_bytes(header_bytes.try_into().unwrap());
-
-        let response = {
-            let response_length = response_length as usize;
-            &view[(response_ptr + header_length)..(response_ptr + header_length + response_length)]
-        };
-
-        (response.to_vec(), response_length)
-    };
-
-    instance.borrow().get_typed_func::<(i64, i64), ()>(ctx.as_context_mut(), "_fx_dealloc").unwrap()
-        .call(ctx.as_context_mut(), (response_ptr as i64, (header_length + response_length as usize) as i64))
-        .unwrap();
-
-    Ok(capnp::serialize::read_message(Cursor::new(response), capnp::message::ReaderOptions::default()).unwrap())
 }
 
 pub fn write_memory_obj<T: Sized>(memory: &mut [u8], addr: i64, obj: T) {

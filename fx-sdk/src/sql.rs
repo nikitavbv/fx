@@ -24,33 +24,6 @@ impl From<fx_common::SqlResult> for SqlResult {
     }
 }
 
-impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_capnp::sql_result_row::Owned>> for SqlResult {
-    fn from(value: fx_types::capnp::struct_list::Reader<'_, fx_types::abi_capnp::sql_result_row::Owned>) -> Self {
-        let rows = value.into_iter()
-            .map(|v| SqlResultRow {
-                columns: v.get_columns().unwrap()
-                    .into_iter()
-                    .map(|v| {
-                        use fx_types::abi_capnp::sql_value::value::{Which as ProtocolValue};
-
-                        match v.get_value().which().unwrap() {
-                            ProtocolValue::Null(_) => SqlValue::Null,
-                            ProtocolValue::Integer(v) => SqlValue::Integer(v),
-                            ProtocolValue::Real(v) => SqlValue::Real(v),
-                            ProtocolValue::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
-                            ProtocolValue::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
-                        }
-                    })
-                    .collect()
-            })
-            .collect();
-
-        Self {
-            rows,
-        }
-    }
-}
-
 impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {
     fn from(value: fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>) -> Self {
         let rows = value.into_iter()

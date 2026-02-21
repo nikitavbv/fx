@@ -3,7 +3,6 @@ pub use {
     crate::runtime::runtime::{FxRuntime, FunctionId, FunctionInvokeAndExecuteError},
 };
 
-mod api;
 pub mod runtime;
 pub mod definition;
 pub mod error;
