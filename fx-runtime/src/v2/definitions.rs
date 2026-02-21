@@ -13,7 +13,7 @@ use {
     crate::v2::{
         BlobBindingConfig,
         CompilerMessage,
-        FunctionDeploymentId,
+        function::FunctionDeploymentId,
         FunctionHttpListener,
         FunctionId,
         SqlBindingConfig,
