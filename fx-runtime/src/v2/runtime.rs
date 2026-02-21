@@ -5,7 +5,7 @@ use {
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
     crate::{
-        runtime::logs::Logger,
+        runtime::{logs::Logger, sql::SqlDatabase},
         v2::{
             ServerConfig,
             RunningFxServer,
@@ -34,6 +34,7 @@ use {
             HttpHandlerV2,
             FunctionMetricsDelta,
             MetricsFlushMessage,
+            cron::{run_cron_task, CronDatabase},
         },
     },
 };
@@ -143,6 +144,19 @@ impl FxServerV2 {
                 while let Ok(msg) = logger_rx.recv() {
                     logger.log(msg);
                 }
+            })
+        };
+
+        let cron_thread_handle = {
+            let cron_database = match self.config.cron_data_path {
+                Some(cron_data_path) => SqlDatabase::new(self.config.config_path.unwrap().parent().unwrap().join(cron_data_path)).unwrap(),
+                None => SqlDatabase::in_memory().unwrap(),
+            };
+            let cron_database = CronDatabase::new(cron_database);
+
+            std::thread::spawn(move || {
+                info!("started cron thread");
+                run_cron_task(cron_database);
             })
         };
 
@@ -521,6 +535,7 @@ impl FxServerV2 {
             compiler_thread_handle,
             management_thread_handle,
             logger_thread_handle,
+            cron_thread_handle,
         }
     }
 }

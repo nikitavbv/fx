@@ -64,6 +64,7 @@ use {
 pub use self::{runtime::FxServerV2, config::ServerConfig};
 
 pub mod config;
+mod cron;
 mod definitions;
 mod errors;
 mod runtime;
@@ -205,6 +206,7 @@ pub struct RunningFxServer {
     compiler_thread_handle: JoinHandle<()>,
     management_thread_handle: JoinHandle<()>,
     logger_thread_handle: JoinHandle<()>,
+    cron_thread_handle: JoinHandle<()>,
 }
 
 impl RunningFxServer {
@@ -224,6 +226,7 @@ impl RunningFxServer {
         for handle in self.sql_worker_handles {
             handle.join().unwrap();
         }
+        self.cron_thread_handle.join().unwrap();
         self.compiler_thread_handle.join().unwrap();
         self.logger_thread_handle.join().unwrap();
         self.management_thread_handle.join().unwrap();
