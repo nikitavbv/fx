@@ -32,10 +32,8 @@ use {
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
     fx_types::{capnp, abi::FuturePollResult},
-    crate::v2::{FxServerV2, ServerConfig},
+    fx_runtime::v2::{FxServerV2, ServerConfig},
 };
-
-mod v2;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
