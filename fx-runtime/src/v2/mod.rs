@@ -44,34 +44,27 @@ use {
         abi_metrics_capnp,
         abi::FuturePollResult,
     },
-    crate::{
-        common::LogMessageEvent,
-        runtime::{
-            runtime::{FxRuntime, FunctionId, Engine},
-            kv::{BoxedStorage, FsStorage, SuffixStorage, KVStorage},
-            definition::{DefinitionProvider, load_rabbitmq_consumer_task_from_config},
-            metrics::run_metrics_server,
-            logs::{self, BoxLogger, StdoutLogger, NoopLogger, Logger},
-            sql::{Value as SqlValue, Row as SqlRow},
-        },
-    },
     self::{
         definitions::DefinitionsMonitor,
         config::{FunctionConfig, FunctionCodeConfig, LoggerConfig},
         errors::{FunctionFuturePollError, FunctionFutureError, FunctionDeploymentHandleRequestError},
         function::{FunctionDeploymentId, FunctionInstanceState, FunctionInstance},
+        sql::{Value as SqlValue, Row as SqlRow},
+        logs::{LogMessageEvent, LogEventLevel, BoxLogger, StdoutLogger, NoopLogger, Logger, EventFieldValue, LogSource},
     },
 };
 
-pub use self::{runtime::FxServerV2, config::ServerConfig};
+pub use self::{runtime::FxServerV2, config::ServerConfig, function::FunctionId};
 
 pub mod config;
 mod cron;
 mod definitions;
 mod http;
+pub mod logs;
 mod function;
 mod errors;
 pub mod runtime;
+mod sql;
 
 #[derive(Debug)]
 enum WorkerMessage {
@@ -221,7 +214,7 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
     let message = message_reader.get_root::<abi_log_capnp::log_message::Reader>().unwrap();
 
-    let message: LogMessageEvent = logs::LogMessage::new(
+    let message: LogMessageEvent = LogMessageEvent::new(
         logs::LogSource::function(&caller.data().function_id),
         match message.get_event_type().unwrap() {
             abi_log_capnp::EventType::Begin => logs::LogEventType::Begin,
@@ -229,15 +222,18 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
             abi_log_capnp::EventType::Instant => logs::LogEventType::Instant,
         },
         match message.get_level().unwrap() {
-            abi_log_capnp::LogLevel::Trace => logs::LogLevel::Trace,
-            abi_log_capnp::LogLevel::Debug => logs::LogLevel::Debug,
-            abi_log_capnp::LogLevel::Info => logs::LogLevel::Info,
-            abi_log_capnp::LogLevel::Warn => logs::LogLevel::Warn,
-            abi_log_capnp::LogLevel::Error => logs::LogLevel::Error,
+            abi_log_capnp::LogLevel::Trace => LogEventLevel::Trace,
+            abi_log_capnp::LogLevel::Debug => LogEventLevel::Debug,
+            abi_log_capnp::LogLevel::Info => LogEventLevel::Info,
+            abi_log_capnp::LogLevel::Warn => LogEventLevel::Warn,
+            abi_log_capnp::LogLevel::Error => LogEventLevel::Error,
         },
         message.get_fields().unwrap()
             .into_iter()
-            .map(|v| (v.get_name().unwrap().to_string().unwrap(), v.get_value().unwrap().to_string().unwrap()))
+            .map(|v| (
+                v.get_name().unwrap().to_string().unwrap(),
+                EventFieldValue::Text(v.get_value().unwrap().to_string().unwrap())
+            ))
             .collect()
     ).into();
 
@@ -895,11 +891,11 @@ impl SerializeResource for SqlQueryResult {
                     for (column_index, value) in result_row.columns.into_iter().enumerate() {
                         let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
                         match value {
-                            crate::runtime::sql::Value::Null => response_value.set_null(()),
-                            crate::runtime::sql::Value::Integer(v) => response_value.set_integer(v),
-                            crate::runtime::sql::Value::Real(v) => response_value.set_real(v),
-                            crate::runtime::sql::Value::Text(v) => response_value.set_text(v),
-                            crate::runtime::sql::Value::Blob(v) => response_value.set_blob(&v),
+                            SqlValue::Null => response_value.set_null(()),
+                            SqlValue::Integer(v) => response_value.set_integer(v),
+                            SqlValue::Real(v) => response_value.set_real(v),
+                            SqlValue::Text(v) => response_value.set_text(v),
+                            SqlValue::Blob(v) => response_value.set_blob(&v),
                         }
                     }
                 }
@@ -1125,18 +1121,18 @@ impl Logger for HttpLogger {
             .body(serde_json::to_vec(&HttpLogEvent {
                 source: "fx".to_owned(),
                 function_id: match message.source {
-                    crate::common::LogSource::FxRuntime => None,
-                    crate::common::LogSource::Function { id } => Some(id),
+                    LogSource::FxRuntime => None,
+                    LogSource::Function { id } => Some(id),
                 },
                 message: message.fields.get("message")
                     .map(|v| match v {
-                        crate::common::EventFieldValue::Text(v) => v.clone(),
+                        EventFieldValue::Text(v) => v.clone(),
                         other => format!("{other:?}"),
                     })
                     .unwrap_or(format!("fx log")),
                 request_id: message.fields.get("request_id")
                     .map(|v| match v {
-                        crate::common::EventFieldValue::Text(v) => v.clone(),
+                        EventFieldValue::Text(v) => v.clone(),
                         other => format!("{other:?}"),
                     }),
                 level: message.level,
@@ -1156,13 +1152,13 @@ impl Logger for HttpLogger {
     }
 }
 
-fn map_log_value_to_serde_json(value: &crate::common::EventFieldValue) -> serde_json::Value {
+fn map_log_value_to_serde_json(value: &EventFieldValue) -> serde_json::Value {
     match value {
-        crate::common::EventFieldValue::Text(v) => serde_json::Value::String(v.clone()),
-        crate::common::EventFieldValue::F64(v) => serde_json::Value::Number(serde_json::Number::from_f64(*v).unwrap()),
-        crate::common::EventFieldValue::I64(v) => serde_json::Value::Number((*v).into()),
-        crate::common::EventFieldValue::U64(v) => serde_json::Value::Number((*v).into()),
-        crate::common::EventFieldValue::Object(v) => serde_json::Value::Object(
+        EventFieldValue::Text(v) => serde_json::Value::String(v.clone()),
+        EventFieldValue::F64(v) => serde_json::Value::Number(serde_json::Number::from_f64(*v).unwrap()),
+        EventFieldValue::I64(v) => serde_json::Value::Number((*v).into()),
+        EventFieldValue::U64(v) => serde_json::Value::Number((*v).into()),
+        EventFieldValue::Object(v) => serde_json::Value::Object(
             v.iter()
                 .map(|(key, value)| (key.clone(), map_log_value_to_serde_json(value)))
                 .collect()
@@ -1173,7 +1169,7 @@ fn map_log_value_to_serde_json(value: &crate::common::EventFieldValue) -> serde_
 #[derive(Serialize)]
 struct HttpLogEvent {
     fields: HashMap<String, serde_json::Value>,
-    level: crate::common::LogEventLevel,
+    level: LogEventLevel,
     message: String,
     request_id: Option<String>,
     source: String,

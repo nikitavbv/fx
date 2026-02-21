@@ -5,9 +5,9 @@ use {
     thiserror::Error,
     wasmtime::{AsContextMut, AsContext},
     slotmap::SlotMap,
+    serde::{Serialize, Deserialize},
     crate::v2::{
-        FunctionId,
-        LogMessageEvent,
+        logs::LogMessageEvent,
         SqlMessage,
         SqlBindingConfig,
         BlobBindingConfig,
@@ -529,5 +529,38 @@ impl FunctionInstanceState {
         }
 
         serialized_frame
+    }
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize, Debug)]
+pub struct FunctionId {
+    id: String,
+}
+
+impl FunctionId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+        }
+    }
+
+    pub fn as_string(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.id.as_str()
+    }
+}
+
+impl Into<String> for FunctionId {
+    fn into(self) -> String {
+        self.id
+    }
+}
+
+impl Into<String> for &FunctionId {
+    fn into(self) -> String {
+        self.id.clone()
     }
 }

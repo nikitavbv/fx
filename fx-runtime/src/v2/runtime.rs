@@ -5,7 +5,6 @@ use {
     hyper::server::conn::http1,
     hyper_util::rt::{TokioIo, TokioTimer},
     crate::{
-        runtime::{logs::Logger, sql::SqlDatabase},
         v2::{
             function::{FunctionDeployment, FunctionDeploymentId, DeploymentInitError},
             http::HttpHandlerV2,
@@ -34,6 +33,8 @@ use {
             MetricsFlushMessage,
             DeployFunctionMessage,
             cron::{run_cron_task, CronDatabase},
+            sql::SqlDatabase,
+            logs::Logger,
         },
     },
 };

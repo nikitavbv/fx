@@ -2,8 +2,7 @@ use {
     std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
     futures::FutureExt,
     crate::v2::{
-        FunctionId,
-        function::{FunctionDeploymentId, FunctionDeployment},
+        function::{FunctionDeploymentId, FunctionDeployment, FunctionId},
         Response,
         Bytes,
         StatusCode,

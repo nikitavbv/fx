@@ -3,7 +3,7 @@ use {
     serde::Deserialize,
     thiserror::Error,
     tokio::{io, fs},
-    crate::runtime::logs::BoxLogger,
+    crate::v2::logs::BoxLogger,
 };
 
 #[derive(Deserialize, Clone)]

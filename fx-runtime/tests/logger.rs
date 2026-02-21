@@ -1,6 +1,6 @@
 use {
     std::sync::Mutex,
-    fx_runtime::runtime::logs::{Logger, LogMessageEvent, StdoutLogger},
+    fx_runtime::v2::logs::{Logger, LogMessageEvent, StdoutLogger},
 };
 
 pub struct TestLogger {
