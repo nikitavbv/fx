@@ -41,11 +41,7 @@ use {
             metrics::run_metrics_server,
             logs::{self, BoxLogger, StdoutLogger, NoopLogger},
         },
-        server::{
-            server::FxServer,
-            config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
-        },
-        v2::FxServerV2,
+        v2::{FxServerV2, ServerConfig},
     },
 };
 

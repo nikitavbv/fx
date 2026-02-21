@@ -1,8 +1,8 @@
 use {
-    std::{path::{PathBuf, Path}, sync::Arc},
-    tokio::{fs, io},
+    std::{path::PathBuf, sync::Arc},
     serde::Deserialize,
     thiserror::Error,
+    tokio::{io, fs},
     crate::runtime::logs::BoxLogger,
 };
 
@@ -84,16 +84,6 @@ impl FunctionConfig {
         self
     }
 
-    pub fn with_binding_kv(mut self, id: String, path: String) -> Self {
-        if self.bindings.is_none() {
-            self.bindings = Some(FunctionBindingsConfig::new());
-        }
-
-        self.bindings = self.bindings.map(|v| v.with_kv(id, path));
-
-        self
-    }
-
     /// Used to configure server externally, for example, in integration tests.
     #[allow(dead_code)]
     pub fn with_binding_blob(mut self, id: String, path: String) -> Self {
@@ -116,16 +106,6 @@ impl FunctionConfig {
         }
 
         self.bindings = self.bindings.map(|v| v.with_sql(config));
-
-        self
-    }
-
-    pub fn with_binding_rpc(mut self, id: String, path: String) -> Self {
-        if self.bindings.is_none() {
-            self.bindings = Some(FunctionBindingsConfig::new());
-        }
-
-        self.bindings = self.bindings.map(|v| v.with_rpc(id, path));
 
         self
     }
@@ -192,17 +172,13 @@ pub struct FunctionRabbitmqTriggerConfig {
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionBindingsConfig {
     pub sql: Option<Vec<SqlBindingConfig>>,
-    pub rpc: Option<Vec<RpcBindingConfig>>,
     pub blob: Option<Vec<BlobBindingConfig>>,
-    pub kv: Option<Vec<KvBindingConfig>>,
 }
 
 impl FunctionBindingsConfig {
     pub fn new() -> Self {
         Self {
             sql: None,
-            rpc: None,
-            kv: None,
             blob: None,
         }
     }
@@ -220,35 +196,12 @@ impl FunctionBindingsConfig {
         self
     }
 
-    pub fn with_kv(mut self, id: String, path: String) -> Self {
-        if self.kv.is_none() {
-            self.kv = Some(Vec::new());
-        }
-
-        self.kv.as_mut().unwrap().push(KvBindingConfig {
-            id,
-            path
-        });
-
-        self
-    }
-
     pub fn with_sql(mut self, config: SqlBindingConfig) -> Self {
         if self.sql.is_none() {
             self.sql = Some(Vec::new());
         }
 
         self.sql.as_mut().unwrap().push(config);
-
-        self
-    }
-
-    pub fn with_rpc(mut self, id: String, path: String) -> Self {
-        if self.rpc.is_none() {
-            self.rpc = Some(Vec::new());
-        }
-
-        self.rpc.as_mut().unwrap().push(RpcBindingConfig { id, function: path });
 
         self
     }
@@ -275,18 +228,6 @@ impl SqlBindingConfig {
         self.busy_timeout_ms = Some(busy_timeout_ms);
         self
     }
-}
-
-#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct RpcBindingConfig {
-    pub id: String,
-    pub function: String,
-}
-
-#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
-pub struct KvBindingConfig {
-    pub id: String,
-    pub path: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

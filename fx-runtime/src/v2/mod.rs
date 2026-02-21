@@ -53,19 +53,17 @@ use {
             logs::{self, BoxLogger, StdoutLogger, NoopLogger, Logger},
             sql::{Value as SqlValue, Row as SqlRow},
         },
-        server::{
-            server::FxServer,
-            config::{ServerConfig, FunctionConfig, FunctionCodeConfig, LoggerConfig},
-        },
     },
     self::{
         definitions::DefinitionsMonitor,
+        config::{FunctionConfig, FunctionCodeConfig, LoggerConfig},
         errors::{FunctionFuturePollError, FunctionFutureError, FunctionDeploymentHandleRequestError},
     },
 };
 
-pub use self::runtime::FxServerV2;
+pub use self::{runtime::FxServerV2, config::ServerConfig};
 
+pub mod config;
 mod definitions;
 mod errors;
 mod runtime;

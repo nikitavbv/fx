@@ -16,11 +16,7 @@ use {
             error::FxRuntimeError,
             FunctionInvokeAndExecuteError,
         },
-        server::{
-            server::FxServer,
-            config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig},
-        },
-        v2::{FxServerV2, RunningFxServer},
+        v2::{FxServerV2, RunningFxServer, config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig}},
     },
     crate::logger::TestLogger,
 };
@@ -452,7 +448,6 @@ fn init_fx_server() {
                     .with_trigger_http(None)
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                     .with_binding_blob("test-blob".to_owned(), "/tmp/fx-test/test-blob".to_owned())
-                    .with_binding_kv("test-kv".to_owned(), current_dir().unwrap().join("data/test-kv").to_str().unwrap().to_string())
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
                     .with_binding_sql_config(
                         SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
@@ -462,7 +457,6 @@ fn init_fx_server() {
                         SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
                             .with_busy_timeout_ms(10)
                     )
-                    .with_binding_rpc("other-app".to_owned(), "/tmp/fx/functions/other-app.fx.yaml".to_owned())
             ).await;
 
             server.deploy_function(
