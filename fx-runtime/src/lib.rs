@@ -18,10 +18,10 @@
 pub use crate::{server::FxServer, definitions::config};
 
 mod definitions;
-mod effects;
-mod function;
+pub mod effects;
+pub mod function;
 mod introspection;
 mod resources;
-mod server;
+pub mod server;
 mod tasks;
 mod triggers;

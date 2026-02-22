@@ -4,7 +4,13 @@ use {
     tokio::{join, sync::{OnceCell, Mutex}, time::{sleep, Duration}},
     parking_lot::ReentrantMutex,
     futures::{StreamExt, stream::FuturesUnordered, FutureExt},
-    fx_runtime::v2::{FxServerV2, config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig}, runtime::RunningFxServer, FunctionId, logs::{EventFieldValue, LogEventType, BoxLogger}},
+    fx_runtime::{
+        FxServer,
+        server::RunningFxServer,
+        function::FunctionId,
+        config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig},
+        effects::logs::{EventFieldValue, LogEventType, BoxLogger},
+    },
     crate::logger::TestLogger,
 };
 
@@ -418,7 +424,7 @@ fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
         std::thread::spawn(|| tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
-            let server = FxServerV2::new(ServerConfig {
+            let server = FxServer::new(ServerConfig {
                 config_path: Some("/tmp/fx".into()),
 
                 functions_dir: "/tmp/fx/functions".to_owned(),

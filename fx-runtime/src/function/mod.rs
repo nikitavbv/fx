@@ -1,4 +1,5 @@
-pub(crate) use self::deployment::{FunctionId, FunctionDeploymentId};
+pub use self::deployment::FunctionId;
+pub(crate) use self::deployment::FunctionDeploymentId;
 
 pub(crate) mod abi;
 pub(crate) mod deployment;
