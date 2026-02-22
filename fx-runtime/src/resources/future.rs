@@ -4,12 +4,12 @@ impl SerializeResource for Vec<u8> {
     }
 }
 
-enum FutureResource<T> {
+pub(crate) enum FutureResource<T> {
     Future(BoxFuture<'static, T>),
     Ready(T),
 }
 
-struct FunctionFuture {
+pub(crate) struct FunctionFuture {
     inner: LocalBoxFuture<'static, Result<Poll<()>, FunctionFuturePollError>>,
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,

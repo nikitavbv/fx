@@ -1,11 +1,16 @@
+use {
+    std::{collections::HashMap, sync::RwLock},
+    crate::function::FunctionId,
+};
+
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
-struct MetricKey {
+pub(crate) struct MetricKey {
     name: String,
     labels: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
-struct MetricId {
+pub(crate) struct MetricId {
     id: u64,
 }
 
@@ -159,4 +164,27 @@ fn escape_label_value(s: &str) -> String {
     s.replace('\\', "\\\\")
      .replace('"', "\\\"")
      .replace('\n', "\\n")
+}
+
+#[derive(Debug)]
+struct FunctionMetricsDelta {
+    counters_delta: HashMap<MetricKey, u64>,
+}
+
+impl FunctionMetricsDelta {
+    pub fn empty() -> Self {
+        Self {
+            counters_delta: HashMap::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.counters_delta.is_empty()
+    }
+
+    fn append(&mut self, other: FunctionMetricsDelta) {
+        for (metric_key, delta) in other.counters_delta {
+            *self.counters_delta.entry(metric_key).or_insert(0) += delta;
+        }
+    }
 }

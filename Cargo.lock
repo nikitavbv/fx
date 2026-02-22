@@ -1176,18 +1176,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fx-common"
-version = "0.1.0"
-dependencies = [
- "http",
- "http-serde",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "urlencoding",
-]
-
-[[package]]
 name = "fx-fortunes"
 version = "0.1.0"
 dependencies = [
@@ -1221,7 +1209,6 @@ dependencies = [
  "flume",
  "futures",
  "futures-intrusive",
- "fx-common",
  "fx-types",
  "gdt-cpus",
  "http",
@@ -1268,7 +1255,6 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
- "fx-common",
  "fx-macro",
  "fx-types",
  "http",
@@ -1524,16 +1510,6 @@ dependencies = [
  "http",
  "http-body",
  "pin-project-lite",
-]
-
-[[package]]
-name = "http-serde"
-version = "2.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f056c8559e3757392c8d091e796416e4649d8e49e88b8d76df6c002f05027fd"
-dependencies = [
- "http",
- "serde",
 ]
 
 [[package]]
@@ -3888,12 +3864,6 @@ dependencies = [
  "percent-encoding",
  "serde",
 ]
-
-[[package]]
-name = "urlencoding"
-version = "2.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daf8dba3b7eb870caf1ddeed7bc9d2a049f3cfdfae7cb521b087cc33ae4c49da"
 
 [[package]]
 name = "utf8-width"

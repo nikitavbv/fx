@@ -1,5 +1,5 @@
 #[derive(Debug)]
-enum WorkerMessage {
+pub(crate) enum WorkerMessage {
     RemoveFunction {
         function_id: FunctionId,
         on_ready: Option<oneshot::Sender<()>>,

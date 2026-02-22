@@ -1,3 +1,44 @@
+use {
+    thiserror::Error,
+    rusqlite::{Connection, params_from_iter, types::{ValueRef, ToSqlOutput}, ToSql},
+    crate::{
+        function::abi::{capnp, abi_sql_capnp},
+        resources::serialize::SerializeResource,
+    },
+};
+
+#[derive(Debug)]
+enum SqlQueryResult {
+    Ok(Vec<SqlRow>),
+    Error(SqlQueryExecutionError),
+}
+
+#[derive(Debug)]
+pub struct SqlRow {
+    pub columns: Vec<SqlValue>,
+}
+
+#[derive(Clone, Debug)]
+pub enum SqlValue {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Blob(Vec<u8>),
+}
+
+#[derive(Debug)]
+enum SqlMigrationResult {
+    Ok(()),
+    Error(SqlMigrationError),
+}
+
+#[derive(Debug, Error)]
+enum SqlMigrationError {
+    #[error("database is locked")]
+    DatabaseBusy,
+}
+
 impl SerializeResource for SqlQueryResult {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
@@ -94,7 +135,7 @@ pub enum Value {
 
 #[derive(Clone)]
 pub struct SqlDatabase {
-    connection: Arc<Mutex<Connection>>,
+    connection: Connection,
 }
 
 impl SqlDatabase {
@@ -116,7 +157,7 @@ impl SqlDatabase {
     }
 
     fn from_connection(connection: Connection) -> Self {
-        Self { connection: Arc::new(Mutex::new(connection)) }
+        Self { connection }
     }
 
     pub fn exec(&self, query: Query) -> Result<QueryResult, SqlError> {
@@ -275,4 +316,10 @@ pub enum SqlError {
 pub enum SqlMappingError {
     #[error("wrong type")]
     WrongType,
+}
+
+#[derive(Debug, Error)]
+enum SqlQueryExecutionError {
+    #[error("database is locked")]
+    DatabaseBusy,
 }

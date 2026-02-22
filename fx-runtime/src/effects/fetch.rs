@@ -1,4 +1,9 @@
-struct FetchResult {
+use crate::{
+    function::abi::{capnp, abi_http_capnp},
+    resources::serialize::SerializeResource,
+};
+
+pub(crate) struct FetchResult {
     status: ::http::StatusCode,
     body: Vec<u8>,
 }

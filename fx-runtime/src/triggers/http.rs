@@ -197,7 +197,7 @@ impl From<hyper::body::Incoming> for FetchRequestBody {
     }
 }
 
-enum FetchRequestBodyInner {
+pub(crate) enum FetchRequestBodyInner {
     // full body:
     Full(Vec<u8>),
     FullSerialized(Vec<u8>),
@@ -213,7 +213,7 @@ enum FetchRequestBodyInner {
     },
 }
 
-struct FunctionResponse(FunctionResponseInner);
+pub(crate) struct FunctionResponse(FunctionResponseInner);
 
 enum FunctionResponseInner {
     HttpResponse(FunctionHttpResponse),

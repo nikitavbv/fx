@@ -1,4 +1,26 @@
-fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
+pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, abi_metrics_capnp, abi_blob_capnp, abi::FuturePollResult};
+
+use {
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}},
+    tokio::{sync::oneshot, time::Duration},
+    http::Method,
+    http_body_util::BodyStream,
+    crate::{
+        function::instance::FunctionInstanceState,
+        resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource},
+        effects::{
+            logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
+            sql::SqlValue,
+            blob::BlobGetResponse,
+            fetch::FetchResult,
+            metrics::{MetricKey, MetricId},
+        },
+        tasks::sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
+        triggers::http::FetchRequestBodyInner,
+    },
+};
+
+pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -8,11 +30,11 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
     let message = message_reader.get_root::<abi_log_capnp::log_message::Reader>().unwrap();
 
     let message: LogMessageEvent = LogMessageEvent::new(
-        logs::LogSource::function(&caller.data().function_id),
+        LogSource::function(&caller.data().function_id),
         match message.get_event_type().unwrap() {
-            abi_log_capnp::EventType::Begin => logs::LogEventType::Begin,
-            abi_log_capnp::EventType::End => logs::LogEventType::End,
-            abi_log_capnp::EventType::Instant => logs::LogEventType::Instant,
+            abi_log_capnp::EventType::Begin => LogEventType::Begin,
+            abi_log_capnp::EventType::End => LogEventType::End,
+            abi_log_capnp::EventType::Instant => LogEventType::Instant,
         },
         match message.get_level().unwrap() {
             abi_log_capnp::LogLevel::Trace => LogEventLevel::Trace,
@@ -33,11 +55,11 @@ fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_a
     caller.data().logger_tx.send(message).unwrap();
 }
 
-fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
+pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
 }
 
-fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
+pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
         Resource::FetchRequest(req) => req.into_serialized(),
         Resource::SqlQueryResult(req) => match req {
@@ -68,11 +90,11 @@ fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionI
     view[ptr..ptr+resource.len()].copy_from_slice(&resource);
 }
 
-fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
+pub(super) fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
     let _ = caller.data_mut().resource_remove(&ResourceId::from(resource_id));
 }
 
-fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
+pub(super) fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
     let serialized_frame = caller.data_mut().stream_read_frame(&ResourceId::from(resource_id));
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -83,7 +105,7 @@ fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
     view[ptr..ptr+serialized_frame.len()].copy_from_slice(&serialized_frame);
 }
 
-fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
+pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -119,7 +141,7 @@ fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, 
     }.boxed()))).as_u64()
 }
 
-fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
+pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -149,7 +171,7 @@ fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState
     }.boxed()))).as_u64()
 }
 
-fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
+pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
     let resource_id = ResourceId::new(future_resource_id);
     (match caller.data_mut().resource_poll(&resource_id) {
         Poll::Pending => FuturePollResult::Pending,
@@ -157,13 +179,13 @@ fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState
     }) as i64
 }
 
-fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
+pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
         tokio::time::sleep(Duration::from_millis(sleep_millis)).await;
     }.boxed())).as_u64()
 }
 
-fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) {
+pub(super) fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let mut context = caller.as_context_mut();
     let view = memory.data_mut(&mut context);
@@ -173,11 +195,11 @@ fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, pt
     rand::rngs::OsRng.try_fill_bytes(&mut view[ptr..ptr+len]).unwrap();
 }
 
-fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 {
+pub(super) fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
-fn fx_blob_put_handler(
+pub(super) fn fx_blob_put_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     binding_ptr: u64,
     binding_len: u64,
@@ -222,7 +244,7 @@ fn fx_blob_put_handler(
     }.boxed())).as_u64()
 }
 
-fn fx_blob_get_handler(
+pub(super) fn fx_blob_get_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     binding_ptr: u64,
     binding_len: u64,
@@ -265,7 +287,7 @@ fn fx_blob_get_handler(
     }.boxed()))).as_u64()
 }
 
-fn fx_blob_delete_handler(
+pub(super) fn fx_blob_delete_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     binding_ptr: u64,
     binding_len: u64,
@@ -299,7 +321,7 @@ fn fx_blob_delete_handler(
     }.boxed())).as_u64()
 }
 
-fn fx_fetch_handler(
+pub(super) fn fx_fetch_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     req_ptr: u64,
     req_len: u64,
@@ -375,7 +397,7 @@ fn fx_fetch_handler(
     }.boxed()))).as_u64()
 }
 
-fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {
+pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -408,6 +430,6 @@ fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, Function
     caller.data_mut().metrics.counter_register(metric_key).into_abi()
 }
 
-fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
+pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
     caller.data_mut().metrics.counter_increment(MetricId::new(counter_id), delta);
 }

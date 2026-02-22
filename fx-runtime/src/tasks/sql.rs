@@ -1,11 +1,11 @@
 #[derive(Debug)]
-enum SqlMessage {
+pub(crate) enum SqlMessage {
     Exec(SqlExecMessage),
     Migrate(SqlMigrateMessage),
 }
 
 #[derive(Debug)]
-struct SqlExecMessage {
+pub(crate) struct SqlExecMessage {
     binding: SqlBindingConfig,
     statement: String,
     params: Vec<SqlValue>,
@@ -13,31 +13,7 @@ struct SqlExecMessage {
 }
 
 #[derive(Debug)]
-enum SqlQueryResult {
-    Ok(Vec<SqlRow>),
-    Error(SqlQueryExecutionError),
-}
-
-#[derive(Debug, Error)]
-enum SqlQueryExecutionError {
-    #[error("database is locked")]
-    DatabaseBusy,
-}
-
-#[derive(Debug)]
-enum SqlMigrationResult {
-    Ok(()),
-    Error(SqlMigrationError),
-}
-
-#[derive(Debug, Error)]
-enum SqlMigrationError {
-    #[error("database is locked")]
-    DatabaseBusy,
-}
-
-#[derive(Debug)]
-struct SqlMigrateMessage {
+pub(crate) struct SqlMigrateMessage {
     binding: SqlBindingConfig,
     migrations: Vec<String>,
     response: oneshot::Sender<SqlMigrationResult>,

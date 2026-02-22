@@ -1,3 +1,8 @@
+use {
+    std::path::PathBuf,
+    tokio::time::Duration,
+};
+
 #[derive(Debug, Clone)]
 pub(crate) struct SqlBindingConfig {
     pub(crate) connection_id: String,
@@ -6,12 +11,12 @@ pub(crate) struct SqlBindingConfig {
 }
 
 #[derive(Debug, Clone)]
-enum SqlBindingConfigLocation {
+pub(crate) enum SqlBindingConfigLocation {
     InMemory(String),
     Path(PathBuf),
 }
 
 #[derive(Debug, Clone)]
-struct BlobBindingConfig {
+pub(crate) struct BlobBindingConfig {
     storage_directory: PathBuf,
 }

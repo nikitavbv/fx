@@ -1,4 +1,9 @@
-enum BlobGetResponse {
+use crate::{
+    function::abi::{capnp, abi_blob_capnp},
+    resources::serialize::SerializeResource,
+};
+
+pub(crate) enum BlobGetResponse {
     NotFound,
     Ok(Vec<u8>),
     BindingNotExists,

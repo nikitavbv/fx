@@ -1,6 +1,8 @@
 use {
     std::{collections::HashMap, sync::Arc},
+    tracing::error,
     serde::{Serialize, Deserialize},
+    crate::definitions::config::LoggerConfig,
 };
 
 pub trait Logger {

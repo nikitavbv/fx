@@ -6,7 +6,6 @@ members = [
     "fx-types",
 
     "extra/fx-macro",
-    "extra/fx-common",
 
     "apps/fx-app-demo",
     "apps/fx-app-mocks",

@@ -10,15 +10,17 @@ use {
     tokio::{fs, sync::oneshot},
     tracing::{error, info, warn},
     walkdir::WalkDir,
-    crate::v2::{
-        BlobBindingConfig,
-        CompilerMessage,
-        function::{FunctionDeploymentId, FunctionId},
-        FunctionHttpListener,
-        SqlBindingConfig,
-        SqlBindingConfigLocation,
-        WorkerMessage,
-        config::{FunctionCodeConfig, FunctionConfig, ServerConfig},
+    crate::{
+        tasks::{
+            worker::WorkerMessage,
+            compiler::CompilerMessage,
+        },
+        definitions::{
+            config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
+            triggers::FunctionHttpListener,
+            bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig},
+        },
+        function::{FunctionId, FunctionDeploymentId},
     },
 };
 

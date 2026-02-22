@@ -1,4 +1,16 @@
-use thiserror::Error;
+use {
+    std::{collections::HashMap, task::Poll},
+    thiserror::Error,
+    futures_intrusive::sync::LocalMutex,
+    crate::{
+        function::abi::FuturePollResult,
+        effects::logs::LogMessageEvent,
+        tasks::sql::SqlMessage,
+        definitions::bindings::{SqlBindingConfig, BlobBindingConfig},
+        resources::{FunctionResourceId, ResourceId},
+    },
+    super::FunctionId,
+};
 
 pub(crate) struct FunctionInstance {
     instance: wasmtime::Instance,
@@ -119,7 +131,7 @@ impl FunctionInstance {
 }
 
 #[derive(Debug, Error)]
-enum FunctionInstanceInitError {
+pub(crate) enum FunctionInstanceInitError {
     #[error("function does not provide export that fx runtime expects to be present")]
     MissingExport,
 }
@@ -363,39 +375,6 @@ impl FunctionInstanceState {
         }
 
         serialized_frame
-    }
-}
-
-#[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize, Debug)]
-pub struct FunctionId {
-    id: String,
-}
-
-impl FunctionId {
-    pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-        }
-    }
-
-    pub fn as_string(&self) -> String {
-        self.id.clone()
-    }
-
-    pub fn as_str(&self) -> &str {
-        self.id.as_str()
-    }
-}
-
-impl Into<String> for FunctionId {
-    fn into(self) -> String {
-        self.id
-    }
-}
-
-impl Into<String> for &FunctionId {
-    fn into(self) -> String {
-        self.id.clone()
     }
 }
 

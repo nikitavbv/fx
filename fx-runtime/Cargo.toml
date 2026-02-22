@@ -49,7 +49,6 @@ slotmap = "1.1.1"
 async-once-cell = "0.5.4"
 uuid = { version = "1.20.0", features = ["v4"] }
 
-fx-common = { path = "../extra/fx-common" }
 fx-types = { path = "../fx-types" }
 
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]

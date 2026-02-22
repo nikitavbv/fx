@@ -1,4 +1,16 @@
-use thiserror::Error;
+use {
+    std::{rc::Rc, collections::HashMap, pin::Pin},
+    thiserror::Error,
+    serde::{Serialize, Deserialize},
+    crate::{
+        effects::logs::LogMessageEvent,
+        tasks::sql::SqlMessage,
+        definitions::bindings::{SqlBindingConfig, BlobBindingConfig},
+        triggers::http::{FetchRequestHeader, FunctionResponse, FetchRequestBody},
+        resources::{Resource, serialize::{SerializedFunctionResource, SerializableResource}, future::FunctionFuture},
+    },
+    super::instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
+};
 
 /// deployment is a set of FunctionInstances deployed with same configuration
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -31,23 +43,23 @@ impl FunctionDeployment {
     ) -> Result<Self, DeploymentInitError> {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
 
-        linker.func_wrap("fx", "fx_log", fx_log_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_serialize", fx_resource_serialize_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_move_from_host", fx_resource_move_from_host_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_drop", fx_resource_drop_handler).unwrap();
-        linker.func_wrap("fx", "fx_sql_exec", fx_sql_exec_handler).unwrap();
-        linker.func_wrap("fx", "fx_sql_migrate", fx_sql_migrate_handler).unwrap();
-        linker.func_wrap("fx", "fx_future_poll", fx_future_poll_handler).unwrap();
-        linker.func_wrap("fx", "fx_sleep", fx_sleep_handler).unwrap();
-        linker.func_wrap("fx", "fx_random", fx_random_handler).unwrap();
-        linker.func_wrap("fx", "fx_time", fx_time_handler).unwrap();
-        linker.func_wrap("fx", "fx_blob_put", fx_blob_put_handler).unwrap();
-        linker.func_wrap("fx", "fx_blob_get", fx_blob_get_handler).unwrap();
-        linker.func_wrap("fx", "fx_blob_delete", fx_blob_delete_handler).unwrap();
-        linker.func_wrap("fx", "fx_fetch", fx_fetch_handler).unwrap();
-        linker.func_wrap("fx", "fx_metrics_counter_register", fx_metrics_counter_register_handler).unwrap();
-        linker.func_wrap("fx", "fx_metrics_counter_increment", fx_metrics_counter_increment_handler).unwrap();
-        linker.func_wrap("fx", "fx_stream_frame_read", fx_stream_frame_read_handler).unwrap();
+        linker.func_wrap("fx", "fx_log", super::abi::fx_log_handler).unwrap();
+        linker.func_wrap("fx", "fx_resource_serialize", super::abi::fx_resource_serialize_handler).unwrap();
+        linker.func_wrap("fx", "fx_resource_move_from_host", super::abi::fx_resource_move_from_host_handler).unwrap();
+        linker.func_wrap("fx", "fx_resource_drop", super::abi::fx_resource_drop_handler).unwrap();
+        linker.func_wrap("fx", "fx_sql_exec", super::abi::fx_sql_exec_handler).unwrap();
+        linker.func_wrap("fx", "fx_sql_migrate", super::abi::fx_sql_migrate_handler).unwrap();
+        linker.func_wrap("fx", "fx_future_poll", super::abi::fx_future_poll_handler).unwrap();
+        linker.func_wrap("fx", "fx_sleep", super::abi::fx_sleep_handler).unwrap();
+        linker.func_wrap("fx", "fx_random", super::abi::fx_random_handler).unwrap();
+        linker.func_wrap("fx", "fx_time", super::abi::fx_time_handler).unwrap();
+        linker.func_wrap("fx", "fx_blob_put", super::abi::fx_blob_put_handler).unwrap();
+        linker.func_wrap("fx", "fx_blob_get", super::abi::fx_blob_get_handler).unwrap();
+        linker.func_wrap("fx", "fx_blob_delete", super::abi::fx_blob_delete_handler).unwrap();
+        linker.func_wrap("fx", "fx_fetch", super::abi::fx_fetch_handler).unwrap();
+        linker.func_wrap("fx", "fx_metrics_counter_register", super::abi::fx_metrics_counter_register_handler).unwrap();
+        linker.func_wrap("fx", "fx_metrics_counter_increment", super::abi::fx_metrics_counter_increment_handler).unwrap();
+        linker.func_wrap("fx", "fx_stream_frame_read", super::abi:: fx_stream_frame_read_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -130,4 +142,37 @@ pub enum FunctionDeploymentHandleRequestError {
     /// Function panicked while handling request
     #[error("function panicked")]
     FunctionPanicked,
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize, Debug)]
+pub struct FunctionId {
+    id: String,
+}
+
+impl FunctionId {
+    pub fn new(id: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+        }
+    }
+
+    pub fn as_string(&self) -> String {
+        self.id.clone()
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.id.as_str()
+    }
+}
+
+impl Into<String> for FunctionId {
+    fn into(self) -> String {
+        self.id
+    }
+}
+
+impl Into<String> for &FunctionId {
+    fn into(self) -> String {
+        self.id.clone()
+    }
 }

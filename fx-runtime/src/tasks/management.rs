@@ -14,29 +14,6 @@ struct MetricsFlushMessage {
     function_metrics: HashMap<FunctionId, FunctionMetricsDelta>,
 }
 
-#[derive(Debug)]
-struct FunctionMetricsDelta {
-    counters_delta: HashMap<MetricKey, u64>,
-}
-
-impl FunctionMetricsDelta {
-    pub fn empty() -> Self {
-        Self {
-            counters_delta: HashMap::new(),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.counters_delta.is_empty()
-    }
-
-    fn append(&mut self, other: FunctionMetricsDelta) {
-        for (metric_key, delta) in other.counters_delta {
-            *self.counters_delta.entry(metric_key).or_insert(0) += delta;
-        }
-    }
-}
-
 fn run_management_task(
     config: ServerConfig,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
