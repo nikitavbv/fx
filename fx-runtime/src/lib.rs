@@ -11,4 +11,15 @@
 // lib.rs - export types for integration tests
 // main.rs - construct and start server
 
-pub mod v2;
+// TODO:
+// - rate limiting - use governor crate and have a set of rate limits defined in FunctionDefinition
+// - permissions - based on capabilities
+
+mod definitions;
+mod effects;
+mod function;
+mod introspection;
+mod resources;
+mod server;
+mod tasks;
+mod triggers;

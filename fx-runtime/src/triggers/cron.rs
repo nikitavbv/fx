@@ -5,10 +5,6 @@ use {
 
 const DATE_TIME_FORMAT: &str = "%F %T%.f";
 
-pub(crate) fn run_cron_task(database: CronDatabase) {
-
-}
-
 pub(crate) struct CronDatabase {
     database: SqlDatabase,
 }

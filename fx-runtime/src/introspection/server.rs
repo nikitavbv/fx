@@ -5,18 +5,19 @@ use {
     crate::runtime::metrics::Metrics,
 };
 
-pub async fn run_introspection_server(runtime_metrics: Metrics) {
+async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController) {
     let app = Router::new()
-        .route("/", get(home))
-        .route("/introspection", get(introspection))
-        .route("/metrics", get(metrics))
-        .layer(Extension(runtime_metrics));
+        .route("/", get(introspection_home))
+        .route("/metrics", get(introspection_metrics))
+        .route("/api/functions/{function_id}", delete(management_api_function_remove))
+        .layer(Extension(metrics))
+        .layer(Extension(Arc::new(workers_controller)));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn home() -> Response {
+async fn introspection_home() -> AxumResponse {
     render_component(view! {
         <>
             <h2>"fx runtime"</h2>
@@ -27,14 +28,28 @@ async fn home() -> Response {
     })
 }
 
-async fn metrics(Extension(metrics): Extension<Metrics>) -> (StatusCode, String) {
-    match metrics.encode() {
-        Ok(v) => (StatusCode::OK, v),
-        Err(err) => {
-            error!("failed to encode metrics: {err:?}");
-            (StatusCode::INTERNAL_SERVER_ERROR, "interal server error.\n".to_owned())
-        }
-    }
+async fn introspection_metrics(Extension(metrics): Extension<Arc<MetricsRegistry>>) -> String {
+    metrics.encode()
+}
+
+fn render_component(component: impl IntoView + 'static) -> AxumResponse {
+    Response::builder()
+        .header("content-type", "text/html; charset=utf-8")
+        .body(component.to_html().into())
+        .unwrap()
+}
+
+#[derive(Deserialize)]
+struct FunctionIdPathArgument {
+    function_id: String,
+}
+
+async fn management_api_function_remove(
+    Extension(workers_controller): Extension<Arc<WorkersController>>,
+    extract::Path(function_id): extract::Path<FunctionIdPathArgument>
+) -> &'static str {
+    workers_controller.function_remove(&FunctionId::new(&function_id.function_id)).await;
+    "ok.\n"
 }
 
 async fn introspection() -> Response {
@@ -225,11 +240,4 @@ async fn introspection() -> Response {
         </body>
         </html>
     })
-}
-
-fn render_component(component: impl IntoView + 'static) -> Response {
-    Response::builder()
-        .header("content-type", "text/html; charset=utf-8")
-        .body(component.to_html().into())
-        .unwrap()
 }

@@ -1,9 +1,60 @@
-use {
-    std::sync::{Arc, Mutex},
-    rusqlite::{Connection, params_from_iter, ToSql, types::{ToSqlOutput, ValueRef}},
-    thiserror::Error,
-    fx_common::SqlMigrations,
-};
+impl SerializeResource for SqlQueryResult {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
+        let sql_exec_response = sql_exec_response.init_result();
+
+        match self {
+            Self::Ok(rows) => {
+                let mut response_rows = sql_exec_response.init_rows(rows.len() as u32);
+                for (index, result_row) in rows.into_iter().enumerate() {
+                    let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
+                    for (column_index, value) in result_row.columns.into_iter().enumerate() {
+                        let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
+                        match value {
+                            SqlValue::Null => response_value.set_null(()),
+                            SqlValue::Integer(v) => response_value.set_integer(v),
+                            SqlValue::Real(v) => response_value.set_real(v),
+                            SqlValue::Text(v) => response_value.set_text(v),
+                            SqlValue::Blob(v) => response_value.set_blob(&v),
+                        }
+                    }
+                }
+            },
+            Self::Error(err) => {
+                let mut response_error = sql_exec_response.init_error();
+                match err {
+                    SqlQueryExecutionError::DatabaseBusy => response_error.set_database_busy(()),
+                }
+            }
+        }
+
+        capnp::serialize::write_message_to_words(&message)
+    }
+}
+
+impl SerializeResource for SqlMigrationResult {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
+        let mut sql_migrate_result = sql_migrate_result.init_result();
+
+        match self {
+            Self::Ok(_) => {
+                sql_migrate_result.set_ok(());
+            },
+            Self::Error(err) => {
+                let mut response_error = sql_migrate_result.init_error();
+                match err {
+                    SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
+                }
+            }
+        }
+
+        capnp::serialize::write_message_to_words(&message)
+    }
+}
+
 
 #[derive(Debug)]
 pub struct Query {
