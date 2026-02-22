@@ -52,6 +52,15 @@ fortunes-baseline-axum: fortunes-env-setup
 fortunes-baseline-nodejs: fortunes-env-setup
     cd extra/benchmark-baseline-node && npm install && node server.js
 
+website: website-build
+    cargo run -p fx-runtime -- serve local/website/fx.yaml
+
+website-build:
+    cargo build --target wasm32-unknown-unknown -p fx-website --release
+    mkdir -p local/website/functions
+    cp target/wasm32-unknown-unknown/release/fx_website.wasm local/website/functions/website.wasm
+    cp apps/fx-website/website.fx.yaml local/website/functions/website.fx.yaml
+
 fortunes-benchmark:
     # first, warmup
     wrk -t4 -c10 -d5s http://localhost:8080/fortunes > /dev/null

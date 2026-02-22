@@ -1315,6 +1315,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fx-website"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "fx-sdk",
+]
+
+[[package]]
 name = "gdt-cpus"
 version = "25.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
