@@ -1,12 +1,33 @@
-struct WorkerConfig {
-    core_id: Option<usize>,
-    messages_rx: flume::Receiver<WorkerMessage>,
-    sql_tx: flume::Sender<SqlMessage>,
-    logger_tx: flume::Sender<LogMessageEvent>,
-    management_tx: flume::Sender<ManagementMessage>,
+use {
+    std::{net::SocketAddr, rc::Rc, collections::HashMap, cell::RefCell},
+    tokio::time::Duration,
+    tracing::{warn, error},
+    hyper_util::rt::{TokioIo, TokioTimer},
+    hyper::server::conn::http1,
+    crate::{
+        tasks::{
+            sql::SqlMessage,
+            management::{ManagementMessage, MetricsFlushMessage},
+        },
+        effects::{
+            logs::LogMessageEvent,
+            metrics::FunctionMetricsDelta,
+        },
+        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
+        triggers::http::HttpHandler,
+    },
+    super::WorkerMessage,
+};
+
+pub(crate) struct WorkerConfig {
+    pub(crate) core_id: Option<usize>,
+    pub(crate) messages_rx: flume::Receiver<WorkerMessage>,
+    pub(crate) sql_tx: flume::Sender<SqlMessage>,
+    pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
+    pub(crate) management_tx: flume::Sender<ManagementMessage>,
 }
 
-fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) {
+pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) {
     // setup async runtime:
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

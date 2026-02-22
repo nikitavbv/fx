@@ -2,9 +2,31 @@ use {
     std::{collections::HashMap, sync::Once, panic},
     tracing::{Subscriber, Event, field::{Field, Visit}, span::Attributes, Id},
     tracing_subscriber::{Layer, layer},
-    fx_common::{LogMessage, LogLevel, LogEventType},
     crate::sys::log,
 };
+
+#[derive(Debug)]
+pub struct LogMessage {
+    pub level: LogLevel,
+    pub fields: HashMap<String, String>,
+    pub event_type: LogEventType,
+}
+
+#[derive(Debug)]
+pub enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+#[derive(Debug)]
+pub enum LogEventType {
+    Begin,
+    End,
+    Instant,
+}
 
 pub fn panic_hook(info: &panic::PanicHookInfo) {
     let payload = info.payload().downcast_ref::<&str>()

@@ -15,6 +15,8 @@
 // - rate limiting - use governor crate and have a set of rate limits defined in FunctionDefinition
 // - permissions - based on capabilities
 
+pub use crate::{server::FxServer, definitions::config};
+
 mod definitions;
 mod effects;
 mod function;

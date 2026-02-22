@@ -10,7 +10,7 @@ use {
     },
 };
 
-async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController) {
+pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController) {
     let app = Router::new()
         .route("/", get(introspection_home))
         .route("/metrics", get(introspection_metrics))

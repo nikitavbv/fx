@@ -1,3 +1,15 @@
+use {
+    std::collections::HashMap,
+    tokio::sync::oneshot,
+    crate::{
+        function::{FunctionId, FunctionDeploymentId},
+        definitions::{
+            triggers::FunctionHttpListener,
+            bindings::{BlobBindingConfig, SqlBindingConfig},
+        },
+    },
+};
+
 #[derive(Debug)]
 pub(crate) enum WorkerMessage {
     RemoveFunction {

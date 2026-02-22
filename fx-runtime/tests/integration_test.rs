@@ -4,7 +4,6 @@ use {
     tokio::{join, sync::{OnceCell, Mutex}, time::{sleep, Duration}},
     parking_lot::ReentrantMutex,
     futures::{StreamExt, stream::FuturesUnordered, FutureExt},
-    fx_common::FxExecutionError,
     fx_runtime::v2::{FxServerV2, config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig}, runtime::RunningFxServer, FunctionId, logs::{EventFieldValue, LogEventType, BoxLogger}},
     crate::logger::TestLogger,
 };

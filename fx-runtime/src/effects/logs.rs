@@ -130,7 +130,7 @@ impl<T: Logger> Logger for Arc<T> {
     }
 }
 
-fn create_logger(logger: &LoggerConfig) -> BoxLogger {
+pub(crate) fn create_logger(logger: &LoggerConfig) -> BoxLogger {
     match logger {
         LoggerConfig::Stdout => BoxLogger::new(StdoutLogger::new()),
         LoggerConfig::Noop => BoxLogger::new(NoopLogger::new()),

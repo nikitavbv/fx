@@ -5,8 +5,8 @@ use {
 
 #[derive(Debug, Eq, PartialEq, Hash, Clone)]
 pub(crate) struct MetricKey {
-    name: String,
-    labels: Vec<(String, String)>,
+    pub(crate) name: String,
+    pub(crate) labels: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
@@ -55,7 +55,7 @@ impl FunctionMetricsState {
         *self.metrics_counter_delta.entry(key).or_insert(0) += delta;
     }
 
-    fn flush_delta(&mut self) -> FunctionMetricsDelta {
+    pub(crate) fn flush_delta(&mut self) -> FunctionMetricsDelta {
         let counters_delta = std::mem::replace(&mut self.metrics_counter_delta, HashMap::new())
             .into_iter()
             .map(|(metric_id, delta)| (self.metrics_series.get(metric_id.id as usize).unwrap().clone(), delta))
@@ -178,11 +178,11 @@ impl FunctionMetricsDelta {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.counters_delta.is_empty()
     }
 
-    fn append(&mut self, other: FunctionMetricsDelta) {
+    pub(crate) fn append(&mut self, other: FunctionMetricsDelta) {
         for (metric_key, delta) in other.counters_delta {
             *self.counters_delta.entry(metric_key).or_insert(0) += delta;
         }

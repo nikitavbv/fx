@@ -1,6 +1,6 @@
 use {
     chrono::{DateTime, Utc, NaiveDateTime},
-    crate::v2::sql::{SqlDatabase, Query, Value},
+    crate::effects::sql::{SqlDatabase, Query, SqlValue},
 };
 
 const DATE_TIME_FORMAT: &str = "%F %T%.f";
@@ -22,11 +22,11 @@ impl CronDatabase {
     pub(crate) fn get_prev_run_time(&self, task_id: &str) -> Option<DateTime<Utc>> {
         let result = self.database.exec(
             Query::new("select last_run_at from cron_tasks where task_id = ?".to_owned())
-                .with_param(Value::Text(task_id.to_owned()))
+                .with_param(SqlValue::Text(task_id.to_owned()))
         ).unwrap();
 
         let datetime = match result.rows.get(0)?.columns.get(0).unwrap() {
-            Value::Text(text) => text,
+            SqlValue::Text(text) => text,
             other => panic!("unexpected type for last_run_at: {other:?}"),
         };
         let datetime = match NaiveDateTime::parse_from_str(datetime, DATE_TIME_FORMAT) {
@@ -42,8 +42,8 @@ impl CronDatabase {
     pub(crate) fn update_run_time(&self, task_id: &str, run_at: DateTime<Utc>) {
         self.database.exec(
             Query::new("insert or replace into cron_tasks (task_id, last_run_at) values (?, ?)".to_owned())
-                .with_param(Value::Text(task_id.to_owned()))
-                .with_param(Value::Text(run_at.format(DATE_TIME_FORMAT).to_string()))
+                .with_param(SqlValue::Text(task_id.to_owned()))
+                .with_param(SqlValue::Text(run_at.format(DATE_TIME_FORMAT).to_string()))
         ).unwrap();
     }
 }

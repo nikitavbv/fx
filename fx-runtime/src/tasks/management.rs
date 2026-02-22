@@ -1,34 +1,35 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, sync::Arc},
     tokio::sync::oneshot,
     crate::{
         function::FunctionId,
         definitions::{config::{FunctionConfig, ServerConfig}, monitor::DefinitionsMonitor},
-        effects::metrics::FunctionMetricsDelta,
+        effects::metrics::{FunctionMetricsDelta, MetricsRegistry},
         tasks::{
-            worker::WorkerMessage,
+            worker::{WorkerMessage, WorkersController},
             compiler::CompilerMessage,
         },
+        introspection::run_introspection_server,
     },
 };
 
-enum ManagementMessage {
+pub(crate) enum ManagementMessage {
     DeployFunction(DeployFunctionMessage),
     WorkerMetrics(MetricsFlushMessage),
 }
 
-struct DeployFunctionMessage {
-    function_id: FunctionId,
-    function_config: FunctionConfig,
-    on_ready: oneshot::Sender<()>,
+pub(crate) struct DeployFunctionMessage {
+    pub(crate) function_id: FunctionId,
+    pub(crate) function_config: FunctionConfig,
+    pub(crate) on_ready: oneshot::Sender<()>,
 }
 
 #[derive(Debug)]
-struct MetricsFlushMessage {
-    function_metrics: HashMap<FunctionId, FunctionMetricsDelta>,
+pub(crate) struct MetricsFlushMessage {
+    pub(crate) function_metrics: HashMap<FunctionId, FunctionMetricsDelta>,
 }
 
-fn run_management_task(
+pub(crate) fn run_management_task(
     config: ServerConfig,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,

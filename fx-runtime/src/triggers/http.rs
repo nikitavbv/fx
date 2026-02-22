@@ -1,7 +1,17 @@
 use {
-    std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
-    futures::FutureExt,
-    crate::resources::serialize::SerializeResource,
+    std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
+    futures::{FutureExt, future::LocalBoxFuture},
+    hyper::{Response, body::Bytes},
+    http::StatusCode,
+    crate::{
+        resources::{serialize::{SerializeResource, SerializedFunctionResource}, ResourceId},
+        function::{
+            FunctionId,
+            FunctionDeploymentId,
+            deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
+            abi::{capnp, abi_http_capnp},
+        },
+    },
 };
 
 pub(crate) struct HttpHandler {
@@ -201,15 +211,15 @@ pub(crate) enum FetchRequestBodyInner {
     },
 }
 
-pub(crate) struct FunctionResponse(FunctionResponseInner);
+pub(crate) struct FunctionResponse(pub(crate) FunctionResponseInner);
 
 pub(crate) enum FunctionResponseInner {
     HttpResponse(FunctionHttpResponse),
 }
 
 pub(crate) struct FunctionHttpResponse {
-    status: ::http::status::StatusCode,
-    body: Cell<Option<SerializedFunctionResource<Vec<u8>>>>,
+    pub(crate) status: ::http::status::StatusCode,
+    pub(crate) body: Cell<Option<SerializedFunctionResource<Vec<u8>>>>,
 }
 
 impl SerializeResource for FetchRequestHeader {

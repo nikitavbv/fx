@@ -32,7 +32,7 @@ use {
     futures_intrusive::sync::LocalMutex,
     slotmap::{SlotMap, Key as SlotMapKey},
     fx_types::{capnp, abi::FuturePollResult},
-    fx_runtime::v2::{FxServerV2, ServerConfig},
+    fx_runtime::{FxServer, config::ServerConfig},
 };
 
 #[derive(Parser, Debug)]
@@ -65,7 +65,7 @@ fn main() {
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path);
 
-            FxServerV2::new(config).start().wait_until_finished();
+            FxServer::new(config).start().wait_until_finished();
         },
     }
 }

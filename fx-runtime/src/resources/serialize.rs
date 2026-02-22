@@ -1,10 +1,14 @@
 use {
-    std::{marker::PhantomData, rc::Rc},
+    std::{marker::PhantomData, rc::Rc, cell::Cell},
     hyper::body::Bytes,
     crate::{
-        function::abi::{capnp, abi_http_capnp},
-        triggers::http::FunctionResponse,
-        resources::resource::OwnedFunctionResourceId,
+        function::{
+            abi::{capnp, abi_http_capnp, abi_function_resources_capnp},
+            instance::FunctionInstance,
+        },
+        triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
+        resources::{resource::OwnedFunctionResourceId, FunctionResourceId},
+        definitions::config::ServerConfig,
     },
 };
 
@@ -74,7 +78,7 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
         }
     }
 
-    async fn move_to_host(self) -> T {
+    pub(crate) async fn move_to_host(self) -> T {
         let (instance, resource) = self.resource.consume();
         T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
     }

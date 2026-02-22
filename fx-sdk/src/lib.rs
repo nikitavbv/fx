@@ -1,5 +1,4 @@
 pub use {
-    fx_common::{SqlQuery, FxSqlError, SqlValue},
     futures::FutureExt,
     inventory,
     ::http::StatusCode,
@@ -8,6 +7,7 @@ pub use {
         error::FxError,
         FxResult as Result,
         api::{http::{HttpRequest, HttpResponse}, blob::blob, metrics},
+        sql::{SqlQuery, SqlError, SqlValue},
     },
 };
 
@@ -27,7 +27,7 @@ use {
             fx_random,
             fx_time,
         },
-        sql::{SqlResult, SqlError},
+        sql::SqlResult,
         logging::FxLoggingLayer,
     },
 };

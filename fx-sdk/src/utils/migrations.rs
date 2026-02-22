@@ -1,8 +1,7 @@
 use {
     thiserror::Error,
-    fx_common::{SqlMigrations, FxSqlError},
     fx_types::{capnp, abi_sql_capnp},
-    crate::{SqlDatabase, sys::{fx_sql_migrate, FutureHostResource, OwnedResourceId, DeserializeHostResource}},
+    crate::{SqlDatabase, sys::{fx_sql_migrate, FutureHostResource, OwnedResourceId, DeserializeHostResource}, sql::SqlMigrations},
 };
 
 pub struct Migrations {

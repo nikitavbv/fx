@@ -4,7 +4,7 @@ use {
 };
 
 pub(crate) struct CompilerMessage {
-    function_id: FunctionId,
-    code: Vec<u8>,
-    response: oneshot::Sender<wasmtime::Module>,
+    pub(crate) function_id: FunctionId,
+    pub(crate) code: Vec<u8>,
+    pub(crate) response: oneshot::Sender<wasmtime::Module>,
 }

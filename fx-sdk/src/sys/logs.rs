@@ -1,8 +1,7 @@
 use {
     std::collections::HashMap,
     fx_types::{capnp, abi_log_capnp},
-    fx_common::{LogLevel, LogEventType},
-    crate::sys::fx_log,
+    crate::{sys::fx_log, logging::{LogLevel, LogEventType}},
 };
 
 pub(crate) fn log(event_type: LogEventType, level: LogLevel, fields: HashMap<String, String>) {

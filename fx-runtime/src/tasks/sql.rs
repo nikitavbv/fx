@@ -1,3 +1,12 @@
+use {
+    std::collections::HashMap,
+    tokio::sync::oneshot,
+    crate::{
+        definitions::bindings::{SqlBindingConfig, SqlBindingConfigLocation},
+        effects::sql::{SqlValue, SqlQueryResult, SqlMigrationResult, SqlQueryExecutionError, SqlRow, SqlMigrationError},
+    },
+};
+
 #[derive(Debug)]
 pub(crate) enum SqlMessage {
     Exec(SqlExecMessage),
@@ -6,20 +15,20 @@ pub(crate) enum SqlMessage {
 
 #[derive(Debug)]
 pub(crate) struct SqlExecMessage {
-    binding: SqlBindingConfig,
-    statement: String,
-    params: Vec<SqlValue>,
-    response: oneshot::Sender<SqlQueryResult>,
+    pub(crate) binding: SqlBindingConfig,
+    pub(crate) statement: String,
+    pub(crate) params: Vec<SqlValue>,
+    pub(crate) response: oneshot::Sender<SqlQueryResult>,
 }
 
 #[derive(Debug)]
 pub(crate) struct SqlMigrateMessage {
-    binding: SqlBindingConfig,
-    migrations: Vec<String>,
-    response: oneshot::Sender<SqlMigrationResult>,
+    pub(crate) binding: SqlBindingConfig,
+    pub(crate) migrations: Vec<String>,
+    pub(crate) response: oneshot::Sender<SqlMigrationResult>,
 }
 
-fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
+pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
     use rusqlite::types::ValueRef;
 
     let mut connections = HashMap::<String, rusqlite::Connection>::new();

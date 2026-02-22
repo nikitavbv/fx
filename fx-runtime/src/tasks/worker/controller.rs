@@ -1,3 +1,10 @@
+use {
+    tokio::sync::oneshot,
+    futures::{stream::FuturesUnordered, StreamExt},
+    crate::function::FunctionId,
+    super::messages::WorkerMessage,
+};
+
 pub(crate) struct WorkersController {
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
 }
@@ -9,7 +16,7 @@ impl WorkersController {
         }
     }
 
-    async fn function_remove(&self, function_id: &FunctionId) {
+    pub(crate) async fn function_remove(&self, function_id: &FunctionId) {
         let subtasks = FuturesUnordered::new();
 
         for worker in &self.workers_tx {

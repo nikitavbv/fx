@@ -34,7 +34,7 @@ pub(crate) enum SqlMigrationResult {
 }
 
 #[derive(Debug, Error)]
-enum SqlMigrationError {
+pub(crate) enum SqlMigrationError {
     #[error("database is locked")]
     DatabaseBusy,
 }
@@ -100,7 +100,7 @@ impl SerializeResource for SqlMigrationResult {
 #[derive(Debug)]
 pub struct Query {
     query: String,
-    params: Vec<Value>,
+    params: Vec<SqlValue>,
 }
 
 impl Query {
@@ -108,7 +108,7 @@ impl Query {
         Self { query, params: Vec::new() }
     }
 
-    pub fn with_param(mut self, param: Value) -> Self {
+    pub fn with_param(mut self, param: SqlValue) -> Self {
         self.params.push(param);
         self
     }
@@ -121,16 +121,7 @@ pub struct QueryResult {
 
 #[derive(Debug)]
 pub struct Row {
-    pub columns: Vec<Value>,
-}
-
-#[derive(Debug)]
-pub enum Value {
-    Null,
-    Integer(i64),
-    Real(f64),
-    Text(String),
-    Blob(Vec<u8>),
+    pub columns: Vec<SqlValue>,
 }
 
 pub struct SqlDatabase {
@@ -178,14 +169,14 @@ impl SqlDatabase {
                 };
 
                 row_columns.push(match column {
-                    ValueRef::Null => Value::Null,
-                    ValueRef::Integer(v) => Value::Integer(v),
-                    ValueRef::Real(v) => Value::Real(v),
-                    ValueRef::Text(v) => Value::Text(
+                    ValueRef::Null => SqlValue::Null,
+                    ValueRef::Integer(v) => SqlValue::Integer(v),
+                    ValueRef::Real(v) => SqlValue::Real(v),
+                    ValueRef::Text(v) => SqlValue::Text(
                         String::from_utf8(v.to_owned())
                             .map_err(|err| SqlError::FieldDecode { reason: err.to_string() })?,
                     ),
-                    ValueRef::Blob(v) => Value::Blob(v.to_owned()),
+                    ValueRef::Blob(v) => SqlValue::Blob(v.to_owned()),
                 });
             }
             result_rows.push(Row { columns: row_columns });
@@ -225,7 +216,7 @@ impl SqlDatabase {
     }
 }
 
-impl ToSql for Value {
+impl ToSql for SqlValue {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         match self {
             Self::Null => None::<i64>.to_sql(),
@@ -237,7 +228,7 @@ impl ToSql for Value {
     }
 }
 
-impl TryInto<i64> for Value {
+impl TryInto<i64> for SqlValue {
     type Error = SqlMappingError;
     fn try_into(self) -> Result<i64, Self::Error> {
         match self {
@@ -247,7 +238,7 @@ impl TryInto<i64> for Value {
     }
 }
 
-impl TryInto<String> for Value {
+impl TryInto<String> for SqlValue {
     type Error = SqlMappingError;
     fn try_into(self) -> Result<String, Self::Error> {
         match self {
@@ -257,21 +248,21 @@ impl TryInto<String> for Value {
     }
 }
 
-impl TryFrom<&Value> for i64 {
+impl TryFrom<&SqlValue> for i64 {
     type Error = SqlMappingError;
-    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+    fn try_from(value: &SqlValue) -> Result<Self, Self::Error> {
         match value {
-            Value::Integer(v) => Ok(*v),
+            SqlValue::Integer(v) => Ok(*v),
             _ => Err(SqlMappingError::WrongType),
         }
     }
 }
 
-impl TryFrom<&Value> for String {
+impl TryFrom<&SqlValue> for String {
     type Error = SqlMappingError;
-    fn try_from(value: &Value) -> Result<Self, Self::Error> {
+    fn try_from(value: &SqlValue) -> Result<Self, Self::Error> {
         match value {
-            Value::Text(v) => Ok(v.clone()),
+            SqlValue::Text(v) => Ok(v.clone()),
             _ => Err(SqlMappingError::WrongType),
         }
     }
@@ -311,7 +302,7 @@ pub enum SqlMappingError {
 }
 
 #[derive(Debug, Error)]
-enum SqlQueryExecutionError {
+pub(crate) enum SqlQueryExecutionError {
     #[error("database is locked")]
     DatabaseBusy,
 }
