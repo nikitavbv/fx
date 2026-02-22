@@ -56,7 +56,8 @@ website: website-build
     cargo run -p fx-runtime -- serve local/website/fx.yaml
 
 website-build:
-    cargo doc -p fx-runtime --no-deps
+    cargo doc -p fx-runtime --no-deps --document-private-items
+    rm -rf apps/fx-website/docs
     cp -r target/doc apps/fx-website/docs
     cargo build --target wasm32-unknown-unknown -p fx-website --release
     mkdir -p local/website/functions
