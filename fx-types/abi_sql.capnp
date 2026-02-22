@@ -14,7 +14,10 @@ struct SqlExecResult {
 }
 
 struct SqlExecError {
-    databaseBusy @0 :Void;
+    error :union {
+        databaseBusy @0 :Void;
+        bindingNotFound @1 :Void;
+    }
 }
 
 struct SqlMigrateRequest {
@@ -30,7 +33,10 @@ struct SqlMigrateResult {
 }
 
 struct SqlMigrateError {
-    databaseBusy @0 :Void;
+    error :union {
+        databaseBusy @0 :Void;
+        bindingNotFound @1 :Void;
+    }
 }
 
 struct SqlValue {

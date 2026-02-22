@@ -18,7 +18,7 @@ pub(crate) struct SqlExecMessage {
     pub(crate) binding: SqlBindingConfig,
     pub(crate) statement: String,
     pub(crate) params: Vec<SqlValue>,
-    pub(crate) response: oneshot::Sender<SqlQueryResult>,
+    pub(crate) response: oneshot::Sender<Result<Vec<SqlRow>, SqlQueryExecutionError>>,
 }
 
 #[derive(Debug)]
@@ -73,7 +73,7 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlQueryExecutionError::DatabaseBusy => {
-                            msg.response.send(SqlQueryResult::Error(SqlQueryExecutionError::DatabaseBusy)).unwrap();
+                            msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy)).unwrap();
                             continue;
                         }
                     }
@@ -91,7 +91,7 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                         Ok(v) => v,
                         Err(err) => {
                             if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
-                                break SqlQueryResult::Error(SqlQueryExecutionError::DatabaseBusy);
+                                break Err(SqlQueryExecutionError::DatabaseBusy);
                             } else {
                                 panic!("unexpected sqlite error: {err:?}")
                             }
@@ -99,7 +99,7 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                     };
                     let row = match row {
                         Some(v) => v,
-                        None => break SqlQueryResult::Ok(result_rows),
+                        None => break Ok(result_rows),
                     };
 
                     let mut row_columns = Vec::new();

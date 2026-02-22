@@ -61,6 +61,9 @@ impl Migration {
 
 #[derive(Debug, Error)]
 pub enum SqlMigrationError {
+    #[error("database binding with this name is not found")]
+    BindingNotFound,
+
     #[error("database is locked")]
     DatabaseBusy,
 }
@@ -72,7 +75,10 @@ impl DeserializeHostResource for Result<(), SqlMigrationError> {
 
         match result.get_result().which().unwrap() {
             abi_sql_capnp::sql_migrate_result::result::Which::Ok(_) => Ok(()),
-            abi_sql_capnp::sql_migrate_result::result::Which::Error(_err) => Err(SqlMigrationError::DatabaseBusy),
+            abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
+                abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
+            }),
         }
     }
 }

@@ -122,6 +122,25 @@ async fn sql_contention_busy() {
     assert!(results.contains(&"busy.\n".to_owned()));
 }
 
+#[tokio::test]
+async fn sql_wrong_binding_name() {
+    init_fx_server();
+
+    let response = reqwest::get("http://localhost:8080/test/sql/wrong-binding-name").await.unwrap();
+    assert!(response.status().is_success());
+    assert!(response.text().await.unwrap().contains("ok: binding not found"));
+}
+
+#[tokio::test]
+async fn sql_wrong_binding_name_migrations() {
+    init_fx_server();
+
+    let response = reqwest::get("http://localhost:8080/test/sql/wrong-binding-name/migrations").await.unwrap();
+    assert!(response.status().is_success());
+    assert!(response.text().await.unwrap().contains("ok: binding not found"));
+}
+
+
 // TODO: recover from panics?
 #[tokio::test]
 async fn function_panic() {

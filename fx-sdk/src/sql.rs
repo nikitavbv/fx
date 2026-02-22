@@ -49,6 +49,8 @@ pub(crate) struct SqlMigrations {
 
 #[derive(Debug, Error)]
 pub enum SqlError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
 }
@@ -87,7 +89,10 @@ impl DeserializeHostResource for Result<SqlResult, SqlError> {
 
         match request.get_result().which().unwrap() {
             abi_sql_capnp::sql_exec_result::result::Which::Rows(v) => Ok(SqlResult::from(v.unwrap())),
-            abi_sql_capnp::sql_exec_result::result::Which::Error(_err) => Err(SqlError::DatabaseBusy),
+            abi_sql_capnp::sql_exec_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                abi_sql_capnp::sql_exec_error::error::Which::BindingNotFound(_) => SqlError::BindingNotFound,
+                abi_sql_capnp::sql_exec_error::error::Which::DatabaseBusy(_) => SqlError::DatabaseBusy,
+            }),
         }
     }
 }

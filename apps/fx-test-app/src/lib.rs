@@ -51,6 +51,8 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/sql/contention/expensive-write", get(test_sql_contention_expensive_write))
             .route("/test/sql/contention/read", get(test_sql_contention_read))
             .route("/test/sql/contention-busy", get(test_sql_contention_busy))
+            .route("/test/sql/wrong-binding-name", get(test_sql_wrong_binding_name))
+            .route("/test/sql/wrong-binding-name/migrations", get(test_sql_wrong_binding_name_migrations))
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
@@ -158,6 +160,7 @@ async fn test_sql_contention_busy() -> &'static str {
     if let Err(err) = result {
         match err {
             SqlMigrationError::DatabaseBusy => return "busy.\n",
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
@@ -165,16 +168,48 @@ async fn test_sql_contention_busy() -> &'static str {
     if let Err(err) = result {
         match err {
             SqlError::DatabaseBusy => return "busy.\n",
+            other => panic!("unexpected error: {other:?}"),
         }
     }
     let result = database.exec(SqlQuery::new("delete from contention_busy where 1")).await;
     if let Err(err) = result {
         match err {
             SqlError::DatabaseBusy => return "busy.\n",
+            other => panic!("unexpected error: {other:?}"),
         }
     }
 
     "ok.\n"
+}
+
+async fn test_sql_wrong_binding_name() -> (StatusCode, &'static str) {
+    let database = fx::sql("wrong-binding-name");
+
+    match database.exec(SqlQuery::new("select 1")).await {
+        Ok(_) => (StatusCode::INTERNAL_SERVER_ERROR, "didn't expect sql query not to fail."),
+        Err(err) => match err {
+            SqlError::BindingNotFound => (StatusCode::OK, "ok: binding not found.\n"),
+            other => panic!("unexpected error type: {other:?}"),
+        }
+    }
+}
+
+async fn test_sql_wrong_binding_name_migrations() -> (StatusCode, &'static str) {
+    let database = fx::sql("wrong-binding-name");
+
+
+    let result = Migrations::new()
+        .with_migration(Migration::new("create table test_table (v integer not null)"))
+        .run(&database)
+        .await;
+
+    match result {
+        Ok(_) => (StatusCode::INTERNAL_SERVER_ERROR, "didn't expect sql query not to fail."),
+        Err(err) => match err {
+            SqlMigrationError::BindingNotFound => (StatusCode::OK, "ok: binding not found.\n"),
+            other => panic!("unexpected error type: {other:?}"),
+        }
+    }
 }
 
 async fn test_panic_page() -> String {

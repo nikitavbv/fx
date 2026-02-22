@@ -13,7 +13,7 @@ use {
         resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource},
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::SqlValue,
+            sql::{SqlValue, SqlMigrationError, SqlMigrationResult, SqlQueryResult, SqlQueryError},
             blob::BlobGetResponse,
             fetch::FetchResult,
             metrics::{MetricKey, MetricId},
@@ -121,7 +121,15 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
     let message = message_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
 
-    let binding = caller.data().bindings_sql.get(message.get_binding().unwrap().to_str().unwrap()).unwrap();
+    let binding = message.get_binding().unwrap().to_str().unwrap();
+    let binding = match caller.data().bindings_sql.get(binding) {
+        Some(v) => v,
+        None => {
+            return caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::Ready(SerializableResource::Raw(
+                Err(SqlQueryError::BindingNotFound)
+            )))).as_u64();
+        }
+    };
 
     let (response_tx, response_rx) = oneshot::channel();
     caller.data().sql_tx.send(SqlMessage::Exec(SqlExecMessage {
@@ -140,7 +148,7 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     })).unwrap();
 
     caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::Future(async move {
-        SerializableResource::Raw(response_rx.await.unwrap())
+        SerializableResource::Raw(response_rx.await.unwrap().map_err(|v| v.into()))
     }.boxed()))).as_u64()
 }
 
@@ -158,7 +166,15 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
     let message = message_reader.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().unwrap();
 
-    let binding = caller.data().bindings_sql.get(message.get_binding().unwrap().to_str().unwrap()).unwrap();
+    let binding = message.get_binding().unwrap().to_str().unwrap();
+    let binding = match caller.data().bindings_sql.get(binding) {
+        Some(v) => v,
+        None => {
+            return caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::Ready(SerializableResource::Raw(
+                SqlMigrationResult::Error(SqlMigrationError::BindingNotFound)
+            )))).as_u64();
+        }
+    };
 
     let (response_tx, response_rx) = oneshot::channel();
     caller.data().sql_tx.send(SqlMessage::Migrate(SqlMigrateMessage {

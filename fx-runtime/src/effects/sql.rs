@@ -10,7 +10,7 @@ use {
 #[derive(Debug)]
 pub(crate) enum SqlQueryResult {
     Ok(Vec<SqlRow>),
-    Error(SqlQueryExecutionError),
+    Error(SqlQueryError),
 }
 
 #[derive(Debug)]
@@ -35,11 +35,13 @@ pub(crate) enum SqlMigrationResult {
 
 #[derive(Debug, Error)]
 pub(crate) enum SqlMigrationError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
 }
 
-impl SerializeResource for SqlQueryResult {
+impl SerializeResource for Result<Vec<SqlRow>, SqlQueryError> {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
         let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
@@ -62,10 +64,11 @@ impl SerializeResource for SqlQueryResult {
                     }
                 }
             },
-            Self::Error(err) => {
-                let mut response_error = sql_exec_response.init_error();
+            Self::Err(err) => {
+                let mut response_error = sql_exec_response.init_error().init_error();
                 match err {
-                    SqlQueryExecutionError::DatabaseBusy => response_error.set_database_busy(()),
+                    SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
+                    SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
                 }
             }
         }
@@ -85,9 +88,10 @@ impl SerializeResource for SqlMigrationResult {
                 sql_migrate_result.set_ok(());
             },
             Self::Error(err) => {
-                let mut response_error = sql_migrate_result.init_error();
+                let mut response_error = sql_migrate_result.init_error().init_error();
                 match err {
                     SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
+                    SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
                 }
             }
         }
@@ -301,6 +305,25 @@ pub enum SqlMappingError {
     WrongType,
 }
 
+/// Error produced by sql_query api call
+#[derive(Debug, Error)]
+pub(crate) enum SqlQueryError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
+    #[error("database is locked")]
+    DatabaseBusy,
+}
+
+/// SqlQueryExecutionError is a subset of SqlQueryError
+impl From<SqlQueryExecutionError> for SqlQueryError {
+    fn from(value: SqlQueryExecutionError) -> Self {
+        match value {
+            SqlQueryExecutionError::DatabaseBusy => Self::DatabaseBusy,
+        }
+    }
+}
+
+/// Error that occured while executing sql query
 #[derive(Debug, Error)]
 pub(crate) enum SqlQueryExecutionError {
     #[error("database is locked")]
