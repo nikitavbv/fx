@@ -1,8 +1,13 @@
 use {
-    tracing::error,
-    axum::{Router, routing::get, response::Response, Extension, http::StatusCode},
+    std::sync::Arc,
+    serde::Deserialize,
+    axum::{Router, routing::{get, delete}, response::Response, Extension, extract},
     leptos::prelude::*,
-    crate::runtime::metrics::Metrics,
+    crate::{
+        effects::metrics::MetricsRegistry,
+        tasks::worker::WorkersController,
+        function::FunctionId,
+    },
 };
 
 async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController) {
@@ -17,7 +22,7 @@ async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_control
     axum::serve(listener, app).await.unwrap();
 }
 
-async fn introspection_home() -> AxumResponse {
+async fn introspection_home() -> Response {
     render_component(view! {
         <>
             <h2>"fx runtime"</h2>
@@ -32,7 +37,7 @@ async fn introspection_metrics(Extension(metrics): Extension<Arc<MetricsRegistry
     metrics.encode()
 }
 
-fn render_component(component: impl IntoView + 'static) -> AxumResponse {
+fn render_component(component: impl IntoView + 'static) -> Response {
     Response::builder()
         .header("content-type", "text/html; charset=utf-8")
         .body(component.to_html().into())

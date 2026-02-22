@@ -1,4 +1,4 @@
-struct WorkersController {
+pub(crate) struct WorkersController {
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
 }
 

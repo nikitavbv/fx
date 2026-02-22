@@ -2,12 +2,16 @@ use {
     std::{collections::HashMap, task::Poll},
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,
+    futures::FutureExt,
+    slotmap::SlotMap,
+    wasmtime::{AsContextMut, AsContext},
     crate::{
         function::abi::FuturePollResult,
-        effects::logs::LogMessageEvent,
+        effects::{logs::LogMessageEvent, metrics::FunctionMetricsState},
         tasks::sql::SqlMessage,
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig},
-        resources::{FunctionResourceId, ResourceId},
+        resources::{FunctionResourceId, ResourceId, Resource, future::FutureResource, serialize::{serialize_request_body_full, serialize_partially_read_stream}},
+        triggers::http::{FetchRequestBodyInner, FetchRequestBody},
     },
     super::FunctionId,
 };
@@ -124,7 +128,7 @@ impl FunctionInstance {
         resource_data
     }
 
-    async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
+    pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
         let store = self.store.lock();
         FunctionResourceId::new(self.fn_trigger_http.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
     }

@@ -1,8 +1,11 @@
-impl SerializeResource for Vec<u8> {
-    fn serialize(self) -> Vec<u8> {
-        self
-    }
-}
+use {
+    std::{task::Poll, rc::Rc, pin::Pin},
+    futures::{future::{BoxFuture, LocalBoxFuture}, FutureExt},
+    crate::{
+        function::{instance::{FunctionFuturePollError, FunctionInstance}, deployment::FunctionFutureError},
+        resources::FunctionResourceId,
+    },
+};
 
 pub(crate) enum FutureResource<T> {
     Future(BoxFuture<'static, T>),
@@ -16,7 +19,7 @@ pub(crate) struct FunctionFuture {
 }
 
 impl FunctionFuture {
-    fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
         Self {
             inner: Self::start_new_poll_call(instance.clone(), resource_id.clone()),
             instance,

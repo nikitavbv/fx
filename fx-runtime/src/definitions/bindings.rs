@@ -18,5 +18,5 @@ pub(crate) enum SqlBindingConfigLocation {
 
 #[derive(Debug, Clone)]
 pub(crate) struct BlobBindingConfig {
-    storage_directory: PathBuf,
+    pub(crate) storage_directory: PathBuf,
 }

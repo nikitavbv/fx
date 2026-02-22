@@ -28,7 +28,7 @@ impl MetricId {
     }
 }
 
-struct FunctionMetricsState {
+pub(crate) struct FunctionMetricsState {
     metrics_series: Vec<MetricKey>,
     metric_key_to_ids: HashMap<MetricKey, MetricId>,
     metrics_counter_delta: HashMap<MetricId, u64>,
@@ -43,7 +43,7 @@ impl FunctionMetricsState {
         }
     }
 
-    fn counter_register(&mut self, key: MetricKey) -> MetricId {
+    pub(crate) fn counter_register(&mut self, key: MetricKey) -> MetricId {
         *self.metric_key_to_ids.entry(key.clone()).or_insert_with(|| {
             let index = self.metrics_series.len() as u64;
             self.metrics_series.push(key);
@@ -51,7 +51,7 @@ impl FunctionMetricsState {
         })
     }
 
-    fn counter_increment(&mut self, key: MetricId, delta: u64) {
+    pub(crate) fn counter_increment(&mut self, key: MetricId, delta: u64) {
         *self.metrics_counter_delta.entry(key).or_insert(0) += delta;
     }
 
@@ -67,7 +67,7 @@ impl FunctionMetricsState {
     }
 }
 
-struct MetricsRegistry {
+pub(crate) struct MetricsRegistry {
     function_metrics: RwLock<HashMap<FunctionId, FunctionMetricsDelta>>,
 }
 
@@ -167,7 +167,7 @@ fn escape_label_value(s: &str) -> String {
 }
 
 #[derive(Debug)]
-struct FunctionMetricsDelta {
+pub(crate) struct FunctionMetricsDelta {
     counters_delta: HashMap<MetricKey, u64>,
 }
 

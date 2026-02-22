@@ -8,7 +8,7 @@ use {
 };
 
 #[derive(Debug)]
-enum SqlQueryResult {
+pub(crate) enum SqlQueryResult {
     Ok(Vec<SqlRow>),
     Error(SqlQueryExecutionError),
 }
@@ -28,7 +28,7 @@ pub enum SqlValue {
 }
 
 #[derive(Debug)]
-enum SqlMigrationResult {
+pub(crate) enum SqlMigrationResult {
     Ok(()),
     Error(SqlMigrationError),
 }
@@ -133,7 +133,6 @@ pub enum Value {
     Blob(Vec<u8>),
 }
 
-#[derive(Clone)]
 pub struct SqlDatabase {
     connection: Connection,
 }
@@ -161,9 +160,7 @@ impl SqlDatabase {
     }
 
     pub fn exec(&self, query: Query) -> Result<QueryResult, SqlError> {
-        let connection = self.connection.lock()
-            .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
-        let mut stmt = connection.prepare(&query.query)
+        let mut stmt = self.connection.prepare(&query.query)
             .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
         let result_columns = stmt.column_count();
 
@@ -198,10 +195,8 @@ impl SqlDatabase {
     }
 
     // run sql transaction
-    pub fn batch(&self, statements: Vec<Query>) -> Result<(), SqlError> {
-        let mut connection = self.connection.lock()
-            .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
-        let txn = connection.transaction()
+    pub fn batch(&mut self, statements: Vec<Query>) -> Result<(), SqlError> {
+        let txn = self.connection.transaction()
             .map_err(|err| SqlError::TransactionStart { reason: err.to_string() })?;
 
         for query in statements {
@@ -217,7 +212,7 @@ impl SqlDatabase {
     }
 
     // run sql migrations
-    pub fn migrate(&self, migrations: Vec<String>) -> Result<(), SqlError> {
+    pub fn migrate(&mut self, migrations: Vec<String>) -> Result<(), SqlError> {
         let mut rusqlite_migrations = Vec::new();
         for migration in &migrations {
             rusqlite_migrations.push(rusqlite_migration::M::up(migration));
@@ -225,10 +220,7 @@ impl SqlDatabase {
 
         let migrations = rusqlite_migration::Migrations::new(rusqlite_migrations);
 
-        let mut connection = self.connection.lock()
-            .map_err(|err| SqlError::ConnectionAcquire { reason: err.to_string() })?;
-
-        migrations.to_latest(&mut connection)
+        migrations.to_latest(&mut self.connection)
             .map_err(|err| SqlError::MigrationFailed { reason: err.to_string() })
     }
 }

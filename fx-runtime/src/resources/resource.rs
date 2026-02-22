@@ -1,3 +1,22 @@
+use {
+    std::{cell::Cell, rc::Rc},
+    futures::future::BoxFuture,
+    slotmap::Key,
+    crate::{
+        function::{instance::FunctionInstance, abi::{capnp, abi_function_resources_capnp}},
+        triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse, FetchRequestHeader, FetchRequestBody},
+        effects::{
+            sql::{SqlQueryResult, SqlMigrationResult},
+            blob::BlobGetResponse,
+            fetch::FetchResult,
+        },
+    },
+    super::{
+        future::FutureResource,
+        serialize::{SerializedFunctionResource, SerializableResource},
+    },
+};
+
 /// Function resource handle that is owned by host.
 /// Cleans up function memory if dropped before being consumed
 pub struct OwnedFunctionResourceId(Cell<Option<(Rc<FunctionInstance>, FunctionResourceId)>>);
@@ -19,27 +38,6 @@ impl Drop for OwnedFunctionResourceId {
                 function_instance.resource_drop(&resource_id).await;
             });
         }
-    }
-}
-
-trait DeserializeFunctionResource {
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self;
-}
-
-impl DeserializeFunctionResource for FunctionResponse {
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
-        let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
-        let response = message_reader.get_root::<abi_function_resources_capnp::function_response::Reader>().unwrap();
-        Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
-            status: ::http::StatusCode::from_u16(response.get_status()).unwrap(),
-            body: Cell::new(Some(SerializedFunctionResource::new(instance, FunctionResourceId::from(response.get_body_resource())))),
-        }))
-    }
-}
-
-impl DeserializeFunctionResource for Vec<u8> {
-    fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Self {
-        resource.to_vec()
     }
 }
 

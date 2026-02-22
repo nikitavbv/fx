@@ -1,12 +1,22 @@
+use {
+    std::{marker::PhantomData, rc::Rc},
+    hyper::body::Bytes,
+    crate::{
+        function::abi::{capnp, abi_http_capnp},
+        triggers::http::FunctionResponse,
+        resources::resource::OwnedFunctionResourceId,
+    },
+};
+
 pub(crate) trait SerializeResource {
     fn serialize(self) -> Vec<u8>;
 }
 
-fn serialize_request_body_full(body: Vec<u8>) -> Vec<u8> {
+pub(crate) fn serialize_request_body_full(body: Vec<u8>) -> Vec<u8> {
     todo!("serialize request body full")
 }
 
-fn serialize_partially_read_stream(frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>) -> Vec<u8> {
+pub(crate) fn serialize_partially_read_stream(frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>) -> Vec<u8> {
     let mut message = capnp::message::Builder::new_default();
     let serialized_frame = message.init_root::<abi_http_capnp::http_request_body_frame::Builder>();
     let mut serialized_frame = serialized_frame.init_body();
@@ -26,21 +36,21 @@ pub(crate) enum SerializableResource<T: SerializeResource> {
 }
 
 impl<T: SerializeResource> SerializableResource<T> {
-    fn map_to_serialized(self) -> Self {
+    pub(crate) fn map_to_serialized(self) -> Self {
         match self {
             Self::Raw(t) => Self::Serialized(t.serialize()),
             Self::Serialized(v) => Self::Serialized(v),
         }
     }
 
-    fn serialized_size(&self) -> usize {
+    pub(crate) fn serialized_size(&self) -> usize {
         match self {
             Self::Raw(_) => panic!("cannot compute serialized size for resource that is not serialized yet"),
             Self::Serialized(v) => v.len(),
         }
     }
 
-    fn into_serialized(self) -> Vec<u8> {
+    pub(crate) fn into_serialized(self) -> Vec<u8> {
         match self {
             Self::Raw(t) => t.serialize(),
             Self::Serialized(v) => v,
@@ -67,5 +77,32 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
     async fn move_to_host(self) -> T {
         let (instance, resource) = self.resource.consume();
         T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
+    }
+}
+
+impl SerializeResource for Vec<u8> {
+    fn serialize(self) -> Vec<u8> {
+        self
+    }
+}
+
+trait DeserializeFunctionResource {
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self;
+}
+
+impl DeserializeFunctionResource for FunctionResponse {
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
+        let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
+        let response = message_reader.get_root::<abi_function_resources_capnp::function_response::Reader>().unwrap();
+        Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
+            status: ::http::StatusCode::from_u16(response.get_status()).unwrap(),
+            body: Cell::new(Some(SerializedFunctionResource::new(instance, FunctionResourceId::from(response.get_body_resource())))),
+        }))
+    }
+}
+
+impl DeserializeFunctionResource for Vec<u8> {
+    fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Self {
+        resource.to_vec()
     }
 }

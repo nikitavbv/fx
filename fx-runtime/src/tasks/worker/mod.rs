@@ -1,4 +1,7 @@
-pub(crate) use self::messages::WorkerMessage;
+pub(crate) use self::{
+    messages::WorkerMessage,
+    controller::WorkersController,
+};
 
 mod controller;
 mod messages;

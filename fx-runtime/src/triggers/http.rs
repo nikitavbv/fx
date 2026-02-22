@@ -1,19 +1,7 @@
 use {
     std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
     futures::FutureExt,
-    crate::v2::{
-        function::{FunctionDeploymentId, FunctionDeployment, FunctionId},
-        Response,
-        Bytes,
-        StatusCode,
-        FetchRequestHeader,
-        FetchRequestBody,
-        FunctionResponseInner,
-        FunctionDeploymentHandleRequestError,
-        FunctionResponseHttpBodyInner,
-        SerializedFunctionResource,
-        FunctionResourceReader,
-    },
+    crate::resources::serialize::SerializeResource,
 };
 
 pub(crate) struct HttpHandler {
@@ -163,7 +151,7 @@ enum FunctionResourceReader {
 
 pub struct FetchRequestHeader {
     inner: ::http::request::Parts,
-    body_resource_id: Option<ResourceId>, // TODO: drop body if FetchRequestHeader is dropped without consumption
+    pub(crate) body_resource_id: Option<ResourceId>, // TODO: drop body if FetchRequestHeader is dropped without consumption
 }
 
 impl FetchRequestHeader {
@@ -189,7 +177,7 @@ impl From<::http::request::Parts> for FetchRequestHeader {
     }
 }
 
-pub struct FetchRequestBody(FetchRequestBodyInner);
+pub struct FetchRequestBody(pub(crate) FetchRequestBodyInner);
 
 impl From<hyper::body::Incoming> for FetchRequestBody {
     fn from(value: hyper::body::Incoming) -> Self {
@@ -215,11 +203,11 @@ pub(crate) enum FetchRequestBodyInner {
 
 pub(crate) struct FunctionResponse(FunctionResponseInner);
 
-enum FunctionResponseInner {
+pub(crate) enum FunctionResponseInner {
     HttpResponse(FunctionHttpResponse),
 }
 
-struct FunctionHttpResponse {
+pub(crate) struct FunctionHttpResponse {
     status: ::http::status::StatusCode,
     body: Cell<Option<SerializedFunctionResource<Vec<u8>>>>,
 }
