@@ -1,13 +1,24 @@
 use {
     fx_sdk::{HttpRequest, HttpResponse, handler, utils::axum::handle_request},
-    axum::{Router, routing::get, response::Html},
+    axum::{
+        Router,
+        routing::get,
+        response::{Html, IntoResponse},
+        extract::Path,
+        http::StatusCode,
+    },
+    include_dir::{include_dir, Dir},
 };
+
+static DOCS: Dir = include_dir!("$CARGO_MANIFEST_DIR/docs");
 
 #[handler::fetch]
 pub async fn http(req: HttpRequest) -> HttpResponse {
     handle_request(
         Router::new()
-            .route("/", get(index)),
+            .route("/", get(index))
+            .route("/docs/runtime", get(docs_runtime_index))
+            .route("/docs/runtime/{*path}", get(docs_runtime)),
         req,
     ).await
 }
@@ -76,9 +87,38 @@ async fn index() -> Html<&'static str> {
     <main>
         <div class="hero">
             <h1>fx runtime</h1>
+            <p>a minimal wasm application server</p>
         </div>
     </main>
 </body>
 </html>"#,
     )
+}
+
+async fn docs_runtime_index() -> impl IntoResponse {
+    serve_doc_html("fx_runtime/index.html", "/docs/runtime/fx_runtime/")
+}
+
+async fn docs_runtime(Path(path): Path<String>) -> impl IntoResponse {
+    let path = if path.ends_with('/') || path.is_empty() {
+        format!("{}index.html", path)
+    } else {
+        path
+    };
+
+    match DOCS.get_file(&path) {
+        Some(file) => (StatusCode::OK, file.contents().to_vec()).into_response(),
+        None => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
+}
+
+fn serve_doc_html(path: &str, base: &str) -> impl IntoResponse {
+    match DOCS.get_file(path) {
+        Some(file) => {
+            let html = String::from_utf8_lossy(file.contents());
+            let base_tag = format!(r#"<base href="{base}">"#);
+            (StatusCode::OK, Html(html.replacen("<head>", &format!("<head>{base_tag}"), 1))).into_response()
+        }
+        None => (StatusCode::NOT_FOUND, "not found").into_response(),
+    }
 }
