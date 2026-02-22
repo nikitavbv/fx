@@ -59,8 +59,6 @@ fn main() {
 
     match args.command {
         Command::Serve { config_file } => {
-            warn!("note: fx is currently undergoing major refactoring. For now, please use versions 0.1.560 or older.");
-
             let config_path = std::env::current_dir().unwrap().join(config_file);
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path);
