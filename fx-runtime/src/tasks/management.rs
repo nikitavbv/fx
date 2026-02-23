@@ -8,6 +8,7 @@ use {
         tasks::{
             worker::{WorkerMessage, WorkersController},
             compiler::CompilerMessage,
+            cron::CronMessage,
         },
         introspection::run_introspection_server,
     },
@@ -33,6 +34,7 @@ pub(crate) fn run_management_task(
     config: ServerConfig,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,
+    cron_tx: flume::Sender<CronMessage>,
     management_rx: flume::Receiver<ManagementMessage>,
 ) {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -41,7 +43,7 @@ pub(crate) fn run_management_task(
         .unwrap();
     let local_set = tokio::task::LocalSet::new();
 
-    let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx);
+    let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx, cron_tx);
     let metrics = Arc::new(MetricsRegistry::new());
 
     tokio_runtime.block_on(local_set.run_until(async {

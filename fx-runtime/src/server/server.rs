@@ -54,6 +54,7 @@ impl FxServer {
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
         let (logger_tx, logger_rx) = flume::unbounded::<LogMessageEvent>();
+        let (cron_tx, cron_rx) = flume::unbounded();
 
         let management_thread_handle = {
             let config = self.config.clone();
@@ -62,7 +63,7 @@ impl FxServer {
             std::thread::spawn(move || {
                 info!("started management thread");
 
-                run_management_task(config, workers_tx, compiler_tx, management_rx);
+                run_management_task(config, workers_tx, compiler_tx, cron_tx, management_rx);
             })
         };
 
@@ -105,7 +106,7 @@ impl FxServer {
 
             std::thread::spawn(move || {
                 info!("started cron thread");
-                run_cron_task(cron_database, workers_controller);
+                run_cron_task(cron_database, workers_controller, cron_rx);
             })
         };
 

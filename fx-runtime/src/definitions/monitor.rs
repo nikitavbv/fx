@@ -4,6 +4,7 @@ use {
         collections::HashMap,
         path::{Path, PathBuf},
         time::Duration,
+        str::FromStr,
     },
     notify::Watcher,
     thiserror::Error,
@@ -14,10 +15,11 @@ use {
         tasks::{
             worker::WorkerMessage,
             compiler::CompilerMessage,
+            cron::CronMessage,
         },
         definitions::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
-            triggers::FunctionHttpListener,
+            triggers::{FunctionHttpListener, CronTrigger},
             bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig},
         },
         function::{FunctionId, FunctionDeploymentId},
@@ -31,6 +33,7 @@ pub(crate) struct DefinitionsMonitor {
     functions_directory: PathBuf,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,
+    cron_tx: flume::Sender<CronMessage>,
 
     // DefinitionsMonitor requests FunctionDeployment creation and assigns IDs to them.
     deployment_id_counter: RefCell<u64>,
@@ -41,12 +44,14 @@ impl DefinitionsMonitor {
         config: &ServerConfig,
         workers_tx: Vec<flume::Sender<WorkerMessage>>,
         compiler_tx: flume::Sender<CompilerMessage>,
+        cron_tx: flume::Sender<CronMessage>,
     ) -> Self {
         Self {
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap()
                 .join(&config.functions_dir),
             workers_tx,
             compiler_tx,
+            cron_tx,
             deployment_id_counter: RefCell::new(0),
         }
     }
@@ -218,6 +223,20 @@ impl DefinitionsMonitor {
                 bindings_blob: bindings_blob.clone(),
             }).await.unwrap();
         }
+
+        let cron_triggers = config.triggers.iter()
+            .flat_map(|v| v.cron.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| CronTrigger {
+                id: format!("{}::{}", function_id.as_str(), v.id),
+                schedule: cron::Schedule::from_str(&v.schedule).unwrap(),
+            })
+            .collect::<Vec<_>>();
+
+        self.cron_tx.send_async(CronMessage::ScheduleAdd {
+            function_id,
+            schedule: cron_triggers,
+        }).await.unwrap();
     }
 
     fn next_deployment_id(&self) -> FunctionDeploymentId {

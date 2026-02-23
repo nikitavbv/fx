@@ -10,3 +10,8 @@ impl FunctionHttpListener {
         }
     }
 }
+
+pub(crate) struct CronTrigger {
+    pub(crate) id: String,
+    pub(crate) schedule: cron::Schedule,
+}
