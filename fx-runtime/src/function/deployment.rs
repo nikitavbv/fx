@@ -100,7 +100,7 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) fn handle_request(&self, header: FetchRequestHeader, body: FetchRequestBody) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) fn handle_request(&self, header: FetchRequestHeader, body: Option<FetchRequestBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         Box::pin(async move {
@@ -108,7 +108,9 @@ impl FunctionDeployment {
             let resource = {
                 let mut data = instance.store.lock().await;
                 let data = data.data_mut();
-                header.body_resource_id = Some(data.resource_add(Resource::RequestBody(body)));
+                if let Some(body) = body {
+                    header.body_resource_id = Some(data.resource_add(Resource::RequestBody(body)));
+                }
                 data.resource_add(Resource::FetchRequest(SerializableResource::Raw(header)))
             };
 

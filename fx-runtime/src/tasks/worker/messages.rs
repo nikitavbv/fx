@@ -7,10 +7,10 @@ use {
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig},
         },
+        triggers::http::FetchRequestHeader,
     },
 };
 
-#[derive(Debug)]
 pub(crate) enum WorkerMessage {
     RemoveFunction {
         function_id: FunctionId,
@@ -25,5 +25,9 @@ pub(crate) enum WorkerMessage {
 
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+    },
+    HandleRequest {
+        function_id: FunctionId,
+        header: FetchRequestHeader,
     },
 }

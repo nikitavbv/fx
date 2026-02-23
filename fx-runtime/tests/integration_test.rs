@@ -510,6 +510,7 @@ fn init_fx_server() {
     });
 }
 
+// TODO: add test that checks what happens if sqlite binding is inside directory that does not exist
 // TODO: add test that verifies that counter metrics with labels are recorded correctly
 // TODO: sql transactions
 // TODO: test that database can only be accessed by correct binding name

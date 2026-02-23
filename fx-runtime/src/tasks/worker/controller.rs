@@ -5,6 +5,7 @@ use {
     super::messages::WorkerMessage,
 };
 
+#[derive(Clone)]
 pub(crate) struct WorkersController {
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
 }

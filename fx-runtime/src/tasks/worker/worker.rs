@@ -164,6 +164,11 @@ async fn worker_handle_message(
                 on_ready.send(()).unwrap();
             }
         },
+        WorkerMessage::HandleRequest { function_id, header } => {
+            let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
+            let function_future = deployment.borrow().handle_request(header, None);
+            tokio::task::spawn_local(function_future);
+        },
     }
 }
 

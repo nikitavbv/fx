@@ -9,7 +9,7 @@ use {
             sql::SqlDatabase,
         },
         tasks::{
-            worker::{WorkerMessage, WorkerConfig, run_worker_task},
+            worker::{WorkerMessage, WorkerConfig, run_worker_task, WorkersController},
             sql::{SqlMessage, run_sql_task},
             compiler::CompilerMessage,
             management::{ManagementMessage, run_management_task, DeployFunctionMessage},
@@ -49,6 +49,7 @@ impl FxServer {
         let (workers_tx, workers_rx) = (0..worker_threads)
             .map(|_| flume::unbounded::<WorkerMessage>())
             .unzip::<_, _, Vec<_>, Vec<_>>();
+        let workers_controller = WorkersController::new(workers_tx.clone());
         let (sql_tx, sql_rx) = flume::unbounded::<SqlMessage>();
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
@@ -104,7 +105,7 @@ impl FxServer {
 
             std::thread::spawn(move || {
                 info!("started cron thread");
-                run_cron_task(cron_database);
+                run_cron_task(cron_database, workers_controller);
             })
         };
 
