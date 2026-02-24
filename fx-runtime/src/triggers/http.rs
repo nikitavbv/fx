@@ -165,6 +165,13 @@ pub struct FetchRequestHeader {
 }
 
 impl FetchRequestHeader {
+    pub(crate) fn from_http_parts(inner: ::http::request::Parts) -> Self {
+        Self {
+            inner,
+            body_resource_id: None,
+        }
+    }
+
     fn uri(&self) -> &::http::Uri {
         &self.inner.uri
     }

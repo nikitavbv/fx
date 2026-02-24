@@ -164,10 +164,13 @@ async fn worker_handle_message(
                 on_ready.send(()).unwrap();
             }
         },
-        WorkerMessage::HandleRequest { function_id, header } => {
+        WorkerMessage::FunctionInvoke { function_id, header, response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
             let function_future = deployment.borrow().handle_request(header, None);
-            tokio::task::spawn_local(function_future);
+            tokio::task::spawn_local(async move {
+                function_future.await;
+                response_tx.send_async(()).await;
+            });
         },
     }
 }

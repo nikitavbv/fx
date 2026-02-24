@@ -1,7 +1,8 @@
 use {
     tokio::time::Duration,
+    chrono::Utc,
     crate::{
-        triggers::cron::CronDatabase,
+        triggers::{cron::CronDatabase, http::FetchRequestHeader},
         tasks::worker::WorkersController,
         definitions::triggers::CronTrigger,
         function::FunctionId,
@@ -22,8 +23,8 @@ struct CronTask {
 }
 
 pub(crate) fn run_cron_task(
-    database: CronDatabase,
-    workers_controller: WorkersController,
+    mut database: CronDatabase,
+    mut workers_controller: WorkersController,
     msg_rx: flume::Receiver<CronMessage>
 ) {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -52,9 +53,31 @@ pub(crate) fn run_cron_task(
                 },
 
                 _ = cron_interval.tick() => {
-                    // TODO
+                    run_tasks(&mut database, &mut workers_controller, &tasks).await;
                 }
             }
         }
     }));
+}
+
+async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, tasks: &Vec<CronTask>) {
+    for task in tasks {
+        if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
+            if task.schedule.after(&prev_run_time).next().unwrap() > Utc::now() {
+                continue;
+            }
+        };
+
+        workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
+            http::Request::builder()
+                .method(http::Method::GET)
+                .uri("/_fx/cron")
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        })).await;
+
+        database.update_run_time(&task.task_id, Utc::now());
+    }
 }

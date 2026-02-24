@@ -26,8 +26,9 @@ pub(crate) enum WorkerMessage {
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
     },
-    HandleRequest {
+    FunctionInvoke {
         function_id: FunctionId,
         header: FetchRequestHeader,
+        response_tx: flume::Sender<()>,
     },
 }
