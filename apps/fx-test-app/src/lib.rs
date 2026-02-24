@@ -16,7 +16,8 @@ use {
         random,
         blob,
         metrics::Counter,
-        sql::SqlError,
+        sql::{SqlError, SqlValue},
+        SqlDatabase,
     },
 };
 
@@ -67,6 +68,8 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
             .route("/test/metrics/counter-with-labels-increment", get(test_metrics_counter_with_labels_increment))
             .route("/test/unknown-import", get(test_unknown_import))
+            .route("/test/cron", get(read_cron_status))
+            .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
         req
@@ -308,6 +311,37 @@ async fn test_metrics_counter_with_labels_increment(Extension(metrics): Extensio
 async fn test_unknown_import() -> &'static str {
     unsafe { crate::unknown_import::_test_unknown_import(-1) };
     "ok.\n"
+}
+
+async fn handle_cron() -> String {
+    let database = cron_database().await;
+    database.exec(SqlQuery::new("insert into test_cron_state (v) values (1)")).await.unwrap();
+    let result = database.exec(SqlQuery::new("select sum(v) from test_cron_state")).await.unwrap().into_rows()
+        .into_iter().next().unwrap();
+    match &result.columns[0] {
+        SqlValue::Integer(v) => v.to_string(),
+        other => panic!("unexpected result type: {other:?}"),
+    }
+}
+
+async fn read_cron_status() -> String {
+    let database = cron_database().await;
+    let result = database.exec(SqlQuery::new("select sum(v) from test_cron_state")).await.unwrap().into_rows()
+        .into_iter().next().unwrap();
+    match &result.columns[0] {
+        SqlValue::Integer(v) => v.to_string(),
+        other => panic!("unexpected result type: {other:?}"),
+    }
+}
+
+async fn cron_database() -> SqlDatabase {
+    let database = fx_sdk::sql("cron-test");
+    Migrations::new()
+        .with_migration(Migration::new("create table test_cron_state (v integer not null)"))
+        .run(&database)
+        .await
+        .unwrap();
+    database
 }
 
 #[derive(Clone)]

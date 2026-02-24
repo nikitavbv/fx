@@ -16,6 +16,7 @@ pub(crate) enum CronMessage {
     },
 }
 
+#[derive(Debug)]
 struct CronTask {
     task_id: String,
     function_id: FunctionId,

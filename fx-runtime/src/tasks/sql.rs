@@ -55,7 +55,9 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                     connection.busy_timeout(busy_timeout).unwrap();
                 }
                 if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
-                    if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
+                    let error_code = err.sqlite_error().unwrap().code;
+                    if error_code == rusqlite::ErrorCode::DatabaseBusy
+                        || error_code == rusqlite::ErrorCode::DatabaseLocked {
                         Err(SqlQueryExecutionError::DatabaseBusy)
                     } else {
                         panic!("unexpected sqlite error: {err:?}")

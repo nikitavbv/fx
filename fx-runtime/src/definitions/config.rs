@@ -84,6 +84,16 @@ impl FunctionConfig {
         self
     }
 
+    pub fn with_trigger_cron(mut self, id: String, schedule: String) -> Self {
+        if self.triggers.is_none() {
+            self.triggers = Some(FunctionTriggersConfig::new());
+        }
+
+        self.triggers = self.triggers.map(|v| v.with_cron(id, schedule));
+
+        self
+    }
+
     /// Used to configure server externally, for example, in integration tests.
     #[allow(dead_code)]
     pub fn with_binding_blob(mut self, id: String, path: String) -> Self {
@@ -141,6 +151,11 @@ impl FunctionTriggersConfig {
         self.http = Some(vec![FunctionHttpEndpointConfig::new(host)]);
         self
     }
+
+    pub fn with_cron(mut self, id: String, schedule: String) -> Self {
+        self.cron = Some(vec![FunctionCronTriggerConfig::new(id, schedule)]);
+        self
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
@@ -159,8 +174,16 @@ impl FunctionHttpEndpointConfig {
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct FunctionCronTriggerConfig {
     pub id: String,
-    pub handler: String,
     pub schedule: String,
+}
+
+impl FunctionCronTriggerConfig {
+    fn new(id: String, schedule: String) -> Self {
+        Self {
+            id,
+            schedule,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

@@ -439,6 +439,31 @@ async fn function_remove() {
     assert_eq!("hello fx!", result.text().await.unwrap());
 }
 
+#[tokio::test]
+async fn cron_simple() {
+    init_fx_server();
+
+    let result1 = reqwest::get("http://localhost:8080/test/cron").await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+
+    sleep(Duration::from_secs(4)).await;
+
+    let result2 = reqwest::get("http://localhost:8080/test/cron").await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+        .parse::<u64>()
+        .unwrap();
+
+    assert!(result2 >= result1 + 3); // in 4 seconds we expect cron job to run three times
+}
+
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
@@ -458,9 +483,11 @@ fn init_fx_server() {
                 FunctionId::new("test-app"),
                 FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
                     .with_trigger_http(None)
+                    .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                     .with_binding_blob("test-blob".to_owned(), "/tmp/fx-test/test-blob".to_owned())
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
+                    .with_binding_sql("cron-test".to_owned(), ":memory:".to_owned())
                     .with_binding_sql_config(
                         SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
                             .with_busy_timeout_ms(10)

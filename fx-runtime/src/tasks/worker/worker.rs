@@ -168,8 +168,8 @@ async fn worker_handle_message(
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
             let function_future = deployment.borrow().handle_request(header, None);
             tokio::task::spawn_local(async move {
-                function_future.await;
-                response_tx.send_async(()).await;
+                function_future.await.unwrap();
+                response_tx.send_async(()).await.unwrap();
             });
         },
     }

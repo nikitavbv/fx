@@ -41,8 +41,8 @@ impl WorkersController {
 
     pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) {
         let (response_tx, response_rx) = flume::unbounded();
-        self.workers_tx.get(self.function_invoke_round_robin_counter as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx });
+        self.workers_tx.get(self.function_invoke_round_robin_counter as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
         self.function_invoke_round_robin_counter = (self.function_invoke_round_robin_counter + 1) % (self.workers_tx.len() as u64);
-        response_rx.recv_async().await;
+        response_rx.recv_async().await.unwrap();
     }
 }
