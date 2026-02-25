@@ -9,7 +9,7 @@ test:
     cargo build --target wasm32-unknown-unknown -p fx-test-missing-export --release
     cargo build --target wasm32-unknown-unknown -p fx-test-remove --release
     cargo build --target wasm32-unknown-unknown -p fx-test-wrong-import --release
-    cargo test -p fx-runtime --release -- --show-output
+    cargo test -p fx-runtime --release -- --no-capture
 
 coverage:
     cargo llvm-cov --html run -p fx-tests --release
