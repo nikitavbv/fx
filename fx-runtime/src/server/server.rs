@@ -144,9 +144,11 @@ impl FxServer {
 
         let workers = worker_cores.into_iter()
             .zip(workers_rx.into_iter())
-            .map(|(core_id, messages_rx)| WorkerConfig {
+            .zip(workers_tx.clone().into_iter()).map(|((a, b), c)| (a, b, c))
+            .map(|(core_id, messages_rx, self_tx)| WorkerConfig {
                 core_id,
                 messages_rx,
+                self_tx,
                 sql_tx: sql_tx.clone(),
                 logger_tx: logger_tx.clone(),
                 management_tx: management_tx.clone(),

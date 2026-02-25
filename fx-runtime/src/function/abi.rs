@@ -358,6 +358,9 @@ pub(super) fn fx_fetch_handler(
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
     let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
 
+    let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
+    let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
+
     let mut fetch_request = reqwest::Request::new(
         match request.get_method().unwrap() {
             abi_http_capnp::HttpMethod::Get => Method::GET,
@@ -367,7 +370,7 @@ pub(super) fn fx_fetch_handler(
             abi_http_capnp::HttpMethod::Delete => Method::DELETE,
             abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
         },
-        request.get_uri().unwrap().to_str().unwrap().try_into().unwrap()
+        request_uri
     );
 
     match request.get_body().unwrap().get_body().which().unwrap() {
@@ -406,14 +409,17 @@ pub(super) fn fx_fetch_handler(
         },
     }
 
-    let client = caller.data().http_client.clone();
-
-    caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
-        SerializableResource::Raw({
-            let result = client.execute(fetch_request).await.unwrap();
-            FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
-        })
-    }.boxed()))).as_u64()
+    if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
+        unimplemented!()
+    } else {
+        let client = caller.data().http_client.clone();
+        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
+            SerializableResource::Raw({
+                let result = client.execute(fetch_request).await.unwrap();
+                FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
+            })
+        }.boxed()))).as_u64()
+    }
 }
 
 pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {

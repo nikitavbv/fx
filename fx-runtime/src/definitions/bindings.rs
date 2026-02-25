@@ -1,6 +1,7 @@
 use {
     std::path::PathBuf,
     tokio::time::Duration,
+    crate::function::FunctionId,
 };
 
 #[derive(Debug, Clone)]
@@ -19,4 +20,9 @@ pub(crate) enum SqlBindingConfigLocation {
 #[derive(Debug, Clone)]
 pub(crate) struct BlobBindingConfig {
     pub(crate) storage_directory: PathBuf,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FunctionBindingConfig {
+    pub(crate) function_id: FunctionId,
 }

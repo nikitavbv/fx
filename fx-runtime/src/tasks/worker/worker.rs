@@ -22,6 +22,7 @@ use {
 pub(crate) struct WorkerConfig {
     pub(crate) core_id: Option<usize>,
     pub(crate) messages_rx: flume::Receiver<WorkerMessage>,
+    pub(crate) self_tx: flume::Sender<WorkerMessage>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
     pub(crate) management_tx: flume::Sender<ManagementMessage>,
@@ -109,15 +110,18 @@ async fn worker_handle_message(
             http_listeners,
             bindings_sql,
             bindings_blob,
+            bindings_functions,
         } => {
             let deployment = FunctionDeployment::new(
                 &wasmtime,
+                worker.self_tx.clone(),
                 worker.logger_tx.clone(),
                 worker.sql_tx.clone(),
                 function_id.clone(),
                 module,
                 bindings_sql,
                 bindings_blob,
+                bindings_functions,
             ).await;
             let deployment = match deployment {
                 Ok(v) => v,

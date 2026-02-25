@@ -8,8 +8,8 @@ use {
     crate::{
         function::abi::FuturePollResult,
         effects::{logs::LogMessageEvent, metrics::FunctionMetricsState},
-        tasks::sql::SqlMessage,
-        definitions::bindings::{SqlBindingConfig, BlobBindingConfig},
+        tasks::{sql::SqlMessage, worker::WorkerMessage},
+        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
         resources::{FunctionResourceId, ResourceId, Resource, future::FutureResource, serialize::{serialize_request_body_full, serialize_partially_read_stream}},
         triggers::http::{FetchRequestBodyInner, FetchRequestBody},
     },
@@ -32,14 +32,16 @@ pub(crate) struct FunctionInstance {
 impl FunctionInstance {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        self_tx: flume::Sender<WorkerMessage>,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, FunctionInstanceInitError> {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(logger_tx, sql_tx, function_id, bindings_sql, bindings_blob));
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(self_tx, logger_tx, sql_tx, function_id, bindings_sql, bindings_blob, bindings_functions));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -142,32 +144,38 @@ pub(crate) enum FunctionInstanceInitError {
 
 pub(crate) struct FunctionInstanceState {
     waker: Option<std::task::Waker>,
+    pub(crate) self_tx: flume::Sender<WorkerMessage>,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
     pub(crate) function_id: FunctionId,
     resources: SlotMap<slotmap::DefaultKey, Resource>,
     pub(crate) bindings_sql: HashMap<String, SqlBindingConfig>,
     pub(crate) bindings_blob: HashMap<String, BlobBindingConfig>,
+    pub(crate) bindings_functions: HashMap<String, FunctionBindingConfig>, // host is key
     pub(crate) http_client: reqwest::Client,
     pub(crate) metrics: FunctionMetricsState,
 }
 
 impl FunctionInstanceState {
     pub fn new(
+        self_tx: flume::Sender<WorkerMessage>,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Self {
         Self {
             waker: None,
+            self_tx,
             logger_tx,
             sql_tx,
             function_id,
             resources: SlotMap::new(),
             bindings_sql,
             bindings_blob,
+            bindings_functions,
             http_client: reqwest::Client::new(),
             metrics: FunctionMetricsState::new(),
         }

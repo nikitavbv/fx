@@ -4,8 +4,8 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         effects::logs::LogMessageEvent,
-        tasks::sql::SqlMessage,
-        definitions::bindings::{SqlBindingConfig, BlobBindingConfig},
+        tasks::{sql::SqlMessage, worker::WorkerMessage},
+        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, FetchRequestBody},
         resources::{Resource, serialize::{SerializedFunctionResource, SerializableResource}, future::FunctionFuture},
     },
@@ -34,12 +34,14 @@ pub(crate) struct FunctionDeployment {
 impl FunctionDeployment {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        self_tx: flume::Sender<WorkerMessage>,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
         module: wasmtime::Module,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, DeploymentInitError> {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
 
@@ -87,7 +89,7 @@ impl FunctionDeployment {
                 }
             })?;
 
-        let instance = FunctionInstance::new(wasmtime, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob).await
+        let instance = FunctionInstance::new(wasmtime, self_tx, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob, bindings_functions).await
             .map_err(|err| match err {
                 FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
             })?;

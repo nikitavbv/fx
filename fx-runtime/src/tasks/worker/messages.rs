@@ -5,7 +5,7 @@ use {
         function::{FunctionId, FunctionDeploymentId},
         definitions::{
             triggers::FunctionHttpListener,
-            bindings::{BlobBindingConfig, SqlBindingConfig},
+            bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig},
         },
         triggers::http::FetchRequestHeader,
     },
@@ -25,6 +25,7 @@ pub(crate) enum WorkerMessage {
 
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_functions: HashMap<String, FunctionBindingConfig>,
     },
     FunctionInvoke {
         function_id: FunctionId,

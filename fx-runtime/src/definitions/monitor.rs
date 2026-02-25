@@ -20,7 +20,7 @@ use {
         definitions::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
             triggers::{FunctionHttpListener, CronTrigger},
-            bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig},
+            bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig, FunctionBindingConfig},
         },
         function::{FunctionId, FunctionDeploymentId},
     },
@@ -213,6 +213,17 @@ impl DefinitionsMonitor {
             }))
             .collect::<HashMap<_, _>>();
 
+        let bindings_functions = config.bindings.iter()
+            .flat_map(|v| v.functions.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| (
+                v.host.clone().unwrap_or(v.function_id.clone()).to_lowercase(),
+                FunctionBindingConfig {
+                    function_id: FunctionId::new(&v.function_id),
+                }
+            ))
+            .collect::<HashMap<_, _>>();
+
         for worker in self.workers_tx.iter() {
             worker.send_async(WorkerMessage::FunctionDeploy {
                 function_id: function_id.clone(),
@@ -221,6 +232,7 @@ impl DefinitionsMonitor {
                 http_listeners: http_listeners.clone(),
                 bindings_sql: bindings_sql.clone(),
                 bindings_blob: bindings_blob.clone(),
+                bindings_functions: bindings_functions.clone(),
             }).await.unwrap();
         }
 

@@ -120,6 +120,16 @@ impl FunctionConfig {
         self
     }
 
+    pub fn with_binding_function(mut self, config: FunctionBindingConfig) -> Self {
+        if self.bindings.is_none() {
+            self.bindings = Some(FunctionBindingsConfig::new());
+        }
+
+        self.bindings = self.bindings.map(|v| v.with_function(config));
+
+        self
+    }
+
     pub fn with_logger(mut self, logger: LoggerConfig) -> Self {
         self.logger = Some(logger);
         self
@@ -196,6 +206,7 @@ pub struct FunctionRabbitmqTriggerConfig {
 pub struct FunctionBindingsConfig {
     pub sql: Option<Vec<SqlBindingConfig>>,
     pub blob: Option<Vec<BlobBindingConfig>>,
+    pub functions: Option<Vec<FunctionBindingConfig>>,
 }
 
 impl FunctionBindingsConfig {
@@ -203,6 +214,7 @@ impl FunctionBindingsConfig {
         Self {
             sql: None,
             blob: None,
+            functions: None,
         }
     }
 
@@ -225,6 +237,16 @@ impl FunctionBindingsConfig {
         }
 
         self.sql.as_mut().unwrap().push(config);
+
+        self
+    }
+
+    pub fn with_function(mut self, config: FunctionBindingConfig) -> Self {
+        if self.functions.is_none() {
+            self.functions = Some(Vec::new());
+        }
+
+        self.functions.as_mut().unwrap().push(config);
 
         self
     }
@@ -257,6 +279,23 @@ impl SqlBindingConfig {
 pub struct BlobBindingConfig {
     pub id: String,
     pub path: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct FunctionBindingConfig {
+    pub id: String,
+    pub function_id: String,
+    pub host: Option<String>,
+}
+
+impl FunctionBindingConfig {
+    pub fn new(id: String, function_id: String, host: Option<String>) -> Self {
+        Self {
+            id,
+            function_id,
+            host,
+        }
+    }
 }
 
 #[derive(Error, Debug)]
