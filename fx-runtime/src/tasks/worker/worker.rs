@@ -16,7 +16,7 @@ use {
         function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
         triggers::http::HttpHandler,
     },
-    super::WorkerMessage,
+    super::{WorkerMessage, WorkerLocalMessage},
 };
 
 pub(crate) struct WorkerConfig {
@@ -60,6 +60,8 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 
         let mut metrics_flush_interval = tokio::time::interval(Duration::from_secs(2));
 
+        let (local_message_queue_tx, mut local_message_queue_rx) = async_unsync::unbounded::channel::<WorkerLocalMessage>().into_split();
+
         loop {
             tokio::select! {
                 message = worker.messages_rx.recv_async() => {
@@ -73,6 +75,10 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                         message.unwrap()
                     ).await;
                 },
+
+                message = local_message_queue_rx.recv() => {
+                    todo!("handle local message");
+                }
 
                 connection = listener.accept() => {
                     worker_handle_http_connection(
@@ -172,8 +178,9 @@ async fn worker_handle_message(
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
             let function_future = deployment.borrow().handle_request(header, None);
             tokio::task::spawn_local(async move {
-                function_future.await.unwrap();
-                response_tx.send_async(()).await.unwrap();
+                let response = function_future.await.unwrap();
+                let response = response.move_to_host().await;
+                response_tx.send(()).unwrap();
             });
         },
     }

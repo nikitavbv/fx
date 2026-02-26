@@ -69,6 +69,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/metrics/counter-with-labels-increment", get(test_metrics_counter_with_labels_increment))
             .route("/test/unknown-import", get(test_unknown_import))
             .route("/test/cron", get(read_cron_status))
+            .route("/test/rpc/simple", get(rpc_simple))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -342,6 +343,14 @@ async fn cron_database() -> SqlDatabase {
         .await
         .unwrap();
     database
+}
+
+async fn rpc_simple() -> &'static str {
+    info!("sending rpc request");
+    let response = fetch(HttpRequest::get("http://function-rpc.fx.local/").unwrap()).await.unwrap();
+    info!("got response from rpc: {:?}", response.status());
+
+    "rpc test"
 }
 
 #[derive(Clone)]

@@ -1,7 +1,7 @@
 pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, abi_metrics_capnp, abi_blob_capnp, abi_function_resources_capnp, abi::FuturePollResult};
 
 use {
-    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}},
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr},
     tokio::{sync::oneshot, time::Duration},
     http::Method,
     http_body_util::BodyStream,
@@ -18,8 +18,11 @@ use {
             fetch::FetchResult,
             metrics::{MetricKey, MetricId},
         },
-        tasks::sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
-        triggers::http::FetchRequestBodyInner,
+        tasks::{
+            sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
+            worker::WorkerMessage,
+        },
+        triggers::http::{FetchRequestBodyInner, FetchRequestHeader},
     },
 };
 
@@ -358,60 +361,76 @@ pub(super) fn fx_fetch_handler(
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
     let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
 
+    let request_method = match request.get_method().unwrap() {
+        abi_http_capnp::HttpMethod::Get => Method::GET,
+        abi_http_capnp::HttpMethod::Put => Method::PUT,
+        abi_http_capnp::HttpMethod::Post => Method::POST,
+        abi_http_capnp::HttpMethod::Patch => Method::PATCH,
+        abi_http_capnp::HttpMethod::Delete => Method::DELETE,
+        abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
+    };
     let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
-    let mut fetch_request = reqwest::Request::new(
-        match request.get_method().unwrap() {
-            abi_http_capnp::HttpMethod::Get => Method::GET,
-            abi_http_capnp::HttpMethod::Put => Method::PUT,
-            abi_http_capnp::HttpMethod::Post => Method::POST,
-            abi_http_capnp::HttpMethod::Patch => Method::PATCH,
-            abi_http_capnp::HttpMethod::Delete => Method::DELETE,
-            abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
-        },
-        request_uri
-    );
+    if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
+        let (request, body) = http::Request::builder()
+            .method(request_method)
+            .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap())
+            .body(())
+            .unwrap()
+            .into_parts();
 
-    match request.get_body().unwrap().get_body().which().unwrap() {
-        abi_http_capnp::http_request_body::body::Which::Empty(_) => {},
-        abi_http_capnp::http_request_body::body::Which::Bytes(v) => {
-            *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
-        },
-        abi_http_capnp::http_request_body::body::Which::HostResource(v) => {
-            let resource_id = ResourceId::new(v);
-            match caller.data_mut().resource_remove(&resource_id) {
-                Resource::BlobGetResult(_)
-                | Resource::FetchRequest(_)
-                | Resource::FetchResult(_)
-                | Resource::SqlQueryResult(_)
-                | Resource::SqlMigrationResult(_)
-                | Resource::UnitFuture(_) => panic!("this resource cannot be used as request body"),
-                Resource::RequestBody(v) => match v.0 {
-                    FetchRequestBodyInner::FullSerialized(_)
-                    | FetchRequestBodyInner::PartiallyReadStream { .. }
-                    | FetchRequestBodyInner::PartiallyReadStreamSerialized { .. } => panic!("this body type cannot be used as request body"),
-                    FetchRequestBodyInner::Full(bytes) => {
-                        *fetch_request.body_mut() = Some(reqwest::Body::from(bytes));
-                    },
-                    FetchRequestBodyInner::Stream(stream) => {
-                        let body_stream = BodyStream::new(stream)
-                            .filter_map(|result| async {
-                                match result {
-                                    Ok(frame) => frame.into_data().ok().map(Ok),
-                                    Err(e) => Some(Err(e)),
-                                }
-                            });
-                        *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(body_stream));
+        let header = FetchRequestHeader::from_http_parts(request);
+        let (response_tx, response_rx) = oneshot::channel::<()>();
+        let message = WorkerMessage::FunctionInvoke { function_id: function_binding.function_id.clone(), header, response_tx };
+        caller.data().self_tx.send(message).unwrap();
+
+        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
+            response_rx.await.unwrap();
+            unimplemented!()
+        }.boxed()))).as_u64()
+    } else {
+        let mut fetch_request = reqwest::Request::new(
+            request_method,
+            request_uri
+        );
+
+        match request.get_body().unwrap().get_body().which().unwrap() {
+            abi_http_capnp::http_request_body::body::Which::Empty(_) => {},
+            abi_http_capnp::http_request_body::body::Which::Bytes(v) => {
+                *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
+            },
+            abi_http_capnp::http_request_body::body::Which::HostResource(v) => {
+                let resource_id = ResourceId::new(v);
+                match caller.data_mut().resource_remove(&resource_id) {
+                    Resource::BlobGetResult(_)
+                    | Resource::FetchRequest(_)
+                    | Resource::FetchResult(_)
+                    | Resource::SqlQueryResult(_)
+                    | Resource::SqlMigrationResult(_)
+                    | Resource::UnitFuture(_) => panic!("this resource cannot be used as request body"),
+                    Resource::RequestBody(v) => match v.0 {
+                        FetchRequestBodyInner::FullSerialized(_)
+                        | FetchRequestBodyInner::PartiallyReadStream { .. }
+                        | FetchRequestBodyInner::PartiallyReadStreamSerialized { .. } => panic!("this body type cannot be used as request body"),
+                        FetchRequestBodyInner::Full(bytes) => {
+                            *fetch_request.body_mut() = Some(reqwest::Body::from(bytes));
+                        },
+                        FetchRequestBodyInner::Stream(stream) => {
+                            let body_stream = BodyStream::new(stream)
+                                .filter_map(|result| async {
+                                    match result {
+                                        Ok(frame) => frame.into_data().ok().map(Ok),
+                                        Err(e) => Some(Err(e)),
+                                    }
+                                });
+                            *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(body_stream));
+                        }
                     }
                 }
-            }
-        },
-    }
+            },
+        }
 
-    if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
-        unimplemented!()
-    } else {
         let client = caller.data().http_client.clone();
         caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
             SerializableResource::Raw({

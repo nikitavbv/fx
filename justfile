@@ -6,6 +6,7 @@ run:
 
 test:
     cargo build --target wasm32-unknown-unknown -p fx-test-app --release
+    cargo build --target wasm32-unknown-unknown -p fx-test-app-rpc --release
     cargo build --target wasm32-unknown-unknown -p fx-test-missing-export --release
     cargo build --target wasm32-unknown-unknown -p fx-test-remove --release
     cargo build --target wasm32-unknown-unknown -p fx-test-wrong-import --release

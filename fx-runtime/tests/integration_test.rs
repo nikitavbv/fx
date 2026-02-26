@@ -8,7 +8,7 @@ use {
         FxServer,
         server::RunningFxServer,
         function::FunctionId,
-        config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig},
+        config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig, FunctionBindingConfig},
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
     crate::logger::TestLogger,
@@ -464,6 +464,17 @@ async fn cron_simple() {
     assert!(result2 >= result1 + 3); // in 4 seconds we expect cron job to run three times
 }
 
+/*#[tokio::test]
+async fn rpc_simple() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/rpc/simple")
+        .await
+        .unwrap();
+
+    assert!(result.status().is_success());
+}*/
+
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
@@ -496,6 +507,11 @@ fn init_fx_server() {
                         SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
                             .with_busy_timeout_ms(10)
                     )
+                    .with_binding_function(FunctionBindingConfig::new(
+                        "function-rpc".to_owned(),
+                        "test-app-rpc".to_owned(),
+                        Some("function-rpc.fx.local".to_owned())
+                    ))
             ).await;
 
             server.deploy_function(
@@ -530,6 +546,12 @@ fn init_fx_server() {
                 FunctionConfig::new("/tmp/fx/functions/test-app-for-remove.fx.yaml".into())
                     .with_trigger_http(Some("for-remove.fx.local".to_owned()))
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_remove.wasm").unwrap())
+            ).await;
+
+            server.deploy_function(
+                FunctionId::new("test-app-rpc"),
+                FunctionConfig::new("/tmp/fx/functions/test-app-rpc.fx.yaml".into())
+                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app_rpc.wasm").unwrap())
             ).await;
 
             server

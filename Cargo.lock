@@ -193,6 +193,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-unsync"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da39954ed37b9dbb0475df268f10deb609213aefdc6c896adf88417bb2fa7efe"
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1210,6 +1216,7 @@ dependencies = [
  "arc-swap",
  "async-once-cell",
  "async-stream",
+ "async-unsync",
  "axum",
  "chrono",
  "clap",
@@ -1292,6 +1299,15 @@ dependencies = [
  "fx-sdk",
  "lazy_static",
  "sqlx",
+ "tracing",
+]
+
+[[package]]
+name = "fx-test-app-rpc"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "fx-sdk",
  "tracing",
 ]
 

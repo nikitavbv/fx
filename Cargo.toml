@@ -11,6 +11,7 @@ members = [
     "apps/fx-app-mocks",
     "apps/fx-fortunes",
     "apps/fx-test-app",
+    "apps/fx-test-app-rpc",
     "apps/fx-test-missing-export",
     "apps/fx-test-remove",
     "apps/fx-test-wrong-import",

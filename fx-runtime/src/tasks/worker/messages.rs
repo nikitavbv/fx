@@ -30,6 +30,8 @@ pub(crate) enum WorkerMessage {
     FunctionInvoke {
         function_id: FunctionId,
         header: FetchRequestHeader,
-        response_tx: flume::Sender<()>,
+        response_tx: oneshot::Sender<()>,
     },
 }
+
+pub(crate) enum WorkerLocalMessage {}

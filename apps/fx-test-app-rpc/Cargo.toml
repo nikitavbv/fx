@@ -1,0 +1,12 @@
+[package]
+name = "fx-test-app-rpc"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+fx-sdk = { path = "../../fx-sdk" }
+axum = { version = "0.8.4", default-features = false }
+tracing = "0.1.44"
