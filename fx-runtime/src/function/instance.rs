@@ -8,7 +8,7 @@ use {
     crate::{
         function::abi::FuturePollResult,
         effects::{logs::LogMessageEvent, metrics::FunctionMetricsState},
-        tasks::{sql::SqlMessage, worker::WorkerMessage},
+        tasks::{sql::SqlMessage, worker::LocalWorkerController},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
         resources::{FunctionResourceId, ResourceId, Resource, future::FutureResource, serialize::{serialize_request_body_full, serialize_partially_read_stream}},
         triggers::http::{FetchRequestBodyInner, FetchRequestBody},
@@ -32,7 +32,7 @@ pub(crate) struct FunctionInstance {
 impl FunctionInstance {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
-        self_tx: flume::Sender<WorkerMessage>,
+        local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
@@ -41,7 +41,15 @@ impl FunctionInstance {
         bindings_blob: HashMap<String, BlobBindingConfig>,
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, FunctionInstanceInitError> {
-        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(self_tx, logger_tx, sql_tx, function_id, bindings_sql, bindings_blob, bindings_functions));
+        let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(
+            local_worker,
+            logger_tx,
+            sql_tx,
+            function_id,
+            bindings_sql,
+            bindings_blob,
+            bindings_functions
+        ));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -144,7 +152,7 @@ pub(crate) enum FunctionInstanceInitError {
 
 pub(crate) struct FunctionInstanceState {
     waker: Option<std::task::Waker>,
-    pub(crate) self_tx: flume::Sender<WorkerMessage>,
+    pub(crate) local_worker: LocalWorkerController,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
     pub(crate) function_id: FunctionId,
@@ -158,7 +166,7 @@ pub(crate) struct FunctionInstanceState {
 
 impl FunctionInstanceState {
     pub fn new(
-        self_tx: flume::Sender<WorkerMessage>,
+        local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
@@ -168,7 +176,7 @@ impl FunctionInstanceState {
     ) -> Self {
         Self {
             waker: None,
-            self_tx,
+            local_worker,
             logger_tx,
             sql_tx,
             function_id,
@@ -266,61 +274,25 @@ impl FunctionInstanceState {
         let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
         let (resource, poll_result) = match resource {
             Resource::FetchRequest(v) => (Resource::FetchRequest(v), Poll::Ready(())),
-            Resource::SqlQueryResult(v) => {
-                let (resource, poll_result) = match v {
-                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                    FutureResource::Future(mut future) => {
-                        let poll_result = future.poll_unpin(&mut cx);
-                        match poll_result {
-                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
-                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                        }
-                    }
-                };
-                (Resource::SqlQueryResult(resource), poll_result)
+            Resource::SqlQueryResult(mut v) => {
+                let poll_result = v.poll(&mut cx);
+                (Resource::SqlQueryResult(v), poll_result)
             },
-            Resource::SqlMigrationResult(v) => {
-                let (resource, poll_result) = match v {
-                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                    FutureResource::Future(mut future) => {
-                        let poll_result = future.poll_unpin(&mut cx);
-                        match poll_result {
-                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
-                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                        }
-                    }
-                };
-                (Resource::SqlMigrationResult(resource), poll_result)
-            }
+            Resource::SqlMigrationResult(mut v) => {
+                let poll_result = v.poll(&mut cx);
+                (Resource::SqlMigrationResult(v), poll_result)
+            },
             Resource::UnitFuture(mut v) => {
                 let poll_result = v.poll_unpin(&mut cx);
                 (Resource::UnitFuture(v), poll_result)
             },
-            Resource::BlobGetResult(v) => {
-                let (resource, poll_result) = match v {
-                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                    FutureResource::Future(mut future) => {
-                        let poll_result = future.poll_unpin(&mut cx);
-                        match poll_result {
-                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
-                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                        }
-                    }
-                };
-                (Resource::BlobGetResult(resource), poll_result)
+            Resource::BlobGetResult(mut v) => {
+                let poll_result = v.poll(&mut cx);
+                (Resource::BlobGetResult(v), poll_result)
             },
-            Resource::FetchResult(v) => {
-                let (resource, poll_result) = match v {
-                    FutureResource::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                    FutureResource::Future(mut future) => {
-                        let poll_result = future.poll_unpin(&mut cx);
-                        match poll_result {
-                            Poll::Pending => (FutureResource::Future(future), Poll::Pending),
-                            Poll::Ready(v) => (FutureResource::Ready(v), Poll::Ready(())),
-                        }
-                    }
-                };
-                (Resource::FetchResult(resource), poll_result)
+            Resource::FetchResult(mut v) => {
+                let poll_result = v.poll(&mut cx);
+                (Resource::FetchResult(v), poll_result)
             },
             Resource::RequestBody(v) => match v.0 {
                 FetchRequestBodyInner::Full(v) => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Full(v))), Poll::Ready(())),

@@ -49,6 +49,7 @@ slotmap = "1.1.1"
 async-once-cell = "0.5.4"
 uuid = { version = "1.20.0", features = ["v4"] }
 async-unsync = "0.3.0"
+send_wrapper = "0.6.0"
 
 fx-types = { path = "../fx-types" }
 

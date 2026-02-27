@@ -1,11 +1,13 @@
 use {
     tokio::sync::oneshot,
     futures::{stream::FuturesUnordered, StreamExt},
+    send_wrapper::SendWrapper,
     crate::{
         function::FunctionId,
-        triggers::http::FetchRequestHeader,
+        triggers::http::{FetchRequestHeader, FunctionResponse},
+        resources::serialize::SerializedFunctionResource,
     },
-    super::messages::WorkerMessage,
+    super::messages::{WorkerMessage, WorkerLocalMessage},
 };
 
 #[derive(Clone)]
@@ -44,5 +46,30 @@ impl WorkersController {
         self.workers_tx.get(self.function_invoke_round_robin_counter as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
         self.function_invoke_round_robin_counter = (self.function_invoke_round_robin_counter + 1) % (self.workers_tx.len() as u64);
         response_rx.await.unwrap()
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct LocalWorkerController {
+    self_tx: SendWrapper<async_unsync::unbounded::UnboundedSender<WorkerLocalMessage>>,
+}
+
+impl LocalWorkerController {
+    pub(crate) fn new(self_tx: async_unsync::unbounded::UnboundedSender<WorkerLocalMessage>) -> Self {
+        Self {
+            self_tx: SendWrapper::new(self_tx),
+        }
+    }
+
+    pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> async_unsync::oneshot::Receiver<SerializedFunctionResource<FunctionResponse>> {
+        let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
+
+        self.self_tx.send(WorkerLocalMessage::FunctionInvoke {
+            function_id,
+            header,
+            response_tx,
+        }).unwrap();
+
+        response_rx
     }
 }

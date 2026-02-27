@@ -1,6 +1,7 @@
 use {
     std::{task::Poll, rc::Rc, pin::Pin},
     futures::{future::{BoxFuture, LocalBoxFuture}, FutureExt},
+    send_wrapper::SendWrapper,
     crate::{
         function::{instance::{FunctionFuturePollError, FunctionInstance}, deployment::FunctionFutureError},
         resources::FunctionResourceId,
@@ -8,8 +9,29 @@ use {
 };
 
 pub(crate) enum FutureResource<T> {
-    Future(BoxFuture<'static, T>),
+    Future(SendWrapper<LocalBoxFuture<'static, T>>),
     Ready(T),
+}
+
+impl<T> FutureResource<T> {
+    pub(crate) fn for_future(future: impl Future<Output = T> + 'static) -> Self {
+        Self::Future(SendWrapper::new(future.boxed_local()))
+    }
+
+    pub(crate) fn poll(&mut self, cx: &mut std::task::Context<'_>) -> Poll<()> {
+        match self {
+            Self::Ready(_) => Poll::Ready(()),
+            Self::Future(future) => {
+                match future.poll_unpin(cx) {
+                    Poll::Pending => Poll::Pending,
+                    Poll::Ready(v) => {
+                        *self = Self::Ready(v);
+                        Poll::Ready(())
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub(crate) struct FunctionFuture {

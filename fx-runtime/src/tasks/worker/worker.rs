@@ -16,7 +16,7 @@ use {
         function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
         triggers::http::HttpHandler,
     },
-    super::{WorkerMessage, WorkerLocalMessage},
+    super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController},
 };
 
 pub(crate) struct WorkerConfig {
@@ -61,6 +61,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
         let mut metrics_flush_interval = tokio::time::interval(Duration::from_secs(2));
 
         let (local_message_queue_tx, mut local_message_queue_rx) = async_unsync::unbounded::channel::<WorkerLocalMessage>().into_split();
+        let local_controller = LocalWorkerController::new(local_message_queue_tx);
 
         loop {
             tokio::select! {
@@ -68,16 +69,21 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                     worker_handle_message(
                         &wasmtime,
                         &worker,
+                        local_controller.clone(),
                         function_deployments.clone(),
                         functions.clone(),
                         http_hosts.clone(),
                         http_default.clone(),
-                        message.unwrap()
+                        message.unwrap(),
                     ).await;
                 },
 
                 message = local_message_queue_rx.recv() => {
-                    todo!("handle local message");
+                    worker_handle_local_message(
+                        function_deployments.clone(),
+                        functions.clone(),
+                        message.unwrap(),
+                    ).await;
                 }
 
                 connection = listener.accept() => {
@@ -87,7 +93,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                         functions.clone(),
                         http_hosts.clone(),
                         http_default.clone(),
-                        connection
+                        connection,
                     ).await;
                 },
 
@@ -102,6 +108,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 async fn worker_handle_message(
     wasmtime: &wasmtime::Engine,
     worker: &WorkerConfig,
+    local_controller: LocalWorkerController,
     function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
@@ -120,7 +127,7 @@ async fn worker_handle_message(
         } => {
             let deployment = FunctionDeployment::new(
                 &wasmtime,
-                worker.self_tx.clone(),
+                local_controller.clone(),
                 worker.logger_tx.clone(),
                 worker.sql_tx.clone(),
                 function_id.clone(),
@@ -178,11 +185,27 @@ async fn worker_handle_message(
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
             let function_future = deployment.borrow().handle_request(header, None);
             tokio::task::spawn_local(async move {
-                let response = function_future.await.unwrap();
-                let response = response.move_to_host().await;
+                let _response = function_future.await.unwrap();
                 response_tx.send(()).unwrap();
             });
         },
+    }
+}
+
+async fn worker_handle_local_message(
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+    functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
+    message: WorkerLocalMessage
+) {
+    match message {
+        WorkerLocalMessage::FunctionInvoke { function_id, header, response_tx } => {
+            let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
+            let function_future = deployment.borrow().handle_request(header, None);
+            tokio::task::spawn_local(async move {
+                let response = function_future.await.unwrap();
+                response_tx.send(response).unwrap();
+            });
+        }
     }
 }
 

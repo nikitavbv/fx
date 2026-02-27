@@ -22,7 +22,7 @@ use {
             sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
             worker::WorkerMessage,
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestHeader},
+        triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner},
     },
 };
 
@@ -150,9 +150,9 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
         response: response_tx,
     })).unwrap();
 
-    caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::Future(async move {
+    caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::for_future(async move {
         SerializableResource::Raw(response_rx.await.unwrap().map_err(|v| v.into()))
-    }.boxed()))).as_u64()
+    }))).as_u64()
 }
 
 pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
@@ -188,9 +188,9 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
         response: response_tx,
     })).unwrap();
 
-    caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::Future(async move {
+    caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::for_future(async move {
         SerializableResource::Raw(response_rx.await.unwrap())
-    }.boxed()))).as_u64()
+    }))).as_u64()
 }
 
 pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
@@ -290,7 +290,7 @@ pub(super) fn fx_blob_get_handler(
         String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
     }));
 
-    caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::Future(async move {
+    caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::for_future(async move {
         SerializableResource::Raw({
             match key_path {
                 Some(v) => match tokio::fs::read(v).await {
@@ -306,7 +306,7 @@ pub(super) fn fx_blob_get_handler(
                 None => BlobGetResponse::BindingNotExists
             }
         })
-    }.boxed()))).as_u64()
+    }))).as_u64()
 }
 
 pub(super) fn fx_blob_delete_handler(
@@ -381,14 +381,18 @@ pub(super) fn fx_fetch_handler(
             .into_parts();
 
         let header = FetchRequestHeader::from_http_parts(request);
-        let (response_tx, response_rx) = oneshot::channel::<()>();
-        let message = WorkerMessage::FunctionInvoke { function_id: function_binding.function_id.clone(), header, response_tx };
-        caller.data().self_tx.send(message).unwrap();
+        let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
-        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
-            response_rx.await.unwrap();
-            unimplemented!()
-        }.boxed()))).as_u64()
+        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
+            let response = response_rx.await.unwrap();
+            let response = response.move_to_host().await;
+            match response.0 {
+                FunctionResponseInner::HttpResponse(response) => {
+                    let body = response.body.replace(None).unwrap().move_to_host().await;
+                    SerializableResource::Raw(FetchResult::new(response.status, body))
+                }
+            }
+        }))).as_u64()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
@@ -432,12 +436,12 @@ pub(super) fn fx_fetch_handler(
         }
 
         let client = caller.data().http_client.clone();
-        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::Future(async move {
+        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
             SerializableResource::Raw({
                 let result = client.execute(fetch_request).await.unwrap();
                 FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
             })
-        }.boxed()))).as_u64()
+        }))).as_u64()
     }
 }
 

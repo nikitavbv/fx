@@ -1,6 +1,6 @@
 pub(crate) use self::{
     messages::{WorkerMessage, WorkerLocalMessage},
-    controller::WorkersController,
+    controller::{WorkersController, LocalWorkerController},
     worker::{WorkerConfig, run_worker_task},
 };
 

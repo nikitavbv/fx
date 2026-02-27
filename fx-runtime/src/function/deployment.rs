@@ -4,7 +4,7 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         effects::logs::LogMessageEvent,
-        tasks::{sql::SqlMessage, worker::WorkerMessage},
+        tasks::{sql::SqlMessage, worker::LocalWorkerController},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, FetchRequestBody},
         resources::{Resource, serialize::{SerializedFunctionResource, SerializableResource}, future::FunctionFuture},
@@ -34,7 +34,7 @@ pub(crate) struct FunctionDeployment {
 impl FunctionDeployment {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
-        self_tx: flume::Sender<WorkerMessage>,
+        local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
         function_id: FunctionId,
@@ -89,7 +89,7 @@ impl FunctionDeployment {
                 }
             })?;
 
-        let instance = FunctionInstance::new(wasmtime, self_tx, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob, bindings_functions).await
+        let instance = FunctionInstance::new(wasmtime, local_worker, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob, bindings_functions).await
             .map_err(|err| match err {
                 FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
             })?;

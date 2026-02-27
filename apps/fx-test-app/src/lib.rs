@@ -345,12 +345,12 @@ async fn cron_database() -> SqlDatabase {
     database
 }
 
-async fn rpc_simple() -> &'static str {
+async fn rpc_simple() -> String {
     info!("sending rpc request");
     let response = fetch(HttpRequest::get("http://function-rpc.fx.local/").unwrap()).await.unwrap();
-    info!("got response from rpc: {:?}", response.status());
+    assert!(response.status().is_success());
 
-    "rpc test"
+    format!("rpc test: {}", String::from_utf8(response.into_body()).unwrap())
 }
 
 #[derive(Clone)]

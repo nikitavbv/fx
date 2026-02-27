@@ -464,7 +464,7 @@ async fn cron_simple() {
     assert!(result2 >= result1 + 3); // in 4 seconds we expect cron job to run three times
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn rpc_simple() {
     init_fx_server();
 
@@ -473,7 +473,8 @@ async fn rpc_simple() {
         .unwrap();
 
     assert!(result.status().is_success());
-}*/
+    assert_eq!("rpc test: hello from other function!", result.text().await.unwrap());
+}
 
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();

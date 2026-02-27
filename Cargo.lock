@@ -1243,6 +1243,7 @@ dependencies = [
  "rmp-serde",
  "rusqlite",
  "rusqlite_migration",
+ "send_wrapper",
  "serde",
  "serde_json",
  "serde_yml",
