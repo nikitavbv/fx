@@ -373,6 +373,7 @@ pub(super) fn fx_fetch_handler(
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
     if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
+        // TODO: use this body (check that post request to other function will work)
         let (request, body) = http::Request::builder()
             .method(request_method)
             .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap())
@@ -388,6 +389,7 @@ pub(super) fn fx_fetch_handler(
             let response = response.move_to_host().await;
             match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
+                    // todo: make body lazy, support streaming
                     let body = response.body.replace(None).unwrap().move_to_host().await;
                     SerializableResource::Raw(FetchResult::new(response.status, body))
                 }
@@ -438,6 +440,7 @@ pub(super) fn fx_fetch_handler(
         let client = caller.data().http_client.clone();
         caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
             SerializableResource::Raw({
+                // todo: make body lazy, support streaming
                 let result = client.execute(fetch_request).await.unwrap();
                 FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
             })
