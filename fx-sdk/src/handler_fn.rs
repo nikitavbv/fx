@@ -1,7 +1,3 @@
-pub use {
-    fx_macro::fetch,
-};
-
 use {
     std::{pin::Pin, future::Future, collections::HashMap, sync::Mutex, sync::OnceLock},
     thiserror::Error,

@@ -1,5 +1,5 @@
 use {
-    fx_sdk::{self as fx, handler, HttpRequest, SqlQuery, HttpResponse, io::http::HeaderValue},
+    fx_sdk::{self as fx, handler, HttpRequest, SqlQuery, HttpResponse, io::http::{HeaderName, HeaderValue}},
     yarte::Template,
 };
 
@@ -11,11 +11,11 @@ struct Fortune {
 #[derive(Template)]
 #[template(path = "fortunes.html.hbs")]
 pub struct FortunesTemplate<'a> {
-    pub fortunes: &'a Vec<Fortune>,
+    fortunes: &'a Vec<Fortune>,
 }
 
-#[fx::handler::fetch]
-pub async fn http(_req: HttpRequest) -> handler::FunctionResponse {
+#[handler]
+pub async fn http(_req: HttpRequest) -> HttpResponse {
     let db = fx::sql("fortunes");
     let mut fortunes = db.exec(SqlQuery::new("select id, message from fortune"))
         .await
@@ -30,13 +30,9 @@ pub async fn http(_req: HttpRequest) -> handler::FunctionResponse {
     fortunes.push(Fortune { id: 0, message: "Additional fortune added at request time.".to_owned() });
     fortunes.sort_by(|a, b| a.message.cmp(&b.message));
 
-    /*Ok(
-        HttpResponse::new()
-            .with_header("Content-Type", HeaderValue::from_static("text/html; charset=utf-8"))
-            .with_body(render_html(&fortunes))
-    );*/
-
-    unimplemented!()
+    HttpResponse::new()
+        .with_header(HeaderName::from_static("Content-Type"), HeaderValue::from_static("text/html; charset=utf-8"))
+        .with_body(render_html(&fortunes))
 }
 
 fn render_html(fortunes: &Vec<Fortune>) -> String {

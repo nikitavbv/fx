@@ -13,7 +13,7 @@ use {
         resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource},
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::{SqlValue, SqlMigrationError, SqlMigrationResult, SqlQueryResult, SqlQueryError},
+            sql::{SqlValue, SqlMigrationError, SqlMigrationResult, SqlQueryError},
             blob::BlobGetResponse,
             fetch::FetchResult,
             metrics::{MetricKey, MetricId},
@@ -491,5 +491,5 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
 }
 
 pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
-    caller.data_mut().metrics.counter_increment(MetricId::new(counter_id), delta);
+    caller.data_mut().metrics.counter_increment(MetricId::from_abi(counter_id), delta);
 }

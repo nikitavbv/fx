@@ -26,7 +26,6 @@ use {
     },
 };
 
-const FILE_EXTENSION_WASM: &str = ".wasm";
 const DEFINITION_FILE_SUFFIX: &str = ".fx.yaml";
 
 pub(crate) struct DefinitionsMonitor {
@@ -91,7 +90,7 @@ impl DefinitionsMonitor {
         }
 
         info!("listening for definition changes");
-        let (tx, mut rx) = flume::unbounded();
+        let (tx, rx) = flume::unbounded();
         let event_fn = {
             move |res: notify::Result<notify::Event>| {
                 let res = res.unwrap();

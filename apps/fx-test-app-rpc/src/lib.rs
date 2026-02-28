@@ -4,7 +4,7 @@ use {
     tracing::info,
 };
 
-#[handler::fetch]
+#[handler]
 pub async fn http(req: HttpRequest) -> HttpResponse {
     info!("handling request in rpc target function");
 

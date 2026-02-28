@@ -5,7 +5,7 @@ use {
     lazy_static,
     fx_types::{capnp, abi::FuturePollResult, abi_function_resources_capnp},
     crate::{
-        handler::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
+        handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
         sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
     },
 };
@@ -92,14 +92,14 @@ impl SerializeResource for FunctionResponse {
         match self.0 {
             FunctionResponseInner::HttpResponse(http) => {
                 resource.set_status(http.status.as_u16());
-                
+
                 let mut headers = resource.reborrow().init_headers(http.headers.len() as u32);
                 for (index, (name, value)) in http.headers.iter().enumerate() {
                     let mut header = headers.reborrow().get(index as u32);
                     header.set_name(name.as_str());
                     header.set_value(value.to_str().unwrap());
                 }
-                
+
                 resource.set_body_resource(http.body.as_u64());
             }
         }

@@ -8,12 +8,6 @@ use {
 };
 
 #[derive(Debug)]
-pub(crate) enum SqlQueryResult {
-    Ok(Vec<SqlRow>),
-    Error(SqlQueryError),
-}
-
-#[derive(Debug)]
 pub struct SqlRow {
     pub columns: Vec<SqlValue>,
 }

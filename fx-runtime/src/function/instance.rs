@@ -26,7 +26,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
     // triggers:
-    fn_trigger_http: wasmtime::TypedFunc<u64, u64>,
+    fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
 
 impl FunctionInstance {
@@ -63,7 +63,7 @@ impl FunctionInstance {
         let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
-        let fn_trigger_http = instance.get_typed_func(store.as_context_mut(), "__fx_handler_http")
+        let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         // We are using async calls to exported functions to enable epoch-based preemption.
@@ -84,7 +84,7 @@ impl FunctionInstance {
             fn_resource_serialize,
             fn_resource_serialized_ptr,
             fn_resource_drop,
-            fn_trigger_http,
+            fn_handler,
         })
     }
 
@@ -140,7 +140,7 @@ impl FunctionInstance {
 
     pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
         let store = self.store.lock();
-        FunctionResourceId::new(self.fn_trigger_http.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
+        FunctionResourceId::new(self.fn_handler.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
     }
 }
 

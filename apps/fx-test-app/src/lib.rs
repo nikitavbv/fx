@@ -28,7 +28,7 @@ lazy_static! {
     static ref INVOCATION_COUNT: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
 }
 
-#[handler::fetch]
+#[handler]
 pub async fn http(mut req: HttpRequest) -> HttpResponse {
     let req = if req.uri().path().starts_with("/test/http/header-get-simple") {
         return HttpResponse::new().with_body(format!("ok: {}\n", req.headers().get("x-test-header").unwrap().to_str().unwrap()))

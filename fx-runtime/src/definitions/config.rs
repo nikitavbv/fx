@@ -305,7 +305,7 @@ pub(crate) enum FunctionConfigLoadError {
 }
 
 impl FunctionConfig {
-    pub async fn load(file_path: PathBuf) -> Result<Self, FunctionConfigLoadError> {
+    pub(crate) async fn load(file_path: PathBuf) -> Result<Self, FunctionConfigLoadError> {
         let mut config: Self = serde_yml::from_slice(
             &fs::read(&file_path).await
                 .map_err(|err| FunctionConfigLoadError::FailedToRead(err))?

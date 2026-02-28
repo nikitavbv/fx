@@ -3,7 +3,7 @@ use {
     tokio::sync::oneshot,
     crate::{
         definitions::bindings::{SqlBindingConfig, SqlBindingConfigLocation},
-        effects::sql::{SqlValue, SqlQueryResult, SqlMigrationResult, SqlQueryExecutionError, SqlRow, SqlMigrationError},
+        effects::sql::{SqlValue, SqlMigrationResult, SqlQueryExecutionError, SqlRow, SqlMigrationError},
     },
 };
 

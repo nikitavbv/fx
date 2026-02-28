@@ -12,7 +12,7 @@ use {
 
 static DOCS: Dir = include_dir!("$CARGO_MANIFEST_DIR/docs");
 
-#[handler::fetch]
+#[handler]
 pub async fn http(req: HttpRequest) -> HttpResponse {
     handle_request(
         Router::new()

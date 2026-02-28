@@ -2,6 +2,7 @@ pub use {
     futures::FutureExt,
     inventory,
     ::http::{StatusCode, HeaderName, HeaderValue},
+    fx_macro::handler,
     crate::{
         sys::PtrWithLen,
         error::FxError,
@@ -39,7 +40,7 @@ pub mod io {
 pub mod sys;
 pub mod utils;
 
-pub mod handler;
+pub mod handler_fn;
 pub mod logging;
 pub mod sql;
 

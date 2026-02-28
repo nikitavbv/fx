@@ -3,7 +3,7 @@ use {
     axum::{Router, routing::get},
 };
 
-#[handler::fetch]
+#[handler]
 pub async fn http(req: HttpRequest) -> HttpResponse {
     handle_request(
         Router::new()
