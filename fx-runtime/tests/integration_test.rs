@@ -486,6 +486,14 @@ async fn rpc_simple() {
     assert_eq!("rpc test: hello from other function!", result.text().await.unwrap());
 }
 
+#[tokio::test]
+async fn sql_binding_nonexistent_directory() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/sql/nonexistent-db").await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("ok: 1", response.text().await.unwrap());
+}
+
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
@@ -571,14 +579,6 @@ fn init_fx_server() {
             server
         })).join().unwrap()
     });
-}
-
-#[tokio::test]
-async fn sql_binding_nonexistent_directory() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql/nonexistent-db").await.unwrap();
-    assert!(response.status().is_success());
-    assert_eq!("ok: 1", response.text().await.unwrap());
 }
 
 // TODO: add test that verifies that counter metrics with labels are recorded correctly
