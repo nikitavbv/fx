@@ -49,7 +49,12 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                             .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
                             .union(rusqlite::OpenFlags::SQLITE_OPEN_SHARED_CACHE)
                     ).unwrap(),
-                    SqlBindingConfigLocation::Path(v) => rusqlite::Connection::open(v).unwrap(),
+                    SqlBindingConfigLocation::Path(v) => {
+                        if let Some(parent) = v.parent() {
+                            std::fs::create_dir_all(parent).unwrap();
+                        }
+                        rusqlite::Connection::open(v).unwrap()
+                    }
                 };
                 if let Some(busy_timeout) = binding.busy_timeout {
                     connection.busy_timeout(busy_timeout).unwrap();

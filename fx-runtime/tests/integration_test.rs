@@ -513,6 +513,9 @@ fn init_fx_server() {
                         "test-app-rpc".to_owned(),
                         Some("function-rpc.fx.local".to_owned())
                     ))
+                    .with_binding_sql_config(
+                        SqlBindingConfig::new("nonexistent-db".to_owned(), "/nonexistent/directory/test.sqlite".to_owned())
+                    )
             ).await;
 
             server.deploy_function(
@@ -560,7 +563,14 @@ fn init_fx_server() {
     });
 }
 
-// TODO: add test that checks what happens if sqlite binding is inside directory that does not exist
+#[tokio::test]
+async fn sql_binding_nonexistent_directory() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/sql/nonexistent-db").await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("ok: 1", response.text().await.unwrap());
+}
+
 // TODO: add test that verifies that counter metrics with labels are recorded correctly
 // TODO: sql transactions
 // TODO: test that database can only be accessed by correct binding name
