@@ -514,7 +514,7 @@ fn init_fx_server() {
                         Some("function-rpc.fx.local".to_owned())
                     ))
                     .with_binding_sql_config(
-                        SqlBindingConfig::new("nonexistent-db".to_owned(), "/nonexistent/directory/test.sqlite".to_owned())
+                        SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
                     )
             ).await;
 
