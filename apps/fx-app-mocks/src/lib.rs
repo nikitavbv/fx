@@ -1,5 +1,5 @@
 use {
-    fx_sdk::{self as fx, HttpRequest, HttpResponse, handler, utils::axum::handle_request},
+    fx_sdk::{HttpRequest, HttpResponse, handler, utils::axum::handle_request},
     axum::{Router, routing::get},
 };
 

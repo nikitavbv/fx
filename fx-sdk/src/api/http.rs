@@ -236,29 +236,46 @@ impl DeserializeHostResource for HttpRequestData {
 }
 
 pub struct HttpResponse {
-    pub(crate) status: http::StatusCode,
+    parts: http::response::Parts,
     pub(crate) body: Vec<u8>,
 }
 
 impl HttpResponse {
     pub fn new() -> Self {
+        Self::from_parts(http::Response::builder().body(()).unwrap().into_parts().0)
+    }
+
+    pub fn from_parts(parts: http::response::Parts) -> Self {
         Self {
-            status: http::StatusCode::OK,
+            parts,
             body: Vec::new(),
         }
     }
 
     pub fn status(&self) -> &http::StatusCode {
-        &self.status
+        &self.parts.status
     }
 
     pub fn with_status(mut self, status: http::StatusCode) -> Self {
-        self.status = status;
+        self.parts.status = status;
+        self
+    }
+
+    pub fn headers(&self) -> &HeaderMap {
+        &self.parts.headers
+    }
+
+    pub fn with_header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.parts.headers.insert(name, value);
         self
     }
 
     pub fn body(&self) -> &Vec<u8> {
         &self.body
+    }
+
+    pub fn into_parts(self) -> (http::response::Parts, Vec<u8>) {
+        (self.parts, self.body)
     }
 
     pub fn into_body(self) -> Vec<u8> {
@@ -311,8 +328,21 @@ impl DeserializeHostResource for HttpResponse {
         let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
         let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_response::Reader>().unwrap();
 
+        let mut parts = http::response::Builder::new()
+            .status(http::StatusCode::from_u16(request.get_status()).unwrap())
+            .body(())
+            .unwrap()
+            .into_parts()
+            .0;
+
+        for header in request.get_headers().unwrap() {
+            let name = HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
+            let value = HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
+            parts.headers.append(name, value);
+        }
+
         HttpResponse {
-            status: http::StatusCode::from_u16(request.get_status()).unwrap(),
+            parts,
             body: request.get_body().unwrap().to_vec(),
         }
     }

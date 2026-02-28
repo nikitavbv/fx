@@ -81,9 +81,10 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let mut response = Response::new(body);
             match function_response {
-                Ok(function_response) => match &function_response.0 {
+                Ok(function_response) => match function_response.0 {
                     FunctionResponseInner::HttpResponse(v) => {
                         *response.status_mut() = v.status;
+                        *response.headers_mut() = v.headers;
                     }
                 },
                 Err(err) => match err {
@@ -226,6 +227,7 @@ pub(crate) enum FunctionResponseInner {
 
 pub(crate) struct FunctionHttpResponse {
     pub(crate) status: ::http::status::StatusCode,
+    pub(crate) headers: ::http::HeaderMap,
     pub(crate) body: Cell<Option<SerializedFunctionResource<Vec<u8>>>>,
 }
 

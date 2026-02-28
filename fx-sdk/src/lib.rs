@@ -1,7 +1,7 @@
 pub use {
     futures::FutureExt,
     inventory,
-    ::http::StatusCode,
+    ::http::{StatusCode, HeaderName, HeaderValue},
     crate::{
         sys::PtrWithLen,
         error::FxError,

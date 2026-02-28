@@ -19,11 +19,9 @@ pub async fn handle_request(router: axum::Router, mut src_req: HttpRequest) -> H
 
     let fx_response = service.call(request);
     let fx_response = fx_response.await.unwrap();
-    let response = HttpResponse::new()
-        .with_status(fx_response.status());
-    //.with_headers(fx_response.headers().clone());
 
-    let body = fx_response.into_body();
+    let (parts, body) = fx_response.into_parts();
+    let response = HttpResponse::from_parts(parts);
     let mut stream = body.into_data_stream();
 
     let mut response_body: Vec<u8> = Vec::new();

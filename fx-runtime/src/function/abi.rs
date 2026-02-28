@@ -4,7 +4,7 @@ use {
     std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr},
     tokio::{sync::oneshot, time::Duration},
     http::Method,
-    http_body_util::BodyStream,
+    http_body_util::{BodyStream, BodyExt},
     wasmtime::{AsContext, AsContextMut},
     futures::{FutureExt, StreamExt},
     rand::TryRngCore,
@@ -391,7 +391,13 @@ pub(super) fn fx_fetch_handler(
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming
                     let body = response.body.replace(None).unwrap().move_to_host().await;
-                    SerializableResource::Raw(FetchResult::new(response.status, body))
+                    let http_response = ::http::Response::builder()
+                        .status(response.status)
+                        .body(())
+                        .unwrap();
+                    let (mut parts, _) = http_response.into_parts();
+                    parts.headers = response.headers;
+                    SerializableResource::Raw(FetchResult::new(parts, body))
                 }
             }
         }))).as_u64()
@@ -442,7 +448,10 @@ pub(super) fn fx_fetch_handler(
             SerializableResource::Raw({
                 // todo: make body lazy, support streaming
                 let result = client.execute(fetch_request).await.unwrap();
-                FetchResult::new(result.status(), result.bytes().await.unwrap().to_vec())
+                let http_response: ::http::Response<reqwest::Body> = result.into();
+                let (parts, body) = http_response.into_parts();
+                let body = body.collect().await.unwrap().to_bytes().to_vec();
+                FetchResult::new(parts, body)
             })
         }))).as_u64()
     }

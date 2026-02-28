@@ -41,6 +41,16 @@ async fn test_http_header() {
 }
 
 #[tokio::test]
+async fn test_http_response_header() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/http/response-header")
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("test-value", response.headers().get("x-custom-header").unwrap().to_str().unwrap());
+}
+
+#[tokio::test]
 async fn uri_overwrite() {
     init_fx_server();
     let response = reqwest::get("http://localhost:8080/test/http/uri-overwrite").await.unwrap();

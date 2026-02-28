@@ -35,7 +35,9 @@ pub(crate) enum FunctionResponseInner {
 }
 
 pub(crate) struct FunctionHttpResponse {
+    // TODO: have http parts here too?
     pub(crate) status: http::status::StatusCode,
+    pub(crate) headers: http::HeaderMap,
     pub(crate) body: FunctionResourceId,
 }
 
@@ -51,9 +53,12 @@ impl IntoFunctionResponse for FunctionResponse {
 
 impl IntoFunctionResponse for HttpResponse {
     fn into_function_response(self) -> FunctionResponse {
+        let (parts, body) = self.into_parts();
+
         FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
-            status: self.status,
-            body: add_function_resource(FunctionResource::FunctionResponseBody(self.body)),
+            status: parts.status,
+            headers: parts.headers,
+            body: add_function_resource(FunctionResource::FunctionResponseBody(body)),
         }))
     }
 }

@@ -45,6 +45,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
         Router::new()
             .route("/test/status-code", get(test_status_code))
             .route("/test/http/uri-overwritten", get(test_uri_overwritten))
+            .route("/test/http/response-header", get(test_response_header))
             .route("/test/http/body", post(test_http_body))
             .route("/test/sql/simple", get(test_sql_simple))
             .route("/test/sql/migrate", get(test_sql_migrate))
@@ -88,6 +89,15 @@ async fn test_status_code() -> (StatusCode, &'static str) {
 
 async fn test_uri_overwritten() -> &'static str {
     "hello from overwritten uri"
+}
+
+async fn test_response_header() -> (axum::http::StatusCode, axum::http::HeaderMap, &'static str) {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::HeaderName::from_static("x-custom-header"),
+        axum::http::HeaderValue::from_static("test-value"),
+    );
+    (axum::http::StatusCode::OK, headers, "response with custom header")
 }
 
 async fn test_http_body(body_text: String) -> String {
