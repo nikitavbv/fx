@@ -138,8 +138,9 @@ impl FunctionInstance {
         resource_data
     }
 
-    pub(crate) async fn stream_frame_read(&self, resource_id: &ResourceId) -> Vec<u8> {
-        todo!()
+    pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) {
+        let len = self.resource_serialize(resource_id).await as usize;
+        todo!();
     }
 
     pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {

@@ -41,3 +41,10 @@ struct HttpResponse {
     headers @2 :List(HttpHeader);
     bodyResourceId @1 :UInt64;
 }
+
+struct FunctionHttpBodyFrame {
+    body :union {
+        streamEnd @0 :Void;
+        bytes @1 :Data;
+    }
+}

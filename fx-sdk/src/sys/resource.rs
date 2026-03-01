@@ -293,6 +293,10 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
                 },
                 HttpBodyInner::Stream(_) => panic!("resource is not yet ready for serialization"),
+                HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => {
+                    let serialized_size = frame_serialized.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream { stream, frame_serialized })), serialized_size)
+                }
                 HttpBodyInner::HostResource(_) => panic!("host resources should not be serialized - host should access them directly instead to avoid copying to wasm and back"),
             },
         };

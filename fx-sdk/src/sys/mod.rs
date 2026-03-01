@@ -21,11 +21,11 @@ pub(crate) use self::{
 
 use {
     std::{task::Poll, io::Cursor},
-    futures::FutureExt,
-    fx_types::{capnp, abi::FuturePollResult},
+    futures::{FutureExt, StreamExt},
+    fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
         logging::{set_panic_hook, init_logger},
-        api::http::HttpBodyInner,
+        api::http::{HttpBody, HttpBodyInner},
     },
 };
 
@@ -41,19 +41,56 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
 
     let future_resource_id = FunctionResourceId::new(future_resource_id);
     let future_poll_result = map_function_resource_ref_mut(&future_resource_id, |future_resource| {
-        let future = match &mut *future_resource {
-            FunctionResource::FunctionResponseFuture(v) => v,
-            _other => panic!("resource is not future"),
-        };
-
         let mut context = Context::from_waker(Waker::noop());
-        future.poll_unpin(&mut context)
+
+        match &mut *future_resource {
+            FunctionResource::FunctionResponseFuture(v) => v
+                .poll_unpin(&mut context)
+                .map(|v| FunctionResource::from(v)),
+            FunctionResource::HttpBody(v) => {
+                let body = std::mem::replace(&mut v.0, HttpBodyInner::Empty);
+
+                let (body, poll) = match body {
+                    HttpBodyInner::Empty => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)))),
+                    HttpBodyInner::Bytes(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Bytes(v))))),
+                    HttpBodyInner::BytesSerialized(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(v))))),
+                    HttpBodyInner::HostResource(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource(v))))),
+                    HttpBodyInner::Stream(mut stream) => match stream.poll_next_unpin(&mut context) {
+                        Poll::Pending => (HttpBodyInner::Stream(stream), Poll::Pending),
+                        Poll::Ready(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream {
+                            stream,
+                            frame_serialized: {
+                                let mut message = capnp::message::Builder::new_default();
+                                let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+                                let mut serialized_frame = serialized_frame.init_body();
+
+                                match v {
+                                    None => serialized_frame.set_stream_end(()),
+                                    Some(Err(err)) => todo!("handle error: {err:?}"),
+                                    Some(Ok(frame)) => serialized_frame.set_bytes(&frame.to_vec()),
+                                }
+
+                                capnp::serialize::write_message_to_words(&message)
+                            },
+                        })))),
+                    },
+                    HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream {
+                        stream,
+                        frame_serialized,
+                    })))),
+                };
+
+                v.0 = body;
+
+                poll
+            },
+            _other => panic!("resource is not future"),
+        }
     });
 
     (match future_poll_result {
         Poll::Pending => FuturePollResult::Pending,
         Poll::Ready(resource) => {
-            let resource = FunctionResource::from(resource);
             replace_function_resource(&future_resource_id, resource);
             FuturePollResult::Ready
         }

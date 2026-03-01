@@ -150,13 +150,20 @@ impl hyper::body::Body for HttpBody {
                             }.boxed_local(),
                         }, Poll::Pending)
                     },
-                    FunctionResourceReader::FramePollFuture { instance, resource_id, future } => todo!(),
+                    FunctionResourceReader::FramePollFuture { instance, resource_id, mut future } => {
+                        match future.poll_unpin(cx) {
+                            Poll::Pending | Poll::Ready(Poll::Pending) => (FunctionResourceReader::FramePollFuture { instance, resource_id, future }, Poll::Pending),
+                            Poll::Ready(Poll::Ready(_)) => (FunctionResourceReader::FrameReadFuture {
+                                instance: instance.clone(),
+                                resource_id: resource_id.clone(),
+                                future: async move {
+                                    instance.stream_frame_read(&resource_id).await
+                                }.boxed_local(),
+                            }, Poll::Pending)
+                        }
+                    },
+                    FunctionResourceReader::FrameReadFuture { instance, resource_id, future } => todo!(),
                 };
-
-                /*let poll_result = match &mut reader {
-                    FunctionResourceReader::Empty | FunctionResourceReader::Resource(_) => unreachable!(),
-                    //FunctionResourceReader::Future(v) => v.poll_unpin(cx).map(|v| Some(Ok(hyper::body::Frame::data(Bytes::from(v))))),
-                };*/
 
                 if poll.is_pending() {
                     resource.replace(reader);
@@ -185,6 +192,12 @@ enum FunctionResourceReader {
         instance: Rc<FunctionInstance>,
         resource_id: FunctionResourceId,
         future: LocalBoxFuture<'static, Poll<()>>,
+    },
+    // frame is ready, reading it now
+    FrameReadFuture {
+        instance: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+        future: LocalBoxFuture<'static, ()>,
     },
 }
 
@@ -240,7 +253,7 @@ pub(crate) enum FetchRequestBodyInner {
     Stream(Pin<Box<hyper::body::Incoming>>),
     PartiallyReadStream {
         stream: Pin<Box<hyper::body::Incoming>>,
-        frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>,
+        frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>, // TODO: why PartiallyReadStream exists? can't we just go from Stream to PartiallyReadStreamSerialized?
     },
     PartiallyReadStreamSerialized {
         stream: Pin<Box<hyper::body::Incoming>>,

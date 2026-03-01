@@ -5,7 +5,7 @@ use {
     http::{Method, HeaderMap},
     serde::Serialize,
     thiserror::Error,
-    futures::stream::BoxStream,
+    futures::stream::{BoxStream, Stream},
     bytes::Bytes,
     fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
@@ -310,10 +310,20 @@ impl HttpBody {
     }
 }
 
+impl Stream for HttpBody {
+    type Item = Result<Bytes, HttpBodyStreamError>;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        todo!()
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum HttpBodyStreamError {}
+
 impl axum::response::IntoResponse for HttpBody {
     fn into_response(self) -> axum::response::Response {
-        // axum::response::Response::new(axum::body::Body::from_stream())
-        todo!()
+        axum::response::Response::new(axum::body::Body::from_stream(self))
     }
 }
 
@@ -322,6 +332,10 @@ pub(crate) enum HttpBodyInner {
     Bytes(Vec<u8>),
     BytesSerialized(Vec<u8>),
     Stream(BoxStream<'static, Result<Bytes, ()>>),
+    PartiallyReadStream {
+        stream: BoxStream<'static, Result<Bytes, ()>>,
+        frame_serialized: Vec<u8>,
+    },
     HostResource(OwnedResourceId),
 }
 
