@@ -1297,6 +1297,7 @@ dependencies = [
  "async-stream",
  "axum",
  "base64",
+ "futures",
  "fx-sdk",
  "lazy_static",
  "sqlx",

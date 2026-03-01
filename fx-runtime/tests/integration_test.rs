@@ -512,6 +512,63 @@ async fn sql_binding_nonexistent_directory() {
     assert_eq!("ok: 1", response.text().await.unwrap());
 }
 
+/*#[tokio::test]
+async fn response_stream_simple() {
+    init_fx_server();
+
+    let started_at = Instant::now();
+    let response = reqwest::get("http://localhost:8080/test/stream/sse").await.unwrap();
+    assert!(response.status().is_success());
+
+    let mut response = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut events = Vec::new();
+
+    while let Some(chunk) = response.next().await {
+        buffer.push_str(&String::from_utf8(chunk.unwrap().into()).unwrap());
+
+        while let Some(pos) = buffer.find("\n\n") {
+            let event_str = buffer[..pos].to_string();
+            buffer = buffer[pos + 2..].to_string();
+
+            if event_str.starts_with("data: ") {
+                let data = event_str[6..].to_string();
+                events.push((Instant::now(), data));
+            }
+        }
+    }
+
+    assert_eq!(events.len(), 5, "Expected 5 events, got {}", events.len());
+    for (i, (_, event)) in events.iter().enumerate() {
+        assert_eq!(event, &format!("Message {}", i + 1));
+    }
+
+    let first_event_time = events[0].0.duration_since(started_at).as_millis();
+    assert!(
+        first_event_time >= 900 && first_event_time <= 1500,
+        "first event should arrive after ~1 second, but took {}ms",
+        first_event_time
+    );
+
+    for i in 1..events.len() {
+        let interval = events[i].0.duration_since(events[i - 1].0).as_millis();
+        assert!(
+            interval >= 900 && interval <= 1500,
+            "event {} should arrive ~1 second after event {}, but interval was {}ms",
+            i + 1,
+            i,
+            interval
+        );
+    }
+
+    let total_time = Instant::now().duration_since(started_at).as_secs();
+    assert!(
+        total_time >= 4 && total_time <= 7,
+        "total streaming time should be around 5 seconds, but was {} seconds",
+        total_time
+    );
+}*/
+
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {

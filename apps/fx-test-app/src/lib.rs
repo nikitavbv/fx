@@ -1,8 +1,9 @@
 use {
-    std::{time::Duration, collections::HashMap, sync::Mutex},
+    std::{time::Duration, collections::HashMap, sync::Mutex, convert::Infallible},
     tracing::info,
-    axum::{Router, routing::{get, post}, Extension},
+    axum::{Router, routing::{get, post}, Extension, response::sse::{Sse, Event}},
     lazy_static::lazy_static,
+    futures::stream::{self, Stream, StreamExt},
     fx_sdk::{
         self as fx,
         handler,
@@ -74,6 +75,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/unknown-import", get(test_unknown_import))
             .route("/test/cron", get(read_cron_status))
             .route("/test/rpc/simple", get(rpc_simple))
+            .route("/test/stream/sse", get(test_stream_sse))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -446,6 +448,17 @@ async fn rpc_simple() -> String {
     assert!(response.status().is_success());
 
     format!("rpc test: {}", String::from_utf8(response.into_body()).unwrap())
+}
+
+async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let stream = stream::iter(1..=5)
+        .then(|i| async move {
+            sleep(Duration::from_secs(1)).await;
+            let event = Event::default().data(format!("Message {}", i));
+            Ok::<_, Infallible>(event)
+        });
+
+    Sse::new(stream)
 }
 
 #[derive(Clone)]
