@@ -5,6 +5,8 @@ use {
     http::{Method, HeaderMap},
     serde::Serialize,
     thiserror::Error,
+    futures::stream::BoxStream,
+    bytes::Bytes,
     fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
         ResourceId,
@@ -237,7 +239,7 @@ impl DeserializeHostResource for HttpRequestData {
 
 pub struct HttpResponse {
     parts: http::response::Parts,
-    pub(crate) body: Vec<u8>,
+    body: HttpBody,
 }
 
 impl HttpResponse {
@@ -248,7 +250,7 @@ impl HttpResponse {
     pub fn from_parts(parts: http::response::Parts) -> Self {
         Self {
             parts,
-            body: Vec::new(),
+            body: HttpBody::empty(),
         }
     }
 
@@ -270,22 +272,51 @@ impl HttpResponse {
         self
     }
 
-    pub fn body(&self) -> &Vec<u8> {
-        &self.body
-    }
-
-    pub fn into_parts(self) -> (http::response::Parts, Vec<u8>) {
+    pub fn into_parts(self) -> (http::response::Parts, HttpBody) {
         (self.parts, self.body)
     }
 
-    pub fn into_body(self) -> Vec<u8> {
+    pub fn into_body(self) -> HttpBody {
         self.body
     }
 
-    pub fn with_body(mut self, body: impl HttpResponseBody) -> Self {
-        self.body = body.into_bytes();
+    pub fn with_body(mut self, body: impl Into<HttpBody>) -> Self {
+        self.body = body.into();
         self
     }
+
+    pub async fn text(self) -> String {
+        todo!()
+    }
+}
+
+pub struct HttpBody(pub(crate) HttpBodyInner);
+
+impl HttpBody {
+    pub fn empty() -> Self {
+        Self(HttpBodyInner::Empty)
+    }
+
+    pub fn bytes(bytes: Vec<u8>) -> Self {
+        Self(HttpBodyInner::Bytes(bytes))
+    }
+}
+
+impl axum::response::IntoResponse for HttpBody {
+    fn into_response(self) -> axum::response::Response {
+        // axum::response::Response::new(axum::body::Body::from_stream())
+        todo!()
+    }
+}
+
+pub(crate) enum HttpBodyInner {
+    Empty,
+    Bytes(Vec<u8>),
+    BytesSerialized(Vec<u8>),
+}
+
+pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {
+    todo!("serialize http body full")
 }
 
 pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError> {
@@ -343,7 +374,7 @@ impl DeserializeHostResource for HttpResponse {
 
         HttpResponse {
             parts,
-            body: request.get_body().unwrap().to_vec(),
+            body: HttpBody::bytes(request.get_body().unwrap().to_vec()),
         }
     }
 }
@@ -379,18 +410,36 @@ impl IntoHttpRequestBody for HttpRequestBody {
     }
 }
 
-pub trait HttpResponseBody {
+pub trait IntoHttpResponseBody {
     fn into_bytes(self) -> Vec<u8>;
 }
 
-impl HttpResponseBody for Vec<u8> {
+impl IntoHttpResponseBody for Vec<u8> {
     fn into_bytes(self) -> Vec<u8> { self }
 }
 
-impl HttpResponseBody for String {
+impl IntoHttpResponseBody for String {
     fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
 }
 
-impl HttpResponseBody for &str {
+impl IntoHttpResponseBody for &str {
     fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
+}
+
+impl From<BoxStream<'_, Result<Bytes, ()>>> for HttpBody {
+    fn from(value: BoxStream<Result<Bytes, ()>>) -> Self {
+        todo!()
+    }
+}
+
+impl From<&str> for HttpBody {
+    fn from(value: &str) -> Self {
+        todo!()
+    }
+}
+
+impl From<String> for HttpBody {
+    fn from(value: String) -> Self {
+        todo!()
+    }
 }

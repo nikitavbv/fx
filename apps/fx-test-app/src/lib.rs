@@ -11,7 +11,7 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::{http::fetch, blob::BlobGetError},
+        io::{http::{fetch, HttpBody}, blob::BlobGetError},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
@@ -355,29 +355,29 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
     }
 }
 
-async fn test_fetch() -> String {
+async fn test_fetch() -> HttpBody {
     let response = fetch(
         HttpRequest::get("https://httpbin.org/get").unwrap()
     ).await.unwrap();
 
-    String::from_utf8(response.into_body()).unwrap()
+    response.into_body()
 }
 
-async fn test_fetch_post() -> String {
+async fn test_fetch_post() -> HttpBody {
     let response = fetch(
         HttpRequest::post("https://httpbin.org/post").unwrap().with_body("test fx request body")
     ).await.unwrap();
 
-    String::from_utf8(response.into_body()).unwrap()
+    response.into_body()
 }
 
-async fn test_fetch_query() -> String {
+async fn test_fetch_query() -> HttpBody {
     let response = fetch(
         HttpRequest::get("https://httpbin.org/get").unwrap()
             .with_query(&[("param1", "value1"), ("param2", "value2")])
     ).await.unwrap();
 
-    String::from_utf8(response.into_body()).unwrap()
+    response.into_body()
 }
 
 async fn test_log() -> &'static str {
@@ -447,7 +447,7 @@ async fn rpc_simple() -> String {
     let response = fetch(HttpRequest::get("http://function-rpc.fx.local/").unwrap()).await.unwrap();
     assert!(response.status().is_success());
 
-    format!("rpc test: {}", String::from_utf8(response.into_body()).unwrap())
+    format!("rpc test: {}", response.text().await)
 }
 
 async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {

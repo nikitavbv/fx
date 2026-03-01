@@ -7,6 +7,7 @@ use {
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
         sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
+        api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
 };
 
@@ -51,7 +52,7 @@ impl Into<DefaultKey> for &FunctionResourceId {
 pub enum FunctionResource {
     FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
-    FunctionResponseBody(Vec<u8>),
+    HttpBody(HttpBody),
 }
 
 impl From<FunctionResponse> for FunctionResource {
@@ -280,9 +281,17 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
                 let serialized_size = serialized.serialized_size();
                 (FunctionResource::FunctionResponse(serialized), serialized_size)
             },
-            FunctionResource::FunctionResponseBody(v) => {
-                let serialized_size = v.len();
-                (FunctionResource::FunctionResponseBody(v), serialized_size)
+            FunctionResource::HttpBody(v) => match v.0 {
+                HttpBodyInner::Empty => panic!("empty http body cannot be serialized"),
+                HttpBodyInner::Bytes(v) => {
+                    let serialized = serialize_http_body_full(v);
+                    let serialized_size = serialized.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
+                },
+                HttpBodyInner::BytesSerialized(serialized) => {
+                    let serialized_size = serialized.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
+                },
             },
         };
         resources.reattach(resource_id.into(), resource);

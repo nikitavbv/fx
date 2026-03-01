@@ -54,7 +54,7 @@ impl IntoFunctionResponse for HttpResponse {
         FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: parts.status,
             headers: parts.headers,
-            body: add_function_resource(FunctionResource::FunctionResponseBody(body)),
+            body: add_function_resource(FunctionResource::HttpBody(body)),
         }))
     }
 }

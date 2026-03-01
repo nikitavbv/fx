@@ -25,6 +25,7 @@ use {
     fx_types::{capnp, abi::FuturePollResult},
     crate::{
         logging::{set_panic_hook, init_logger},
+        api::http::HttpBodyInner,
     },
 };
 
@@ -73,7 +74,11 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
                 SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
                 SerializableResource::Serialized(v) => v.as_ptr(),
             },
-            FunctionResource::FunctionResponseBody(v) => v.as_ptr(),
+            FunctionResource::HttpBody(http_body) => match &http_body.0 {
+                HttpBodyInner::Empty => panic!("empty body cannot be serialized"),
+                HttpBodyInner::Bytes(_) => panic!("bytes body has to be serialized first"),
+                HttpBodyInner::BytesSerialized(v) => v.as_ptr(),
+            },
         }
     }) as i64
 }
