@@ -306,7 +306,7 @@ impl HttpBody {
     }
 
     pub fn host_resource(resource_id: OwnedResourceId) -> Self {
-        todo!()
+        Self(HttpBodyInner::HostResource(resource_id))
     }
 }
 
@@ -322,6 +322,7 @@ pub(crate) enum HttpBodyInner {
     Bytes(Vec<u8>),
     BytesSerialized(Vec<u8>),
     Stream(BoxStream<'static, Result<Bytes, ()>>),
+    HostResource(OwnedResourceId),
 }
 
 pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {

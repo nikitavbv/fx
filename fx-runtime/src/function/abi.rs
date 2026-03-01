@@ -15,7 +15,7 @@ use {
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlMigrationResult, SqlQueryError},
             blob::BlobGetResponse,
-            fetch::FetchResult,
+            fetch::{FetchResult, FetchResultWithBodyResource},
             metrics::{MetricKey, MetricId},
         },
         tasks::{
@@ -87,7 +87,14 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
         },
         Resource::FetchResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => todo!(),
+            FutureResource::Ready(resource) => match resource {
+                FetchResult::Inline(resource) => {
+                    let (parts, body) = resource.into_parts();
+                    let body = caller.data_mut().resource_add(Resource::HttpBody(body));
+                    SerializableResource::Raw(FetchResultWithBodyResource::new(parts, body)).into_serialized()
+                },
+                FetchResult::BodyResource(resource) => resource.into_serialized(),
+            },
         },
         Resource::RequestBody(_) => panic!("resource of this type cannot be moved"),
         Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
