@@ -39,6 +39,31 @@ struct SqlMigrateError {
     }
 }
 
+struct SqlBatchRequest {
+    binding @0 :Text;
+    queries @1 :List(SqlBatchQuery);
+}
+
+struct SqlBatchQuery {
+    statement @0 :Text;
+    params @1 :List(SqlValue);
+}
+
+struct SqlBatchResult {
+    result :union {
+        ok @0 :Void;
+        error @1 :SqlBatchError;
+    }
+}
+
+struct SqlBatchError {
+    error :union {
+        databaseBusy @0 :Void;
+        bindingNotFound @1 :Void;
+        statementFailed @2 :Text;
+    }
+}
+
 struct SqlValue {
     value :union {
         null @0 :Void;

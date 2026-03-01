@@ -35,6 +35,16 @@ pub(crate) enum SqlMigrationError {
     DatabaseBusy,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum SqlBatchError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
+    #[error("database is locked")]
+    DatabaseBusy,
+    #[error("statement failed: {reason:?}")]
+    StatementFailed { reason: String },
+}
+
 impl SerializeResource for Result<Vec<SqlRow>, SqlQueryError> {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
@@ -94,6 +104,29 @@ impl SerializeResource for SqlMigrationResult {
     }
 }
 
+impl SerializeResource for Result<(), SqlBatchError> {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let sql_batch_result = message.init_root::<abi_sql_capnp::sql_batch_result::Builder>();
+        let mut sql_batch_result = sql_batch_result.init_result();
+
+        match self {
+            Self::Ok(_) => {
+                sql_batch_result.set_ok(());
+            },
+            Self::Err(err) => {
+                let mut response_error = sql_batch_result.init_error().init_error();
+                match err {
+                    SqlBatchError::DatabaseBusy => response_error.set_database_busy(()),
+                    SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
+                    SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
+                }
+            }
+        }
+
+        capnp::serialize::write_message_to_words(&message)
+    }
+}
 
 #[derive(Debug)]
 pub struct Query {

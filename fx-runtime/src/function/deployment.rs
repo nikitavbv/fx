@@ -50,6 +50,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_resource_move_from_host", super::abi::fx_resource_move_from_host_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_drop", super::abi::fx_resource_drop_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_exec", super::abi::fx_sql_exec_handler).unwrap();
+        linker.func_wrap("fx", "fx_sql_batch", super::abi::fx_sql_batch_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_migrate", super::abi::fx_sql_migrate_handler).unwrap();
         linker.func_wrap("fx", "fx_future_poll", super::abi::fx_future_poll_handler).unwrap();
         linker.func_wrap("fx", "fx_sleep", super::abi::fx_sleep_handler).unwrap();

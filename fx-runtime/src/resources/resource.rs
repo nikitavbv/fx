@@ -6,7 +6,7 @@ use {
         function::{instance::FunctionInstance, abi::{capnp, abi_function_resources_capnp}},
         triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse, FetchRequestHeader, FetchRequestBody},
         effects::{
-            sql::{SqlRow, SqlQueryError, SqlMigrationResult},
+            sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationResult},
             blob::BlobGetResponse,
             fetch::FetchResult,
         },
@@ -97,8 +97,9 @@ impl From<u64> for FunctionResourceId {
 pub(crate) enum Resource {
     FetchRequest(SerializableResource<FetchRequestHeader>),
     RequestBody(FetchRequestBody),
-    SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),
     SqlMigrationResult(FutureResource<SerializableResource<SqlMigrationResult>>),
+    SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),
+    SqlBatchResult(FutureResource<SerializableResource<Result<(), SqlBatchError>>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FutureResource<SerializableResource<FetchResult>>),

@@ -55,6 +55,16 @@ pub enum SqlError {
     DatabaseBusy,
 }
 
+#[derive(Debug, Error)]
+pub enum SqlBatchError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
+    #[error("database is locked")]
+    DatabaseBusy,
+    #[error("statement failed: {reason:?}")]
+    StatementFailed { reason: String },
+}
+
 impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {
     fn from(value: fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>) -> Self {
         let rows = value.into_iter()
@@ -92,6 +102,22 @@ impl DeserializeHostResource for Result<SqlResult, SqlError> {
             abi_sql_capnp::sql_exec_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
                 abi_sql_capnp::sql_exec_error::error::Which::BindingNotFound(_) => SqlError::BindingNotFound,
                 abi_sql_capnp::sql_exec_error::error::Which::DatabaseBusy(_) => SqlError::DatabaseBusy,
+            }),
+        }
+    }
+}
+
+impl DeserializeHostResource for Result<(), SqlBatchError> {
+    fn deserialize(data: &mut &[u8]) -> Self {
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
+        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_batch_result::Reader>().unwrap();
+
+        match request.get_result().which().unwrap() {
+            abi_sql_capnp::sql_batch_result::result::Which::Ok(_) => Ok(()),
+            abi_sql_capnp::sql_batch_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                abi_sql_capnp::sql_batch_error::error::Which::BindingNotFound(_) => SqlBatchError::BindingNotFound,
+                abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
+                abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
             }),
         }
     }
@@ -175,6 +201,16 @@ impl TryFrom<&SqlValue> for u64 {
     fn try_from(value: &SqlValue) -> Result<Self, Self::Error> {
         match value {
             SqlValue::Integer(v) => Ok(*v as u64),
+            _ => Err(SqlMappingError::WrongType),
+        }
+    }
+}
+
+impl TryFrom<&SqlValue> for i64 {
+    type Error = SqlMappingError;
+    fn try_from(value: &SqlValue) -> Result<Self, Self::Error> {
+        match value {
+            SqlValue::Integer(v) => Ok(*v),
             _ => Err(SqlMappingError::WrongType),
         }
     }

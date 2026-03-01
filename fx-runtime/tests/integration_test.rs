@@ -87,6 +87,24 @@ async fn sql_migrate() {
     assert_eq!("67", response.text().await.unwrap());
 }
 
+#[tokio::test]
+async fn sql_batch() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/sql/batch").await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("sum=600", response.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn sql_batch_rollback() {
+    init_fx_server();
+    let response = reqwest::get("http://localhost:8080/test/sql/batch-rollback").await.unwrap();
+    let status = response.status();
+    let text = response.text().await.unwrap();
+    assert!(status.is_success(), "Expected success but got: {}", text);
+    assert_eq!("rollback verified", text);
+}
+
 /// This test verifies that database behaves correctly in a simple contention scenario:
 /// - we have one expensive write query
 /// - we have a lot of inexpensive reads

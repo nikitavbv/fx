@@ -56,6 +56,8 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/sql/wrong-binding-name", get(test_sql_wrong_binding_name))
             .route("/test/sql/wrong-binding-name/migrations", get(test_sql_wrong_binding_name_migrations))
             .route("/test/sql/nonexistent-db", get(test_sql_nonexistent_db))
+            .route("/test/sql/batch", get(test_sql_batch))
+            .route("/test/sql/batch-rollback", get(test_sql_batch_rollback))
             .route("/test/panic", get(test_panic_page))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
@@ -238,6 +240,74 @@ async fn test_sql_nonexistent_db() -> (StatusCode, String) {
             }
         }
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, format!("error: {:?}", err)),
+    }
+}
+
+async fn test_sql_batch() -> (StatusCode, String) {
+    let database = fx::sql("app");
+
+    database.exec(SqlQuery::new("drop table if exists test_batch_table")).await.unwrap();
+
+    let queries = vec![
+        SqlQuery::new("create table test_batch_table (id integer primary key, value integer not null)"),
+        SqlQuery::new("insert into test_batch_table (value) values (100)"),
+        SqlQuery::new("insert into test_batch_table (value) values (200)"),
+        SqlQuery::new("insert into test_batch_table (value) values (300)"),
+    ];
+
+    match database.batch(queries).await {
+        Ok(()) => {
+            match database.exec(SqlQuery::new("select sum(value) from test_batch_table")).await {
+                Ok(result) => {
+                    let sum: i64 = result.into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
+                    let _ = database.exec(SqlQuery::new("drop table test_batch_table")).await;
+                    if sum == 600 {
+                        (StatusCode::OK, format!("sum={}", sum))
+                    } else {
+                        (StatusCode::INTERNAL_SERVER_ERROR, format!("expected sum=600 but got {}", sum))
+                    }
+                }
+                Err(err) => {
+                    let _ = database.exec(SqlQuery::new("drop table test_batch_table")).await;
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("verify error: {:?}", err))
+                }
+            }
+        }
+        Err(err) => {
+            let _ = database.exec(SqlQuery::new("drop table test_batch_table")).await;
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("batch error: {:?}", err))
+        }
+    }
+}
+
+async fn test_sql_batch_rollback() -> (StatusCode, String) {
+    let database = fx::sql("app");
+
+    database.exec(SqlQuery::new("drop table if exists test_rollback_table")).await.unwrap();
+    database.exec(SqlQuery::new("create table test_rollback_table (id integer primary key, value integer not null)")).await.unwrap();
+    database.exec(SqlQuery::new("insert into test_rollback_table (value) values (42)")).await.unwrap();
+
+    let queries = vec![
+        SqlQuery::new("update test_rollback_table set value = 999"),
+        SqlQuery::new("insert into nonexistent_table (value) values (1)"),
+    ];
+
+    match database.batch(queries).await {
+        Ok(()) => {
+            let _ = database.exec(SqlQuery::new("drop table test_rollback_table")).await;
+            (StatusCode::INTERNAL_SERVER_ERROR, "expected batch to fail".to_owned())
+        }
+        Err(_) => {
+            let result = database.exec(SqlQuery::new("select value from test_rollback_table")).await.unwrap();
+            let value: i64 = result.into_rows().first().unwrap().columns.first().unwrap().try_into().unwrap();
+            let _ = database.exec(SqlQuery::new("drop table test_rollback_table")).await;
+
+            if value == 42 {
+                (StatusCode::OK, "rollback verified".to_owned())
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, format!("expected 0 but got {}", value))
+            }
+        }
     }
 }
 

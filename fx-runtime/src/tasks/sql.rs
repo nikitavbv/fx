@@ -3,14 +3,15 @@ use {
     tokio::sync::oneshot,
     crate::{
         definitions::bindings::{SqlBindingConfig, SqlBindingConfigLocation},
-        effects::sql::{SqlValue, SqlMigrationResult, SqlQueryExecutionError, SqlRow, SqlMigrationError},
+        effects::sql::{SqlValue, SqlMigrationResult, SqlBatchError, SqlQueryExecutionError, SqlRow, SqlMigrationError},
     },
 };
 
 #[derive(Debug)]
 pub(crate) enum SqlMessage {
-    Exec(SqlExecMessage),
     Migrate(SqlMigrateMessage),
+    Exec(SqlExecMessage),
+    Batch(SqlBatchMessage),
 }
 
 #[derive(Debug)]
@@ -28,6 +29,13 @@ pub(crate) struct SqlMigrateMessage {
     pub(crate) response: oneshot::Sender<SqlMigrationResult>,
 }
 
+#[derive(Debug)]
+pub(crate) struct SqlBatchMessage {
+    pub(crate) binding: SqlBindingConfig,
+    pub(crate) queries: Vec<(String, Vec<SqlValue>)>,
+    pub(crate) response: oneshot::Sender<Result<(), SqlBatchError>>,
+}
+
 pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
     use rusqlite::types::ValueRef;
 
@@ -36,6 +44,7 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
     while let Ok(msg) = sql_rx.recv() {
         let binding = match &msg {
             SqlMessage::Exec(v) => &v.binding,
+            SqlMessage::Batch(v) => &v.binding,
             SqlMessage::Migrate(v) => &v.binding,
         };
 
@@ -127,6 +136,54 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                 };
 
                 msg.response.send(response_message).unwrap();
+            },
+            SqlMessage::Batch(msg) => {
+                let connection = match connection {
+                    Ok(v) => v,
+                    Err(err) => match err {
+                        SqlQueryExecutionError::DatabaseBusy => {
+                            msg.response.send(Err(SqlBatchError::DatabaseBusy)).unwrap();
+                            continue;
+                        }
+                    }
+                };
+
+                let txn = match connection.transaction() {
+                    Ok(v) => v,
+                    Err(err) => {
+                        let error_code = err.sqlite_error().unwrap().code;
+                        if error_code == rusqlite::ErrorCode::DatabaseBusy {
+                            msg.response.send(Err(SqlBatchError::DatabaseBusy)).unwrap();
+                            continue;
+                        } else {
+                            panic!("unexpected sqlite error: {err:?}");
+                        }
+                    }
+                };
+
+
+                let mut execution_result = Ok(());
+                for (statement, params) in msg.queries {
+                    match txn.execute(&statement, rusqlite::params_from_iter(params.into_iter())) {
+                        Ok(_) => {},
+                        Err(rusqlite::Error::SqliteFailure(_, Some(reason))) => {
+                            execution_result = Err(SqlBatchError::StatementFailed { reason });
+                        },
+                        Err(_) => panic!("unexpected sqlite error"),
+                    }
+                };
+
+                let response = execution_result
+                    .and_then(|_| txn.commit().map_err(|err| {
+                        let error_code = err.sqlite_error().unwrap().code;
+                        if error_code == rusqlite::ErrorCode::DatabaseBusy {
+                            SqlBatchError::DatabaseBusy
+                        } else {
+                            panic!("unexpected sqlite error: {err:?}");
+                        }
+                    }));
+
+                msg.response.send(response).unwrap();
             },
             SqlMessage::Migrate(msg) => {
                 let connection = match connection {

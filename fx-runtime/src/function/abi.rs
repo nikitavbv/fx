@@ -13,13 +13,13 @@ use {
         resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource},
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::{SqlValue, SqlMigrationError, SqlMigrationResult, SqlQueryError},
+            sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlMigrationResult, SqlQueryError},
             blob::BlobGetResponse,
             fetch::FetchResult,
             metrics::{MetricKey, MetricId},
         },
         tasks::{
-            sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
+            sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
             worker::WorkerMessage,
         },
         triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner},
@@ -73,6 +73,10 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Ready(v) => v.into_serialized(),
         },
         Resource::SqlMigrationResult(req) => match req {
+            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
+            FutureResource::Ready(v) => v.into_serialized(),
+        },
+        Resource::SqlBatchResult(req) => match req {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
@@ -189,6 +193,57 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     })).unwrap();
 
     caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::for_future(async move {
+        SerializableResource::Raw(response_rx.await.unwrap())
+    }))).as_u64()
+}
+
+pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let mut message_bytes = {
+        let ptr = req_addr as usize;
+        let len = req_len as usize;
+        &view[ptr..ptr+len]
+    };
+    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
+    let message = message_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
+
+    let binding = message.get_binding().unwrap().to_str().unwrap();
+    let binding = match caller.data().bindings_sql.get(binding) {
+        Some(v) => v,
+        None => {
+            return caller.data_mut().resource_add(Resource::SqlBatchResult(FutureResource::Ready(SerializableResource::Raw(
+                Err(SqlBatchError::BindingNotFound)
+            )))).as_u64();
+        }
+    };
+
+    let queries: Vec<(String, Vec<SqlValue>)> = message.get_queries().unwrap().into_iter()
+        .map(|query| {
+            let statement = query.get_statement().unwrap().to_string().unwrap();
+            let params = query.get_params().unwrap().into_iter()
+                .map(|v| match v.get_value().which().unwrap() {
+                    abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
+                    abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
+                    abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
+                    abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
+                    abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+                })
+                .collect();
+            (statement, params)
+        })
+        .collect();
+
+    let (response_tx, response_rx) = oneshot::channel();
+    caller.data().sql_tx.send(SqlMessage::Batch(SqlBatchMessage {
+        binding: binding.clone(),
+        queries,
+        response: response_tx,
+    })).unwrap();
+
+    caller.data_mut().resource_add(Resource::SqlBatchResult(FutureResource::for_future(async move {
         SerializableResource::Raw(response_rx.await.unwrap())
     }))).as_u64()
 }
@@ -419,6 +474,7 @@ pub(super) fn fx_fetch_handler(
                     | Resource::FetchRequest(_)
                     | Resource::FetchResult(_)
                     | Resource::SqlQueryResult(_)
+                    | Resource::SqlBatchResult(_)
                     | Resource::SqlMigrationResult(_)
                     | Resource::UnitFuture(_) => panic!("this resource cannot be used as request body"),
                     Resource::RequestBody(v) => match v.0 {
