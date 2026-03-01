@@ -300,6 +300,10 @@ impl HttpBody {
     pub fn bytes(bytes: Vec<u8>) -> Self {
         Self(HttpBodyInner::Bytes(bytes))
     }
+
+    pub fn stream(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
+        Self(HttpBodyInner::Stream(stream))
+    }
 }
 
 impl axum::response::IntoResponse for HttpBody {
@@ -313,6 +317,7 @@ pub(crate) enum HttpBodyInner {
     Empty,
     Bytes(Vec<u8>),
     BytesSerialized(Vec<u8>),
+    Stream(BoxStream<'static, Result<Bytes, ()>>),
 }
 
 pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {
@@ -426,9 +431,9 @@ impl IntoHttpResponseBody for &str {
     fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
 }
 
-impl From<BoxStream<'_, Result<Bytes, ()>>> for HttpBody {
-    fn from(value: BoxStream<Result<Bytes, ()>>) -> Self {
-        todo!()
+impl From<BoxStream<'static, Result<Bytes, ()>>> for HttpBody {
+    fn from(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
+        HttpBody::stream(stream)
     }
 }
 

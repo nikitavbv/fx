@@ -22,7 +22,7 @@ pub async fn handle_request(router: axum::Router, mut src_req: HttpRequest) -> H
 
     let (parts, body) = fx_response.into_parts();
     let response = HttpResponse::from_parts(parts);
-    let mut stream = body.into_data_stream();
+    let stream = body.into_data_stream();
 
     response.with_body(stream.map_err(|err| {
         panic!("unexpected stream error: {err:?}");

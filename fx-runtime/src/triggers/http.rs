@@ -4,7 +4,12 @@ use {
     hyper::{Response, body::Bytes},
     http::StatusCode,
     crate::{
-        resources::{serialize::{SerializeResource, SerializedFunctionResource}, ResourceId},
+        resources::{
+            serialize::{SerializeResource, SerializedFunctionResource},
+            ResourceId,
+            resource::OwnedFunctionResourceId,
+            FunctionResourceId,
+        },
         function::{
             FunctionId,
             FunctionDeploymentId,
@@ -106,7 +111,7 @@ impl FunctionResponseHttpBody {
         Self(FunctionResponseHttpBodyInner::Full(RefCell::new(Some(bytes))))
     }
 
-    pub fn for_function_resource(resource: SerializedFunctionResource<Vec<u8>>) -> Self {
+    pub fn for_function_resource(resource: OwnedFunctionResourceId) -> Self {
         Self(FunctionResponseHttpBodyInner::FunctionResource(RefCell::new(FunctionResourceReader::Resource(resource))))
     }
 }
@@ -124,13 +129,21 @@ impl hyper::body::Body for FunctionResponseHttpBody {
             FunctionResponseHttpBodyInner::FunctionResource(resource) => {
                 let reader = resource.replace(FunctionResourceReader::Empty);
 
+                // first, let's advance reader if we can
                 let mut reader = match reader {
+                    // if finished reading, then finish this Body
                     FunctionResourceReader::Empty => return Poll::Ready(None),
-                    FunctionResourceReader::Future(v) => FunctionResourceReader::Future(v),
-                    FunctionResourceReader::Resource(v) => {
-                        FunctionResourceReader::Future(async move {
-                            v.move_to_host().await
-                        }.boxed_local())
+                    // if there is a HttpBody resource we can start reading, let's request next frame
+                    FunctionResourceReader::Resource(resource_id) => {
+                        let (instance, resource_id) = resource_id.consume();
+                        FunctionResourceReader::FramePollFuture {
+                            instance: instance.clone(),
+                            resource_id: resource_id.clone(),
+                            future: async move {
+                                let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+                                instance.future_poll(&resource_id, waker)
+                            }.boxed_local(),
+                        }
                     }
                 };
 
@@ -155,9 +168,16 @@ enum FunctionResponseHttpBodyInner {
 }
 
 enum FunctionResourceReader {
+    // HttpBody is empty or we finished reading it
     Empty,
-    Resource(SerializedFunctionResource<Vec<u8>>),
-    Future(LocalBoxFuture<'static, Vec<u8>>),
+    // HttpBody is a resource on function side, no frame is in progress of being read
+    Resource(OwnedFunctionResourceId),
+    // polling next frame of HttpBody stream
+    FramePollFuture {
+        instance: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+        future: LocalBoxFuture<'static, Poll<()>>,
+    },
 }
 
 pub struct FetchRequestHeader {
@@ -228,7 +248,7 @@ pub(crate) enum FunctionResponseInner {
 pub(crate) struct FunctionHttpResponse {
     pub(crate) status: ::http::status::StatusCode,
     pub(crate) headers: ::http::HeaderMap,
-    pub(crate) body: Cell<Option<SerializedFunctionResource<Vec<u8>>>>,
+    pub(crate) body: Cell<Option<OwnedFunctionResourceId>>,
 }
 
 impl SerializeResource for FetchRequestHeader {

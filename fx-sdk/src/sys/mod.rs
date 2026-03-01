@@ -74,11 +74,7 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
                 SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
                 SerializableResource::Serialized(v) => v.as_ptr(),
             },
-            FunctionResource::HttpBody(http_body) => match &http_body.0 {
-                HttpBodyInner::Empty => panic!("empty body cannot be serialized"),
-                HttpBodyInner::Bytes(_) => panic!("bytes body has to be serialized first"),
-                HttpBodyInner::BytesSerialized(v) => v.as_ptr(),
-            },
+            FunctionResource::HttpBody(_) => panic!("resource of this type cannot be read using _fx_resource_serialized_ptr"),
         }
     }) as i64
 }

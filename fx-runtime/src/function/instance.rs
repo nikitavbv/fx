@@ -138,6 +138,10 @@ impl FunctionInstance {
         resource_data
     }
 
+    pub(crate) async fn stream_frame_read(&self, resource_id: &ResourceId) -> Vec<u8> {
+        todo!()
+    }
+
     pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
         let store = self.store.lock();
         FunctionResourceId::new(self.fn_handler.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)

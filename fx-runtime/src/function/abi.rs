@@ -445,7 +445,9 @@ pub(super) fn fx_fetch_handler(
             match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming
-                    let body = response.body.replace(None).unwrap().move_to_host().await;
+                    let body_resource_id = response.body.replace(None).unwrap();
+                    let body = FunctionResponseHttpBody::for_function_resource(body_resource_id);
+
                     let http_response = ::http::Response::builder()
                         .status(response.status)
                         .body(())
