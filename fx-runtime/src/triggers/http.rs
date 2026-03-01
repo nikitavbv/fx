@@ -1,8 +1,9 @@
 use {
     std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
-    futures::{FutureExt, future::LocalBoxFuture},
+    futures::{FutureExt, future::LocalBoxFuture, stream::BoxStream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
+    send_wrapper::SendWrapper,
     crate::{
         resources::{
             serialize::{SerializeResource, SerializedFunctionResource},
@@ -15,6 +16,7 @@ use {
             FunctionDeploymentId,
             deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
             abi::{capnp, abi_http_capnp},
+            instance::FunctionInstance,
         },
     },
 };
@@ -43,7 +45,7 @@ impl HttpHandler {
 }
 
 impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHandler {
-    type Response = Response<FunctionResponseHttpBody>;
+    type Response = Response<HttpBody>;
     type Error = Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
@@ -58,7 +60,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let target_function_deployment = match target_function_deployment {
                 Some(v) => v,
                 None => {
-                    let mut response = Response::new(FunctionResponseHttpBody::for_bytes(Bytes::from("no fx function found to handle this request.\n".as_bytes())));
+                    let mut response = Response::new(HttpBody::for_bytes(Bytes::from("no fx function found to handle this request.\n".as_bytes())));
                     *response.status_mut() = StatusCode::BAD_GATEWAY;
                     return Ok(response);
                 }
@@ -76,11 +78,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let body = match &function_response {
                 Ok(response) => match &response.0 {
                     FunctionResponseInner::HttpResponse(v) => {
-                        FunctionResponseHttpBody::for_function_resource(v.body.replace(None).unwrap())
+                        HttpBody::for_function_resource(v.body.replace(None).unwrap())
                     }
                 },
                 Err(err) => match err {
-                    FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionResponseHttpBody::for_bytes(Bytes::from("function panicked while handling request.\n"))
+                    FunctionDeploymentHandleRequestError::FunctionPanicked => HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n"))
                 }
             };
 
@@ -104,19 +106,23 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     }
 }
 
-pub(crate) struct FunctionResponseHttpBody(FunctionResponseHttpBodyInner);
+pub(crate) struct HttpBody(pub(crate) HttpBodyInner);
 
-impl FunctionResponseHttpBody {
+impl HttpBody {
     pub fn for_bytes(bytes: Bytes) -> Self {
-        Self(FunctionResponseHttpBodyInner::Full(RefCell::new(Some(bytes))))
+        Self(HttpBodyInner::Full(SendWrapper::new(RefCell::new(Some(bytes)))))
     }
 
     pub fn for_function_resource(resource: OwnedFunctionResourceId) -> Self {
-        Self(FunctionResponseHttpBodyInner::FunctionResource(RefCell::new(FunctionResourceReader::Resource(resource))))
+        Self(HttpBodyInner::FunctionResource(SendWrapper::new(RefCell::new(FunctionResourceReader::Resource(resource)))))
+    }
+
+    pub fn for_stream(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
+        Self(HttpBodyInner::Stream(stream))
     }
 }
 
-impl hyper::body::Body for FunctionResponseHttpBody {
+impl hyper::body::Body for HttpBody {
     type Data = Bytes;
     type Error = std::io::Error;
 
@@ -125,46 +131,48 @@ impl hyper::body::Body for FunctionResponseHttpBody {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &self.0 {
-            FunctionResponseHttpBodyInner::Full(b) => return Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
-            FunctionResponseHttpBodyInner::FunctionResource(resource) => {
+            HttpBodyInner::Full(b) => return Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
+            HttpBodyInner::FunctionResource(resource) => {
                 let reader = resource.replace(FunctionResourceReader::Empty);
 
-                // first, let's advance reader if we can
-                let mut reader = match reader {
+                let (reader, poll) = match reader {
                     // if finished reading, then finish this Body
-                    FunctionResourceReader::Empty => return Poll::Ready(None),
+                    FunctionResourceReader::Empty => (FunctionResourceReader::Empty, Poll::Ready(None)),
                     // if there is a HttpBody resource we can start reading, let's request next frame
                     FunctionResourceReader::Resource(resource_id) => {
                         let (instance, resource_id) = resource_id.consume();
-                        FunctionResourceReader::FramePollFuture {
+                        (FunctionResourceReader::FramePollFuture {
                             instance: instance.clone(),
                             resource_id: resource_id.clone(),
                             future: async move {
                                 let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                                instance.future_poll(&resource_id, waker)
+                                instance.future_poll(&resource_id, waker).await.unwrap()
                             }.boxed_local(),
-                        }
-                    }
+                        }, Poll::Pending)
+                    },
+                    FunctionResourceReader::FramePollFuture { instance, resource_id, future } => todo!(),
                 };
 
-                let poll_result = match &mut reader {
+                /*let poll_result = match &mut reader {
                     FunctionResourceReader::Empty | FunctionResourceReader::Resource(_) => unreachable!(),
-                    FunctionResourceReader::Future(v) => v.poll_unpin(cx).map(|v| Some(Ok(hyper::body::Frame::data(Bytes::from(v))))),
-                };
+                    //FunctionResourceReader::Future(v) => v.poll_unpin(cx).map(|v| Some(Ok(hyper::body::Frame::data(Bytes::from(v))))),
+                };*/
 
-                if poll_result.is_pending() {
+                if poll.is_pending() {
                     resource.replace(reader);
                 }
 
-                poll_result
+                poll
             },
+            HttpBodyInner::Stream(_) => todo!(),
         }
     }
 }
 
-enum FunctionResponseHttpBodyInner {
-    Full(RefCell<Option<Bytes>>),
-    FunctionResource(RefCell<FunctionResourceReader>),
+pub(crate) enum HttpBodyInner {
+    Full(SendWrapper<RefCell<Option<Bytes>>>),
+    FunctionResource(SendWrapper<RefCell<FunctionResourceReader>>),
+    Stream(BoxStream<'static, Result<Bytes, ()>>),
 }
 
 enum FunctionResourceReader {
@@ -223,6 +231,7 @@ impl From<hyper::body::Incoming> for FetchRequestBody {
     }
 }
 
+// TODO: can use HttpBody everywhere?
 pub(crate) enum FetchRequestBodyInner {
     // full body:
     Full(Vec<u8>),

@@ -1,23 +1,50 @@
 use crate::{
     function::abi::{capnp, abi_http_capnp},
-    resources::serialize::SerializeResource,
+    resources::{serialize::{SerializeResource, SerializableResource}, ResourceId},
+    triggers::http::HttpBody,
 };
 
-pub(crate) struct FetchResult {
-    parts: ::http::response::Parts,
-    body: Vec<u8>,
+pub(crate) enum FetchResult {
+    Inline(FetchResultInline),
+    BodyResource(SerializableResource<FetchResultWithBodyResource>),
 }
 
 impl FetchResult {
-    pub fn new(parts: ::http::response::Parts, body: Vec<u8>) -> Self {
+    pub fn new(parts: http::response::Parts, body: HttpBody) -> Self {
+        Self::Inline(FetchResultInline::new(parts, body))
+    }
+}
+
+pub(crate) struct FetchResultInline {
+    parts: http::response::Parts,
+    body: HttpBody,
+}
+
+impl FetchResultInline {
+    pub fn new(parts: http::response::Parts, body: HttpBody) -> Self {
         Self {
             parts,
             body,
         }
     }
+
+    pub fn into_parts(self) -> (http::response::Parts, HttpBody) {
+        (self.parts, self.body)
+    }
 }
 
-impl SerializeResource for FetchResult {
+pub(crate) struct FetchResultWithBodyResource {
+    parts: http::response::Parts,
+    body: ResourceId,
+}
+
+impl FetchResultWithBodyResource {
+    pub fn new(parts: http::response::Parts, body: ResourceId) -> Self {
+        Self { parts, body }
+    }
+}
+
+impl SerializeResource for FetchResultWithBodyResource {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
         let mut fetch_response = message.init_root::<abi_http_capnp::http_response::Builder>();
@@ -31,7 +58,7 @@ impl SerializeResource for FetchResult {
             header.set_value(value.to_str().unwrap());
         }
 
-        fetch_response.set_body(&self.body);
+        fetch_response.set_body_resource_id(self.body.as_u64());
 
         capnp::serialize::write_message_to_words(&message)
     }

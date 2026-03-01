@@ -4,7 +4,7 @@ use {
     slotmap::Key,
     crate::{
         function::{instance::FunctionInstance, abi::{capnp, abi_function_resources_capnp}},
-        triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse, FetchRequestHeader, FetchRequestBody},
+        triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse, FetchRequestHeader, FetchRequestBody, HttpBody},
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationResult},
             blob::BlobGetResponse,
@@ -97,10 +97,11 @@ impl From<u64> for FunctionResourceId {
 pub(crate) enum Resource {
     FetchRequest(SerializableResource<FetchRequestHeader>),
     RequestBody(FetchRequestBody),
+    HttpBody(HttpBody),
     SqlMigrationResult(FutureResource<SerializableResource<SqlMigrationResult>>),
     SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),
     SqlBatchResult(FutureResource<SerializableResource<Result<(), SqlBatchError>>>),
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
-    FetchResult(FutureResource<SerializableResource<FetchResult>>),
+    FetchResult(FutureResource<FetchResult>),
 }

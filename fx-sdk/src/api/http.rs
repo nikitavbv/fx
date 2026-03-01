@@ -304,6 +304,10 @@ impl HttpBody {
     pub fn stream(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
         Self(HttpBodyInner::Stream(stream))
     }
+
+    pub fn host_resource(resource_id: OwnedResourceId) -> Self {
+        todo!()
+    }
 }
 
 impl axum::response::IntoResponse for HttpBody {
@@ -379,7 +383,7 @@ impl DeserializeHostResource for HttpResponse {
 
         HttpResponse {
             parts,
-            body: HttpBody::bytes(request.get_body().unwrap().to_vec()),
+            body: HttpBody::host_resource(OwnedResourceId::from_ffi(request.get_body_resource_id())),
         }
     }
 }

@@ -7,11 +7,11 @@ use {
     wasmtime::{AsContextMut, AsContext},
     crate::{
         function::abi::FuturePollResult,
-        effects::{logs::LogMessageEvent, metrics::FunctionMetricsState},
+        effects::{logs::LogMessageEvent, metrics::FunctionMetricsState, fetch::{FetchResult, FetchResultWithBodyResource}},
         tasks::{sql::SqlMessage, worker::LocalWorkerController},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
-        resources::{FunctionResourceId, ResourceId, Resource, future::FutureResource, serialize::{serialize_request_body_full, serialize_partially_read_stream}},
-        triggers::http::{FetchRequestBodyInner, FetchRequestBody},
+        resources::{FunctionResourceId, ResourceId, Resource, future::FutureResource, serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource}},
+        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBodyInner},
     },
     super::FunctionId,
 };
@@ -252,9 +252,19 @@ impl FunctionInstanceState {
                     FutureResource::Ready(v) => v,
                 };
 
-                let serialized = resource.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (Resource::FetchResult(FutureResource::Ready(serialized)), serialized_size)
+                match resource {
+                    FetchResult::Inline(resource) => {
+                        let (parts, body) = resource.into_parts();
+                        let body = self.resource_add(Resource::HttpBody(body));
+                        let serialized = SerializableResource::Raw(FetchResultWithBodyResource::new(parts, body));
+                        let serialized_size = serialized.serialized_size();
+                        (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(serialized))), serialized_size)
+                    },
+                    FetchResult::BodyResource(resource) => {
+                        let serialized_size = resource.serialized_size();
+                        (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(resource))), serialized_size)
+                    }
+                }
             },
             Resource::RequestBody(v) => match v.0 {
                 FetchRequestBodyInner::Full(v) => {
@@ -275,8 +285,9 @@ impl FunctionInstanceState {
                 FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => {
                     let serialized_size = frame_serialized.len();
                     (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { frame_serialized, stream })), serialized_size)
-                }
+                },
             },
+            Resource::HttpBody(_) => todo!("serialize http body"),
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -340,6 +351,7 @@ impl FunctionInstanceState {
                     Poll::Ready(())
                 ),
             },
+            Resource::HttpBody(_) => todo!("poll http body"),
         };
 
         self.resources.reattach(resource_id.into(), resource);
@@ -369,6 +381,7 @@ impl FunctionInstanceState {
                 FetchRequestBodyInner::FullSerialized(v) => (None, v),
                 FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => (Some(Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Stream(stream)))), frame_serialized),
             },
+            Resource::HttpBody(_) => todo!("read data frame for http body"),
         };
 
         if let Some(resource) = resource {

@@ -6,7 +6,7 @@ use {
     http::Method,
     http_body_util::{BodyStream, BodyExt},
     wasmtime::{AsContext, AsContextMut},
-    futures::{FutureExt, StreamExt},
+    futures::{FutureExt, StreamExt, TryStreamExt},
     rand::TryRngCore,
     crate::{
         function::instance::FunctionInstanceState,
@@ -22,7 +22,7 @@ use {
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
             worker::WorkerMessage,
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner},
+        triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner, HttpBody, HttpBodyInner},
     },
 };
 
@@ -87,9 +87,10 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
         },
         Resource::FetchResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => v.into_serialized(),
+            FutureResource::Ready(v) => todo!(),
         },
         Resource::RequestBody(_) => panic!("resource of this type cannot be moved"),
+        Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -445,8 +446,8 @@ pub(super) fn fx_fetch_handler(
             match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming
-                    let body_resource_id = response.body.replace(None).unwrap();
-                    let body = FunctionResponseHttpBody::for_function_resource(body_resource_id);
+                    let body = response.body.replace(None).unwrap();
+                    let body = HttpBody::for_function_resource(body);
 
                     let http_response = ::http::Response::builder()
                         .status(response.status)
@@ -454,7 +455,7 @@ pub(super) fn fx_fetch_handler(
                         .unwrap();
                     let (mut parts, _) = http_response.into_parts();
                     parts.headers = response.headers;
-                    SerializableResource::Raw(FetchResult::new(parts, body))
+                    FetchResult::new(parts, body)
                 }
             }
         }))).as_u64()
@@ -496,21 +497,31 @@ pub(super) fn fx_fetch_handler(
                                 });
                             *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(body_stream));
                         }
-                    }
+                    },
+                    Resource::HttpBody(body) => {
+                        let stream = BodyStream::new(body)
+                            .filter_map(|result| async {
+                                match result {
+                                    Ok(frame) => frame.into_data().ok().map(Ok),
+                                    Err(e) => Some(Err(e)),
+                                }
+                            });
+                        *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
+                    },
                 }
             },
         }
 
         let client = caller.data().http_client.clone();
         caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
-            SerializableResource::Raw({
-                // todo: make body lazy, support streaming
-                let result = client.execute(fetch_request).await.unwrap();
-                let http_response: ::http::Response<reqwest::Body> = result.into();
-                let (parts, body) = http_response.into_parts();
-                let body = body.collect().await.unwrap().to_bytes().to_vec();
-                FetchResult::new(parts, body)
-            })
+            let result = client.execute(fetch_request).await.unwrap();
+            let http_response: ::http::Response<reqwest::Body> = result.into();
+            let (parts, body) = http_response.into_parts();
+            let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| {
+                todo!("add error handling for: {err:?}");
+                ()
+            }).boxed());
+            FetchResult::new(parts, body)
         }))).as_u64()
     }
 }

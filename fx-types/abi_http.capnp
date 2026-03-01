@@ -39,5 +39,5 @@ struct HttpRequestBodyFrame {
 struct HttpResponse {
     status @0 :UInt16;
     headers @2 :List(HttpHeader);
-    body @1 :Data;
+    bodyResourceId @1 :UInt64;
 }
