@@ -131,45 +131,48 @@ impl hyper::body::Body for HttpBody {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &self.0 {
-            HttpBodyInner::Full(b) => return Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
+            HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionResource(resource) => {
-                let reader = resource.replace(FunctionResourceReader::Empty);
+                let mut reader = resource.replace(FunctionResourceReader::Empty);
 
-                let (reader, poll) = match reader {
-                    // if finished reading, then finish this Body
-                    FunctionResourceReader::Empty => (FunctionResourceReader::Empty, Poll::Ready(None)),
-                    // if there is a HttpBody resource we can start reading, let's request next frame
-                    FunctionResourceReader::Resource(resource_id) => {
-                        let (instance, resource_id) = resource_id.consume();
-                        (FunctionResourceReader::FramePollFuture {
-                            instance: instance.clone(),
-                            resource_id: resource_id.clone(),
-                            future: async move {
-                                let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                                instance.future_poll(&resource_id, waker).await.unwrap()
-                            }.boxed_local(),
-                        }, Poll::Pending)
-                    },
-                    FunctionResourceReader::FramePollFuture { instance, resource_id, mut future } => {
-                        match future.poll_unpin(cx) {
-                            Poll::Pending | Poll::Ready(Poll::Pending) => (FunctionResourceReader::FramePollFuture { instance, resource_id, future }, Poll::Pending),
-                            Poll::Ready(Poll::Ready(_)) => (FunctionResourceReader::FrameReadFuture {
-                                instance: instance.clone(),
-                                resource_id: resource_id.clone(),
-                                future: async move {
-                                    instance.stream_frame_read(&resource_id).await
-                                }.boxed_local(),
-                            }, Poll::Pending)
-                        }
-                    },
-                    FunctionResourceReader::FrameReadFuture { instance, resource_id, future } => todo!(),
+                // if finished reading, then finish this body
+                reader = match reader {
+                    FunctionResourceReader::Empty => return Poll::Ready(None),
+                    other => other,
                 };
 
-                if poll.is_pending() {
-                    resource.replace(reader);
-                }
+                // if there is a HttpBody resource we can start reading, let's request next frame
+                reader = match reader {
+                    FunctionResourceReader::Resource(resource_id) => {
+                        let (instance, resource_id) = resource_id.consume();
 
-                poll
+                        let mut next_frame_poll_future = {
+                            let resource_id = resource_id.clone();
+                            let instance = instance.clone();
+
+                            async move {
+                                let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+                                instance.future_poll(&resource_id, waker).await.unwrap()
+                            }.boxed_local()
+                        };
+
+                        match next_frame_poll_future.poll_unpin(cx) {
+                            Poll::Pending => {
+                                resource.replace(FunctionResourceReader::FramePollFuture {
+                                    instance,
+                                    resource_id,
+                                    future: next_frame_poll_future,
+                                });
+                                return Poll::Pending;
+                            },
+                            Poll::Ready(Poll::Pending) => FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)),
+                            Poll::Ready(Poll::Ready(_)) => todo!(),
+                        }
+                    },
+                    other => other,
+                };
+
+                todo!()
             },
             HttpBodyInner::Stream(_) => todo!(),
         }
