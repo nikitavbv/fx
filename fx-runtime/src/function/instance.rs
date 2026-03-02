@@ -25,6 +25,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
+    fn_stream_advance: wasmtime::TypedFunc<u64, ()>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
@@ -62,6 +63,8 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_stream_advance = instance.get_typed_func(store.as_context_mut(), "_fx_stream_advance")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
@@ -84,6 +87,7 @@ impl FunctionInstance {
             fn_resource_serialize,
             fn_resource_serialized_ptr,
             fn_resource_drop,
+            fn_stream_advance,
             fn_handler,
         })
     }
@@ -140,7 +144,22 @@ impl FunctionInstance {
 
     pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) {
         let len = self.resource_serialize(resource_id).await as usize;
+        let ptr = self.resource_serialized_ptr(resource_id).await as usize;
+
+        let frame_data = {
+            let store = self.store.lock().await;
+            let view = self.memory.data(store.as_context());
+            view[ptr..ptr+len].to_owned()
+        };
+
+        self.stream_advance(resource_id).await;
+
         todo!();
+    }
+
+    async fn stream_advance(&self, resource_id: &FunctionResourceId) {
+        let mut store = self.store.lock().await;
+        self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
 
     pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {

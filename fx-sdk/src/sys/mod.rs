@@ -121,6 +121,12 @@ pub extern "C" fn _fx_resource_drop(resource_id: u64) {
     drop_function_resource(&FunctionResourceId::new(resource_id));
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_stream_advance(resource_id: u64) {
+    let resource_id = FunctionResourceId::new(resource_id);
+    todo!();
+}
+
 // imports:
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {

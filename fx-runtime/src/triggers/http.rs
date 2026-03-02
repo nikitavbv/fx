@@ -165,14 +165,30 @@ impl hyper::body::Body for HttpBody {
                                 });
                                 return Poll::Pending;
                             },
-                            Poll::Ready(Poll::Pending) => FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)),
-                            Poll::Ready(Poll::Ready(_)) => todo!(),
+                            Poll::Ready(Poll::Pending) => {
+                                resource.replace(FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)));
+                                return Poll::Pending;
+                            },
+                            Poll::Ready(Poll::Ready(_)) => FunctionResourceReader::FrameReadFuture {
+                                instance: instance.clone(),
+                                resource_id: resource_id.clone(),
+                                future: async move {
+                                    instance.stream_frame_read(&resource_id).await
+                                }.boxed_local(),
+                            },
                         }
                     },
                     other => other,
                 };
 
-                todo!()
+                // if there is a frame we are currently reading, poll that
+                match reader {
+                    FunctionResourceReader::FrameReadFuture { instance, resource_id, mut future } => match future.poll_unpin(cx) {
+                        Poll::Pending => todo!(),
+                        Poll::Ready(v) => todo!(),
+                    },
+                    _ => unreachable!("didn't expect to get this reader state"),
+                }
             },
             HttpBodyInner::Stream(_) => todo!(),
         }
