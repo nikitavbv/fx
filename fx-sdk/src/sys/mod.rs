@@ -27,6 +27,7 @@ use {
         logging::{set_panic_hook, init_logger},
         api::http::{HttpBody, HttpBodyInner},
     },
+    self::resource::replace_function_resource_with,
 };
 
 mod future;
@@ -111,7 +112,14 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
                 SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
                 SerializableResource::Serialized(v) => v.as_ptr(),
             },
-            FunctionResource::HttpBody(_) => panic!("resource of this type cannot be read using _fx_resource_serialized_ptr"),
+            FunctionResource::HttpBody(body) => match body.0 {
+                HttpBodyInner::Bytes(_) => panic!("resource has to be serialized first"),
+                HttpBodyInner::BytesSerialized(ref v) => v.as_ptr(),
+                HttpBodyInner::HostResource(_) => panic!("resource of this type should not be serialized: instead host should read it directly from host resource table"),
+                HttpBodyInner::Empty => panic!("empty body: nothing to serailize"),
+                HttpBodyInner::PartiallyReadStream { stream: _, ref frame_serialized } => frame_serialized.as_ptr(),
+                HttpBodyInner::Stream(_) => panic!("stream has to be read first"),
+            },
         }
     }) as i64
 }
@@ -123,8 +131,9 @@ pub extern "C" fn _fx_resource_drop(resource_id: u64) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_stream_advance(resource_id: u64) {
-    let resource_id = FunctionResourceId::new(resource_id);
-    todo!();
+    replace_function_resource_with(FunctionResourceId::new(resource_id), |v| match v {
+        v => todo!(),
+    });
 }
 
 // imports:
