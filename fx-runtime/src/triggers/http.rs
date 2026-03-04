@@ -173,7 +173,8 @@ impl hyper::body::Body for HttpBody {
                                 instance: instance.clone(),
                                 resource_id: resource_id.clone(),
                                 future: async move {
-                                    instance.stream_frame_read(&resource_id).await
+                                    instance.stream_frame_read(&resource_id).await;
+                                    todo!();
                                 }.boxed_local(),
                             },
                         }

@@ -90,7 +90,7 @@ impl SerializeResource for Vec<u8> {
     }
 }
 
-trait DeserializeFunctionResource {
+pub(crate) trait DeserializeFunctionResource {
     fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self;
 }
 

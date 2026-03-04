@@ -132,7 +132,16 @@ pub extern "C" fn _fx_resource_drop(resource_id: u64) {
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_stream_advance(resource_id: u64) {
     replace_function_resource_with(FunctionResourceId::new(resource_id), |v| match v {
-        v => todo!(),
+        FunctionResource::FunctionResponse(_)
+        | FunctionResource::FunctionResponseFuture(_) => panic!("not a stream"),
+        FunctionResource::HttpBody(v) => match v.0 {
+            HttpBodyInner::Empty
+            | HttpBodyInner::Bytes(_)
+            | HttpBodyInner::BytesSerialized(_)
+            | HttpBodyInner::HostResource(_) => panic!("not a stream"),
+            HttpBodyInner::Stream(_) => todo!(),
+            HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))),
+        },
     });
 }
 

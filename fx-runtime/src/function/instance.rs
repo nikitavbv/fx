@@ -5,12 +5,23 @@ use {
     futures::FutureExt,
     slotmap::SlotMap,
     wasmtime::{AsContextMut, AsContext},
+    fx_types::{capnp, abi_http_capnp},
     crate::{
         function::abi::FuturePollResult,
-        effects::{logs::LogMessageEvent, metrics::FunctionMetricsState, fetch::{FetchResult, FetchResultWithBodyResource}},
+        effects::{
+            logs::LogMessageEvent,
+            metrics::FunctionMetricsState,
+            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame},
+        },
         tasks::{sql::SqlMessage, worker::LocalWorkerController},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
-        resources::{FunctionResourceId, ResourceId, Resource, future::FutureResource, serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource}},
+        resources::{
+            FunctionResourceId,
+            ResourceId,
+            Resource,
+            future::FutureResource,
+            serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource, DeserializeFunctionResource},
+        },
         triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBodyInner},
     },
     super::FunctionId,
@@ -142,7 +153,7 @@ impl FunctionInstance {
         resource_data
     }
 
-    pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) {
+    pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) -> HttpStreamFrame {
         let len = self.resource_serialize(resource_id).await as usize;
         let ptr = self.resource_serialized_ptr(resource_id).await as usize;
 
@@ -154,7 +165,8 @@ impl FunctionInstance {
 
         self.stream_advance(resource_id).await;
 
-        todo!();
+        let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        todo!()
     }
 
     async fn stream_advance(&self, resource_id: &FunctionResourceId) {

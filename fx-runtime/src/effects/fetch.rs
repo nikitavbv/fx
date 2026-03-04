@@ -1,6 +1,6 @@
 use crate::{
     function::abi::{capnp, abi_http_capnp},
-    resources::{serialize::{SerializeResource, SerializableResource}, ResourceId},
+    resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId},
     triggers::http::HttpBody,
 };
 
@@ -61,5 +61,13 @@ impl SerializeResource for FetchResultWithBodyResource {
         fetch_response.set_body_resource_id(self.body.as_u64());
 
         capnp::serialize::write_message_to_words(&message)
+    }
+}
+
+pub(crate) enum HttpStreamFrame {}
+
+impl DeserializeFunctionResource for HttpStreamFrame {
+    fn deserialize(resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Self {
+        todo!()
     }
 }
