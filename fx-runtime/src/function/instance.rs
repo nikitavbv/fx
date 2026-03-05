@@ -2,7 +2,7 @@ use {
     std::{collections::HashMap, task::Poll},
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,
-    futures::FutureExt,
+    futures::{FutureExt, StreamExt},
     slotmap::SlotMap,
     wasmtime::{AsContextMut, AsContext},
     fx_types::{capnp, abi_http_capnp},
@@ -22,7 +22,7 @@ use {
             future::FutureResource,
             serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource, DeserializeFunctionResource},
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBodyInner},
+        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner},
     },
     super::FunctionId,
 };
@@ -153,7 +153,7 @@ impl FunctionInstance {
         resource_data
     }
 
-    pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) -> HttpStreamFrame {
+    pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) -> Option<HttpStreamFrame> {
         let len = self.resource_serialize(resource_id).await as usize;
         let ptr = self.resource_serialized_ptr(resource_id).await as usize;
 
@@ -166,7 +166,12 @@ impl FunctionInstance {
         self.stream_advance(resource_id).await;
 
         let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-        todo!()
+        let response = reader.get_root::<abi_http_capnp::function_http_body_frame::Reader>().unwrap();
+
+        Some(match response.get_body().which().unwrap() {
+            abi_http_capnp::function_http_body_frame::body::Which::StreamEnd(_) => return None,
+            abi_http_capnp::function_http_body_frame::body::Which::Bytes(v) => HttpStreamFrame::Bytes(v.unwrap().to_vec()),
+        })
     }
 
     async fn stream_advance(&self, resource_id: &FunctionResourceId) {
@@ -383,7 +388,27 @@ impl FunctionInstanceState {
                     Poll::Ready(())
                 ),
             },
-            Resource::HttpBody(_) => todo!("poll http body"),
+            Resource::HttpBody(v) => match v.0 {
+                HttpBodyInner::Empty => todo!(),
+                HttpBodyInner::Full(_) => todo!(),
+                HttpBodyInner::Stream(mut stream) => {
+                    let poll_result = stream.poll_next_unpin(&mut cx);
+
+                    match poll_result {
+                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))), Poll::Pending),
+                        Poll::Ready(None) => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
+                        Poll::Ready(Some(frame)) => (
+                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamPartiallyRead {
+                                stream,
+                                frame,
+                            })),
+                            Poll::Ready(()),
+                        ),
+                    }
+                },
+                HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(),
+                HttpBodyInner::FunctionResource(_) => todo!(),
+            },
         };
 
         self.resources.reattach(resource_id.into(), resource);

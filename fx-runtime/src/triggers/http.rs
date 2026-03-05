@@ -18,6 +18,7 @@ use {
             abi::{capnp, abi_http_capnp},
             instance::FunctionInstance,
         },
+        effects::fetch::HttpStreamFrame,
     },
 };
 
@@ -131,6 +132,7 @@ impl hyper::body::Body for HttpBody {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &self.0 {
+            HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionResource(resource) => {
                 let mut reader = resource.replace(FunctionResourceReader::Empty);
@@ -173,8 +175,7 @@ impl hyper::body::Body for HttpBody {
                                 instance: instance.clone(),
                                 resource_id: resource_id.clone(),
                                 future: async move {
-                                    instance.stream_frame_read(&resource_id).await;
-                                    todo!();
+                                    instance.stream_frame_read(&resource_id).await
                                 }.boxed_local(),
                             },
                         }
@@ -183,26 +184,39 @@ impl hyper::body::Body for HttpBody {
                 };
 
                 // if there is a frame we are currently reading, poll that
-                match reader {
+                let (reader, poll_result) = match reader {
                     FunctionResourceReader::FrameReadFuture { instance, resource_id, mut future } => match future.poll_unpin(cx) {
                         Poll::Pending => todo!(),
-                        Poll::Ready(v) => todo!(),
+                        Poll::Ready(None) => return Poll::Ready(None),
+                        Poll::Ready(Some(HttpStreamFrame::Bytes(bytes))) => {
+                            (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(bytes))))))
+                        },
                     },
                     _ => unreachable!("didn't expect to get this reader state"),
-                }
+                };
+
+                resource.replace(reader);
+
+                poll_result
             },
             HttpBodyInner::Stream(_) => todo!(),
+            HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
         }
     }
 }
 
 pub(crate) enum HttpBodyInner {
+    Empty,
     Full(SendWrapper<RefCell<Option<Bytes>>>),
     FunctionResource(SendWrapper<RefCell<FunctionResourceReader>>),
     Stream(BoxStream<'static, Result<Bytes, ()>>),
+    StreamPartiallyRead {
+        stream: BoxStream<'static, Result<Bytes, ()>>,
+        frame: Result<Bytes, ()>,
+    }
 }
 
-enum FunctionResourceReader {
+pub(crate) enum FunctionResourceReader {
     // HttpBody is empty or we finished reading it
     Empty,
     // HttpBody is a resource on function side, no frame is in progress of being read
@@ -217,7 +231,7 @@ enum FunctionResourceReader {
     FrameReadFuture {
         instance: Rc<FunctionInstance>,
         resource_id: FunctionResourceId,
-        future: LocalBoxFuture<'static, ()>,
+        future: LocalBoxFuture<'static, Option<HttpStreamFrame>>,
     },
 }
 

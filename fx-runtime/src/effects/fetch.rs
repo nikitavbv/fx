@@ -64,10 +64,6 @@ impl SerializeResource for FetchResultWithBodyResource {
     }
 }
 
-pub(crate) enum HttpStreamFrame {}
-
-impl DeserializeFunctionResource for HttpStreamFrame {
-    fn deserialize(resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Self {
-        todo!()
-    }
+pub(crate) enum HttpStreamFrame {
+    Bytes(Vec<u8>),
 }
