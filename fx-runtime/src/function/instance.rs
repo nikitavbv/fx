@@ -22,7 +22,7 @@ use {
             future::FutureResource,
             serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource, DeserializeFunctionResource},
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner},
+        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner, FunctionResourceReader},
     },
     super::FunctionId,
 };
@@ -179,7 +179,15 @@ impl FunctionInstance {
                 | Resource::UnitFuture(_)
                 | Resource::BlobGetResult(_) => panic!("resource of this type cannot be used as http body"),
                 Resource::FetchResult(_) => todo!(),
-                Resource::HttpBody(_) => todo!(),
+                Resource::HttpBody(v) => match v.0 {
+                    HttpBodyInner::Empty => todo!(),
+                    HttpBodyInner::FunctionResource(_) => todo!(),
+                    HttpBodyInner::Stream(v) => HttpStreamFrame::Stream(v),
+                    HttpBodyInner::StreamPartiallyRead { .. } => todo!(),
+                    HttpBodyInner::StreamPartiallyReadSerialized { .. } => todo!(),
+                    HttpBodyInner::Full(_) => todo!(),
+                    HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that was serialized to write to function"),
+                },
                 Resource::RequestBody(_) => todo!(),
             },
         })
@@ -336,7 +344,20 @@ impl FunctionInstanceState {
                 },
             },
             Resource::HttpBody(v) => match v.0 {
-                HttpBodyInner::Empty => todo!(),
+                HttpBodyInner::Empty => {
+                    let frame_serialized = {
+                        let mut message = capnp::message::Builder::new_default();
+                        let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
+                        let mut serialized_frame = serialized_frame.init_frame();
+
+                        serialized_frame.set_stream_end(());
+
+                        capnp::serialize::write_message_to_words(&message)
+                    };
+                    let serialized_size = frame_serialized.len();
+
+                    (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(frame_serialized))), serialized_size)
+                },
                 HttpBodyInner::Full(_) => todo!(),
                 HttpBodyInner::FunctionResource(_) => todo!(),
                 HttpBodyInner::Stream(_) => todo!(),
@@ -355,6 +376,10 @@ impl FunctionInstanceState {
                     (Resource::HttpBody(HttpBody(HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized })), serialized_size)
                 },
                 HttpBodyInner::StreamPartiallyReadSerialized { .. } => todo!(),
+                HttpBodyInner::FrameSerialized(v) => {
+                    let serialized_len = v.len();
+                    (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
+                },
             },
         };
         self.resources.reattach(resource_id.into(), resource);
@@ -439,7 +464,14 @@ impl FunctionInstanceState {
                 },
                 HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(),
                 HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(),
-                HttpBodyInner::FunctionResource(_) => todo!(),
+                HttpBodyInner::FunctionResource(v) => match v.take().into_inner() {
+                    FunctionResourceReader::Empty => todo!(),
+                    FunctionResourceReader::Resource(_) => todo!(),
+                    FunctionResourceReader::FramePollFuture { .. } => todo!(),
+                    FunctionResourceReader::FrameReadFuture { .. } => todo!(),
+                    FunctionResourceReader::Stream(_) => todo!(),
+                },
+                HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
         };
 
@@ -477,6 +509,7 @@ impl FunctionInstanceState {
                 | HttpBodyInner::StreamPartiallyRead { .. }
                 | HttpBodyInner::FunctionResource(_) => panic!("HttpBody has to be serialized first"),
                 HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream(stream)))), frame_serialized),
+                HttpBodyInner::FrameSerialized(v) => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Empty))), v),
             },
         };
 

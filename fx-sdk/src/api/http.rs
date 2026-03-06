@@ -5,7 +5,7 @@ use {
     http::{Method, HeaderMap},
     serde::Serialize,
     thiserror::Error,
-    futures::stream::{BoxStream, Stream},
+    futures::{StreamExt, TryStreamExt, stream::{BoxStream, Stream}},
     bytes::Bytes,
     fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
@@ -285,8 +285,12 @@ impl HttpResponse {
         self
     }
 
+    pub async fn bytes(self) -> Vec<u8> {
+        self.into_body().map(|v| v.map(|v| v.to_vec())).try_concat().await.unwrap()
+    }
+
     pub async fn text(self) -> String {
-        todo!()
+        String::from_utf8(self.bytes().await).unwrap()
     }
 }
 
@@ -336,7 +340,7 @@ impl Stream for HttpBody {
                         let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
 
                         match frame.get_frame().which().unwrap() {
-                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => todo!(),
+                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
                             abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
                                 HttpBodyInner::HostResource(resource_id),
                                 std::task::Poll::Ready(Some(Ok(Bytes::from(v.unwrap().to_vec()))))

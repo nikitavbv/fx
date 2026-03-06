@@ -1,6 +1,6 @@
 use {
     std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
-    futures::{FutureExt, future::LocalBoxFuture, stream::BoxStream},
+    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
     send_wrapper::SendWrapper,
@@ -191,6 +191,13 @@ impl hyper::body::Body for HttpBody {
                         Poll::Ready(Some(HttpStreamFrame::Bytes(bytes))) => {
                             (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(bytes))))))
                         },
+                        Poll::Ready(Some(HttpStreamFrame::Stream(mut stream))) => {
+                            match stream.poll_next_unpin(cx) {
+                                Poll::Pending => (FunctionResourceReader::Stream(stream), Poll::Pending),
+                                Poll::Ready(None) => return Poll::Ready(None),
+                                Poll::Ready(Some(frame)) => (FunctionResourceReader::Stream(stream), Poll::Ready(Some(Ok(hyper::body::Frame::data(frame.unwrap()))))),
+                            }
+                        },
                     },
                     _ => unreachable!("didn't expect to get this reader state"),
                 };
@@ -202,6 +209,7 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
+            HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that has been serialized to be written to function"),
         }
     }
 }
@@ -219,6 +227,7 @@ pub(crate) enum HttpBodyInner {
         stream: BoxStream<'static, Result<Bytes, ()>>,
         frame_serialized: Vec<u8>,
     },
+    FrameSerialized(Vec<u8>),
 }
 
 pub(crate) enum FunctionResourceReader {
@@ -238,6 +247,8 @@ pub(crate) enum FunctionResourceReader {
         resource_id: FunctionResourceId,
         future: LocalBoxFuture<'static, Option<HttpStreamFrame>>,
     },
+    // HttpBody is stream living on host
+    Stream(BoxStream<'static, Result<Bytes, ()>>),
 }
 
 pub struct FetchRequestHeader {

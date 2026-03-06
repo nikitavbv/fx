@@ -1,7 +1,11 @@
-use crate::{
-    function::abi::{capnp, abi_http_capnp},
-    resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId},
-    triggers::http::HttpBody,
+use {
+    futures::stream::BoxStream,
+    hyper::body::Bytes,
+    crate::{
+        function::abi::{capnp, abi_http_capnp},
+        resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId},
+        triggers::http::HttpBody,
+    },
 };
 
 pub(crate) enum FetchResult {
@@ -66,4 +70,5 @@ impl SerializeResource for FetchResultWithBodyResource {
 
 pub(crate) enum HttpStreamFrame {
     Bytes(Vec<u8>),
+    Stream(BoxStream<'static, Result<Bytes, ()>>),
 }
