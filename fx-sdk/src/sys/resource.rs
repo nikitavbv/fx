@@ -3,7 +3,7 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
-    fx_types::{capnp, abi::FuturePollResult, abi_function_resources_capnp},
+    fx_types::{capnp, abi::FuturePollResult, abi_function_resources_capnp, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
         sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
@@ -305,8 +305,24 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
                 HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => {
                     let serialized_size = frame_serialized.len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream { stream, frame_serialized })), serialized_size)
-                }
-                HttpBodyInner::HostResource(_) => panic!("host resources should not be serialized - host should access them directly instead to avoid copying to wasm and back"),
+                },
+                HttpBodyInner::HostResource(resource_id) => {
+                    let resource_id = resource_id.consume();
+
+                    let mut message = capnp::message::Builder::new_default();
+                    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+                    let mut serialized_frame = serialized_frame.init_body();
+                    serialized_frame.set_host_resource_id(resource_id.as_ffi());
+
+                    let serialized_frame = capnp::serialize::write_message_to_words(&message);
+                    let serialized_len = serialized_frame.len();
+
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                },
+                HttpBodyInner::FrameSerialized(v) => {
+                    let serialized_len = v.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
+                },
             },
         };
         resources.reattach(resource_id.into(), resource);

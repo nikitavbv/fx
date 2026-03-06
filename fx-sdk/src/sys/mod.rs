@@ -79,6 +79,7 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
                         stream,
                         frame_serialized,
                     })))),
+                    HttpBodyInner::FrameSerialized(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))))),
                 };
 
                 v.0 = body;
@@ -119,6 +120,7 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
                 HttpBodyInner::Empty => panic!("empty body: nothing to serailize"),
                 HttpBodyInner::PartiallyReadStream { stream: _, ref frame_serialized } => frame_serialized.as_ptr(),
                 HttpBodyInner::Stream(_) => panic!("stream has to be read first"),
+                HttpBodyInner::FrameSerialized(ref v) => v.as_ptr(),
             },
         }
     }) as i64
@@ -141,6 +143,7 @@ pub extern "C" fn _fx_stream_advance(resource_id: u64) {
             | HttpBodyInner::HostResource(_) => panic!("not a stream"),
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))),
+            HttpBodyInner::FrameSerialized(_) => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)),
         },
     });
 }

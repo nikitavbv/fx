@@ -327,9 +327,25 @@ impl Stream for HttpBody {
                 let poll_result = FuturePollResult::try_from(poll_result).unwrap();
                 match poll_result {
                     FuturePollResult::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
-                    FuturePollResult::Ready => todo!(),
+                    FuturePollResult::Ready => {
+                        let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
+                        let data: Vec<u8> = vec![0u8; resource_length as usize];
+                        resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
+
+                        let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                        let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+
+                        match frame.get_frame().which().unwrap() {
+                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => todo!(),
+                            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
+                                HttpBodyInner::HostResource(resource_id),
+                                std::task::Poll::Ready(Some(Ok(Bytes::from(v.unwrap().to_vec()))))
+                            ),
+                        }
+                    },
                 }
             },
+            HttpBodyInner::FrameSerialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
         };
 
         self.0 = inner;
@@ -357,6 +373,7 @@ pub(crate) enum HttpBodyInner {
         frame_serialized: Vec<u8>,
     },
     HostResource(OwnedResourceId),
+    FrameSerialized(Vec<u8>),
 }
 
 pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {

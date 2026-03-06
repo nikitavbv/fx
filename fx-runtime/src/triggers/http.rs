@@ -201,6 +201,7 @@ impl hyper::body::Body for HttpBody {
             },
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
+            HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
         }
     }
 }
@@ -213,7 +214,11 @@ pub(crate) enum HttpBodyInner {
     StreamPartiallyRead {
         stream: BoxStream<'static, Result<Bytes, ()>>,
         frame: Result<Bytes, ()>,
-    }
+    },
+    StreamPartiallyReadSerialized {
+        stream: BoxStream<'static, Result<Bytes, ()>>,
+        frame_serialized: Vec<u8>,
+    },
 }
 
 pub(crate) enum FunctionResourceReader {
