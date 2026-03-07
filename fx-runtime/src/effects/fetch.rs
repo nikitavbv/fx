@@ -78,6 +78,13 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
     FunctionResourceReader,
     Poll<Option<Result<Bytes, std::io::Error>>>,
 ) {
+    // first of all, handle cases that do not involve reading from function
+    reader = match reader {
+        FunctionResourceReader::Empty => return (FunctionResourceReader::Empty, Poll::Ready(None)),
+        FunctionResourceReader::Stream(_) => todo!(),
+        other => other,
+    };
+
     // if finished reading, then finish this body
     reader = match reader {
         FunctionResourceReader::Empty => return (reader, Poll::Ready(None)),
