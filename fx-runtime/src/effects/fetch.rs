@@ -81,7 +81,12 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
     // first of all, handle cases that do not involve reading from function
     reader = match reader {
         FunctionResourceReader::Empty => return (FunctionResourceReader::Empty, Poll::Ready(None)),
-        FunctionResourceReader::Stream(_) => todo!(),
+        FunctionResourceReader::Stream(mut stream) => {
+            let frame = stream.poll_next_unpin(cx);
+            return (FunctionResourceReader::Stream(stream), frame.map_err(|_| {
+                todo!("unhandled error");
+            }));
+        },
         other => other,
     };
 
