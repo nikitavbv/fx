@@ -20,7 +20,7 @@ use {
         definitions::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
             triggers::{FunctionHttpListener, CronTrigger},
-            bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig, FunctionBindingConfig},
+            bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig, KvBindingConfig, FunctionBindingConfig},
         },
         function::{FunctionId, FunctionDeploymentId},
     },
@@ -212,6 +212,14 @@ impl DefinitionsMonitor {
             }))
             .collect::<HashMap<_, _>>();
 
+        let bindings_kv = config.bindings.iter()
+            .flat_map(|v| v.kv.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| (v.id.clone(), KvBindingConfig {
+                namespace: v.namespace.clone(),
+            }))
+            .collect::<HashMap<_, _>>();
+
         let bindings_functions = config.bindings.iter()
             .flat_map(|v| v.functions.iter())
             .flat_map(|v| v.iter())
@@ -231,6 +239,7 @@ impl DefinitionsMonitor {
                 http_listeners: http_listeners.clone(),
                 bindings_sql: bindings_sql.clone(),
                 bindings_blob: bindings_blob.clone(),
+                bindings_kv: bindings_kv.clone(),
                 bindings_functions: bindings_functions.clone(),
             }).await.unwrap();
         }

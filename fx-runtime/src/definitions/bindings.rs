@@ -23,6 +23,11 @@ pub(crate) struct BlobBindingConfig {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct KvBindingConfig {
+    pub(crate) namespace: String,
+}
+
+#[derive(Debug, Clone)]
 pub(crate) struct FunctionBindingConfig {
     pub(crate) function_id: FunctionId,
 }

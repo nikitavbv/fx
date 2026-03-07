@@ -206,6 +206,7 @@ pub struct FunctionRabbitmqTriggerConfig {
 pub struct FunctionBindingsConfig {
     pub sql: Option<Vec<SqlBindingConfig>>,
     pub blob: Option<Vec<BlobBindingConfig>>,
+    pub kv: Option<Vec<KvBindingConfig>>,
     pub functions: Option<Vec<FunctionBindingConfig>>,
 }
 
@@ -214,6 +215,7 @@ impl FunctionBindingsConfig {
         Self {
             sql: None,
             blob: None,
+            kv: None,
             functions: None,
         }
     }
@@ -279,6 +281,12 @@ impl SqlBindingConfig {
 pub struct BlobBindingConfig {
     pub id: String,
     pub path: String,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct KvBindingConfig {
+    pub id: String,
+    pub namespace: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

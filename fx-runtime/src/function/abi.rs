@@ -21,6 +21,7 @@ use {
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
             worker::WorkerMessage,
+            kv::{KvMessage, KvOperation},
         },
         triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner, HttpBody, HttpBodyInner},
     },
@@ -568,4 +569,38 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
 
 pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
     caller.data_mut().metrics.counter_increment(MetricId::from_abi(counter_id), delta);
+}
+
+pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_addr as usize;
+        let len = binding_len as usize;
+        let binding = &view[ptr..ptr+len];
+        str::from_utf8(binding).unwrap()
+    };
+    let binding = caller.data().bindings_kv.get(binding).unwrap();
+
+    let key = {
+        let ptr = key_addr as usize;
+        let len = key_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let value = {
+        let ptr = value_addr as usize;
+        let len = value_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        todo!()
+    }.boxed())).as_u64()
+}
+
+pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64) -> u64 {
+    todo!()
 }

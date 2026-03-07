@@ -14,6 +14,7 @@ use {
             compiler::CompilerMessage,
             management::{ManagementMessage, run_management_task, DeployFunctionMessage},
             cron::run_cron_task,
+            kv::run_kv_task,
         },
         triggers::cron::CronDatabase,
         function::FunctionId,
@@ -55,6 +56,7 @@ impl FxServer {
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
         let (logger_tx, logger_rx) = flume::unbounded::<LogMessageEvent>();
         let (cron_tx, cron_rx) = flume::unbounded();
+        let (kv_tx, kv_rx) = flume::unbounded();
 
         let management_thread_handle = {
             let config = self.config.clone();
@@ -138,6 +140,13 @@ impl FxServer {
             sql_worker_id += 1;
         }
 
+        let kv_thread_handle = {
+            std::thread::spawn(move || {
+                info!("started kv cron");
+                run_kv_task(kv_rx);
+            })
+        };
+
         let worker_cores = cpu_info.as_ref()
             .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
             .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
@@ -150,6 +159,7 @@ impl FxServer {
                 messages_rx,
                 self_tx,
                 sql_tx: sql_tx.clone(),
+                kv_tx: kv_tx.clone(),
                 logger_tx: logger_tx.clone(),
                 management_tx: management_tx.clone(),
             })
@@ -187,6 +197,7 @@ impl FxServer {
             management_thread_handle,
             logger_thread_handle,
             cron_thread_handle,
+            kv_thread_handle,
         }
     }
 }
@@ -201,6 +212,7 @@ pub struct RunningFxServer {
     management_thread_handle: JoinHandle<()>,
     logger_thread_handle: JoinHandle<()>,
     cron_thread_handle: JoinHandle<()>,
+    kv_thread_handle: JoinHandle<()>,
 }
 
 impl RunningFxServer {
@@ -220,6 +232,7 @@ impl RunningFxServer {
         for handle in self.sql_worker_handles {
             handle.join().unwrap();
         }
+        self.kv_thread_handle.join().unwrap();
         self.cron_thread_handle.join().unwrap();
         self.compiler_thread_handle.join().unwrap();
         self.logger_thread_handle.join().unwrap();

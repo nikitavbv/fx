@@ -14,8 +14,8 @@ use {
             metrics::FunctionMetricsState,
             fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame, poll_function_resource_reader_frame},
         },
-        tasks::{sql::SqlMessage, worker::LocalWorkerController},
-        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
+        tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage},
+        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         resources::{
             FunctionResourceId,
             ResourceId,
@@ -48,19 +48,23 @@ impl FunctionInstance {
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
+        kv_tx: flume::Sender<KvMessage>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_kv: HashMap<String, KvBindingConfig>,
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, FunctionInstanceInitError> {
         let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(
             local_worker,
             logger_tx,
             sql_tx,
+            kv_tx,
             function_id,
             bindings_sql,
             bindings_blob,
+            bindings_kv,
             bindings_functions
         ));
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
@@ -218,10 +222,12 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) local_worker: LocalWorkerController,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
+    pub(crate) kv_tx: flume::Sender<KvMessage>,
     pub(crate) function_id: FunctionId,
     resources: SlotMap<slotmap::DefaultKey, Resource>,
     pub(crate) bindings_sql: HashMap<String, SqlBindingConfig>,
     pub(crate) bindings_blob: HashMap<String, BlobBindingConfig>,
+    pub(crate) bindings_kv: HashMap<String, KvBindingConfig>,
     pub(crate) bindings_functions: HashMap<String, FunctionBindingConfig>, // host is key
     pub(crate) http_client: reqwest::Client,
     pub(crate) metrics: FunctionMetricsState,
@@ -232,9 +238,11 @@ impl FunctionInstanceState {
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
+        kv_tx: flume::Sender<KvMessage>,
         function_id: FunctionId,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_kv: HashMap<String, KvBindingConfig>,
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Self {
         Self {
@@ -242,10 +250,12 @@ impl FunctionInstanceState {
             local_worker,
             logger_tx,
             sql_tx,
+            kv_tx,
             function_id,
             resources: SlotMap::new(),
             bindings_sql,
             bindings_blob,
+            bindings_kv,
             bindings_functions,
             http_client: reqwest::Client::new(),
             metrics: FunctionMetricsState::new(),

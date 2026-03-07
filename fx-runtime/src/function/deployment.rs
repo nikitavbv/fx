@@ -4,8 +4,8 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         effects::logs::LogMessageEvent,
-        tasks::{sql::SqlMessage, worker::LocalWorkerController},
-        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
+        tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage},
+        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, FetchRequestBody},
         resources::{Resource, serialize::{SerializedFunctionResource, SerializableResource}, future::FunctionFuture},
     },
@@ -37,10 +37,12 @@ impl FunctionDeployment {
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
+        kv_tx: flume::Sender<KvMessage>,
         function_id: FunctionId,
         module: wasmtime::Module,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_kv: HashMap<String, KvBindingConfig>,
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, DeploymentInitError> {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
@@ -62,7 +64,9 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_fetch", super::abi::fx_fetch_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_register", super::abi::fx_metrics_counter_register_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_increment", super::abi::fx_metrics_counter_increment_handler).unwrap();
-        linker.func_wrap("fx", "fx_stream_frame_read", super::abi:: fx_stream_frame_read_handler).unwrap();
+        linker.func_wrap("fx", "fx_stream_frame_read", super::abi::fx_stream_frame_read_handler).unwrap();
+        linker.func_wrap("fx", "fx_kv_set", super::abi::fx_kv_set_handler).unwrap();
+        linker.func_wrap("fx", "fx_kv_get", super::abi::fx_kv_get_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -90,7 +94,19 @@ impl FunctionDeployment {
                 }
             })?;
 
-        let instance = FunctionInstance::new(wasmtime, local_worker, logger_tx, sql_tx, function_id.clone(), &instance_template, bindings_sql, bindings_blob, bindings_functions).await
+        let instance = FunctionInstance::new(
+            wasmtime,
+            local_worker,
+            logger_tx,
+            sql_tx,
+            kv_tx,
+            function_id.clone(),
+            &instance_template,
+            bindings_sql,
+            bindings_blob,
+            bindings_kv,
+            bindings_functions
+        ).await
             .map_err(|err| match err {
                 FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
             })?;
