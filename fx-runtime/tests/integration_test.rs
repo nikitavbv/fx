@@ -569,6 +569,15 @@ async fn response_stream_simple() {
     );
 }
 
+#[tokio::test]
+async fn kv_simple() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/kv/simple").await.unwrap();
+    assert!(result.status().is_success());
+    assert_eq!("ok.", result.text().await.unwrap());
+}
+
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
     FX_SERVER.get_or_init(|| {
@@ -609,6 +618,7 @@ fn init_fx_server() {
                     .with_binding_sql_config(
                         SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
                     )
+                    .with_binding_kv("test-namespace".to_owned(), "test-namespace".to_owned())
             ).await;
 
             server.deploy_function(

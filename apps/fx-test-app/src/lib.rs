@@ -11,7 +11,7 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::{http::{fetch, HttpBody}, blob::BlobGetError},
+        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
@@ -76,6 +76,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/cron", get(read_cron_status))
             .route("/test/rpc/simple", get(rpc_simple))
             .route("/test/stream/sse", get(test_stream_sse))
+            .route("/test/kv/simple", get(kv_simple))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -459,6 +460,19 @@ async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>>
         });
 
     Sse::new(stream)
+}
+
+async fn kv_simple() -> &'static str {
+    let kv = kv::Kv::new("test-namespace");
+
+    kv.set("some-key", "hello kv!").await;
+
+    let result = kv.get("some-key").await.unwrap();
+    let result = String::from_utf8(result).unwrap();
+
+    assert_eq!(result, "hello kv!");
+
+    "ok."
 }
 
 #[derive(Clone)]

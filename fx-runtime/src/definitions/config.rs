@@ -120,6 +120,16 @@ impl FunctionConfig {
         self
     }
 
+    pub fn with_binding_kv(mut self, id: String, namespace: String) -> Self {
+        if self.bindings.is_none() {
+            self.bindings = Some(FunctionBindingsConfig::new());
+        }
+
+        self.bindings = self.bindings.map(|v| v.with_kv(id, namespace));
+
+        self
+    }
+
     pub fn with_binding_function(mut self, config: FunctionBindingConfig) -> Self {
         if self.bindings.is_none() {
             self.bindings = Some(FunctionBindingsConfig::new());
@@ -239,6 +249,16 @@ impl FunctionBindingsConfig {
         }
 
         self.sql.as_mut().unwrap().push(config);
+
+        self
+    }
+
+    pub fn with_kv(mut self, id: String, namespace: String) -> Self {
+        if self.kv.is_none() {
+            self.kv = Some(Vec::new());
+        }
+
+        self.kv.as_mut().unwrap().push(KvBindingConfig { id, namespace });
 
         self
     }

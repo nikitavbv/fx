@@ -9,6 +9,7 @@ use {
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationResult},
             blob::BlobGetResponse,
             fetch::FetchResult,
+            kv::KvGetResponse,
         },
     },
     super::{
@@ -104,4 +105,5 @@ pub(crate) enum Resource {
     UnitFuture(BoxFuture<'static, ()>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FutureResource<FetchResult>),
+    KvGetResult(FutureResource<SerializableResource<KvGetResponse>>),
 }

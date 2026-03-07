@@ -35,7 +35,7 @@ use {
 };
 
 pub mod io {
-    pub use crate::api::{blob, http};
+    pub use crate::api::{blob, http, kv};
 }
 
 pub mod sys;

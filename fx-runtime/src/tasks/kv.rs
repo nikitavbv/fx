@@ -4,8 +4,8 @@ use {
 };
 
 pub(crate) struct KvMessage {
-    namespace: String,
-    operation: KvOperation,
+    pub(crate) namespace: String,
+    pub(crate) operation: KvOperation,
 }
 
 pub(crate) enum KvOperation {
