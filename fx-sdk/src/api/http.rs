@@ -381,7 +381,13 @@ pub(crate) enum HttpBodyInner {
 }
 
 pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {
-    todo!("serialize http body full")
+    let mut message = capnp::message::Builder::new_default();
+    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+    let mut serialized_frame = serialized_frame.init_body();
+
+    serialized_frame.set_bytes(&body);
+
+    capnp::serialize::write_message_to_words(&message)
 }
 
 pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError> {
@@ -499,12 +505,12 @@ impl From<BoxStream<'static, Result<Bytes, ()>>> for HttpBody {
 
 impl From<&str> for HttpBody {
     fn from(value: &str) -> Self {
-        todo!()
+        HttpBody(HttpBodyInner::Bytes(value.as_bytes().to_vec()))
     }
 }
 
 impl From<String> for HttpBody {
     fn from(value: String) -> Self {
-        todo!()
+        HttpBody(HttpBodyInner::Bytes(value.into_bytes()))
     }
 }

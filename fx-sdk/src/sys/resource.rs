@@ -291,7 +291,18 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
                 (FunctionResource::FunctionResponse(serialized), serialized_size)
             },
             FunctionResource::HttpBody(v) => match v.0 {
-                HttpBodyInner::Empty => panic!("empty http body cannot be serialized"),
+                HttpBodyInner::Empty => {
+                    let mut message = capnp::message::Builder::new_default();
+                    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+                    let mut serialized_frame = serialized_frame.init_body();
+
+                    serialized_frame.set_stream_end(());
+
+                    let serialized_frame = capnp::serialize::write_message_to_words(&message);
+                    let serialized_len = serialized_frame.len();
+
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                },
                 HttpBodyInner::Bytes(v) => {
                     let serialized = serialize_http_body_full(v);
                     let serialized_size = serialized.len();
