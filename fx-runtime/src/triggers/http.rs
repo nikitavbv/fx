@@ -144,6 +144,7 @@ impl hyper::body::Body for HttpBody {
                 poll_result.map(|v| v.map(|v| v.map(hyper::body::Frame::data)))
             },
             HttpBodyInner::FunctionResourcePartiallyRead { .. } => todo!(),
+            HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } => todo!(),
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
@@ -159,6 +160,10 @@ pub(crate) enum HttpBodyInner {
     FunctionResourcePartiallyRead {
         reader: SendWrapper<FunctionResourceReader>,
         frame: Bytes
+    },
+    FunctionResourcePartiallyReadSerialized {
+        reader: SendWrapper<FunctionResourceReader>,
+        frame_serialized: Vec<u8>,
     },
     Stream(BoxStream<'static, Result<Bytes, ()>>),
     StreamPartiallyRead {
