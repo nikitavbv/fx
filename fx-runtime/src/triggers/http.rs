@@ -18,7 +18,7 @@ use {
             abi::{capnp, abi_http_capnp},
             instance::FunctionInstance,
         },
-        effects::fetch::HttpStreamFrame,
+        effects::fetch::{HttpStreamFrame, poll_function_resource_reader_frame},
     },
 };
 
@@ -135,77 +135,15 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionResource(resource) => {
-                let mut reader = resource.replace(FunctionResourceReader::Empty);
+                let reader = resource.replace(FunctionResourceReader::Empty);
 
-                // if finished reading, then finish this body
-                reader = match reader {
-                    FunctionResourceReader::Empty => return Poll::Ready(None),
-                    other => other,
-                };
-
-                // if there is a HttpBody resource we can start reading, let's request next frame
-                reader = match reader {
-                    FunctionResourceReader::Resource(resource_id) => {
-                        let (instance, resource_id) = resource_id.consume();
-
-                        let mut next_frame_poll_future = {
-                            let resource_id = resource_id.clone();
-                            let instance = instance.clone();
-
-                            async move {
-                                let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                                instance.future_poll(&resource_id, waker).await.unwrap()
-                            }.boxed_local()
-                        };
-
-                        match next_frame_poll_future.poll_unpin(cx) {
-                            Poll::Pending => {
-                                resource.replace(FunctionResourceReader::FramePollFuture {
-                                    instance,
-                                    resource_id,
-                                    future: next_frame_poll_future,
-                                });
-                                return Poll::Pending;
-                            },
-                            Poll::Ready(Poll::Pending) => {
-                                resource.replace(FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)));
-                                return Poll::Pending;
-                            },
-                            Poll::Ready(Poll::Ready(_)) => FunctionResourceReader::FrameReadFuture {
-                                instance: instance.clone(),
-                                resource_id: resource_id.clone(),
-                                future: async move {
-                                    instance.stream_frame_read(&resource_id).await
-                                }.boxed_local(),
-                            },
-                        }
-                    },
-                    other => other,
-                };
-
-                // if there is a frame we are currently reading, poll that
-                let (reader, poll_result) = match reader {
-                    FunctionResourceReader::FrameReadFuture { instance, resource_id, mut future } => match future.poll_unpin(cx) {
-                        Poll::Pending => todo!(),
-                        Poll::Ready(None) => return Poll::Ready(None),
-                        Poll::Ready(Some(HttpStreamFrame::Bytes(bytes))) => {
-                            (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Ready(Some(Ok(hyper::body::Frame::data(Bytes::from(bytes))))))
-                        },
-                        Poll::Ready(Some(HttpStreamFrame::Stream(mut stream))) => {
-                            match stream.poll_next_unpin(cx) {
-                                Poll::Pending => (FunctionResourceReader::Stream(stream), Poll::Pending),
-                                Poll::Ready(None) => return Poll::Ready(None),
-                                Poll::Ready(Some(frame)) => (FunctionResourceReader::Stream(stream), Poll::Ready(Some(Ok(hyper::body::Frame::data(frame.unwrap()))))),
-                            }
-                        },
-                    },
-                    _ => unreachable!("didn't expect to get this reader state"),
-                };
+                let (reader, poll_result) = poll_function_resource_reader_frame(reader, cx);
 
                 resource.replace(reader);
 
-                poll_result
+                poll_result.map(|v| v.map(|v| v.map(hyper::body::Frame::data)))
             },
+            HttpBodyInner::FunctionResourcePartiallyRead { .. } => todo!(),
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
@@ -218,6 +156,10 @@ pub(crate) enum HttpBodyInner {
     Empty,
     Full(SendWrapper<RefCell<Option<Bytes>>>),
     FunctionResource(SendWrapper<RefCell<FunctionResourceReader>>),
+    FunctionResourcePartiallyRead {
+        reader: SendWrapper<FunctionResourceReader>,
+        frame: Bytes
+    },
     Stream(BoxStream<'static, Result<Bytes, ()>>),
     StreamPartiallyRead {
         stream: BoxStream<'static, Result<Bytes, ()>>,

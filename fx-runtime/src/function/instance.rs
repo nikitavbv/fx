@@ -1,17 +1,18 @@
 use {
-    std::{collections::HashMap, task::Poll},
+    std::{collections::HashMap, task::Poll, cell::RefCell},
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,
     futures::{FutureExt, StreamExt},
     slotmap::SlotMap,
     wasmtime::{AsContextMut, AsContext},
+    send_wrapper::SendWrapper,
     fx_types::{capnp, abi_http_capnp},
     crate::{
         function::abi::FuturePollResult,
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
-            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame},
+            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame, poll_function_resource_reader_frame},
         },
         tasks::{sql::SqlMessage, worker::LocalWorkerController},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig},
@@ -182,6 +183,7 @@ impl FunctionInstance {
                 Resource::HttpBody(v) => match v.0 {
                     HttpBodyInner::Empty => todo!(),
                     HttpBodyInner::FunctionResource(_) => todo!(),
+                    HttpBodyInner::FunctionResourcePartiallyRead { .. } => todo!(),
                     HttpBodyInner::Stream(v) => HttpStreamFrame::Stream(v),
                     HttpBodyInner::StreamPartiallyRead { .. } => todo!(),
                     HttpBodyInner::StreamPartiallyReadSerialized { .. } => todo!(),
@@ -360,6 +362,19 @@ impl FunctionInstanceState {
                 },
                 HttpBodyInner::Full(_) => todo!(),
                 HttpBodyInner::FunctionResource(_) => todo!(),
+                HttpBodyInner::FunctionResourcePartiallyRead { reader, frame } => {
+                    let frame_serialized = {
+                        let mut message = capnp::message::Builder::new_default();
+                        let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
+                        let mut serialized_frame = serialized_frame.init_frame();
+
+                        serialized_frame.set_bytes(&frame.to_vec());
+
+                        capnp::serialize::write_message_to_words(&message)
+                    };
+
+                    todo!()
+                },
                 HttpBodyInner::Stream(_) => todo!(),
                 HttpBodyInner::StreamPartiallyRead { stream, frame } => {
                     let frame_serialized = {
@@ -465,12 +480,24 @@ impl FunctionInstanceState {
                 HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(),
                 HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(),
                 HttpBodyInner::FunctionResource(v) => match v.take().into_inner() {
-                    FunctionResourceReader::Empty => todo!(),
-                    FunctionResourceReader::Resource(_) => todo!(),
-                    FunctionResourceReader::FramePollFuture { .. } => todo!(),
-                    FunctionResourceReader::FrameReadFuture { .. } => todo!(),
+                    FunctionResourceReader::Empty => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
                     FunctionResourceReader::Stream(_) => todo!(),
+
+                    reader => {
+                        let (reader, poll_result) = poll_function_resource_reader_frame(reader, &mut cx);
+                        match poll_result {
+                            Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResource(
+                                SendWrapper::new(RefCell::new(reader)),
+                            ))), Poll::Pending),
+                            Poll::Ready(None) => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
+                            Poll::Ready(Some(frame)) => (Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResourcePartiallyRead {
+                                reader: SendWrapper::new(reader),
+                                frame: frame.unwrap(),
+                            })), Poll::Ready(())),
+                        }
+                    },
                 },
+                HttpBodyInner::FunctionResourcePartiallyRead { reader, frame } => todo!(),
                 HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
         };
@@ -507,7 +534,8 @@ impl FunctionInstanceState {
                 | HttpBodyInner::Full(_)
                 | HttpBodyInner::Stream(_)
                 | HttpBodyInner::StreamPartiallyRead { .. }
-                | HttpBodyInner::FunctionResource(_) => panic!("HttpBody has to be serialized first"),
+                | HttpBodyInner::FunctionResource(_)
+                | HttpBodyInner::FunctionResourcePartiallyRead { .. } => panic!("HttpBody has to be serialized first"),
                 HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream(stream)))), frame_serialized),
                 HttpBodyInner::FrameSerialized(v) => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Empty))), v),
             },
