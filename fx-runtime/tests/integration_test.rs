@@ -512,7 +512,7 @@ async fn sql_binding_nonexistent_directory() {
     assert_eq!("ok: 1", response.text().await.unwrap());
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn response_stream_simple() {
     init_fx_server();
 
@@ -567,7 +567,7 @@ async fn response_stream_simple() {
         "total streaming time should be around 5 seconds, but was {} seconds",
         total_time
     );
-}*/
+}
 
 fn init_fx_server() {
     static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
