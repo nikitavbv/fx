@@ -18,7 +18,7 @@ use {
             cron::CronMessage,
         },
         definitions::{
-            config::{ServerConfig, FunctionConfig, FunctionCodeConfig},
+            config::{ServerConfig, FunctionConfig, FunctionCodeConfig, EnvValueSource},
             triggers::{FunctionHttpListener, CronTrigger},
             bindings::{SqlBindingConfig, SqlBindingConfigLocation, BlobBindingConfig, KvBindingConfig, FunctionBindingConfig},
         },
@@ -191,6 +191,18 @@ impl DefinitionsMonitor {
             })
             .collect::<Vec<_>>();
 
+        let env = {
+            let mut env = HashMap::new();
+            for var in config.env.into_iter().flatten() {
+                env.insert(var.id, match var.source {
+                    EnvValueSource::Value(v) => v,
+                    EnvValueSource::File(v) => fs::read_to_string(v).await.unwrap(),
+                });
+            }
+
+            env
+        };
+
         let bindings_sql = config.bindings.iter()
             .flat_map(|v| v.sql.iter())
             .flat_map(|v| v.iter())
@@ -237,6 +249,7 @@ impl DefinitionsMonitor {
                 deployment_id: deployment_id.clone(),
                 module: module.clone(),
                 http_listeners: http_listeners.clone(),
+                env: env.clone(),
                 bindings_sql: bindings_sql.clone(),
                 bindings_blob: bindings_blob.clone(),
                 bindings_kv: bindings_kv.clone(),

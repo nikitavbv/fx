@@ -24,6 +24,7 @@ pub(crate) enum WorkerMessage {
 
         http_listeners: Vec<FunctionHttpListener>,
 
+        env: HashMap<String, String>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
         bindings_kv: HashMap<String, KvBindingConfig>,

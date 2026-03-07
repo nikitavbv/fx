@@ -40,6 +40,7 @@ impl FunctionDeployment {
         kv_tx: flume::Sender<KvMessage>,
         function_id: FunctionId,
         module: wasmtime::Module,
+        env: HashMap<String, String>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
         bindings_blob: HashMap<String, BlobBindingConfig>,
         bindings_kv: HashMap<String, KvBindingConfig>,
@@ -65,6 +66,8 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_metrics_counter_register", super::abi::fx_metrics_counter_register_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_increment", super::abi::fx_metrics_counter_increment_handler).unwrap();
         linker.func_wrap("fx", "fx_stream_frame_read", super::abi::fx_stream_frame_read_handler).unwrap();
+        linker.func_wrap("fx", "fx_env_len", super::abi::fx_env_len_handler).unwrap();
+        linker.func_wrap("fx", "fx_env_get", super::abi::fx_env_get_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_set", super::abi::fx_kv_set_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_get", super::abi::fx_kv_get_handler).unwrap();
 
@@ -102,6 +105,7 @@ impl FunctionDeployment {
             kv_tx,
             function_id.clone(),
             &instance_template,
+            env,
             bindings_sql,
             bindings_blob,
             bindings_kv,

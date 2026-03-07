@@ -577,6 +577,24 @@ pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<
     caller.data_mut().metrics.counter_increment(MetricId::from_abi(counter_id), delta);
 }
 
+pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let key = {
+        let ptr = key_addr as usize;
+        let len = key_len as usize;
+        str::from_utf8(&view[ptr..ptr+len]).unwrap()
+    };
+
+    caller.data().env.get(key).unwrap().len() as u64
+}
+
+pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) {
+    todo!()
+}
+
 pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();

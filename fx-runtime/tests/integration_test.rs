@@ -596,6 +596,7 @@ fn init_fx_server() {
             server.deploy_function(
                 FunctionId::new("test-app"),
                 FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                    .with_env("test-env-var".to_owned(), "test value".to_owned())
                     .with_trigger_http(None)
                     .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())

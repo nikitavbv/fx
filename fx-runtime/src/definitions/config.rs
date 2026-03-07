@@ -53,9 +53,11 @@ pub struct FunctionConfig {
 
     pub code: Option<FunctionCodeConfig>,
 
+    pub env: Option<Vec<EnvVariableConfig>>,
+    pub logger: Option<LoggerConfig>,
+
     pub triggers: Option<FunctionTriggersConfig>,
     pub bindings: Option<FunctionBindingsConfig>,
-    pub logger: Option<LoggerConfig>,
 }
 
 impl FunctionConfig {
@@ -63,14 +65,28 @@ impl FunctionConfig {
         Self {
             config_path: Some(config_path),
             code: None,
+            env: None,
+            logger: None,
             triggers: None,
             bindings: None,
-            logger: None,
         }
     }
 
     pub fn with_code_inline(mut self, code: Vec<u8>) -> Self {
         self.code = Some(FunctionCodeConfig::Inline(code));
+        self
+    }
+
+    pub fn with_env(mut self, id: String, value: String) -> Self {
+        if self.env.is_none() {
+            self.env = Some(Vec::new());
+        }
+
+        self.env.as_mut().unwrap().push(EnvVariableConfig {
+            id,
+            source: EnvValueSource::Value(value),
+        });
+
         self
     }
 
@@ -341,4 +357,18 @@ impl FunctionConfig {
         config.config_path = Some(file_path);
         Ok(config)
     }
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct EnvVariableConfig {
+    pub id: String,
+    #[serde(flatten)]
+    pub source: EnvValueSource,
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvValueSource {
+    Value(String),
+    File(PathBuf),
 }
