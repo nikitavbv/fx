@@ -380,6 +380,8 @@ impl FunctionBindingConfig {
 pub(crate) enum FunctionConfigLoadError {
     #[error("failed to read config file: {0:?}")]
     FailedToRead(io::Error),
+    #[error("failed to parse config file: {0:?}")]
+    FailedToParse(serde_yml::Error),
 }
 
 impl FunctionConfig {
@@ -387,7 +389,7 @@ impl FunctionConfig {
         let mut config: Self = serde_yml::from_slice(
             &fs::read(&file_path).await
                 .map_err(|err| FunctionConfigLoadError::FailedToRead(err))?
-        ).unwrap();
+        ).map_err(|err| FunctionConfigLoadError::FailedToParse(err))?;
         config.config_path = Some(file_path);
         Ok(config)
     }
