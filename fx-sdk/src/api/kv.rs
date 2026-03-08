@@ -1,7 +1,16 @@
 use {
+    std::time::Duration,
+    fx_types::{abi_kv_capnp, capnp},
     crate::sys::{
-        DeserializeHostResource, FutureHostResource, HostUnitFuture, OwnedResourceId, fx_kv_delex_ifeq, fx_kv_get, fx_kv_set, fx_kv_set_nx_px
-    }, fx_types::{abi_kv_capnp, capnp}, std::time::Duration, thiserror::Error
+        DeserializeHostResource,
+        FutureHostResource,
+        HostUnitFuture,
+        OwnedResourceId,
+        fx_kv_set,
+        fx_kv_set_nx_px,
+        fx_kv_get,
+        fx_kv_delex_ifeq,
+    },
 };
 
 pub struct Kv {
