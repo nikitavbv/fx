@@ -21,18 +21,21 @@ pub enum SqlValue {
     Blob(Vec<u8>),
 }
 
-#[derive(Debug)]
-pub(crate) enum SqlMigrationResult {
-    Ok(()),
-    Error(SqlMigrationError),
-}
-
 #[derive(Debug, Error)]
 pub(crate) enum SqlMigrationError {
     #[error("binding with this name is not found")]
     BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("migration execution error: {message:?}")]
+    MigrationExecutionError {
+        message: String,
+    },
+    /// SqlError is very similar to MigrationExecutionError, but with more information available
+    #[error("sql error: {message:?}")]
+    SqlError {
+        message: String,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -81,21 +84,23 @@ impl SerializeResource for Result<Vec<SqlRow>, SqlQueryError> {
     }
 }
 
-impl SerializeResource for SqlMigrationResult {
+impl SerializeResource for Result<(), SqlMigrationError> {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
         let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
         let mut sql_migrate_result = sql_migrate_result.init_result();
 
         match self {
-            Self::Ok(_) => {
+            Ok(_) => {
                 sql_migrate_result.set_ok(());
             },
-            Self::Error(err) => {
+            Err(err) => {
                 let mut response_error = sql_migrate_result.init_error().init_error();
                 match err {
                     SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
                     SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
+                    SqlMigrationError::MigrationExecutionError { message } => response_error.set_execution_error(message),
+                    SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
                 }
             }
         }

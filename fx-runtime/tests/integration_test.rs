@@ -175,6 +175,15 @@ async fn sql_wrong_binding_name_migrations() {
     assert!(response.text().await.unwrap().contains("ok: binding not found"));
 }
 
+#[tokio::test]
+async fn sql_migration_sql_error() {
+    init_fx_server();
+
+    let response = reqwest::get("http://localhost:8080/test/sql/migration-sql-error").await.unwrap();
+    assert!(response.status().is_success());
+    assert!(response.text().await.unwrap().contains("ok: migration sql error"));
+}
+
 
 // TODO: recover from panics?
 #[tokio::test]
@@ -632,14 +641,16 @@ fn init_fx_server() {
                         SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
                             .with_busy_timeout_ms(10)
                     )
+                    .with_binding_sql_config(
+                        SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
+                    )
+                    .with_binding_sql("migration-sql-error".to_owned(), ":memory:".to_owned())
                     .with_binding_function(FunctionBindingConfig::new(
                         "function-rpc".to_owned(),
                         "test-app-rpc".to_owned(),
                         Some("function-rpc.fx.local".to_owned())
                     ))
-                    .with_binding_sql_config(
-                        SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
-                    )
+
                     .with_binding_kv("test-namespace".to_owned(), "test-namespace".to_owned())
             ).await;
 

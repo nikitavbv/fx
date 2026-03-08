@@ -56,6 +56,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/sql/contention-busy", get(test_sql_contention_busy))
             .route("/test/sql/wrong-binding-name", get(test_sql_wrong_binding_name))
             .route("/test/sql/wrong-binding-name/migrations", get(test_sql_wrong_binding_name_migrations))
+            .route("/test/sql/migration-sql-error", get(test_sql_migration_sql_error))
             .route("/test/sql/nonexistent-db", get(test_sql_nonexistent_db))
             .route("/test/sql/batch", get(test_sql_batch))
             .route("/test/sql/batch-rollback", get(test_sql_batch_rollback))
@@ -210,6 +211,26 @@ async fn test_sql_wrong_binding_name() -> (StatusCode, &'static str) {
         Ok(_) => (StatusCode::INTERNAL_SERVER_ERROR, "didn't expect sql query not to fail."),
         Err(err) => match err {
             SqlError::BindingNotFound => (StatusCode::OK, "ok: binding not found.\n"),
+            other => panic!("unexpected error type: {other:?}"),
+        }
+    }
+}
+
+async fn test_sql_migration_sql_error() -> (StatusCode, String) {
+    let database = fx::sql("migration-sql-error");
+
+    // to trigger "table already exists" error below
+    database.exec(SqlQuery::new("create table test_migration_sql_error (v integer not null)")).await.unwrap();
+
+    let result = Migrations::new()
+        .with_migration(Migration::new("create table test_migration_sql_error (v integer not null)"))
+        .run(&database)
+        .await;
+
+    match result {
+        Ok(_) => (StatusCode::INTERNAL_SERVER_ERROR, "didn't expect migration to succeed.".to_owned()),
+        Err(err) => match err {
+            SqlMigrationError::SqlError { message } => (StatusCode::OK, format!("ok: migration sql error: {message}\n")),
             other => panic!("unexpected error type: {other:?}"),
         }
     }

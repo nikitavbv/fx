@@ -36,6 +36,8 @@ struct SqlMigrateError {
     error :union {
         databaseBusy @0 :Void;
         bindingNotFound @1 :Void;
+        executionError @2 :Text;
+        sqlError @3 :Text;
     }
 }
 

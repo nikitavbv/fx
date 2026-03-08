@@ -66,6 +66,12 @@ pub enum SqlMigrationError {
 
     #[error("database is locked")]
     DatabaseBusy,
+
+    #[error("failed to execute sql migration: {message:?}")]
+    MigrationExecutionError { message: String },
+
+    #[error("sql error: {message:?}")]
+    SqlError { message: String },
 }
 
 impl DeserializeHostResource for Result<(), SqlMigrationError> {
@@ -78,6 +84,12 @@ impl DeserializeHostResource for Result<(), SqlMigrationError> {
             abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
                 abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
                 abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
+                abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(message) => SqlMigrationError::MigrationExecutionError {
+                    message: message.unwrap().to_string().unwrap(),
+                },
+                abi_sql_capnp::sql_migrate_error::error::Which::SqlError(message) => SqlMigrationError::SqlError {
+                    message: message.unwrap().to_string().unwrap(),
+                },
             }),
         }
     }

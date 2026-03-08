@@ -13,7 +13,7 @@ use {
         resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource},
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlMigrationResult, SqlQueryError},
+            sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
             blob::BlobGetResponse,
             fetch::{FetchResult, FetchResultWithBodyResource},
             metrics::{MetricKey, MetricId},
@@ -193,7 +193,7 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
         Some(v) => v,
         None => {
             return caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::Ready(SerializableResource::Raw(
-                SqlMigrationResult::Error(SqlMigrationError::BindingNotFound)
+                Err(SqlMigrationError::BindingNotFound)
             )))).as_u64();
         }
     };

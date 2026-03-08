@@ -3,7 +3,7 @@ use {
     tokio::sync::oneshot,
     crate::{
         definitions::bindings::{SqlBindingConfig, SqlBindingConfigLocation},
-        effects::sql::{SqlValue, SqlMigrationResult, SqlBatchError, SqlQueryExecutionError, SqlRow, SqlMigrationError},
+        effects::sql::{SqlValue, SqlBatchError, SqlQueryExecutionError, SqlRow, SqlMigrationError},
     },
 };
 
@@ -26,7 +26,7 @@ pub(crate) struct SqlExecMessage {
 pub(crate) struct SqlMigrateMessage {
     pub(crate) binding: SqlBindingConfig,
     pub(crate) migrations: Vec<String>,
-    pub(crate) response: oneshot::Sender<SqlMigrationResult>,
+    pub(crate) response: oneshot::Sender<Result<(), SqlMigrationError>>,
 }
 
 #[derive(Debug)]
@@ -190,7 +190,7 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlQueryExecutionError::DatabaseBusy => {
-                            msg.response.send(SqlMigrationResult::Error(SqlMigrationError::DatabaseBusy)).unwrap();
+                            msg.response.send(Err(SqlMigrationError::DatabaseBusy)).unwrap();
                             continue;
                         }
                     }
@@ -204,12 +204,20 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                 let migrations = rusqlite_migration::Migrations::new(rusqlite_migrations);
 
                 let response = match migrations.to_latest(connection) {
-                    Ok(_) => SqlMigrationResult::Ok(()),
+                    Ok(_) => Ok(()),
                     Err(err) => match err {
-                        rusqlite_migration::Error::RusqliteError { query: _, err } => if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
-                            SqlMigrationResult::Error(SqlMigrationError::DatabaseBusy)
-                        } else {
-                            panic!("unexpected sqlite error: {err:?}");
+                        rusqlite_migration::Error::RusqliteError { query: _, err } => match err {
+                            rusqlite::Error::SqliteFailure(error, message) => match error.code {
+                                rusqlite::ErrorCode::DatabaseBusy => Err(SqlMigrationError::DatabaseBusy),
+                                rusqlite::ErrorCode::Unknown => Err(SqlMigrationError::MigrationExecutionError {
+                                    message: message.unwrap(),
+                                }),
+                                other => panic!("unexpected sqlite error: {other:?}"),
+                            },
+                            rusqlite::Error::SqlInputError { error: _, msg, sql: _, offset: _ } => Err(SqlMigrationError::SqlError {
+                                message: msg,
+                            }),
+                            other => panic!("unexpected sqlite error: {other:?}"),
                         },
                         other => panic!("unexpected sqlite error: {other:?}"),
                     }
