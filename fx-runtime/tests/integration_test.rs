@@ -72,6 +72,14 @@ async fn status_code() {
 }
 
 #[tokio::test]
+async fn http_head() {
+    let client = init_fx_server().await;
+    let response = client.request(reqwest::Method::HEAD, "/").send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("", response.text().await.unwrap());
+}
+
+#[tokio::test]
 async fn http_body() {
     let client = init_fx_server().await;
     let response = client.post("/test/http/body").body("hello fx!".to_owned()).send().await.unwrap();

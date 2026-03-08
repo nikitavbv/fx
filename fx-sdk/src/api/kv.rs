@@ -1,6 +1,7 @@
 use {
     std::time::Duration,
     fx_types::{abi_kv_capnp, capnp},
+    thiserror::Error,
     crate::sys::{
         DeserializeHostResource,
         FutureHostResource,

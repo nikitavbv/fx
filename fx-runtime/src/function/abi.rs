@@ -450,6 +450,9 @@ pub(super) fn fx_fetch_handler(
         abi_http_capnp::HttpMethod::Patch => Method::PATCH,
         abi_http_capnp::HttpMethod::Delete => Method::DELETE,
         abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
+        abi_http_capnp::HttpMethod::Head => Method::HEAD,
+        abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
+        abi_http_capnp::HttpMethod::Trace => Method::TRACE,
     };
     let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();

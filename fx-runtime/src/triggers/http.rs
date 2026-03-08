@@ -283,7 +283,10 @@ impl SerializeResource for FetchRequestHeader {
             &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
             &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
             &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
-            other => todo!("this http method not supported: {other:?}"),
+            &hyper::Method::HEAD => abi_http_capnp::HttpMethod::Head,
+            &hyper::Method::CONNECT => abi_http_capnp::HttpMethod::Connect,
+            &hyper::Method::TRACE => abi_http_capnp::HttpMethod::Trace,
+            other => panic!("http method not supported: {other:?}"),
         });
 
         let mut request_headers = resource.reborrow().init_headers(self.headers().len() as u32);

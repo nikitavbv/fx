@@ -220,6 +220,9 @@ impl DeserializeHostResource for HttpRequestData {
                 abi_http_capnp::HttpMethod::Patch => Method::PATCH,
                 abi_http_capnp::HttpMethod::Post => Method::POST,
                 abi_http_capnp::HttpMethod::Put => Method::PUT,
+                abi_http_capnp::HttpMethod::Head => Method::HEAD,
+                abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
+                abi_http_capnp::HttpMethod::Trace => Method::TRACE,
             },
             url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
             headers: request.get_headers().unwrap().into_iter()

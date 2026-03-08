@@ -14,6 +14,9 @@ enum HttpMethod {
     patch @3;
     delete @4;
     options @5;
+    head @6;
+    connect @7;
+    trace @8;
 }
 
 struct HttpHeader {
