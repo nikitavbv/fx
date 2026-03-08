@@ -15,15 +15,15 @@ impl Kv {
         }
     }
 
-    pub async fn set(&self, key: impl Into<KvKey>, value: impl Into<KvValue>) {
-        let key = key.into();
+    pub async fn set(&self, key: impl AsKey, value: impl Into<KvValue>) {
+        let (key_ptr, key_len) = key.as_key();
         let value = value.into();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_set(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
-            key.value.as_ptr() as u64,
-            key.value.len() as u64,
+            key_ptr,
+            key_len,
             value.value.as_ptr() as u64,
             value.value.len() as u64,
         ) });
@@ -31,15 +31,15 @@ impl Kv {
         HostUnitFuture::new(resource_id).await;
     }
 
-    pub async fn set_nx_px(&self, key: impl Into<KvKey>, value: impl Into<KvValue>, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
-        let key = key.into();
+    pub async fn set_nx_px(&self, key: impl AsKey, value: impl Into<KvValue>, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
+        let (key_ptr, key_len) = key.as_key();
         let value = value.into();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_set_nx_px(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
-            key.value.as_ptr() as u64,
-            key.value.len() as u64,
+            key_ptr,
+            key_len,
             value.value.as_ptr() as u64,
             value.value.len() as u64,
             if nx { 1 } else { 0 },
@@ -52,14 +52,14 @@ impl Kv {
         }
     }
 
-    pub async fn get(&self, key: impl Into<KvValue>) -> Option<Vec<u8>> {
-        let key = key.into();
+    pub async fn get(&self, key: impl AsKey) -> Option<Vec<u8>> {
+        let (key_ptr, key_len) = key.as_key();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_get(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
-            key.value.as_ptr() as u64,
-            key.value.len() as u64,
+            key_ptr,
+            key_len,
         ) });
 
         match FutureHostResource::<KvGetResponse>::new(resource_id).await {
@@ -68,17 +68,17 @@ impl Kv {
         }
     }
 
-    pub async fn delex_ifeq(&self, key: impl Into<KvKey>, ifeq: impl Into<KvValue>) {
-        let key = key.into();
+    pub async fn delex_ifeq(&self, key: impl AsKey, ifeq: impl Into<KvValue>) {
+        let (key_ptr, key_len) = key.as_key();
         let ifeq = ifeq.into();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_delex_ifeq(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
-            key.value.as_ptr() as u64,
-            key.value.len() as u64,
+            key_ptr,
+            key_len,
             ifeq.value.as_ptr() as u64,
-            key.value.len() as u64,
+            ifeq.value.len() as u64,
         ) });
 
         HostUnitFuture::new(resource_id).await
@@ -86,19 +86,19 @@ impl Kv {
 }
 
 // public api
-struct KvKey {
-    value: Vec<u8>,
+trait AsKey {
+    fn as_key(&self) -> (u64, u64);
 }
 
-impl From<String> for KvKey {
-    fn from(value: String) -> Self {
-        Self { value: value.into_bytes() }
+impl AsKey for String {
+    fn as_key(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
     }
 }
 
-impl From<&str> for KvKey {
-    fn from(value: &str) -> Self {
-        Self { value: value.as_bytes().to_vec() }
+impl AsKey for &str {
+    fn as_key(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
     }
 }
 
