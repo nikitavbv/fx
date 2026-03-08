@@ -2,7 +2,6 @@ use {
     std::{fs, sync::{Arc, OnceLock}, time::Instant, env::current_dir},
     once_cell::sync::Lazy,
     tokio::{join, sync::{OnceCell, Mutex}, time::{sleep, Duration}},
-    parking_lot::ReentrantMutex,
     futures::{StreamExt, stream::FuturesUnordered, FutureExt},
     fx_runtime::{
         FxServer,
@@ -567,6 +566,15 @@ async fn response_stream_simple() {
         "total streaming time should be around 5 seconds, but was {} seconds",
         total_time
     );
+}
+
+#[tokio::test]
+async fn env_simple() {
+    init_fx_server();
+
+    let result = reqwest::get("http://localhost:8080/test/env/simple").await.unwrap();
+    assert!(result.status().is_success());
+    assert_eq!("ok.", result.text().await.unwrap());
 }
 
 #[tokio::test]

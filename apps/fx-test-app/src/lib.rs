@@ -11,7 +11,7 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv},
+        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv, env},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
@@ -76,6 +76,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/cron", get(read_cron_status))
             .route("/test/rpc/simple", get(rpc_simple))
             .route("/test/stream/sse", get(test_stream_sse))
+            .route("/test/env/simple", get(env_simple))
             .route("/test/kv/simple", get(kv_simple))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
@@ -460,6 +461,12 @@ async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>>
         });
 
     Sse::new(stream)
+}
+
+async fn env_simple() -> &'static str {
+    let value = env::get("test-env-var");
+    assert_eq!("test value", value);
+    "ok."
 }
 
 async fn kv_simple() -> &'static str {

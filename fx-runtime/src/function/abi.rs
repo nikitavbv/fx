@@ -592,7 +592,22 @@ pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
 }
 
 pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) {
-    todo!()
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let mut context = caller.as_context_mut();
+    let (view, state) = memory.data_and_store_mut(&mut context);
+
+    let key = {
+        let ptr = key_addr as usize;
+        let len = key_len as usize;
+        str::from_utf8(&view[ptr..ptr+len]).unwrap()
+    };
+
+    let value = state.env.get(key).unwrap();
+    {
+        let ptr = value_addr as usize;
+        let len = value.len();
+        view[ptr..ptr+len].copy_from_slice(value.as_bytes());
+    }
 }
 
 pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64) -> u64 {
