@@ -10,6 +10,7 @@ use {
         config::{
             ServerConfig,
             HttpServerConfig,
+            ServerPort,
             FunctionConfig,
             LoggerConfig,
             BlobConfig,
@@ -28,17 +29,17 @@ static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(Tes
 
 #[tokio::test]
 async fn simple() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/").send().await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("hello fx!", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn test_http_header() {
-    init_fx_server();
-    let response = reqwest::Client::new()
-        .get("http://localhost:8080/test/http/header-get-simple")
+    let client = init_fx_server().await;
+    let response = client
+        .get("/test/http/header-get-simple")
         .header("x-test-header", "some header value")
         .send()
         .await
@@ -49,63 +50,61 @@ async fn test_http_header() {
 
 #[tokio::test]
 async fn test_http_response_header() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/http/response-header")
-        .await
-        .unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/http/response-header").send().await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("test-value", response.headers().get("x-custom-header").unwrap().to_str().unwrap());
 }
 
 #[tokio::test]
 async fn uri_overwrite() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/http/uri-overwrite").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/http/uri-overwrite").send().await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("hello from overwritten uri", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn status_code() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/status-code").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/status-code").send().await.unwrap();
     assert_eq!(418, response.status().as_u16());
 }
 
 #[tokio::test]
 async fn http_body() {
-    init_fx_server();
-    let response = reqwest::Client::new().post("http://localhost:8080/test/http/body").body("hello fx!".to_owned()).send().await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.post("/test/http/body").body("hello fx!".to_owned()).send().await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("!xf olleh", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn sql_simple() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql/simple").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/sql/simple").send().await.unwrap();
     assert_eq!("52", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn sql_migrate() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql/migrate").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/sql/migrate").send().await.unwrap();
     assert_eq!("67", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn sql_batch() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql/batch").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/sql/batch").send().await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("sum=600", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn sql_batch_rollback() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql/batch-rollback").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/sql/batch-rollback").send().await.unwrap();
     let status = response.status();
     let text = response.text().await.unwrap();
     assert!(status.is_success(), "Expected success but got: {}", text);
@@ -119,15 +118,16 @@ async fn sql_batch_rollback() {
 /// In practice this means that this test can only pass if sqlite has WAL enabled.
 #[tokio::test]
 async fn sql_simple_contention() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/sql/contention/setup").await.unwrap();
+    let result = client.get("/test/sql/contention/setup").send().await.unwrap();
     assert!(result.status().is_success());
 
-    let futures: FuturesUnordered<_> = std::iter::once(reqwest::get("http://localhost:8080/test/sql/contention/expensive-write").boxed())
-        .chain((0..20).map(|_| async {
+    let client_ref = &client;
+    let futures: FuturesUnordered<_> = std::iter::once(client_ref.get("/test/sql/contention/expensive-write").send().boxed())
+        .chain((0..20).map(|_| async move {
             sleep(Duration::from_millis(5)).await;
-            reqwest::get("http://localhost:8080/test/sql/contention/read").await
+            client_ref.get("/test/sql/contention/read").send().await
         }.boxed()))
         .collect();
     let results: Vec<_> = futures.collect().await;
@@ -143,11 +143,12 @@ async fn sql_simple_contention() {
 /// In that case, DatabaseBusy error should propagate to application and be handled correctly.
 #[tokio::test]
 async fn sql_contention_busy() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
+    let client_ref = &client;
     let futures: FuturesUnordered<_> = (0..20).map(|n| async move {
         sleep(Duration::from_millis(n)).await;
-        let result = reqwest::get("http://localhost:8080/test/sql/contention-busy").await.unwrap();
+        let result = client_ref.get("/test/sql/contention-busy").send().await.unwrap();
         assert!(result.status().is_success());
         result.text().await.unwrap()
     }).collect();
@@ -159,18 +160,18 @@ async fn sql_contention_busy() {
 
 #[tokio::test]
 async fn sql_wrong_binding_name() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let response = reqwest::get("http://localhost:8080/test/sql/wrong-binding-name").await.unwrap();
+    let response = client.get("/test/sql/wrong-binding-name").send().await.unwrap();
     assert!(response.status().is_success());
     assert!(response.text().await.unwrap().contains("ok: binding not found"));
 }
 
 #[tokio::test]
 async fn sql_wrong_binding_name_migrations() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let response = reqwest::get("http://localhost:8080/test/sql/wrong-binding-name/migrations").await.unwrap();
+    let response = client.get("/test/sql/wrong-binding-name/migrations").send().await.unwrap();
     assert!(response.status().is_success());
     assert!(response.text().await.unwrap().contains("ok: binding not found"));
 }
@@ -187,18 +188,18 @@ async fn sql_migration_sql_error() {
 // TODO: recover from panics?
 #[tokio::test]
 async fn function_panic() {
-    init_fx_server();
-    let response = reqwest::Client::new().get("http://localhost:8080/test/panic").header("Host", "panics.fx.local").send().await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/panic").header("Host", "panics.fx.local").send().await.unwrap();
     assert_eq!(502, response.status().as_u16());
     assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn async_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
     let started_at = Instant::now();
-    let response = reqwest::get("http://localhost:8080/test/sleep").await.unwrap();
+    let response = client.get("/test/sleep").send().await.unwrap();
     let total_time = (Instant::now() - started_at).as_secs();
 
     assert!(response.status().is_success());
@@ -208,16 +209,17 @@ async fn async_simple() {
 
 #[tokio::test]
 async fn async_conurrent() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
     let started_at = Instant::now();
+    let client_ref = &client;
     let _ = join!(
-        async {
-            let response = reqwest::get("http://localhost:8080/test/sleep").await.unwrap();
+        async move {
+            let response = client_ref.get("/test/sleep").send().await.unwrap();
             assert!(response.status().is_success());
         },
-        async {
-            let response = reqwest::get("http://localhost:8080/test/sleep").await.unwrap();
+        async move {
+            let response = client_ref.get("/test/sleep").send().await.unwrap();
             assert!(response.status().is_success());
         },
     );
@@ -228,10 +230,10 @@ async fn async_conurrent() {
 
 #[tokio::test]
 async fn test_random() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let response1 = reqwest::get("http://localhost:8080/test/random").await.unwrap().text().await.unwrap();
-    let response2 = reqwest::get("http://localhost:8080/test/random").await.unwrap().text().await.unwrap();
+    let response1 = client.get("/test/random").send().await.unwrap().text().await.unwrap();
+    let response2 = client.get("/test/random").send().await.unwrap().text().await.unwrap();
     assert!(response1 != response2);
     assert!((30..50).contains(&response1.len()));
     assert!((30..50).contains(&response2.len()));
@@ -239,9 +241,9 @@ async fn test_random() {
 
 #[tokio::test]
 async fn test_time() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let millis: u64 = reqwest::get("http://localhost:8080/test/time").await.unwrap()
+    let millis: u64 = client.get("/test/time").send().await.unwrap()
         .text().await.unwrap()
         .parse().unwrap();
     assert!((950..=1050).contains(&millis));
@@ -249,49 +251,47 @@ async fn test_time() {
 
 #[tokio::test]
 async fn blob_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let client = reqwest::Client::new();
-
-    let result = client.delete("http://localhost:8080/test/blob").send().await.unwrap();
+    let result = client.delete("/test/blob").send().await.unwrap();
     assert!(result.status().is_success());
 
-    let result = client.get("http://localhost:8080/test/blob").send().await.unwrap();
+    let result = client.get("/test/blob").send().await.unwrap();
     assert_eq!(404, result.status().as_u16());
 
-    let result = client.post("http://localhost:8080/test/blob").send().await.unwrap();
+    let result = client.post("/test/blob").send().await.unwrap();
     assert_eq!(200, result.status().as_u16());
 
-    let result = client.get("http://localhost:8080/test/blob").send().await.unwrap();
+    let result = client.get("/test/blob").send().await.unwrap();
     assert!(result.status().is_success());
     assert_eq!("test-value", result.text().await.unwrap());
 
-    let result = client.delete("http://localhost:8080/test/blob").send().await.unwrap();
+    let result = client.delete("/test/blob").send().await.unwrap();
     assert!(result.status().is_success());
 }
 
 #[tokio::test]
 async fn blob_wrong_binding_name() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/blob/wrong-binding-name").await.unwrap();
+    let result = client.get("/test/blob/wrong-binding-name").send().await.unwrap();
     assert!(result.status().is_success());
 }
 
 #[tokio::test]
 async fn fetch() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/fetch").await.unwrap();
+    let result = client.get("/test/fetch").send().await.unwrap();
     assert!(result.status().is_success());
     assert!(result.text().await.unwrap().contains("httpbin.org/get"));
 }
 
 #[tokio::test]
 async fn fetch_post() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/fetch/post").await.unwrap();
+    let result = client.get("/test/fetch/post").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
     assert!(result.contains("httpbin.org/post"));
@@ -300,9 +300,9 @@ async fn fetch_post() {
 
 #[tokio::test]
 async fn fetch_body_passthrough() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::Client::new().post("http://localhost:8080/test/fetch/body-passthrough").body("fx test: body passthrough").send().await.unwrap();
+    let result = client.post("/test/fetch/body-passthrough").body("fx test: body passthrough").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
     assert!(result.contains("httpbin.org/post"));
@@ -311,9 +311,9 @@ async fn fetch_body_passthrough() {
 
 #[tokio::test]
 async fn fetch_query() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/fetch/query").await.unwrap();
+    let result = client.get("/test/fetch/query").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
     assert!(result.contains("https://httpbin.org/get?param1=value1&param2=value2"));
@@ -321,10 +321,9 @@ async fn fetch_query() {
 
 #[tokio::test]
 async fn log() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let client = reqwest::Client::new();
-    let result = client.get("http://localhost:8080/test/log").header("Host", "custom-logger.fx.local").send().await.unwrap();
+    let result = client.get("/test/log").header("Host", "custom-logger.fx.local").send().await.unwrap();
     assert!(result.status().is_success());
 
     let mut events = Vec::new();
@@ -347,10 +346,9 @@ async fn log() {
 
 #[tokio::test]
 async fn log_span() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let client = reqwest::Client::new();
-    let result = client.get("http://localhost:8080/test/log/span").header("Host", "custom-logger.fx.local").send().await.unwrap();
+    let result = client.get("/test/log/span").header("Host", "custom-logger.fx.local").send().await.unwrap();
     assert!(result.status().is_success());
 
     // both events include fields inherited from span
@@ -382,9 +380,9 @@ async fn log_span() {
 
 #[tokio::test]
 async fn metrics_counter_increment() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/metrics/counter-increment").await.unwrap();
+    let result = client.get("/test/metrics/counter-increment").send().await.unwrap();
     assert!(result.status().is_success());
 
     for _ in 0..10 {
@@ -417,9 +415,9 @@ async fn metrics_counter_increment() {
 
 #[tokio::test]
 async fn metrics_counter_with_labels_increment() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/metrics/counter-with-labels-increment").await.unwrap();
+    let result = client.get("/test/metrics/counter-with-labels-increment").send().await.unwrap();
     assert!(result.status().is_success());
 
     for _ in 0..10 {
@@ -449,11 +447,10 @@ async fn metrics_counter_with_labels_increment() {
 
 #[tokio::test]
 async fn function_remove() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
     // intially, function should be live
-    let client = reqwest::Client::new();
-    let result = client.get("http://localhost:8080/")
+    let result = client.get("/")
         .header("Host", "for-remove.fx.local")
         .send()
         .await
@@ -463,15 +460,15 @@ async fn function_remove() {
     let result = result.text().await.unwrap();
     assert_eq!("hello from function to remove!", result);
 
-    // remove function
-    let result = client.delete("http://localhost:9000/api/functions/test-app-for-remove")
+    // remove function (uses management API on port 9000)
+    let result = reqwest::Client::new().delete("http://localhost:9000/api/functions/test-app-for-remove")
         .send()
         .await
         .unwrap();
     assert!(result.status().is_success());
 
     // check that function is not available anymore
-    let result = client.get("http://localhost:8080/")
+    let result = client.get("/")
         .header("Host", "for-remove.fx.local")
         .send()
         .await
@@ -484,9 +481,9 @@ async fn function_remove() {
 
 #[tokio::test]
 async fn cron_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result1 = reqwest::get("http://localhost:8080/test/cron").await
+    let result1 = client.get("/test/cron").send().await
         .unwrap()
         .text()
         .await
@@ -496,7 +493,7 @@ async fn cron_simple() {
 
     sleep(Duration::from_secs(4)).await;
 
-    let result2 = reqwest::get("http://localhost:8080/test/cron").await
+    let result2 = client.get("/test/cron").send().await
         .unwrap()
         .text()
         .await
@@ -509,11 +506,9 @@ async fn cron_simple() {
 
 #[tokio::test]
 async fn rpc_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/rpc/simple")
-        .await
-        .unwrap();
+    let result = client.get("/test/rpc/simple").send().await.unwrap();
 
     assert!(result.status().is_success());
     assert_eq!("rpc test: hello from other function!", result.text().await.unwrap());
@@ -521,18 +516,18 @@ async fn rpc_simple() {
 
 #[tokio::test]
 async fn sql_binding_nonexistent_directory() {
-    init_fx_server();
-    let response = reqwest::get("http://localhost:8080/test/sql/nonexistent-db").await.unwrap();
+    let client = init_fx_server().await;
+    let response = client.get("/test/sql/nonexistent-db").send().await.unwrap();
     assert!(response.status().is_success());
     assert_eq!("ok: 1", response.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn response_stream_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
     let started_at = Instant::now();
-    let response = reqwest::get("http://localhost:8080/test/stream/sse").await.unwrap();
+    let response = client.get("/test/stream/sse").send().await.unwrap();
     assert!(response.status().is_success());
 
     let mut response = response.bytes_stream();
@@ -586,116 +581,167 @@ async fn response_stream_simple() {
 
 #[tokio::test]
 async fn env_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/env/simple").await.unwrap();
+    let result = client.get("/test/env/simple").send().await.unwrap();
     assert!(result.status().is_success());
     assert_eq!("ok.", result.text().await.unwrap());
 }
 
 #[tokio::test]
 async fn kv_simple() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let result = reqwest::get("http://localhost:8080/test/kv/simple").await.unwrap();
+    let result = client.get("/test/kv/simple").send().await.unwrap();
     assert!(result.status().is_success());
     assert_eq!("ok.", result.text().await.unwrap());
 }
 
-fn init_fx_server() {
-    static FX_SERVER: OnceLock<RunningFxServer> = OnceLock::new();
-    FX_SERVER.get_or_init(|| {
-        std::thread::spawn(|| tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
-            let server = FxServer::new(ServerConfig {
-                config_path: Some("/tmp/fx".into()),
+pub struct TestClient {
+    client: reqwest::Client,
+    base_url: String,
+}
 
-                server: HttpServerConfig::default(),
+impl TestClient {
+    fn new(base_url: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            base_url,
+        }
+    }
 
-                functions_dir: "/tmp/fx/functions".to_owned(),
-                cron_data_path: None,
-                blob: Some(BlobConfig {
-                    path: "/tmp/fx/blob".parse().unwrap(),
-                }),
+    pub fn get(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.get(&url)
+    }
 
-                logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
+    pub fn post(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.post(&url)
+    }
 
-                introspection: None,
-            }).start();
+    pub fn delete(&self, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.delete(&url)
+    }
 
-            server.deploy_function(
-                FunctionId::new("test-app"),
-                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                    .with_env("test-env-var".to_owned(), "test value".to_owned())
-                    .with_trigger_http(None)
-                    .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-                    .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
-                    .with_binding_sql("app".to_owned(), ":memory:".to_owned())
-                    .with_binding_sql("cron-test".to_owned(), ":memory:".to_owned())
-                    .with_binding_sql_config(
-                        SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
-                            .with_busy_timeout_ms(10)
-                    )
-                    .with_binding_sql_config(
-                        SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
-                            .with_busy_timeout_ms(10)
-                    )
-                    .with_binding_sql_config(
-                        SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
-                    )
-                    .with_binding_sql("migration-sql-error".to_owned(), ":memory:".to_owned())
-                    .with_binding_function(FunctionBindingConfig::new(
-                        "function-rpc".to_owned(),
-                        "test-app-rpc".to_owned(),
-                        Some("function-rpc.fx.local".to_owned())
-                    ))
+    pub fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        self.client.request(method, &url)
+    }
+}
 
-                    .with_binding_kv("test-namespace".to_owned(), "test-namespace".to_owned())
-            ).await;
+struct TestServer {
+    #[allow(dead_code)]
+    server: RunningFxServer,
+    base_url: String,
+}
 
-            server.deploy_function(
-                FunctionId::new("test-app-custom-logger"),
-                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                    .with_trigger_http(Some("custom-logger.fx.local".to_owned()))
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-                    .with_logger(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone()))))
-            ).await;
+async fn init_fx_server() -> TestClient {
+    static TEST_SERVER: OnceLock<TestServer> = OnceLock::new();
 
-            server.deploy_function(
-                FunctionId::new("test-app-for-panics"),
-                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                    .with_trigger_http(Some("panics.fx.local".to_owned()))
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-            ).await;
+    let test_server = TEST_SERVER.get_or_init(|| {
+        let test_port: u16 = 8080;
 
-            server.deploy_function(
-                FunctionId::new("test-wrong-import"),
-                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_wrong_import.wasm").unwrap())
-            ).await;
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let server = FxServer::new(ServerConfig {
+                        config_path: Some("/tmp/fx".into()),
+                        server: HttpServerConfig {
+                            port: ServerPort { value: test_port },
+                        },
+                        functions_dir: "/tmp/fx/functions".to_owned(),
+                        cron_data_path: None,
+                        blob: Some(BlobConfig {
+                            path: "/tmp/fx/blob".parse().unwrap(),
+                        }),
+                        logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
+                        introspection: None,
+                    }).start();
 
-            server.deploy_function(
-                FunctionId::new("test-missing-export"),
-                FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_missing_export.wasm").unwrap())
-            ).await;
+                    server.deploy_function(
+                        FunctionId::new("test-app"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_env("test-env-var".to_owned(), "test value".to_owned())
+                            .with_trigger_http(None)
+                            .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                            .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
+                            .with_binding_sql("app".to_owned(), ":memory:".to_owned())
+                            .with_binding_sql("cron-test".to_owned(), ":memory:".to_owned())
+                            .with_binding_sql_config(
+                                SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
+                                    .with_busy_timeout_ms(10)
+                            )
+                            .with_binding_sql_config(
+                                SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
+                                    .with_busy_timeout_ms(10)
+                            )
+                            .with_binding_sql_config(
+                                SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
+                            )
+                            .with_binding_sql("migration-sql-error".to_owned(), ":memory:".to_owned())
+                            .with_binding_function(FunctionBindingConfig::new(
+                                "function-rpc".to_owned(),
+                                "test-app-rpc".to_owned(),
+                                Some("function-rpc.fx.local".to_owned())
+                            ))
+                            .with_binding_kv("test-namespace".to_owned(), "test-namespace".to_owned())
+                    ).await;
 
-            server.deploy_function(
-                FunctionId::new("test-app-for-remove"),
-                FunctionConfig::new("/tmp/fx/functions/test-app-for-remove.fx.yaml".into())
-                    .with_trigger_http(Some("for-remove.fx.local".to_owned()))
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_remove.wasm").unwrap())
-            ).await;
+                    server.deploy_function(
+                        FunctionId::new("test-app-custom-logger"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_trigger_http(Some("custom-logger.fx.local".to_owned()))
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                            .with_logger(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone()))))
+                    ).await;
 
-            server.deploy_function(
-                FunctionId::new("test-app-rpc"),
-                FunctionConfig::new("/tmp/fx/functions/test-app-rpc.fx.yaml".into())
-                    .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app_rpc.wasm").unwrap())
-            ).await;
+                    server.deploy_function(
+                        FunctionId::new("test-app-for-panics"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_trigger_http(Some("panics.fx.local".to_owned()))
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                    ).await;
 
-            server
-        })).join().unwrap()
+                    server.deploy_function(
+                        FunctionId::new("test-wrong-import"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_wrong_import.wasm").unwrap())
+                    ).await;
+
+                    server.deploy_function(
+                        FunctionId::new("test-missing-export"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_missing_export.wasm").unwrap())
+                    ).await;
+
+                    server.deploy_function(
+                        FunctionId::new("test-app-for-remove"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app-for-remove.fx.yaml".into())
+                            .with_trigger_http(Some("for-remove.fx.local".to_owned()))
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_remove.wasm").unwrap())
+                    ).await;
+
+                    server.deploy_function(
+                        FunctionId::new("test-app-rpc"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app-rpc.fx.yaml".into())
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app_rpc.wasm").unwrap())
+                    ).await;
+
+                    TestServer {
+                        server,
+                        base_url: format!("http://localhost:{}", test_port),
+                    }
+                })
+        }).join().unwrap()
     });
+
+    TestClient::new(test_server.base_url.clone())
 }
 
 // TODO: add test that verifies that counter metrics with labels are recorded correctly
