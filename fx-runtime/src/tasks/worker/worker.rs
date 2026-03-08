@@ -22,6 +22,7 @@ use {
 
 pub(crate) struct WorkerConfig {
     pub(crate) core_id: Option<usize>,
+    pub(crate) port: u16,
     pub(crate) messages_rx: flume::Receiver<WorkerMessage>,
     pub(crate) self_tx: flume::Sender<WorkerMessage>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
@@ -44,8 +45,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
     socket.set_reuse_address(true).unwrap();
     socket.set_nonblocking(true).unwrap();
 
-    // TODO: take port from config
-    let addr: SocketAddr = ([0, 0, 0, 0], 8080).into();
+    let addr: SocketAddr = ([0, 0, 0, 0], worker.port).into();
     socket.bind(&addr.into()).unwrap();
     socket.listen(1024).unwrap();
 

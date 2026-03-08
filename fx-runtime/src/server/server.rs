@@ -156,6 +156,7 @@ impl FxServer {
             .zip(workers_tx.clone().into_iter()).map(|((a, b), c)| (a, b, c))
             .map(|(core_id, messages_rx, self_tx)| WorkerConfig {
                 core_id,
+                port: self.config.server.port.value,
                 messages_rx,
                 self_tx,
                 sql_tx: sql_tx.clone(),

@@ -11,6 +11,9 @@ pub struct ServerConfig {
     #[serde(skip_deserializing)]
     pub config_path: Option<PathBuf>,
 
+    #[serde(default)]
+    pub server: HttpServerConfig,
+
     pub functions_dir: String,
     pub cron_data_path: Option<String>,
 
@@ -23,6 +26,23 @@ impl ServerConfig {
         let mut config: Self = serde_yml::from_slice(&std::fs::read(&file_path).unwrap()).unwrap();
         config.config_path = Some(file_path);
         config
+    }
+}
+
+#[derive(Deserialize, Clone, Default)]
+pub struct HttpServerConfig {
+    #[serde(default)]
+    pub port: ServerPort,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ServerPort {
+    pub value: u16,
+}
+
+impl Default for ServerPort {
+    fn default() -> Self {
+        Self { value: 8080 }
     }
 }
 

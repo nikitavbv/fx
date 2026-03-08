@@ -7,7 +7,7 @@ use {
         FxServer,
         server::RunningFxServer,
         function::FunctionId,
-        config::{ServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig, FunctionBindingConfig},
+        config::{ServerConfig, HttpServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig, FunctionBindingConfig},
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
     crate::logger::TestLogger,
@@ -592,6 +592,8 @@ fn init_fx_server() {
         std::thread::spawn(|| tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
             let server = FxServer::new(ServerConfig {
                 config_path: Some("/tmp/fx".into()),
+
+                server: HttpServerConfig::default(),
 
                 functions_dir: "/tmp/fx/functions".to_owned(),
                 cron_data_path: None,
