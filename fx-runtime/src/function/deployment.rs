@@ -70,6 +70,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_env_len", super::abi::fx_env_len_handler).unwrap();
         linker.func_wrap("fx", "fx_env_get", super::abi::fx_env_get_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_set", super::abi::fx_kv_set_handler).unwrap();
+        linker.func_wrap("fx", "fx_kv_set_nx_px", super::abi::fx_kv_set_nx_px_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_get", super::abi::fx_kv_get_handler).unwrap();
 
         for import in module.imports() {

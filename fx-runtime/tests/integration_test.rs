@@ -184,7 +184,6 @@ async fn sql_migration_sql_error() {
     assert!(response.text().await.unwrap().contains("ok: migration sql error"));
 }
 
-
 // TODO: recover from panics?
 #[tokio::test]
 async fn function_panic() {

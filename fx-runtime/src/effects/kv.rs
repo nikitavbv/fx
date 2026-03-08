@@ -1,7 +1,36 @@
 use {
+    std::time::Duration,
     fx_types::{capnp, abi_kv_capnp},
     crate::resources::serialize::SerializeResource,
 };
+
+pub(crate) struct KvSetRequest {
+    pub(crate) key: Vec<u8>,
+    pub(crate) value: Vec<u8>,
+    pub(crate) nx: bool,
+    pub(crate) px: Option<Duration>,
+}
+
+impl KvSetRequest {
+    pub(crate) fn new(key: Vec<u8>, value: Vec<u8>) -> Self {
+        Self {
+            key,
+            value,
+            nx: false,
+            px: None,
+        }
+    }
+
+    pub(crate) fn with_nx(mut self, nx: bool) -> Self {
+        self.nx = nx;
+        self
+    }
+
+    pub(crate) fn with_px(mut self, px: Option<Duration>) -> Self {
+        self.px = px;
+        self
+    }
+}
 
 pub(crate) enum KvGetResponse {
     KeyNotFound,
