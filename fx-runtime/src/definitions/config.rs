@@ -16,6 +16,7 @@ pub struct ServerConfig {
 
     pub functions_dir: String,
     pub cron_data_path: Option<String>,
+    pub blob: Option<BlobConfig>,
 
     pub logger: Option<LoggerConfig>,
     pub introspection: Option<IntrospectionConfig>,
@@ -43,6 +44,19 @@ pub struct ServerPort {
 impl Default for ServerPort {
     fn default() -> Self {
         Self { value: 8080 }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct BlobConfig {
+    pub path: PathBuf,
+}
+
+impl Default for BlobConfig {
+    fn default() -> Self {
+        Self {
+            path: "/var/lib/fx/blob".parse().unwrap(),
+        }
     }
 }
 

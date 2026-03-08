@@ -7,7 +7,15 @@ use {
         FxServer,
         server::RunningFxServer,
         function::FunctionId,
-        config::{ServerConfig, HttpServerConfig, FunctionConfig, LoggerConfig, IntrospectionConfig, SqlBindingConfig, FunctionBindingConfig},
+        config::{
+            ServerConfig,
+            HttpServerConfig,
+            FunctionConfig,
+            LoggerConfig,
+            BlobConfig,
+            SqlBindingConfig,
+            FunctionBindingConfig,
+        },
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
     crate::logger::TestLogger,
@@ -597,6 +605,9 @@ fn init_fx_server() {
 
                 functions_dir: "/tmp/fx/functions".to_owned(),
                 cron_data_path: None,
+                blob: Some(BlobConfig {
+                    path: "/tmp/fx/blob".parse().unwrap(),
+                }),
 
                 logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
 

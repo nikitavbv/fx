@@ -15,6 +15,7 @@ use {
             management::{ManagementMessage, run_management_task, DeployFunctionMessage},
             cron::run_cron_task,
             kv::run_kv_task,
+            blob::run_blob_task,
         },
         triggers::cron::CronDatabase,
         function::FunctionId,
@@ -57,6 +58,7 @@ impl FxServer {
         let (logger_tx, logger_rx) = flume::unbounded::<LogMessageEvent>();
         let (cron_tx, cron_rx) = flume::unbounded();
         let (kv_tx, kv_rx) = flume::unbounded();
+        let (blob_tx, blob_rx) = flume::unbounded();
 
         let management_thread_handle = {
             let config = self.config.clone();
@@ -142,8 +144,17 @@ impl FxServer {
 
         let kv_thread_handle = {
             std::thread::spawn(move || {
-                info!("started kv cron");
+                info!("started kv thread");
                 run_kv_task(kv_rx);
+            })
+        };
+
+        let blob_thread_handle = {
+            let config = self.config.blob.as_ref().cloned().unwrap_or_default();
+
+            std::thread::spawn(move || {
+                info!("started blob thread");
+                run_blob_task(config.path, blob_rx);
             })
         };
 
@@ -199,6 +210,7 @@ impl FxServer {
             logger_thread_handle,
             cron_thread_handle,
             kv_thread_handle,
+            blob_thread_handle,
         }
     }
 }
@@ -214,6 +226,7 @@ pub struct RunningFxServer {
     logger_thread_handle: JoinHandle<()>,
     cron_thread_handle: JoinHandle<()>,
     kv_thread_handle: JoinHandle<()>,
+    blob_thread_handle: JoinHandle<()>,
 }
 
 impl RunningFxServer {
@@ -234,6 +247,7 @@ impl RunningFxServer {
             handle.join().unwrap();
         }
         self.kv_thread_handle.join().unwrap();
+        self.blob_thread_handle.join().unwrap();
         self.cron_thread_handle.join().unwrap();
         self.compiler_thread_handle.join().unwrap();
         self.logger_thread_handle.join().unwrap();
