@@ -73,3 +73,8 @@ impl SerializeResource for Result<(), KvSetError> {
         capnp::serialize::write_message_segments_to_words(&message)
     }
 }
+
+pub(crate) struct KvDelexRequest {
+    pub(crate) key: Vec<u8>,
+    pub(crate) ifeq: Vec<u8>,
+}

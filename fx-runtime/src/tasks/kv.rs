@@ -1,7 +1,7 @@
 use {
     std::{collections::HashMap, time::SystemTime},
     tokio::sync::oneshot,
-    crate::effects::kv::{KvSetRequest, KvSetError},
+    crate::effects::kv::{KvSetRequest, KvSetError, KvDelexRequest},
 };
 
 pub(crate) struct KvMessage {
@@ -15,6 +15,7 @@ pub(crate) enum KvOperation {
         key: Vec<u8>,
         result: oneshot::Sender<Option<Vec<u8>>>,
     },
+    Delex(KvDelexRequest, oneshot::Sender<()>),
 }
 
 struct Value {
@@ -69,6 +70,17 @@ impl Kv {
 
         return Some(&key.value);
     }
+
+    fn delex(&mut self, request: KvDelexRequest) {
+        let key = match self.kv.get(&request.key) {
+            Some(v) => v,
+            None => return,
+        };
+
+        if key.value == request.ifeq {
+            self.kv.remove(&request.key);
+        }
+    }
 }
 
 pub(crate) fn run_kv_task(kv_rx: flume::Receiver<KvMessage>) {
@@ -80,6 +92,10 @@ pub(crate) fn run_kv_task(kv_rx: flume::Receiver<KvMessage>) {
         match msg.operation {
             KvOperation::Set(request, result) => result.send(kv.set(request)).unwrap(),
             KvOperation::Get { key, result } => result.send(kv.get(&key).cloned()).unwrap(),
+            KvOperation::Delex(request, result) => {
+                kv.delex(request);
+                result.send(()).unwrap();
+            }
         }
     }
 }

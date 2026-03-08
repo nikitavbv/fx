@@ -17,7 +17,7 @@ use {
             blob::BlobGetResponse,
             fetch::{FetchResult, FetchResultWithBodyResource},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse},
+            kv::{KvSetRequest, KvGetResponse, KvDelexRequest},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -665,7 +665,7 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
     }.boxed())).as_u64()
 }
 
-pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64, nx: u64, px: u64) -> u64 {
+pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64, nx: u32, px: i64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -694,7 +694,7 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
 
     let req = KvSetRequest::new(key, value)
         .with_nx(nx != 0)
-        .with_px(Some(Duration::from_millis(px)));
+        .with_px(if px > 0  { Some(Duration::from_millis(px as u64)) } else { None });
 
     caller.data_mut().resource_add(Resource::KvSetResult(FutureResource::for_future(async move {
         let (on_done, on_done_rx) = oneshot::channel();
@@ -742,4 +742,42 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
             Some(v) => KvGetResponse::Ok(v),
         })
     }.boxed()))).as_u64()
+}
+
+pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, ifeq_addr: u64, ifeq_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_addr as usize;
+        let len = binding_len as usize;
+        let binding = &view[ptr..ptr+len];
+        str::from_utf8(binding).unwrap()
+    };
+    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+
+    let key = {
+        let ptr = key_addr as usize;
+        let len = key_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let ifeq = {
+        let ptr = ifeq_addr as usize;
+        let len = ifeq_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let kv_tx = caller.data_mut().kv_tx.clone();
+    let (result_tx, result_rx) = oneshot::channel();
+
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        kv_tx.send_async(KvMessage {
+            namespace,
+            operation: KvOperation::Delex(KvDelexRequest { key, ifeq }, result_tx),
+        }).await.unwrap();
+
+        result_rx.await.unwrap()
+    }.boxed())).as_u64()
 }

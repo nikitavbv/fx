@@ -172,8 +172,9 @@ unsafe extern "C" {
     pub(crate) fn fx_env_len(key_ptr: u64, key_len: u64) -> u64;
     pub(crate) fn fx_env_get(key_ptr: u64, key_len: u64, value_ptr: u64);
     pub(crate) fn fx_kv_set(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64;
-    pub(crate) fn fx_kv_set_nx_px(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64, nx: bool, px: u64) -> u64;
+    pub(crate) fn fx_kv_set_nx_px(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64, nx: u32, px: i64) -> u64;
     pub(crate) fn fx_kv_get(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64) -> u64;
+    pub(crate) fn fx_kv_delex_ifeq(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, ifeq_ptr: u64, ifeq_len: u64) -> u64;
 }
 
 #[derive(Debug)]
