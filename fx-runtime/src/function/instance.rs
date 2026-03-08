@@ -187,6 +187,7 @@ impl FunctionInstance {
                 | Resource::SqlBatchResult(_)
                 | Resource::UnitFuture(_)
                 | Resource::BlobGetResult(_)
+                | Resource::KvSetResult(_)
                 | Resource::KvGetResult(_) => panic!("resource of this type cannot be used as http body"),
                 Resource::FetchResult(_) => todo!(),
                 Resource::HttpBody(v) => match v.0 {
@@ -427,6 +428,16 @@ impl FunctionInstanceState {
                     (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
                 },
             },
+            Resource::KvSetResult(v) => {
+                let resource = match v {
+                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
+                    FutureResource::Ready(v) => v,
+                };
+
+                let serialized = resource.map_to_serialized();
+                let serialized_size = serialized.serialized_size();
+                (Resource::KvSetResult(FutureResource::Ready(serialized)), serialized_size)
+            },
             Resource::KvGetResult(v) => {
                 let resource = match v {
                     FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
@@ -545,6 +556,10 @@ impl FunctionInstanceState {
                 ),
                 HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
+            Resource::KvSetResult(mut v) => {
+                let poll_result = v.poll(&mut cx);
+                (Resource::KvSetResult(v), poll_result)
+            },
             Resource::KvGetResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::KvGetResult(v), poll_result)
@@ -571,6 +586,7 @@ impl FunctionInstanceState {
             | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_)
+            | Resource::KvSetResult(_)
             | Resource::KvGetResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::RequestBody(v) => match v.0 {
                 FetchRequestBodyInner::Full(_)

@@ -1,5 +1,6 @@
 use {
     std::time::Duration,
+    thiserror::Error,
     fx_types::{capnp, abi_kv_capnp},
     crate::resources::serialize::SerializeResource,
 };
@@ -32,6 +33,12 @@ impl KvSetRequest {
     }
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum KvSetError {
+    #[error("key already exists")]
+    AlreadyExists,
+}
+
 pub(crate) enum KvGetResponse {
     KeyNotFound,
     Ok(Vec<u8>),
@@ -49,5 +56,20 @@ impl SerializeResource for KvGetResponse {
         }
 
         capnp::serialize::write_message_to_words(&message)
+    }
+}
+
+impl SerializeResource for Result<(), KvSetError> {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let kv_set_response = message.init_root::<abi_kv_capnp::kv_set_response::Builder>();
+        let mut response = kv_set_response.init_response();
+
+        match self {
+            Self::Ok(v) => response.set_ok(v),
+            Self::Err(KvSetError::AlreadyExists) => response.set_already_exists(()),
+        }
+
+        capnp::serialize::write_message_segments_to_words(&message)
     }
 }
