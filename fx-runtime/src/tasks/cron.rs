@@ -1,4 +1,5 @@
 use {
+    tracing::info,
     tokio::time::Duration,
     chrono::Utc,
     crate::{
@@ -42,7 +43,15 @@ pub(crate) fn run_cron_task(
         loop {
             tokio::select! {
                 message = msg_rx.recv_async() => {
-                    match message.unwrap() {
+                    let message = match message {
+                        Ok(v) => v,
+                        Err(flume::RecvError::Disconnected) => {
+                            info!("stopping cron task, because channel handle is dropped");
+                            break;
+                        },
+                    };
+
+                    match message {
                         CronMessage::ScheduleAdd { function_id, schedule } => {
                             tasks = schedule.into_iter().map(|trigger| CronTask {
                                 task_id: trigger.id,
