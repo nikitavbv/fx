@@ -182,6 +182,7 @@ async fn test_sql_contention_busy() -> &'static str {
     if let Err(err) = result {
         match err {
             SqlMigrationError::DatabaseBusy => return "busy.\n",
+            SqlMigrationError::MigrationExecutionError { message: _ } => return "migration execution error.\n",
             other => panic!("unexpected error: {other:?}"),
         }
     }
