@@ -172,6 +172,7 @@ impl FxServer {
                 self_tx,
                 sql_tx: sql_tx.clone(),
                 kv_tx: kv_tx.clone(),
+                blob_tx: blob_tx.clone(),
                 logger_tx: logger_tx.clone(),
                 management_tx: management_tx.clone(),
             })

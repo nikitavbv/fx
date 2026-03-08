@@ -220,7 +220,7 @@ impl DefinitionsMonitor {
             .flat_map(|v| v.blob.iter())
             .flat_map(|v| v.iter())
             .map(|v| (v.id.clone(), BlobBindingConfig {
-                storage_directory: config.config_path.as_ref().unwrap().parent().unwrap().join(&v.path),
+                bucket: v.bucket.clone(),
             }))
             .collect::<HashMap<_, _>>();
 

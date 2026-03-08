@@ -621,7 +621,7 @@ fn init_fx_server() {
                     .with_trigger_http(None)
                     .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
                     .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
-                    .with_binding_blob("test-blob".to_owned(), "/tmp/fx-test/test-blob".to_owned())
+                    .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
                     .with_binding_sql("app".to_owned(), ":memory:".to_owned())
                     .with_binding_sql("cron-test".to_owned(), ":memory:".to_owned())
                     .with_binding_sql_config(

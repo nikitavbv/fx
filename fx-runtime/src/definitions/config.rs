@@ -146,12 +146,12 @@ impl FunctionConfig {
 
     /// Used to configure server externally, for example, in integration tests.
     #[allow(dead_code)]
-    pub fn with_binding_blob(mut self, id: String, path: String) -> Self {
+    pub fn with_binding_blob(mut self, id: String, bucket: String) -> Self {
         if self.bindings.is_none() {
             self.bindings = Some(FunctionBindingsConfig::new());
         }
 
-        self.bindings = self.bindings.map(|v| v.with_blob(id, path));
+        self.bindings = self.bindings.map(|v| v.with_blob(id, bucket));
 
         self
     }
@@ -280,14 +280,14 @@ impl FunctionBindingsConfig {
         }
     }
 
-    pub fn with_blob(mut self, id: String, path: String) -> Self {
+    pub fn with_blob(mut self, id: String, bucket: String) -> Self {
         if self.blob.is_none() {
             self.blob = Some(Vec::new());
         }
 
         self.blob.as_mut().unwrap().push(BlobBindingConfig {
             id,
-            path,
+            bucket,
         });
 
         self
@@ -350,7 +350,7 @@ impl SqlBindingConfig {
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct BlobBindingConfig {
     pub id: String,
-    pub path: String,
+    pub bucket: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

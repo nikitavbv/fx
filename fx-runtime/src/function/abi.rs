@@ -23,6 +23,7 @@ use {
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
             worker::WorkerMessage,
             kv::{KvMessage, KvOperation},
+            blob::BlobMessage,
         },
         triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner, HttpBody, HttpBodyInner},
     },
@@ -306,18 +307,15 @@ pub(super) fn fx_blob_put_handler(
     let binding = {
         let ptr = binding_ptr as usize;
         let len = binding_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+        str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
-
-    let binding = caller.data().bindings_blob.get(&binding).unwrap();
+    let bucket = caller.data().bindings_blob.get(binding).unwrap().bucket.clone();
 
     let key = {
         let ptr = key_ptr as usize;
         let len = key_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+        view[ptr..ptr+len].to_vec()
     };
-    // TODO: add a check to prevent exiting the directory, lol
-    let key_path = binding.storage_directory.join(key);
 
     let value = {
         let ptr = value_ptr as usize;
@@ -325,13 +323,19 @@ pub(super) fn fx_blob_put_handler(
         view[ptr..ptr+len].to_vec()
     };
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
-        let parent = key_path.parent().unwrap();
-        if !parent.exists() {
-            tokio::fs::create_dir_all(parent).await.unwrap();
-        }
+    let blob_tx = caller.data().blob_tx.clone();
 
-        tokio::fs::write(key_path, value).await.unwrap();
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        let (result, result_rx) = oneshot::channel();
+
+        blob_tx.send_async(BlobMessage::Put {
+            bucket,
+            key,
+            value,
+            result,
+        }).await.unwrap();
+
+        result_rx.await.unwrap()
     }.boxed())).as_u64()
 }
 
@@ -349,27 +353,33 @@ pub(super) fn fx_blob_get_handler(
     let binding = {
         let ptr = binding_ptr as usize;
         let len = binding_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+        str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
-    let binding = caller.data().bindings_blob.get(&binding);
+    let bucket = caller.data().bindings_blob.get(binding).map(|v| v.bucket.clone());
 
-    let key_path = binding.map(|v| v.storage_directory.join({
+    let key = {
         let ptr = key_ptr as usize;
         let len = key_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
-    }));
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let blob_tx = caller.data().blob_tx.clone();
 
     caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::for_future(async move {
         SerializableResource::Raw({
-            match key_path {
-                Some(v) => match tokio::fs::read(v).await {
-                    Ok(v) => BlobGetResponse::Ok(v),
-                    Err(err) => {
-                        if err.kind() == tokio::io::ErrorKind::NotFound {
-                            BlobGetResponse::NotFound
-                        } else {
-                            todo!("handling for this error kind is not implemented: {err:?}");
-                        }
+            match bucket {
+                Some(bucket) => {
+                    let (result, result_rx) = oneshot::channel();
+
+                    blob_tx.send(BlobMessage::Get {
+                        bucket,
+                        key,
+                        result
+                    });
+
+                    match result_rx.await.unwrap() {
+                        Some(v) => BlobGetResponse::Ok(v),
+                        None => BlobGetResponse::NotFound,
                     }
                 },
                 None => BlobGetResponse::BindingNotExists
@@ -392,23 +402,22 @@ pub(super) fn fx_blob_delete_handler(
     let binding = {
         let ptr = binding_ptr as usize;
         let len = binding_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+        str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
-    let binding = caller.data().bindings_blob.get(&binding).unwrap();
+    let bucket = caller.data().bindings_blob.get(binding).unwrap().bucket.clone();
 
     let key = {
         let ptr = key_ptr as usize;
         let len = key_len as usize;
-        String::from_utf8(view[ptr..ptr+len].to_vec()).unwrap()
+        view[ptr..ptr+len].to_vec()
     };
-    let key_path = binding.storage_directory.join(key);
+
+    let blob_tx = caller.data().blob_tx.clone();
 
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
-        if let Err(err) = tokio::fs::remove_file(&key_path).await {
-            if err.kind() != std::io::ErrorKind::NotFound {
-                todo!("error handling is not implemented for fx_blob_delete: {:?}", err.kind());
-            }
-        }
+        let (result, result_rx) = oneshot::channel();
+        blob_tx.send_async(BlobMessage::Delete { bucket, key, result }).await.unwrap();
+        result_rx.await;
     }.boxed())).as_u64()
 }
 

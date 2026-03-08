@@ -9,6 +9,7 @@ use {
             sql::SqlMessage,
             management::{ManagementMessage, MetricsFlushMessage},
             kv::KvMessage,
+            blob::BlobMessage,
         },
         effects::{
             logs::LogMessageEvent,
@@ -27,6 +28,7 @@ pub(crate) struct WorkerConfig {
     pub(crate) self_tx: flume::Sender<WorkerMessage>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
     pub(crate) kv_tx: flume::Sender<KvMessage>,
+    pub(crate) blob_tx: flume::Sender<BlobMessage>,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
     pub(crate) management_tx: flume::Sender<ManagementMessage>,
 }
@@ -135,6 +137,7 @@ async fn worker_handle_message(
                 worker.logger_tx.clone(),
                 worker.sql_tx.clone(),
                 worker.kv_tx.clone(),
+                worker.blob_tx.clone(),
                 function_id.clone(),
                 module,
                 env,
