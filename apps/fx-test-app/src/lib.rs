@@ -11,7 +11,7 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv, env},
+        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv::{self, KvSetNxPxError}, env},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
@@ -79,6 +79,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/stream/sse", get(test_stream_sse))
             .route("/test/env/simple", get(env_simple))
             .route("/test/kv/simple", get(kv_simple))
+            .route("/test/kv/distributed-lock", get(kv_distributed_lock))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -502,6 +503,22 @@ async fn kv_simple() -> &'static str {
     assert_eq!(result, "hello kv!");
 
     "ok."
+}
+
+async fn kv_distributed_lock() -> &'static str {
+    let kv = kv::Kv::new("test-namespace");
+
+    let lock_value = fx::random(8);
+    match kv.set_nx_px("test-distributed-lock", &lock_value, true, Some(Duration::from_secs(10))).await {
+        Ok(_) => {},
+        Err(KvSetNxPxError::AlreadyExists) => return "already locked.\n",
+    };
+
+    sleep(Duration::from_secs(3)).await;
+
+    kv.delex_ifeq("test-distributed-lock", lock_value).await;
+
+    "ok.\n"
 }
 
 #[derive(Clone)]

@@ -605,6 +605,26 @@ async fn kv_simple() {
     assert_eq!("ok.", result.text().await.unwrap());
 }
 
+#[tokio::test]
+async fn kv_distributed_lock() {
+    let client = init_fx_server().await;
+
+    let (result1, result2) = join!(
+        client.get("/test/kv/distributed-lock").send(),
+        client.get("/test/kv/distributed-lock").send(),
+    );
+    let result1 = result1.unwrap();
+    let result2 = result2.unwrap();
+
+    assert!(result1.status().is_success());
+    assert!(result2.status().is_success());
+
+    let result1 = result1.text().await.unwrap();
+    let result2 = result2.text().await.unwrap();
+
+    assert!((result1 == "ok.\n" && result2 == "already locked.\n") || (result2 == "ok.\n" && result1 == "already locked.\n"));
+}
+
 pub struct TestClient {
     client: reqwest::Client,
     base_url: String,

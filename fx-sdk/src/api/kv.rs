@@ -25,33 +25,33 @@ impl Kv {
         }
     }
 
-    pub async fn set(&self, key: impl AsKey, value: impl Into<KvValue>) {
+    pub async fn set(&self, key: impl AsKey, value: impl AsValue) {
         let (key_ptr, key_len) = key.as_key();
-        let value = value.into();
+        let (value_ptr, value_len) = value.as_value();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_set(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
-            value.value.as_ptr() as u64,
-            value.value.len() as u64,
+            value_ptr,
+            value_len,
         ) });
 
         HostUnitFuture::new(resource_id).await;
     }
 
-    pub async fn set_nx_px(&self, key: impl AsKey, value: impl Into<KvValue>, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
+    pub async fn set_nx_px(&self, key: impl AsKey, value: impl AsValue, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
         let (key_ptr, key_len) = key.as_key();
-        let value = value.into();
+        let (value_ptr, value_len) = value.as_value();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_set_nx_px(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
-            value.value.as_ptr() as u64,
-            value.value.len() as u64,
+            value_ptr,
+            value_len,
             if nx { 1 } else { 0 },
             px.map(|v| v.as_millis() as i64).unwrap_or(-1)
         ) });
@@ -78,17 +78,17 @@ impl Kv {
         }
     }
 
-    pub async fn delex_ifeq(&self, key: impl AsKey, ifeq: impl Into<KvValue>) {
+    pub async fn delex_ifeq(&self, key: impl AsKey, ifeq: impl AsValue) {
         let (key_ptr, key_len) = key.as_key();
-        let ifeq = ifeq.into();
+        let (ifeq_ptr, ifeq_len) = ifeq.as_value();
 
         let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_delex_ifeq(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
-            ifeq.value.as_ptr() as u64,
-            ifeq.value.len() as u64,
+            ifeq_ptr,
+            ifeq_len,
         ) });
 
         HostUnitFuture::new(resource_id).await
@@ -112,19 +112,37 @@ impl AsKey for &str {
     }
 }
 
-struct KvValue {
-    value: Vec<u8>,
+trait AsValue {
+    fn as_value(&self) -> (u64, u64);
 }
 
-impl From<String> for KvValue {
-    fn from(value: String) -> Self {
-        Self { value: value.into_bytes() }
+impl AsValue for String {
+    fn as_value(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
     }
 }
 
-impl From<&str> for KvValue {
-    fn from(value: &str) -> Self {
-        Self { value: value.as_bytes().to_vec() }
+impl AsValue for &str {
+    fn as_value(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
+    }
+}
+
+impl AsValue for Vec<u8> {
+    fn as_value(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
+    }
+}
+
+impl AsValue for &Vec<u8> {
+    fn as_value(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
+    }
+}
+
+impl AsValue for &[u8] {
+    fn as_value(&self) -> (u64, u64) {
+        (self.as_ptr() as u64, self.len() as u64)
     }
 }
 
