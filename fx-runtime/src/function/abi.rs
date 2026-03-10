@@ -15,7 +15,7 @@ use {
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
             blob::BlobGetResponse,
-            fetch::{FetchResult, FetchResultWithBodyResource},
+            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvSetRequest, KvGetResponse, KvDelexRequest},
         },
@@ -548,10 +548,7 @@ pub(super) fn fx_fetch_handler(
             let result = client.execute(fetch_request).await.unwrap();
             let http_response: ::http::Response<reqwest::Body> = result.into();
             let (parts, body) = http_response.into_parts();
-            let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| {
-                todo!("add error handling for: {err:?}");
-                ()
-            }).boxed());
+            let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| HttpStreamError::FetchResponseStreamError(err)).boxed());
             FetchResult::new(parts, body)
         }))).as_u64()
     }

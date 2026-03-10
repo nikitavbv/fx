@@ -18,7 +18,7 @@ use {
             abi::{capnp, abi_http_capnp},
             instance::FunctionInstance,
         },
-        effects::fetch::{HttpStreamFrame, poll_function_resource_reader_frame},
+        effects::fetch::{HttpStreamFrame, poll_function_resource_reader_frame, HttpStreamError},
     },
 };
 
@@ -118,7 +118,7 @@ impl HttpBody {
         Self(HttpBodyInner::FunctionResource(SendWrapper::new(RefCell::new(FunctionResourceReader::Resource(resource)))))
     }
 
-    pub fn for_stream(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
+    pub fn for_stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
         Self(HttpBodyInner::Stream(stream))
     }
 }
@@ -165,13 +165,13 @@ pub(crate) enum HttpBodyInner {
         reader: SendWrapper<FunctionResourceReader>,
         frame_serialized: Vec<u8>,
     },
-    Stream(BoxStream<'static, Result<Bytes, ()>>),
+    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
     StreamPartiallyRead {
-        stream: BoxStream<'static, Result<Bytes, ()>>,
-        frame: Result<Bytes, ()>,
+        stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
+        frame: Result<Bytes, HttpStreamError>,
     },
     StreamPartiallyReadSerialized {
-        stream: BoxStream<'static, Result<Bytes, ()>>,
+        stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
         frame_serialized: Vec<u8>,
     },
     FrameSerialized(Vec<u8>),
@@ -195,7 +195,7 @@ pub(crate) enum FunctionResourceReader {
         future: LocalBoxFuture<'static, Option<HttpStreamFrame>>,
     },
     // HttpBody is stream living on host
-    Stream(BoxStream<'static, Result<Bytes, ()>>),
+    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
 pub struct FetchRequestHeader {

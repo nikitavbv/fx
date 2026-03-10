@@ -2,6 +2,7 @@ use {
     std::task::Poll,
     futures::{stream::BoxStream, FutureExt, StreamExt},
     hyper::body::Bytes,
+    thiserror::Error,
     crate::{
         function::abi::{capnp, abi_http_capnp},
         resources::{serialize::{SerializeResource, SerializableResource}, ResourceId, resource::OwnedFunctionResourceId},
@@ -71,7 +72,7 @@ impl SerializeResource for FetchResultWithBodyResource {
 
 pub(crate) enum HttpStreamFrame {
     Bytes(Vec<u8>),
-    Stream(BoxStream<'static, Result<Bytes, ()>>),
+    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
 pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceReader, cx: &mut std::task::Context<'_>) -> (
@@ -152,4 +153,10 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
         },
         _ => unreachable!("didn't expect to get this reader state"),
     }
+}
+
+#[derive(Error, Debug)]
+pub enum HttpStreamError {
+    #[error("failed to read fetch response stream")]
+    FetchResponseStreamError(reqwest::Error),
 }
