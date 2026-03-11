@@ -454,6 +454,22 @@ async fn metrics_counter_with_labels_increment() {
 }
 
 #[tokio::test]
+async fn invalid_host_header() {
+    let client = init_fx_server().await;
+
+    // Send a request with invalid UTF-8 bytes in the Host header (0x80 is not valid UTF-8)
+    let invalid_host = vec![104, 111, 115, 116, 46, 0x80, 46, 99, 111, 109]; // "host.<invalid>.com"
+    let response = client.get("/")
+        .header(reqwest::header::HOST, reqwest::header::HeaderValue::from_bytes(&invalid_host).unwrap())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(400, response.status().as_u16());
+    assert_eq!("invalid Host header\n", response.text().await.unwrap());
+}
+
+#[tokio::test]
 async fn function_remove() {
     let client = init_fx_server().await;
 

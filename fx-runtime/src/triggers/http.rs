@@ -51,8 +51,23 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
-        let target_function = req.headers().get("Host")
-            .and_then(|v| self.http_hosts.borrow().get(&v.to_str().unwrap().to_lowercase()).cloned())
+        let host_header = req.headers().get("Host");
+        let host_str = match host_header {
+            Some(header) => match header.to_str() {
+                Ok(v) => Some(v),
+                Err(_) => {
+                    return Box::pin(async move {
+                        let mut response = Response::new(HttpBody::for_bytes(Bytes::from("invalid Host header\n".as_bytes())));
+                        *response.status_mut() = StatusCode::BAD_REQUEST;
+                        return Ok(response);
+                    });
+                }
+            },
+            None => None,
+        };
+
+        let target_function = host_str
+            .and_then(|v| self.http_hosts.borrow().get(&v.to_lowercase()).cloned())
             .or_else(|| self.http_default.borrow().clone());
         let target_function_deployment_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
         let target_function_deployment = target_function_deployment_id.and_then(|instance_id| self.function_deployments.borrow().get(&instance_id).cloned());
