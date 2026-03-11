@@ -308,7 +308,7 @@ impl HttpBody {
         Self(HttpBodyInner::Bytes(bytes))
     }
 
-    pub fn stream(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
+    pub fn stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
         Self(HttpBodyInner::Stream(stream))
     }
 
@@ -374,9 +374,9 @@ pub(crate) enum HttpBodyInner {
     Empty,
     Bytes(Vec<u8>),
     BytesSerialized(Vec<u8>),
-    Stream(BoxStream<'static, Result<Bytes, ()>>),
+    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
     PartiallyReadStream {
-        stream: BoxStream<'static, Result<Bytes, ()>>,
+        stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
         frame_serialized: Vec<u8>,
     },
     HostResource(OwnedResourceId),
@@ -500,8 +500,8 @@ impl IntoHttpResponseBody for &str {
     fn into_bytes(self) -> Vec<u8> { self.as_bytes().to_vec() }
 }
 
-impl From<BoxStream<'static, Result<Bytes, ()>>> for HttpBody {
-    fn from(stream: BoxStream<'static, Result<Bytes, ()>>) -> Self {
+impl From<BoxStream<'static, Result<Bytes, HttpStreamError>>> for HttpBody {
+    fn from(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
         HttpBody::stream(stream)
     }
 }
@@ -516,4 +516,10 @@ impl From<String> for HttpBody {
     fn from(value: String) -> Self {
         HttpBody(HttpBodyInner::Bytes(value.into_bytes()))
     }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum HttpStreamError {
+    #[error("failed to read axum stream: {0:?}")]
+    AxumStreamRead(axum::Error),
 }

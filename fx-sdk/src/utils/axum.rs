@@ -2,7 +2,7 @@ use {
     axum::{http::Request, body::Body},
     tower::Service,
     futures::{StreamExt, TryStreamExt},
-    crate::{HttpRequest, HttpResponse},
+    crate::{HttpRequest, HttpResponse, api::http::HttpStreamError},
 };
 
 pub async fn handle_request(router: axum::Router, mut src_req: HttpRequest) -> HttpResponse {
@@ -24,8 +24,5 @@ pub async fn handle_request(router: axum::Router, mut src_req: HttpRequest) -> H
     let response = HttpResponse::from_parts(parts);
     let stream = body.into_data_stream();
 
-    response.with_body(stream.map_err(|err| {
-        panic!("unexpected stream error: {err:?}");
-        ()
-    }).boxed())
+    response.with_body(stream.map_err(|err| HttpStreamError::AxumStreamRead(err)).boxed())
 }
