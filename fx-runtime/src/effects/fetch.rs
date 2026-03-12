@@ -147,7 +147,7 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
                 match stream.poll_next_unpin(cx) {
                     Poll::Pending => (FunctionResourceReader::Stream(stream), Poll::Pending),
                     Poll::Ready(None) => (FunctionResourceReader::Empty, Poll::Ready(None)),
-                    Poll::Ready(Some(frame)) => (FunctionResourceReader::Stream(stream), Poll::Ready(Some(Ok((frame.unwrap()))))),
+                    Poll::Ready(Some(frame)) => (FunctionResourceReader::Stream(stream), Poll::Ready(Some(Ok(frame.unwrap())))),
                 }
             },
         },

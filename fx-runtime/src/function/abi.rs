@@ -21,11 +21,10 @@ use {
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
-            worker::WorkerMessage,
             kv::{KvMessage, KvOperation},
             blob::BlobMessage,
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner, HttpBody, HttpBodyInner},
+        triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner, HttpBody},
     },
 };
 
@@ -379,7 +378,7 @@ pub(super) fn fx_blob_get_handler(
                         bucket,
                         key,
                         result
-                    });
+                    }).unwrap();
 
                     match result_rx.await.unwrap() {
                         Some(v) => BlobGetResponse::Ok(v),
@@ -421,7 +420,7 @@ pub(super) fn fx_blob_delete_handler(
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
         let (result, result_rx) = oneshot::channel();
         blob_tx.send_async(BlobMessage::Delete { bucket, key, result }).await.unwrap();
-        result_rx.await;
+        result_rx.await.unwrap();
     }.boxed())).as_u64()
 }
 
@@ -458,15 +457,15 @@ pub(super) fn fx_fetch_handler(
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
     if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
-        // TODO: use this body (check that post request to other function will work)
-        let (request, body) = http::Request::builder()
-            .method(request_method)
-            .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap())
-            .body(())
-            .unwrap()
-            .into_parts();
-
-        let header = FetchRequestHeader::from_http_parts(request);
+        let header = FetchRequestHeader::from_http_parts(
+            http::Request::builder()
+                .method(request_method)
+                .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap())
+                .body(())
+                .unwrap()
+                .into_parts()
+                .0
+        );
         let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
         caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {

@@ -220,36 +220,6 @@ impl SqlDatabase {
 
         Ok(QueryResult { rows: result_rows })
     }
-
-    // run sql transaction
-    pub fn batch(&mut self, statements: Vec<Query>) -> Result<(), SqlError> {
-        let txn = self.connection.transaction()
-            .map_err(|err| SqlError::TransactionStart { reason: err.to_string() })?;
-
-        for query in statements {
-            let mut stmt = txn.prepare(&query.query)
-                .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
-            let _rows = stmt.query(params_from_iter(query.params.into_iter()))
-                .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
-        }
-
-        txn.commit().map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
-
-        Ok(())
-    }
-
-    // run sql migrations
-    pub fn migrate(&mut self, migrations: Vec<String>) -> Result<(), SqlError> {
-        let mut rusqlite_migrations = Vec::new();
-        for migration in &migrations {
-            rusqlite_migrations.push(rusqlite_migration::M::up(migration));
-        }
-
-        let migrations = rusqlite_migration::Migrations::new(rusqlite_migrations);
-
-        migrations.to_latest(&mut self.connection)
-            .map_err(|err| SqlError::MigrationFailed { reason: err.to_string() })
-    }
 }
 
 impl ToSql for SqlValue {
@@ -318,17 +288,8 @@ pub enum SqlError {
     #[error("failed to run query: {reason}")]
     QueryRun { reason: String },
 
-    #[error("failed to start transaction")]
-    TransactionStart { reason: String },
-
-    #[error("failed to acquire database connection")]
-    ConnectionAcquire { reason: String },
-
     #[error("failed to open database connection")]
     ConnectionOpen { reason: String },
-
-    #[error("sql migration failed: {reason}")]
-    MigrationFailed { reason: String },
 }
 
 #[derive(Error, Debug)]
