@@ -193,13 +193,29 @@ async fn sql_migration_sql_error() {
     assert!(response.text().await.unwrap().contains("ok: migration sql error"));
 }
 
-// TODO: recover from panics?
 #[tokio::test]
 async fn function_panic() {
     let client = init_fx_server().await;
     let response = client.get("/test/panic").header("Host", "panics.fx.local").send().await.unwrap();
     assert_eq!(502, response.status().as_u16());
     assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
+}
+
+#[tokio::test]
+async fn function_panic_loop() {
+    let client = init_fx_server().await;
+
+    // check that everything will work correctly even if a lot of panics happen in the loop
+    for _ in 0..50 {
+        // check that function is actually functional between panics
+        let response = client.get("/").header("Host", "panics.fx.local").send().await.unwrap();
+        assert!(response.status().is_success());
+
+        // trigger function panic
+        let response = client.get("/test/panic").header("Host", "panics.fx.local").send().await.unwrap();
+        assert_eq!(502, response.status().as_u16());
+        assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
+    }
 }
 
 #[tokio::test]
