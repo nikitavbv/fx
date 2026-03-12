@@ -21,7 +21,7 @@ use {
             ResourceId,
             Resource,
             future::FutureResource,
-            serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource, DeserializeFunctionResource},
+            serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource},
         },
         triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner, FunctionResourceReader},
     },
