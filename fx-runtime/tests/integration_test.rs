@@ -186,9 +186,9 @@ async fn sql_wrong_binding_name_migrations() {
 
 #[tokio::test]
 async fn sql_migration_sql_error() {
-    init_fx_server();
+    let client = init_fx_server().await;
 
-    let response = reqwest::get("http://localhost:8080/test/sql/migration-sql-error").await.unwrap();
+    let response = client.get("/test/sql/migration-sql-error").send().await.unwrap();
     assert!(response.status().is_success());
     assert!(response.text().await.unwrap().contains("ok: migration sql error"));
 }
