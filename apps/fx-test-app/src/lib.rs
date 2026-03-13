@@ -1,5 +1,5 @@
 use {
-    std::{time::Duration, collections::HashMap, sync::Mutex, convert::Infallible},
+    std::{time::Duration, collections::HashMap, sync::{Arc, Mutex}, convert::Infallible},
     tracing::info,
     axum::{Router, routing::{get, post}, Extension, response::sse::{Sse, Event}},
     lazy_static::lazy_static,
@@ -61,6 +61,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/sql/batch", get(test_sql_batch))
             .route("/test/sql/batch-rollback", get(test_sql_batch_rollback))
             .route("/test/panic", get(test_panic_page))
+            .route("/test/panic-restore", get(test_panic_restore))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
             .route("/test/time", get(test_time))
@@ -82,9 +83,23 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/kv/distributed-lock", get(kv_distributed_lock))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
-            .layer(Extension(Metrics::new())),
+            .layer(Extension(Metrics::new()))
+            .layer(Extension(AppState::new())),
         req
     ).await
+}
+
+#[derive(Clone)]
+struct AppState {
+    mutex_for_panic_restore: Arc<Mutex<()>>,
+}
+
+impl AppState {
+    pub fn new() -> Self {
+        Self {
+            mutex_for_panic_restore: Arc::new(Mutex::new(())),
+        }
+    }
 }
 
 async fn home() -> &'static str {
@@ -340,6 +355,15 @@ async fn test_sql_batch_rollback() -> (StatusCode, String) {
 
 async fn test_panic_page() -> String {
     panic!("test function panic")
+}
+
+async fn test_panic_restore(Extension(state): Extension<AppState>) -> (StatusCode, &'static str) {
+    let lock = match state.mutex_for_panic_restore.lock() {
+        Ok(_) => (),
+        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "lock poisoned.\n"),
+    };
+
+    panic!("test restore after panic: {lock:?}");
 }
 
 async fn test_sleep() -> &'static str {
