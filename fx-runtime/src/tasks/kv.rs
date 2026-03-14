@@ -1,7 +1,7 @@
 use {
     std::{collections::HashMap, time::SystemTime},
     tokio::sync::oneshot,
-    crate::effects::kv::{KvSetRequest, KvSetError, KvDelexRequest},
+    crate::effects::kv::{KvSetRequest, KvSetError, KvDelexRequest, KvPublishRequest},
 };
 
 pub(crate) struct KvMessage {
@@ -16,6 +16,11 @@ pub(crate) enum KvOperation {
         result: oneshot::Sender<Option<Vec<u8>>>,
     },
     Delex(KvDelexRequest, oneshot::Sender<()>),
+    Subscribe {
+        channel: Vec<u8>,
+        result: oneshot::Sender<flume::Receiver<Vec<u8>>>,
+    },
+    Publish(KvPublishRequest, oneshot::Sender<()>),
 }
 
 struct Value {
@@ -23,8 +28,33 @@ struct Value {
     expires_at: Option<SystemTime>,
 }
 
+struct Channel {
+    subscribers: Vec<flume::Sender<Vec<u8>>>,
+}
+
+impl Channel {
+    pub fn new() -> Self {
+        Self {
+            subscribers: Vec::new(),
+        }
+    }
+
+    fn subscribe(&mut self) -> flume::Receiver<Vec<u8>> {
+        let (tx, rx) = flume::unbounded();
+        self.subscribers.push(tx);
+        rx
+    }
+
+    fn publish(&self, data: Vec<u8>) {
+        for subscriber in &self.subscribers {
+            subscriber.send(data.clone()).unwrap();
+        }
+    }
+}
+
 struct Kv {
     kv: HashMap<Vec<u8>, Value>,
+    channels: HashMap<Vec<u8>, Channel>,
 }
 
 impl Default for Kv {
@@ -37,6 +67,7 @@ impl Kv {
     fn new() -> Self {
         Self {
             kv: HashMap::new(),
+            channels: HashMap::new(),
         }
     }
 
@@ -81,6 +112,16 @@ impl Kv {
             self.kv.remove(&request.key);
         }
     }
+
+    fn subscribe(&mut self, channel: Vec<u8>) -> flume::Receiver<Vec<u8>> {
+        self.channels.entry(channel).or_insert(Channel::new()).subscribe()
+    }
+
+    fn publish(&self, channel: &Vec<u8>, data: Vec<u8>) {
+        if let Some(channel) = self.channels.get(channel) {
+            channel.publish(data);
+        }
+    }
 }
 
 pub(crate) fn run_kv_task(kv_rx: flume::Receiver<KvMessage>) {
@@ -95,7 +136,12 @@ pub(crate) fn run_kv_task(kv_rx: flume::Receiver<KvMessage>) {
             KvOperation::Delex(request, result) => {
                 kv.delex(request);
                 result.send(()).unwrap();
-            }
+            },
+            KvOperation::Subscribe { channel, result } => result.send(kv.subscribe(channel)).unwrap(),
+            KvOperation::Publish(request, result) => {
+                kv.publish(&request.channel, request.data);
+                result.send(()).unwrap();
+            },
         }
     }
 }

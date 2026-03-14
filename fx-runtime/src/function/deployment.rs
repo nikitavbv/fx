@@ -72,6 +72,8 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_kv_set_nx_px", super::abi::fx_kv_set_nx_px_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_get", super::abi::fx_kv_get_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_delex_ifeq", super::abi::fx_kv_delex_ifeq_handler).unwrap();
+        linker.func_wrap("fx", "fx_kv_subscribe", super::abi::fx_kv_subscribe_handler).unwrap();
+        linker.func_wrap("fx", "fx_kv_publish", super::abi::fx_kv_publish_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {

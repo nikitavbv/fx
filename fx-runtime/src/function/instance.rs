@@ -206,6 +206,7 @@ impl FunctionInstance {
                     HttpBodyInner::FrameSerialized(_) => panic!("cannot read frame that was serialized to write to function"),
                 },
                 Resource::RequestBody(_) => todo!(),
+                Resource::KvSubscription(v) => todo!(),
             },
         })
     }
@@ -451,7 +452,10 @@ impl FunctionInstanceState {
                 let serialized = resource.map_to_serialized();
                 let serialized_size = serialized.serialized_size();
                 (Resource::KvGetResult(FutureResource::Ready(serialized)), serialized_size)
-            }
+            },
+            Resource::KvSubscription(v) => {
+                todo!()
+            },
         };
         self.resources.reattach(resource_id.into(), resource);
         serialized_size
@@ -568,6 +572,9 @@ impl FunctionInstanceState {
                 let poll_result = v.poll(&mut cx);
                 (Resource::KvGetResult(v), poll_result)
             },
+            Resource::KvSubscription(mut v) => {
+                todo!()
+            },
         };
 
         self.resources.reattach(resource_id.into(), resource);
@@ -591,7 +598,8 @@ impl FunctionInstanceState {
             | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_)
             | Resource::KvSetResult(_)
-            | Resource::KvGetResult(_) => panic!("resource of this type does not support reading frames"),
+            | Resource::KvGetResult(_)
+            | Resource::KvSubscription(_) => panic!("resource of this type does not support reading frames"),
             Resource::RequestBody(v) => match v.0 {
                 FetchRequestBodyInner::Full(_)
                 | FetchRequestBodyInner::Stream(_)

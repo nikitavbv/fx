@@ -675,6 +675,29 @@ async fn kv_distributed_lock() {
     assert!((result1 == "ok.\n" && result2 == "already locked.\n") || (result2 == "ok.\n" && result1 == "already locked.\n"));
 }
 
+/*#[tokio::test]
+async fn kv_pubsub() {
+    let client = init_fx_server().await;
+
+    let (result, _, _, _) = join!(
+        client.get("/test/kv/pubsub/subscribe").send(),
+        async {
+            sleep(Duration::from_millis(100)).await;
+            client.post("/test/kv/pubsub/publish").json(&serde_json::json!({"value": 42})).send().await.unwrap();
+        },
+        async {
+            sleep(Duration::from_millis(100)).await;
+            client.post("/test/kv/pubsub/publish").json(&serde_json::json!({"value": 43})).send().await.unwrap();
+        },
+        async {
+            sleep(Duration::from_millis(100)).await;
+            client.post("/test/kv/pubsub/publish").json(&serde_json::json!({"value": 44})).send().await.unwrap();
+        },
+    );
+
+    assert_eq!("test", result.unwrap().text().await.unwrap());
+}*/
+
 pub struct TestClient {
     client: reqwest::Client,
     base_url: String,

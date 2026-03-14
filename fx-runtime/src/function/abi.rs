@@ -17,7 +17,7 @@ use {
             blob::BlobGetResponse,
             fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse, KvDelexRequest},
+            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -108,6 +108,7 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Future(_) => panic!("cannot move resouce that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
+        Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
     };
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -509,7 +510,8 @@ pub(super) fn fx_fetch_handler(
                     | Resource::SqlMigrationResult(_)
                     | Resource::UnitFuture(_)
                     | Resource::KvSetResult(_)
-                    | Resource::KvGetResult(_) => panic!("this resource cannot be used as request body"),
+                    | Resource::KvGetResult(_)
+                    | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
                     Resource::RequestBody(v) => match v.0 {
                         FetchRequestBodyInner::FullSerialized(_)
                         | FetchRequestBodyInner::PartiallyReadStream { .. }
@@ -778,5 +780,72 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
         }).await.unwrap();
 
         result_rx.await.unwrap()
+    }.boxed())).as_u64()
+}
+
+pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_addr as usize;
+        let len = binding_len as usize;
+        let binding = &view[ptr..ptr+len];
+        str::from_utf8(binding).unwrap()
+    };
+    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+
+    let channel = {
+        let ptr = channel_addr as usize;
+        let len = channel_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let (result_tx, result_rx) = oneshot::channel();
+    caller.data_mut().kv_tx.send(KvMessage {
+        namespace,
+        operation: KvOperation::Subscribe { channel, result: result_tx },
+    }).unwrap();
+
+    caller.data_mut().resource_add(Resource::KvSubscription(KvSubscriptionResource::Init(result_rx))).as_u64()
+}
+
+pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64 {
+    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let context = caller.as_context();
+    let view = memory.data(&context);
+
+    let binding = {
+        let ptr = binding_addr as usize;
+        let len = binding_len as usize;
+        let binding = &view[ptr..ptr+len];
+        str::from_utf8(binding).unwrap()
+    };
+    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+
+    let channel = {
+        let ptr = channel_addr as usize;
+        let len = channel_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let data = {
+        let ptr = data_addr as usize;
+        let len = data_len as usize;
+        view[ptr..ptr+len].to_vec()
+    };
+
+    let (result_tx, result_rx) = oneshot::channel();
+    caller.data().kv_tx.send(KvMessage {
+        namespace,
+        operation: KvOperation::Publish(KvPublishRequest {
+            channel,
+            data
+        }, result_tx),
+    }).unwrap();
+
+    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+        result_rx.await.unwrap();
     }.boxed())).as_u64()
 }

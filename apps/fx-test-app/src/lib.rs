@@ -1,9 +1,11 @@
 use {
     std::{time::Duration, collections::HashMap, sync::{Arc, Mutex}, convert::Infallible},
     tracing::info,
-    axum::{Router, routing::{get, post}, Extension, response::{sse::{Sse, Event}, IntoResponse}},
+    axum::{Router, routing::{get, post}, Extension, response::{sse::{Sse, Event}, IntoResponse}, extract::Json},
     lazy_static::lazy_static,
     futures::stream::{self, Stream, StreamExt},
+    serde::Deserialize,
+    stream_reduce::Reduce,
     fx_sdk::{
         self as fx,
         handler,
@@ -84,6 +86,8 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/env/simple", get(env_simple))
             .route("/test/kv/simple", get(kv_simple))
             .route("/test/kv/distributed-lock", get(kv_distributed_lock))
+            .route("/test/kv/pubsub/subscribe", post(kv_pubsub_subscribe))
+            .route("/test/kv/pubsub/publish", get(kv_pubsub_publish))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -534,6 +538,31 @@ async fn kv_distributed_lock() -> &'static str {
     sleep(Duration::from_secs(3)).await;
 
     kv.delex_ifeq("test-distributed-lock", lock_value).await;
+
+    "ok.\n"
+}
+
+async fn kv_pubsub_subscribe() -> String {
+    let kv = kv::Kv::new("test-namespace");
+
+    let sum = kv.subscribe("test-channel").await
+        .take(3)
+        .map(|v| String::from_utf8(v).unwrap().parse::<u64>().unwrap())
+        .reduce(|a, b| async move { a + b}).await
+        .unwrap();
+
+    format!("result: {sum}")
+}
+
+#[derive(Deserialize)]
+struct KvPubsubPublishRequest {
+    value: u64,
+}
+
+async fn kv_pubsub_publish(Json(req): Json<KvPubsubPublishRequest>) -> &'static str {
+    let kv = kv::Kv::new("test-namespace");
+
+    kv.publish("test-channel", req.value.to_string().into_bytes()).await;
 
     "ok.\n"
 }

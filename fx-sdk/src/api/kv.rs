@@ -1,7 +1,8 @@
 use {
     std::time::Duration,
-    fx_types::{abi_kv_capnp, capnp},
     thiserror::Error,
+    futures::Stream,
+    fx_types::{abi_kv_capnp, capnp},
     crate::sys::{
         DeserializeHostResource,
         FutureHostResource,
@@ -92,6 +93,34 @@ impl Kv {
         ) });
 
         HostUnitFuture::new(resource_id).await
+    }
+
+    pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
+        todo!()
+    }
+
+    pub async fn publish(&self, channel: impl AsKey, data: impl AsValue) {
+        todo!()
+    }
+}
+
+pub struct KvSubscriptionStream {
+    resource_id: OwnedResourceId,
+}
+
+impl KvSubscriptionStream {
+    pub fn new(resource_id: OwnedResourceId) -> Self {
+        Self {
+            resource_id,
+        }
+    }
+}
+
+impl Stream for KvSubscriptionStream {
+    type Item = Vec<u8>;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        todo!()
     }
 }
 

@@ -1,6 +1,7 @@
 use {
     std::time::Duration,
     thiserror::Error,
+    futures::stream::BoxStream,
     fx_types::{capnp, abi_kv_capnp},
     crate::resources::serialize::SerializeResource,
 };
@@ -77,4 +78,14 @@ impl SerializeResource for Result<(), KvSetError> {
 pub(crate) struct KvDelexRequest {
     pub(crate) key: Vec<u8>,
     pub(crate) ifeq: Vec<u8>,
+}
+
+
+pub(crate) struct KvPublishRequest {
+    pub(crate) channel: Vec<u8>,
+    pub(crate) data: Vec<u8>,
+}
+
+pub(crate) enum KvSubscriptionResource {
+    Init(tokio::sync::oneshot::Receiver<flume::Receiver<Vec<u8>>>),
 }

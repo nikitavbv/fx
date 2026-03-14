@@ -1,6 +1,6 @@
 use {
     std::{cell::Cell, rc::Rc},
-    futures::future::BoxFuture,
+    futures::{future::BoxFuture, stream::BoxStream},
     slotmap::Key,
     crate::{
         function::{instance::FunctionInstance, abi::{capnp, abi_function_resources_capnp}},
@@ -9,7 +9,7 @@ use {
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
             blob::BlobGetResponse,
             fetch::FetchResult,
-            kv::{KvGetResponse, KvSetError},
+            kv::{KvGetResponse, KvSetError, KvSubscriptionResource},
         },
     },
     super::{
@@ -107,4 +107,5 @@ pub(crate) enum Resource {
     FetchResult(FutureResource<FetchResult>),
     KvSetResult(FutureResource<SerializableResource<Result<(), KvSetError>>>),
     KvGetResult(FutureResource<SerializableResource<KvGetResponse>>),
+    KvSubscription(KvSubscriptionResource),
 }
