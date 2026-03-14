@@ -72,7 +72,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
             tokio::select! {
                 message = worker.messages_rx.recv_async() => {
                     worker_handle_message(
-                        &wasmtime,
+                        wasmtime.clone(),
                         &worker,
                         local_controller.clone(),
                         function_deployments.clone(),
@@ -111,7 +111,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 }
 
 async fn worker_handle_message(
-    wasmtime: &wasmtime::Engine,
+    wasmtime: Rc<wasmtime::Engine>,
     worker: &WorkerConfig,
     local_controller: LocalWorkerController,
     function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
@@ -133,7 +133,7 @@ async fn worker_handle_message(
             bindings_functions,
         } => {
             let deployment = FunctionDeployment::new(
-                &wasmtime,
+                wasmtime,
                 local_controller.clone(),
                 worker.logger_tx.clone(),
                 worker.sql_tx.clone(),
@@ -194,7 +194,7 @@ async fn worker_handle_message(
         },
         WorkerMessage::FunctionInvoke { function_id, header, response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
-            let function_future = deployment.borrow_mut().handle_request(header, None);
+            let function_future = deployment.borrow_mut().handle_request(header, None).await;
             tokio::task::spawn_local(async move {
                 let _response = function_future.await.unwrap();
                 response_tx.send(()).unwrap();
@@ -211,7 +211,7 @@ async fn worker_handle_local_message(
     match message {
         WorkerLocalMessage::FunctionInvoke { function_id, header, response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
-            let function_future = deployment.borrow_mut().handle_request(header, None);
+            let function_future = deployment.borrow_mut().handle_request(header, None).await;
             tokio::task::spawn_local(async move {
                 let response = function_future.await.unwrap();
                 response_tx.send(response).unwrap();

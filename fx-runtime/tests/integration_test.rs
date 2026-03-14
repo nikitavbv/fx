@@ -201,7 +201,7 @@ async fn function_panic() {
     assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn function_panic_loop() {
     let client = init_fx_server().await;
 
@@ -234,7 +234,7 @@ async fn panic_restore() {
         assert_eq!(502, response.status().as_u16());
         assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
     }
-}*/
+}
 
 #[tokio::test]
 async fn async_simple() {

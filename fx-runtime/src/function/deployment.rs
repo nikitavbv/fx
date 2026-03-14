@@ -26,14 +26,13 @@ impl FunctionDeploymentId {
 
 pub(crate) struct FunctionDeployment {
     pub(crate) function_id: FunctionId,
-    module: wasmtime::Module,
-    instance_template: wasmtime::InstancePre<FunctionInstanceState>,
+    template: FunctionTemplate,
     pub(crate) instance: Rc<FunctionInstance>,
 }
 
 impl FunctionDeployment {
     pub async fn new(
-        wasmtime: &wasmtime::Engine,
+        wasmtime: Rc<wasmtime::Engine>,
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
@@ -47,7 +46,7 @@ impl FunctionDeployment {
         bindings_kv: HashMap<String, KvBindingConfig>,
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, DeploymentInitError> {
-        let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(wasmtime);
+        let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(&wasmtime);
 
         linker.func_wrap("fx", "fx_log", super::abi::fx_log_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_serialize", super::abi::fx_resource_serialize_handler).unwrap();
@@ -100,7 +99,7 @@ impl FunctionDeployment {
                 }
             })?;
 
-        let instance = FunctionInstance::new(
+        let template = FunctionTemplate::new(
             wasmtime,
             local_worker,
             logger_tx,
@@ -108,30 +107,33 @@ impl FunctionDeployment {
             kv_tx,
             blob_tx,
             function_id.clone(),
-            &instance_template,
+            instance_template,
             env,
             bindings_sql,
             bindings_blob,
             bindings_kv,
-            bindings_functions
-        ).await
-            .map_err(|err| match err {
-                FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
-            })?;
+            bindings_functions,
+        );
+
+        let instance = template.instantiate().await.map_err(|err| match err {
+            FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
+        })?;
 
         Ok(Self {
             function_id,
-            module,
-            instance_template,
+            template,
             instance: Rc::new(instance),
         })
     }
 
-    pub(crate) fn handle_request(&mut self, header: FetchRequestHeader, body: Option<FetchRequestBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&mut self, header: FetchRequestHeader, body: Option<FetchRequestBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         let instance = if *instance.has_panicked.borrow() {
-            todo!()
+            let instance = self.template.instantiate().await.unwrap();
+            let instance = Rc::new(instance);
+            self.instance = instance.clone();
+            instance
         } else {
             instance
         };
@@ -214,32 +216,68 @@ impl Into<String> for &FunctionId {
 
 struct FunctionTemplate {
     wasmtime: Rc<wasmtime::Engine>,
+    local_worker: LocalWorkerController,
+    logger_tx: flume::Sender<LogMessageEvent>,
+    sql_tx: flume::Sender<SqlMessage>,
+    kv_tx: flume::Sender<KvMessage>,
+    blob_tx: flume::Sender<BlobMessage>,
+    function_id: FunctionId,
+    instance_template: wasmtime::InstancePre<FunctionInstanceState>,
+    env: HashMap<String, String>,
+    bindings_sql: HashMap<String, SqlBindingConfig>,
+    bindings_blob: HashMap<String, BlobBindingConfig>,
+    bindings_kv: HashMap<String, KvBindingConfig>,
+    bindings_functions: HashMap<String, FunctionBindingConfig>,
 }
 
 impl FunctionTemplate {
     pub fn new(
         wasmtime: Rc<wasmtime::Engine>,
+        local_worker: LocalWorkerController,
+        logger_tx: flume::Sender<LogMessageEvent>,
+        sql_tx: flume::Sender<SqlMessage>,
+        kv_tx: flume::Sender<KvMessage>,
+        blob_tx: flume::Sender<BlobMessage>,
+        function_id: FunctionId,
+        instance_template: wasmtime::InstancePre<FunctionInstanceState>,
+        env: HashMap<String, String>,
+        bindings_sql: HashMap<String, SqlBindingConfig>,
+        bindings_blob: HashMap<String, BlobBindingConfig>,
+        bindings_kv: HashMap<String, KvBindingConfig>,
+        bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Self {
         Self {
             wasmtime,
+            local_worker,
+            logger_tx,
+            sql_tx,
+            kv_tx,
+            blob_tx,
+            function_id,
+            instance_template,
+            env,
+            bindings_sql,
+            bindings_blob,
+            bindings_kv,
+            bindings_functions,
         }
     }
 
     pub async fn instantiate(&self) -> Result<FunctionInstance, FunctionInstanceInitError> {
         FunctionInstance::new(
             &self.wasmtime,
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
-            todo!(),
+            self.local_worker.clone(),
+            self.logger_tx.clone(),
+            self.sql_tx.clone(),
+            self.kv_tx.clone(),
+            self.blob_tx.clone(),
+            self.function_id.clone(),
+            &self.instance_template,
+            self.env.clone(),
+            self.bindings_sql.clone(),
+            self.bindings_blob.clone(),
+            self.bindings_kv.clone(),
+            self.bindings_functions.clone(),
         ).await
     }
 }
