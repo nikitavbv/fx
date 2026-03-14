@@ -52,6 +52,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
     socket.listen(1024).unwrap();
 
     // setup wasm runtime:
+    let wasmtime = Rc::new(wasmtime);
     let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>> = Rc::new(RefCell::new(HashMap::new()));
     let functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>> = Rc::new(RefCell::new(HashMap::new()));
     let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
@@ -193,7 +194,7 @@ async fn worker_handle_message(
         },
         WorkerMessage::FunctionInvoke { function_id, header, response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
-            let function_future = deployment.borrow().handle_request(header, None);
+            let function_future = deployment.borrow_mut().handle_request(header, None);
             tokio::task::spawn_local(async move {
                 let _response = function_future.await.unwrap();
                 response_tx.send(()).unwrap();
@@ -210,7 +211,7 @@ async fn worker_handle_local_message(
     match message {
         WorkerLocalMessage::FunctionInvoke { function_id, header, response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
-            let function_future = deployment.borrow().handle_request(header, None);
+            let function_future = deployment.borrow_mut().handle_request(header, None);
             tokio::task::spawn_local(async move {
                 let response = function_future.await.unwrap();
                 response_tx.send(response).unwrap();

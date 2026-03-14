@@ -84,7 +84,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let (header, body) = req.into_parts();
 
-            let function_future = target_function_deployment.borrow().handle_request(FetchRequestHeader::from(header), Some(FetchRequestBody::from(body)));
+            let function_future = target_function_deployment.borrow_mut().handle_request(FetchRequestHeader::from(header), Some(FetchRequestBody::from(body)));
             let response = function_future.await;
             let function_response = match response {
                 Ok(v) => Ok(v.move_to_host().await),

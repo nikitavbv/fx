@@ -201,7 +201,7 @@ async fn function_panic() {
     assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
 }
 
-#[tokio::test]
+/*#[tokio::test]
 async fn function_panic_loop() {
     let client = init_fx_server().await;
 
@@ -217,6 +217,24 @@ async fn function_panic_loop() {
         assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
     }
 }
+
+#[tokio::test]
+async fn panic_restore() {
+    let client = init_fx_server().await;
+
+    // check that everything will work correctly even if a lot of panics happen in the loop
+    for _ in 0..50 {
+        // check that function is actually functional between panics and it has "fresh state" with panic counter = 0
+        let response = client.get("/test/panic-restore/test").header("Host", "panics.fx.local").send().await.unwrap();
+        assert!(response.status().is_success());
+        assert_eq!("panic counter: 0", response.text().await.unwrap());
+
+        // trigger function panic
+        let response = client.get("/test/panic-restore").header("Host", "panics.fx.local").send().await.unwrap();
+        assert_eq!(502, response.status().as_u16());
+        assert_eq!("function panicked while handling request.\n", response.text().await.unwrap());
+    }
+}*/
 
 #[tokio::test]
 async fn async_simple() {

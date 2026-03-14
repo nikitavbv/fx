@@ -67,7 +67,10 @@ impl Future for FunctionFuture {
                 let poll = match v {
                     Ok(v) => v,
                     Err(err) => return Poll::Ready(Err(match err {
-                        FunctionFuturePollError::FunctionPanicked => FunctionFutureError::FunctionPanicked,
+                        FunctionFuturePollError::FunctionPanicked => {
+                            *self.instance.has_panicked.borrow_mut() = true;
+                            FunctionFutureError::FunctionPanicked
+                        },
                     })),
                 };
 

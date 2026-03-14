@@ -29,6 +29,9 @@ use {
 };
 
 pub(crate) struct FunctionInstance {
+    // lifecycle flags:
+    pub(crate) has_panicked: RefCell<bool>,
+    // wasm instance:
     instance: wasmtime::Instance,
     pub(crate) store: LocalMutex<wasmtime::Store<FunctionInstanceState>>,
     memory: wasmtime::Memory,
@@ -100,6 +103,7 @@ impl FunctionInstance {
         let store = LocalMutex::new(store, false);
 
         Ok(Self {
+            has_panicked: RefCell::new(false),
             instance,
             store,
             memory,

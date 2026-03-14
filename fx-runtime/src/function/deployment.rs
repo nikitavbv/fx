@@ -127,8 +127,14 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) fn handle_request(&self, header: FetchRequestHeader, body: Option<FetchRequestBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) fn handle_request(&mut self, header: FetchRequestHeader, body: Option<FetchRequestBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
+
+        let instance = if *instance.has_panicked.borrow() {
+            todo!()
+        } else {
+            instance
+        };
 
         Box::pin(async move {
             let mut header = header;
@@ -203,5 +209,37 @@ impl Into<String> for FunctionId {
 impl Into<String> for &FunctionId {
     fn into(self) -> String {
         self.id.clone()
+    }
+}
+
+struct FunctionTemplate {
+    wasmtime: Rc<wasmtime::Engine>,
+}
+
+impl FunctionTemplate {
+    pub fn new(
+        wasmtime: Rc<wasmtime::Engine>,
+    ) -> Self {
+        Self {
+            wasmtime,
+        }
+    }
+
+    pub async fn instantiate(&self) -> Result<FunctionInstance, FunctionInstanceInitError> {
+        FunctionInstance::new(
+            &self.wasmtime,
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+            todo!(),
+        ).await
     }
 }

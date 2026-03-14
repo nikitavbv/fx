@@ -1,7 +1,7 @@
 use {
     std::{time::Duration, collections::HashMap, sync::{Arc, Mutex}, convert::Infallible},
     tracing::info,
-    axum::{Router, routing::{get, post}, Extension, response::sse::{Sse, Event}},
+    axum::{Router, routing::{get, post}, Extension, response::{sse::{Sse, Event}, IntoResponse}},
     lazy_static::lazy_static,
     futures::stream::{self, Stream, StreamExt},
     fx_sdk::{
@@ -28,6 +28,8 @@ lazy_static! {
     static ref COUNTER: Mutex<u64> = Mutex::new(0);
     static ref INVOCATION_COUNT: Mutex<HashMap<String, u64>> = Mutex::new(HashMap::new());
 }
+
+static mut PANIC_RESTORE_COUNTER: u32 = 0;
 
 #[handler]
 pub async fn http(mut req: HttpRequest) -> HttpResponse {
@@ -62,6 +64,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/sql/batch-rollback", get(test_sql_batch_rollback))
             .route("/test/panic", get(test_panic_page))
             .route("/test/panic-restore", get(test_panic_restore))
+            .route("/test/panic-restore/test", get(test_panic_restore_test))
             .route("/test/sleep", get(test_sleep))
             .route("/test/random", get(test_random))
             .route("/test/time", get(test_time))
@@ -83,23 +86,9 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/kv/distributed-lock", get(kv_distributed_lock))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
-            .layer(Extension(Metrics::new()))
-            .layer(Extension(AppState::new())),
+            .layer(Extension(Metrics::new())),
         req
     ).await
-}
-
-#[derive(Clone)]
-struct AppState {
-    mutex_for_panic_restore: Arc<Mutex<()>>,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        Self {
-            mutex_for_panic_restore: Arc::new(Mutex::new(())),
-        }
-    }
 }
 
 async fn home() -> &'static str {
@@ -357,13 +346,17 @@ async fn test_panic_page() -> String {
     panic!("test function panic")
 }
 
-async fn test_panic_restore(Extension(state): Extension<AppState>) -> (StatusCode, &'static str) {
-    let lock = match state.mutex_for_panic_restore.lock() {
-        Ok(_) => (),
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "lock poisoned.\n"),
-    };
+async fn test_panic_restore() -> &'static str {
+    unsafe {
+        PANIC_RESTORE_COUNTER+=1;
+    }
 
-    panic!("test restore after panic: {lock:?}");
+    panic!("test restore after panic");
+}
+
+async fn test_panic_restore_test() -> String {
+    let counter_value = unsafe { PANIC_RESTORE_COUNTER };
+    format!("panic counter: {counter_value}")
 }
 
 async fn test_sleep() -> &'static str {
