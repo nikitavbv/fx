@@ -93,4 +93,8 @@ pub(crate) enum KvSubscriptionResource {
         stream: BoxStream<'static, Vec<u8>>,
         frame: Vec<u8>,
     },
+    NextSerialized {
+        stream: BoxStream<'static, Vec<u8>>,
+        frame_serialized: Vec<u8>,
+    },
 }

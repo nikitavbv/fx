@@ -675,7 +675,7 @@ async fn kv_distributed_lock() {
     assert!((result1 == "ok.\n" && result2 == "already locked.\n") || (result2 == "ok.\n" && result1 == "already locked.\n"));
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn kv_pubsub() {
     let client = init_fx_server().await;
 
@@ -697,8 +697,8 @@ async fn kv_pubsub() {
     let result = result.unwrap();
 
     assert!(result.status().is_success(), "status = {}", result.status().as_u16());
-    assert_eq!("test", result.text().await.unwrap());
-}*/
+    assert_eq!("result: 129", result.text().await.unwrap());
+}
 
 pub struct TestClient {
     client: reqwest::Client,

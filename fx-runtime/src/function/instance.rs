@@ -6,7 +6,7 @@ use {
     slotmap::SlotMap,
     wasmtime::{AsContextMut, AsContext},
     send_wrapper::SendWrapper,
-    fx_types::{capnp, abi_http_capnp},
+    fx_types::{capnp, abi_http_capnp, abi_kv_capnp},
     crate::{
         function::abi::FuturePollResult,
         effects::{
@@ -454,8 +454,27 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::KvGetResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::KvSubscription(v) => {
-                todo!()
+            Resource::KvSubscription(v) => match v {
+                KvSubscriptionResource::Init(_) |
+                KvSubscriptionResource::Stream(_) => panic!("resource is not yet for serialization"),
+                KvSubscriptionResource::NextReady { stream, frame } => {
+                    let frame_serialized = {
+                        let mut message = capnp::message::Builder::new_default();
+                        let serialized_frame = message.init_root::<abi_kv_capnp::kv_subscription_frame::Builder>();
+                        let mut serialized_frame = serialized_frame.init_frame();
+
+                        serialized_frame.set_bytes(&frame);
+
+                        capnp::serialize::write_message_to_words(&message)
+                    };
+                    let serialized_size = frame_serialized.len();
+
+                    (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), serialized_size)
+                },
+                KvSubscriptionResource::NextSerialized { stream, frame_serialized } => {
+                    let serialized_size = frame_serialized.len();
+                    (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), serialized_size)
+                }
             },
         };
         self.resources.reattach(resource_id.into(), resource);
@@ -590,8 +609,16 @@ impl FunctionInstanceState {
                     },
                     std::task::Poll::Ready(Err(err)) => todo!("handle error: {err:?}"),
                 },
-                KvSubscriptionResource::Stream(_) => todo!(),
-                KvSubscriptionResource::NextReady { .. } => todo!(),
+                KvSubscriptionResource::Stream(mut stream) => match stream.poll_next_unpin(&mut cx) {
+                    std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Stream(stream)), std::task::Poll::Pending),
+                    std::task::Poll::Ready(None) => todo!(),
+                    std::task::Poll::Ready(Some(frame)) => (
+                        Resource::KvSubscription(KvSubscriptionResource::NextReady { stream, frame }),
+                        std::task::Poll::Ready(()),
+                    ),
+                },
+                KvSubscriptionResource::NextReady { stream, frame } => (Resource::KvSubscription(KvSubscriptionResource::NextReady { stream, frame }), std::task::Poll::Ready(())),
+                KvSubscriptionResource::NextSerialized { stream, frame_serialized } => (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), std::task::Poll::Ready(())),
             },
         };
 
@@ -616,8 +643,7 @@ impl FunctionInstanceState {
             | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_)
             | Resource::KvSetResult(_)
-            | Resource::KvGetResult(_)
-            | Resource::KvSubscription(_) => panic!("resource of this type does not support reading frames"),
+            | Resource::KvGetResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::RequestBody(v) => match v.0 {
                 FetchRequestBodyInner::Full(_)
                 | FetchRequestBodyInner::Stream(_)
@@ -637,6 +663,15 @@ impl FunctionInstanceState {
                 HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } => (
                     Some(Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResource(SendWrapper::new(RefCell::new(reader.take())))))),
                     frame_serialized
+                ),
+            },
+            Resource::KvSubscription(v) => match v {
+                KvSubscriptionResource::Init(_)
+                | KvSubscriptionResource::Stream(_)
+                | KvSubscriptionResource::NextReady { .. } => panic!("KvSubscription has to be serialized first"),
+                KvSubscriptionResource::NextSerialized { stream, frame_serialized } => (
+                    Some(Resource::KvSubscription(KvSubscriptionResource::Stream(stream))),
+                    frame_serialized,
                 ),
             },
         };
