@@ -694,8 +694,10 @@ async fn kv_pubsub() {
             client.post("/test/kv/pubsub/publish").json(&serde_json::json!({"value": 44})).send().await.unwrap();
         },
     );
+    let result = result.unwrap();
 
-    assert_eq!("test", result.unwrap().text().await.unwrap());
+    assert!(result.status().is_success(), "status = {}", result.status().as_u16());
+    assert_eq!("test", result.text().await.unwrap());
 }*/
 
 pub struct TestClient {

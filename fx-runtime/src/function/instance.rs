@@ -13,6 +13,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
             fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame, poll_function_resource_reader_frame},
+            kv::KvSubscriptionResource,
         },
         tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
@@ -572,8 +573,25 @@ impl FunctionInstanceState {
                 let poll_result = v.poll(&mut cx);
                 (Resource::KvGetResult(v), poll_result)
             },
-            Resource::KvSubscription(mut v) => {
-                todo!()
+            Resource::KvSubscription(v) => match v {
+                KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
+                    std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Init(v)), Poll::Pending),
+                    std::task::Poll::Ready(Ok(v)) => {
+                        let mut stream = v.into_stream().boxed();
+
+                        match stream.poll_next_unpin(&mut cx) {
+                            std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Stream(stream)), std::task::Poll::Pending),
+                            std::task::Poll::Ready(None) => todo!(),
+                            std::task::Poll::Ready(Some(frame)) => (Resource::KvSubscription(KvSubscriptionResource::NextReady {
+                                stream,
+                                frame,
+                            }), std::task::Poll::Ready(())),
+                        }
+                    },
+                    std::task::Poll::Ready(Err(err)) => todo!("handle error: {err:?}"),
+                },
+                KvSubscriptionResource::Stream(_) => todo!(),
+                KvSubscriptionResource::NextReady { .. } => todo!(),
             },
         };
 

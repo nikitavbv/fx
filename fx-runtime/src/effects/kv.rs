@@ -88,4 +88,9 @@ pub(crate) struct KvPublishRequest {
 
 pub(crate) enum KvSubscriptionResource {
     Init(tokio::sync::oneshot::Receiver<flume::Receiver<Vec<u8>>>),
+    Stream(BoxStream<'static, Vec<u8>>),
+    NextReady {
+        stream: BoxStream<'static, Vec<u8>>,
+        frame: Vec<u8>,
+    },
 }

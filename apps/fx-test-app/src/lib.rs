@@ -86,8 +86,8 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/env/simple", get(env_simple))
             .route("/test/kv/simple", get(kv_simple))
             .route("/test/kv/distributed-lock", get(kv_distributed_lock))
-            .route("/test/kv/pubsub/subscribe", post(kv_pubsub_subscribe))
-            .route("/test/kv/pubsub/publish", get(kv_pubsub_publish))
+            .route("/test/kv/pubsub/subscribe", get(kv_pubsub_subscribe))
+            .route("/test/kv/pubsub/publish", post(kv_pubsub_publish))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),

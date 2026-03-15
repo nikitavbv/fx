@@ -13,3 +13,10 @@ struct KvGetResponse {
         value @1 :Data;
     }
 }
+
+struct KvSubscriptionFrame {
+    frame :union {
+        streamEnd @0 :Void;
+        bytes @1 :Data;
+    }
+}

@@ -2,7 +2,7 @@ use {
     std::time::Duration,
     thiserror::Error,
     futures::Stream,
-    fx_types::{abi_kv_capnp, capnp},
+    fx_types::{abi::FuturePollResult, capnp, abi_kv_capnp},
     crate::sys::{
         DeserializeHostResource,
         FutureHostResource,
@@ -12,6 +12,11 @@ use {
         fx_kv_set_nx_px,
         fx_kv_get,
         fx_kv_delex_ifeq,
+        fx_kv_subscribe,
+        fx_kv_publish,
+        fx_future_poll,
+        fx_stream_frame_read,
+        fx_resource_serialize,
     },
 };
 
@@ -96,11 +101,32 @@ impl Kv {
     }
 
     pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
-        todo!()
+        let (channel_ptr, channel_len) = channel.as_key();
+
+        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_subscribe(
+            self.binding.as_ptr() as u64,
+            self.binding.len() as u64,
+            channel_ptr,
+            channel_len,
+        ) });
+
+        KvSubscriptionStream::new(resource_id)
     }
 
     pub async fn publish(&self, channel: impl AsKey, data: impl AsValue) {
-        todo!()
+        let (channel_ptr, channel_len) = channel.as_key();
+        let (data_ptr, data_len) = data.as_value();
+
+        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_publish(
+            self.binding.as_ptr() as u64,
+            self.binding.len() as u64,
+            channel_ptr,
+            channel_len,
+            data_ptr,
+            data_len
+        ) });
+
+        HostUnitFuture::new(resource_id).await
     }
 }
 
@@ -120,12 +146,27 @@ impl Stream for KvSubscriptionStream {
     type Item = Vec<u8>;
 
     fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        todo!()
+        let poll_result = self.resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
+        let poll_result = FuturePollResult::try_from(poll_result).unwrap();
+        if let FuturePollResult::Pending = poll_result {
+            return std::task::Poll::Pending;
+        }
+
+        let frame_length = self.resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
+        let data: Vec<u8> = vec![0u8; frame_length as usize];
+        self.resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
+
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let frame = resource_reader.get_root::<abi_kv_capnp::kv_subscription_frame::Reader>().unwrap();
+        std::task::Poll::Ready(match frame.get_frame().which().unwrap() {
+            abi_kv_capnp::kv_subscription_frame::frame::Which::StreamEnd(_) => None,
+            abi_kv_capnp::kv_subscription_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
+        })
     }
 }
 
 // public api
-trait AsKey {
+pub trait AsKey {
     fn as_key(&self) -> (u64, u64);
 }
 
@@ -141,7 +182,7 @@ impl AsKey for &str {
     }
 }
 
-trait AsValue {
+pub trait AsValue {
     fn as_value(&self) -> (u64, u64);
 }
 
