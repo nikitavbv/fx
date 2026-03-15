@@ -46,6 +46,8 @@ pub(crate) fn run_management_task(
     let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx, cron_tx);
     let metrics = Arc::new(MetricsRegistry::new());
 
+    let introspection_enabled = config.introspection.map(|v| v.enabled).unwrap_or(true);
+
     tokio_runtime.block_on(local_set.run_until(async {
         tokio::join!(
             definitions_monitor.scan_definitions(),
@@ -63,7 +65,9 @@ pub(crate) fn run_management_task(
                 }
             },
             async {
-                run_introspection_server(metrics.clone(), WorkersController::new(workers_tx)).await;
+                if introspection_enabled {
+                    run_introspection_server(metrics.clone(), WorkersController::new(workers_tx)).await;
+                }
             },
         )
     }));

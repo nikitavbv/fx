@@ -17,13 +17,17 @@ use {
             SqlBindingConfig,
             FunctionBindingConfig,
             LimitsConfig,
+            IntrospectionConfig,
         },
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
-    crate::logger::TestLogger,
+    crate::common::{
+        logger::TestLogger,
+        utils::{TestClient, TestServer},
+    },
 };
 
-mod logger;
+mod common;
 
 static LOGGER: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
@@ -740,44 +744,39 @@ async fn test_limits_memory() {
     assert_eq!("function panicked while handling request.\n", result.text().await.unwrap());
 }
 
-pub struct TestClient {
-    client: reqwest::Client,
-    base_url: String,
-}
+#[tokio::test]
+async fn preemption() {
+    let test_port = 8081;
+    let server = FxServer::new(ServerConfig {
+        config_path: Some("/tmp/fx".into()),
+        server: HttpServerConfig {
+            port: ServerPort { value: test_port },
+        },
+        functions_dir: "/tmp/fx/functions".to_owned(),
+        cron_data_path: None,
+        blob: Some(BlobConfig {
+            path: "/tmp/fx/blob".parse().unwrap(),
+        }),
+        logger: None,
+        introspection: Some(IntrospectionConfig {
+            enabled: false,
+        }),
+    }).start();
 
-impl TestClient {
-    fn new(base_url: String) -> Self {
-        Self {
-            client: reqwest::Client::new(),
-            base_url,
-        }
-    }
+    server.deploy_function(
+        FunctionId::new("test-app"),
+        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+            .with_trigger_http(None)
+    ).await;
 
-    pub fn get(&self, path: &str) -> reqwest::RequestBuilder {
-        let url = format!("{}{}", self.base_url, path);
-        self.client.get(&url)
-    }
+    let client = TestClient::new(format!("http://localhost:{}", test_port));
 
-    pub fn post(&self, path: &str) -> reqwest::RequestBuilder {
-        let url = format!("{}{}", self.base_url, path);
-        self.client.post(&url)
-    }
+    let started_at = Instant::now();
 
-    pub fn delete(&self, path: &str) -> reqwest::RequestBuilder {
-        let url = format!("{}{}", self.base_url, path);
-        self.client.delete(&url)
-    }
+    client.get("/test/limits/cpu-preemption").send().await.unwrap();
 
-    pub fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
-        let url = format!("{}{}", self.base_url, path);
-        self.client.request(method, &url)
-    }
-}
-
-struct TestServer {
-    #[allow(dead_code)]
-    server: RunningFxServer,
-    base_url: String,
+    // assert!(false, "total time spent: {:?}", Instant::now() - started_at);
 }
 
 async fn init_fx_server() -> TestClient {
