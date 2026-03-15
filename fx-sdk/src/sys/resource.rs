@@ -279,7 +279,6 @@ pub fn replace_function_resource_with<F: FnOnce(FunctionResource) -> FunctionRes
     })
 }
 
-
 /// returns length of serialized resource
 pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {

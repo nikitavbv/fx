@@ -700,6 +700,28 @@ async fn kv_pubsub() {
     assert_eq!("result: 129", result.text().await.unwrap());
 }
 
+#[tokio::test]
+async fn task_background() {
+    let client = init_fx_server().await;
+
+    // before task is started, kv key does not exist
+    let status = client.get("/test/tasks/background/status").send().await.unwrap();
+    assert!(status.status().as_u16() == 404);
+
+    // start task
+    let task = client.post("/test/tasks/background/start").send().await.unwrap();
+    assert!(task.status().is_success());
+
+    // after task is started, kv key does not exist immediately
+    let status = client.get("/test/tasks/background/status").send().await.unwrap();
+    assert!(status.status().as_u16() == 404);
+
+    // but after some time, it should be present
+    sleep(Duration::from_secs(2)).await;
+    let status = client.get("/test/tasks/background/status").send().await.unwrap();
+    assert!(status.status().is_success());
+}
+
 pub struct TestClient {
     client: reqwest::Client,
     base_url: String,

@@ -13,7 +13,7 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv::{self, KvSetNxPxError}, env},
+        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv::{self, KvSetNxPxError}, env, tasks},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
@@ -88,6 +88,8 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/kv/distributed-lock", get(kv_distributed_lock))
             .route("/test/kv/pubsub/subscribe", get(kv_pubsub_subscribe))
             .route("/test/kv/pubsub/publish", post(kv_pubsub_publish))
+            .route("/test/tasks/background/start", post(kv_tasks_background_start))
+            .route("/test/tasks/background/status", get(kv_tasks_background_status))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -565,6 +567,22 @@ async fn kv_pubsub_publish(Json(req): Json<KvPubsubPublishRequest>) -> &'static 
     kv.publish("test-channel", req.value.to_string().into_bytes()).await;
 
     "ok.\n"
+}
+
+async fn kv_tasks_background_start() -> &'static str {
+    tasks::run_in_background(async {
+        sleep(Duration::from_secs(1)).await;
+        kv::Kv::new("test-namespace").set("background_task_status", "done").await;
+    });
+
+    "ok.\n"
+}
+
+async fn kv_tasks_background_status() -> (StatusCode, &'static str) {
+    match kv::Kv::new("test-namespace").get("background_task_status").await {
+        Some(_) => (StatusCode::OK, "done."),
+        None => (StatusCode::NOT_FOUND, "not done yet.")
+    }
 }
 
 #[derive(Clone)]

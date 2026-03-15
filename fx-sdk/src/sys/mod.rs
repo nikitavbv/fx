@@ -47,7 +47,7 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
         match &mut *future_resource {
             FunctionResource::FunctionResponseFuture(v) => v
                 .poll_unpin(&mut context)
-                .map(|v| FunctionResource::from(v)),
+                .map(|v| Some(FunctionResource::from(v))),
             FunctionResource::HttpBody(v) => {
                 let body = std::mem::replace(&mut v.0, HttpBodyInner::Empty);
 
@@ -84,7 +84,11 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
 
                 v.0 = body;
 
-                poll
+                poll.map(|v| Some(v))
+            },
+            FunctionResource::BackgroundTask(v) => match v.poll_unpin(&mut context) {
+                std::task::Poll::Pending => std::task::Poll::Pending,
+                std::task::Poll::Ready(_) => std::task::Poll::Ready(None),
             },
             _other => panic!("resource is not future"),
         }
@@ -92,7 +96,8 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
 
     (match future_poll_result {
         Poll::Pending => FuturePollResult::Pending,
-        Poll::Ready(resource) => {
+        Poll::Ready(None) => FuturePollResult::Ready,
+        Poll::Ready(Some(resource)) => {
             replace_function_resource(&future_resource_id, resource);
             FuturePollResult::Ready
         }
