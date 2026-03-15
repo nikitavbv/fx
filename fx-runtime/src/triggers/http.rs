@@ -22,6 +22,8 @@ use {
     },
 };
 
+const HTTP_PATH_NAMESPACE_INTERNAL: &'static str = "/_fx/";
+
 pub(crate) struct HttpHandler {
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
@@ -83,6 +85,12 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             };
 
             let (header, body) = req.into_parts();
+
+            if header.uri.path().starts_with(HTTP_PATH_NAMESPACE_INTERNAL) {
+                let mut response = Response::new(HttpBody::for_bytes(Bytes::from("not found.\n".as_bytes())));
+                *response.status_mut() = StatusCode::NOT_FOUND;
+                return Ok(response);
+            }
 
             let function_future = target_function_deployment.borrow_mut().handle_request(FetchRequestHeader::from(header), Some(FetchRequestBody::from(body))).await;
             let response = function_future.await;

@@ -89,6 +89,14 @@ async fn http_body() {
 }
 
 #[tokio::test]
+async fn http_reserved_namespace() {
+    let client = init_fx_server().await;
+    let response = client.get("/_fx/cron").send().await.unwrap();
+    assert_eq!(404, response.status().as_u16());
+    assert_eq!("not found.\n", response.text().await.unwrap());
+}
+
+#[tokio::test]
 async fn sql_simple() {
     let client = init_fx_server().await;
     let response = client.get("/test/sql/simple").send().await.unwrap();
