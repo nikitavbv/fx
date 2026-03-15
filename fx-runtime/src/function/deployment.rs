@@ -37,6 +37,7 @@ pub(crate) struct FunctionDeployment {
 impl FunctionDeployment {
     pub async fn new(
         wasmtime: Rc<wasmtime::Engine>,
+        limit_memory_bytes: Option<usize>,
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
@@ -108,6 +109,7 @@ impl FunctionDeployment {
 
         let template = FunctionTemplate::new(
             wasmtime,
+            limit_memory_bytes,
             local_worker,
             logger_tx,
             sql_tx,
@@ -233,6 +235,7 @@ impl Into<String> for &FunctionId {
 
 struct FunctionTemplate {
     wasmtime: Rc<wasmtime::Engine>,
+    limit_memory_bytes: Option<usize>,
     local_worker: LocalWorkerController,
     logger_tx: flume::Sender<LogMessageEvent>,
     sql_tx: flume::Sender<SqlMessage>,
@@ -250,6 +253,7 @@ struct FunctionTemplate {
 impl FunctionTemplate {
     pub fn new(
         wasmtime: Rc<wasmtime::Engine>,
+        limit_memory_bytes: Option<usize>,
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
@@ -265,6 +269,7 @@ impl FunctionTemplate {
     ) -> Self {
         Self {
             wasmtime,
+            limit_memory_bytes,
             local_worker,
             logger_tx,
             sql_tx,
@@ -283,6 +288,7 @@ impl FunctionTemplate {
     pub async fn instantiate(&self) -> Result<FunctionInstance, FunctionInstanceInitError> {
         FunctionInstance::new(
             &self.wasmtime,
+            self.limit_memory_bytes.clone(),
             self.local_worker.clone(),
             self.logger_tx.clone(),
             self.sql_tx.clone(),

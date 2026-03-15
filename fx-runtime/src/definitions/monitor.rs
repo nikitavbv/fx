@@ -183,6 +183,8 @@ impl DefinitionsMonitor {
         let deployment_id = self.next_deployment_id();
         let module = compiler_response_rx.await.unwrap();
 
+        let limit_memory_bytes = config.limits.as_ref().and_then(|v| v.memory_bytes);
+
         let http_listeners = config.triggers.iter()
             .flat_map(|v| v.http.iter())
             .flat_map(|v| v.iter())
@@ -248,6 +250,9 @@ impl DefinitionsMonitor {
                 function_id: function_id.clone(),
                 deployment_id: deployment_id.clone(),
                 module: module.clone(),
+
+                limit_memory_bytes: limit_memory_bytes.clone(),
+
                 http_listeners: http_listeners.clone(),
                 env: env.clone(),
                 bindings_sql: bindings_sql.clone(),

@@ -84,12 +84,10 @@ pub struct IntrospectionConfig {
 pub struct FunctionConfig {
     #[serde(skip_deserializing)]
     pub config_path: Option<PathBuf>,
-
-    pub code: Option<FunctionCodeConfig>,
-
-    pub env: Option<Vec<EnvVariableConfig>>,
     pub logger: Option<LoggerConfig>,
-
+    pub limits: Option<LimitsConfig>,
+    pub code: Option<FunctionCodeConfig>,
+    pub env: Option<Vec<EnvVariableConfig>>,
     pub triggers: Option<FunctionTriggersConfig>,
     pub bindings: Option<FunctionBindingsConfig>,
 }
@@ -98,12 +96,18 @@ impl FunctionConfig {
     pub fn new(config_path: PathBuf) -> Self {
         Self {
             config_path: Some(config_path),
+            logger: None,
+            limits: None,
             code: None,
             env: None,
-            logger: None,
             triggers: None,
             bindings: None,
         }
+    }
+
+    pub fn with_limits(mut self, limits: LimitsConfig) -> Self {
+        self.limits = Some(limits);
+        self
     }
 
     pub fn with_code_inline(mut self, code: Vec<u8>) -> Self {
@@ -192,6 +196,24 @@ impl FunctionConfig {
 
     pub fn with_logger(mut self, logger: LoggerConfig) -> Self {
         self.logger = Some(logger);
+        self
+    }
+}
+
+#[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
+pub struct LimitsConfig {
+    pub memory_bytes: Option<usize>,
+}
+
+impl LimitsConfig {
+    pub fn new() -> Self {
+        Self {
+            memory_bytes: None,
+        }
+    }
+
+    pub fn with_memory_bytes(mut self, memory_bytes: usize) -> Self {
+        self.memory_bytes = Some(memory_bytes);
         self
     }
 }

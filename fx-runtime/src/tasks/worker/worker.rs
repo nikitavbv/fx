@@ -125,6 +125,7 @@ async fn worker_handle_message(
             function_id,
             deployment_id,
             module,
+            limit_memory_bytes,
             http_listeners,
             env,
             bindings_sql,
@@ -134,6 +135,7 @@ async fn worker_handle_message(
         } => {
             let deployment = FunctionDeployment::new(
                 wasmtime,
+                limit_memory_bytes,
                 local_controller.clone(),
                 worker.logger_tx.clone(),
                 worker.sql_tx.clone(),

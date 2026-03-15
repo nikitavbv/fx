@@ -22,6 +22,8 @@ pub(crate) enum WorkerMessage {
         deployment_id: FunctionDeploymentId,
         module: wasmtime::Module,
 
+        limit_memory_bytes: Option<usize>,
+
         http_listeners: Vec<FunctionHttpListener>,
 
         env: HashMap<String, String>,

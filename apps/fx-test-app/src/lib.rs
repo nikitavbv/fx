@@ -90,6 +90,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/kv/pubsub/publish", post(kv_pubsub_publish))
             .route("/test/tasks/background/start", post(kv_tasks_background_start))
             .route("/test/tasks/background/status", get(kv_tasks_background_status))
+            .route("/test/limits/memory", get(test_limits_memory))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -583,6 +584,12 @@ async fn kv_tasks_background_status() -> (StatusCode, &'static str) {
         Some(_) => (StatusCode::OK, "done."),
         None => (StatusCode::NOT_FOUND, "not done yet.")
     }
+}
+
+async fn test_limits_memory() -> String {
+    let mut data: Vec<u8> = Vec::new();
+    data.resize(1 * 1024 * 1024 * 1024, 0xA5); // try to make vec very large to trigger memory limits, 1GB in this case (remember that wasm32 has 4GB size limit)
+    format!("large allocation worked (unexpectedly): {:?}", data.len())
 }
 
 #[derive(Clone)]

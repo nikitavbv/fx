@@ -49,6 +49,7 @@ pub(crate) struct FunctionInstance {
 impl FunctionInstance {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        limit_memory_bytes: Option<usize>,
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
@@ -63,6 +64,7 @@ impl FunctionInstance {
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Self, FunctionInstanceInitError> {
         let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(
+            limit_memory_bytes,
             local_worker,
             logger_tx,
             sql_tx,
@@ -75,6 +77,7 @@ impl FunctionInstance {
             bindings_kv,
             bindings_functions
         ));
+        store.limiter(|state| &mut state.limits);
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -124,6 +127,7 @@ impl FunctionInstance {
         drop(store);
 
         let future_poll_result = future_poll_result.map_err(|err| {
+            // TODO: forward backtraces to management thread (or logger thread)
             let trap = err.downcast::<wasmtime::Trap>().unwrap();
             match trap {
                 wasmtime::Trap::UnreachableCodeReached => FunctionFuturePollError::FunctionPanicked,
@@ -230,6 +234,8 @@ pub(crate) enum FunctionInstanceInitError {
 }
 
 pub(crate) struct FunctionInstanceState {
+    limits: wasmtime::StoreLimits,
+
     waker: Option<std::task::Waker>,
     pub(crate) local_worker: LocalWorkerController,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
@@ -252,6 +258,7 @@ pub(crate) struct FunctionInstanceState {
 
 impl FunctionInstanceState {
     pub fn new(
+        limit_memory_bytes: Option<usize>,
         local_worker: LocalWorkerController,
         logger_tx: flume::Sender<LogMessageEvent>,
         sql_tx: flume::Sender<SqlMessage>,
@@ -264,7 +271,16 @@ impl FunctionInstanceState {
         bindings_kv: HashMap<String, KvBindingConfig>,
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Self {
+        let limits = wasmtime::StoreLimitsBuilder::new();
+
+        let limits = match limit_memory_bytes {
+            Some(limit_bytes) => limits.memory_size(limit_bytes).memories(1),
+            None => limits,
+        };
+
         Self {
+            limits: limits.build(),
+
             waker: None,
             local_worker,
             logger_tx,

@@ -16,6 +16,7 @@ use {
             BlobConfig,
             SqlBindingConfig,
             FunctionBindingConfig,
+            LimitsConfig,
         },
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
@@ -722,6 +723,15 @@ async fn task_background() {
     assert!(status.status().is_success());
 }
 
+#[tokio::test]
+async fn test_limits_memory() {
+    let client = init_fx_server().await;
+
+    let result = client.get("/test/limits/memory").header("Host", "limit-memory.fx.local").send().await.unwrap();
+    assert!(result.status().is_server_error());
+    assert_eq!("function panicked while handling request.\n", result.text().await.unwrap());
+}
+
 pub struct TestClient {
     client: reqwest::Client,
     base_url: String,
@@ -856,6 +866,14 @@ async fn init_fx_server() -> TestClient {
                         FunctionId::new("test-app-rpc"),
                         FunctionConfig::new("/tmp/fx/functions/test-app-rpc.fx.yaml".into())
                             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app_rpc.wasm").unwrap())
+                    ).await;
+
+                    server.deploy_function(
+                        FunctionId::new("test-app-limit-memory"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_trigger_http(Some("limit-memory.fx.local".to_owned()))
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+                            .with_limits(LimitsConfig::new().with_memory_bytes(128 * 1024 * 1024))
                     ).await;
 
                     TestServer {
