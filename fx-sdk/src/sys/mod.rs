@@ -122,6 +122,7 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
                 HttpBodyInner::Stream(_) => panic!("stream has to be read first"),
                 HttpBodyInner::FrameSerialized(ref v) => v.as_ptr(),
             },
+            FunctionResource::BackgroundTask(_) => panic!("resource of this type cannot be serialized"),
         }
     }) as i64
 }
@@ -136,6 +137,7 @@ pub extern "C" fn _fx_stream_advance(resource_id: u64) {
     replace_function_resource_with(FunctionResourceId::new(resource_id), |v| match v {
         FunctionResource::FunctionResponse(_) => panic!("not a stream"),
         FunctionResource::FunctionResponseFuture(_) => panic!("not a stream"),
+        FunctionResource::BackgroundTask(_) => panic!("not a stream"),
         FunctionResource::HttpBody(v) => match v.0 {
             HttpBodyInner::Empty
             | HttpBodyInner::HostResource(_) => todo!(),
@@ -177,6 +179,7 @@ unsafe extern "C" {
     pub(crate) fn fx_kv_delex_ifeq(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, ifeq_ptr: u64, ifeq_len: u64) -> u64;
     pub(crate) fn fx_kv_subscribe(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64;
     pub(crate) fn fx_kv_publish(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64;
+    pub(crate) fn fx_tasks_background_spawn(function_resource_id: u64);
 }
 
 #[derive(Debug)]

@@ -53,6 +53,7 @@ pub enum FunctionResource {
     FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
     HttpBody(HttpBody),
+    BackgroundTask(LocalBoxFuture<'static, ()>),
 }
 
 impl From<FunctionResponse> for FunctionResource {
@@ -284,7 +285,8 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {
         let resource = resources.detach(resource_id.into()).unwrap();
         let (resource, serialized_size) = match resource {
-            FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
+            FunctionResource::FunctionResponseFuture(_) |
+            FunctionResource::BackgroundTask(_) => panic!("this type of resource cannot be serialized"),
             FunctionResource::FunctionResponse(v) => {
                 let serialized = v.map_to_serialized();
                 let serialized_size = serialized.serialized_size();

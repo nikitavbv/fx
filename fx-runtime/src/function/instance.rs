@@ -237,7 +237,10 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) kv_tx: flume::Sender<KvMessage>,
     pub(crate) blob_tx: flume::Sender<BlobMessage>,
     pub(crate) function_id: FunctionId,
+
     resources: SlotMap<slotmap::DefaultKey, Resource>,
+    pub(crate) tasks_background: Vec<FunctionResourceId>,
+
     pub(crate) env: HashMap<String, String>,
     pub(crate) bindings_sql: HashMap<String, SqlBindingConfig>,
     pub(crate) bindings_blob: HashMap<String, BlobBindingConfig>,
@@ -270,7 +273,10 @@ impl FunctionInstanceState {
             blob_tx,
             function_id,
             env,
+
             resources: SlotMap::new(),
+            tasks_background: Vec::new(),
+
             bindings_sql,
             bindings_blob,
             bindings_kv,

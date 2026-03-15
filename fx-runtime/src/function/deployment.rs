@@ -7,7 +7,11 @@ use {
         tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, FetchRequestBody},
-        resources::{Resource, serialize::{SerializedFunctionResource, SerializableResource}, future::FunctionFuture},
+        resources::{
+            Resource,
+            serialize::{SerializedFunctionResource, SerializableResource},
+            future::{FunctionFuture, FunctionUnitFuture},
+        },
     },
     super::instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
 };
@@ -74,6 +78,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_kv_delex_ifeq", super::abi::fx_kv_delex_ifeq_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_subscribe", super::abi::fx_kv_subscribe_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_publish", super::abi::fx_kv_publish_handler).unwrap();
+        linker.func_wrap("fx", "fx_tasks_background_spawn", super::abi::fx_tasks_background_spawn_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -151,7 +156,17 @@ impl FunctionDeployment {
                 data.resource_add(Resource::FetchRequest(SerializableResource::Raw(header)))
             };
 
-            FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await
+            let result = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
+
+            {
+                let mut function_state = instance.store.lock().await;
+                let function_state = function_state.data_mut();
+                for background_task in function_state.tasks_background.drain(..) {
+                    tokio::task::spawn_local(FunctionUnitFuture::new(instance.clone(), background_task));
+                }
+            }
+
+            result
                 .map(|response_resource| SerializedFunctionResource::new(instance, response_resource))
                 .map_err(|err| match err {
                     FunctionFutureError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,

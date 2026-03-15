@@ -10,7 +10,7 @@ use {
     rand::TryRngCore,
     crate::{
         function::instance::FunctionInstanceState,
-        resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource},
+        resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource, FunctionResourceId},
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
@@ -848,4 +848,9 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
     caller.data_mut().resource_add(Resource::UnitFuture(async move {
         result_rx.await.unwrap();
     }.boxed())).as_u64()
+}
+
+pub(crate) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {
+    let resource = FunctionResourceId::new(function_resource_id);
+    caller.data_mut().tasks_background.push(resource);
 }
