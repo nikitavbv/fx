@@ -132,6 +132,21 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
                 },
             }
         },
+        FunctionResourceReader::FramePollFuture { instance, resource_id, mut future } => match future.poll_unpin(cx) {
+            Poll::Pending => return (FunctionResourceReader::FramePollFuture {
+                instance,
+                resource_id,
+                future,
+            }, Poll::Pending),
+            Poll::Ready(Poll::Pending) => return (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Pending),
+            Poll::Ready(Poll::Ready(_)) => FunctionResourceReader::FrameReadFuture {
+                instance: instance.clone(),
+                resource_id: resource_id.clone(),
+                future: async move {
+                    instance.stream_frame_read(&resource_id).await
+                }.boxed_local(),
+            },
+        },
         other => other,
     };
 

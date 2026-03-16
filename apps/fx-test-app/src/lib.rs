@@ -6,6 +6,8 @@ use {
     futures::stream::{self, Stream, StreamExt},
     serde::Deserialize,
     stream_reduce::Reduce,
+    sha2::{Sha256, Digest},
+    base64::prelude::*,
     fx_sdk::{
         self as fx,
         handler,
@@ -91,6 +93,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/tasks/background/start", post(kv_tasks_background_start))
             .route("/test/tasks/background/status", get(kv_tasks_background_status))
             .route("/test/limits/memory", get(test_limits_memory))
+            .route("/test/limits/cpu-preemption", get(test_cpu_preemption))
             .route("/_fx/cron", get(handle_cron))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
@@ -590,6 +593,19 @@ async fn test_limits_memory() -> String {
     let mut data: Vec<u8> = Vec::new();
     data.resize(1 * 1024 * 1024 * 1024, 0xA5); // try to make vec very large to trigger memory limits, 1GB in this case (remember that wasm32 has 4GB size limit)
     format!("large allocation worked (unexpectedly): {:?}", data.len())
+}
+
+async fn test_cpu_preemption() -> String {
+    let mut data = fx::random(1024);
+
+    // simulate very CPU heavy request (takes around 2s):
+    for _ in 0..10_000_000 {
+        let mut hasher = Sha256::new();
+        hasher.update(&data);
+        data = hasher.finalize().to_vec();
+    }
+
+    format!("result: {}", BASE64_STANDARD.encode(data))
 }
 
 #[derive(Clone)]

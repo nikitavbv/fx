@@ -16,4 +16,5 @@ base64 = "0.22.1"
 futures = "0.3"
 serde = "1.0.228"
 stream-reduce = "0.1.0"
+sha2 = "0.10.9"
 fx-sdk = { path = "../../fx-sdk" }

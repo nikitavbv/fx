@@ -35,6 +35,7 @@ impl FxServer {
         let wasmtime = wasmtime::Engine::new(
             wasmtime::Config::new()
                 .async_support(true)
+                .epoch_interruption(true)
         ).unwrap();
 
         let cpu_info = match gdt_cpus::cpu_info() {
@@ -45,8 +46,10 @@ impl FxServer {
             }
         };
 
-        let worker_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
-        let sql_threads = 4.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+        let target_workers = self.config.workers.unwrap_or(4);
+
+        let worker_threads = target_workers.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+        let sql_threads = target_workers.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
 
         let (workers_tx, workers_rx) = (0..worker_threads)
             .map(|_| flume::unbounded::<WorkerMessage>())
@@ -59,6 +62,22 @@ impl FxServer {
         let (cron_tx, cron_rx) = flume::unbounded();
         let (kv_tx, kv_rx) = flume::unbounded();
         let (blob_tx, blob_rx) = flume::unbounded();
+
+        let timer_thread_handle = {
+            let wasmtime = wasmtime.weak();
+
+            std::thread::spawn(move || {
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    let wasmtime = match wasmtime.upgrade() {
+                        Some(v) => v,
+                        None => break,
+                    };
+
+                    wasmtime.increment_epoch();
+                }
+            })
+        };
 
         let management_thread_handle = {
             let config = self.config.clone();
@@ -212,6 +231,7 @@ impl FxServer {
             cron_thread_handle,
             kv_thread_handle,
             blob_thread_handle,
+            timer_thread_handle,
         }
     }
 }
@@ -228,6 +248,7 @@ pub struct RunningFxServer {
     cron_thread_handle: JoinHandle<()>,
     kv_thread_handle: JoinHandle<()>,
     blob_thread_handle: JoinHandle<()>,
+    timer_thread_handle: JoinHandle<()>,
 }
 
 impl RunningFxServer {
@@ -253,5 +274,6 @@ impl RunningFxServer {
         self.compiler_thread_handle.join().unwrap();
         self.logger_thread_handle.join().unwrap();
         self.management_thread_handle.join().unwrap();
+        self.timer_thread_handle.join().unwrap();
     }
 }

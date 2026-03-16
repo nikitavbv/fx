@@ -29,6 +29,8 @@ use {
     super::FunctionId,
 };
 
+const SCHEDULING_YIELD_INTERVALS: u64 = 10; // yield every 10ms
+
 pub(crate) struct FunctionInstance {
     // lifecycle flags:
     pub(crate) has_panicked: RefCell<bool>,
@@ -78,6 +80,13 @@ impl FunctionInstance {
             bindings_functions
         ));
         store.limiter(|state| &mut state.limits);
+        store.epoch_deadline_callback(|_store_ctx| {
+            Ok(wasmtime::UpdateDeadline::YieldCustom(SCHEDULING_YIELD_INTERVALS, async {
+                tokio::time::sleep(std::time::Duration::ZERO).await;
+                tokio::task::yield_now().await;
+            }.boxed()))
+        });
+
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
@@ -211,7 +220,7 @@ impl FunctionInstance {
                     HttpBodyInner::FrameSerialized(_) => panic!("cannot read frame that was serialized to write to function"),
                 },
                 Resource::RequestBody(_) => todo!(),
-                Resource::KvSubscription(v) => todo!(),
+                Resource::KvSubscription(_) => todo!(),
             },
         })
     }
@@ -222,8 +231,9 @@ impl FunctionInstance {
     }
 
     pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
-        let store = self.store.lock();
-        FunctionResourceId::new(self.fn_handler.call_async(store.await.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
+        let mut store = self.store.lock().await;
+        store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
+        FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
     }
 }
 

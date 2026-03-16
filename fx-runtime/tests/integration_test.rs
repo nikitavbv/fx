@@ -747,11 +747,14 @@ async fn test_limits_memory() {
 #[tokio::test]
 async fn preemption() {
     let test_port = 8081;
+
+    // using separate server instance to avoid affecting other tests
     let server = FxServer::new(ServerConfig {
         config_path: Some("/tmp/fx".into()),
         server: HttpServerConfig {
             port: ServerPort { value: test_port },
         },
+        workers: Some(1),
         functions_dir: "/tmp/fx/functions".to_owned(),
         cron_data_path: None,
         blob: Some(BlobConfig {
@@ -770,13 +773,53 @@ async fn preemption() {
             .with_trigger_http(None)
     ).await;
 
+    server.deploy_function(
+        FunctionId::new("other-app"),
+        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+            .with_trigger_http(Some("other-app.fx.local".to_owned()))
+    ).await;
+    server.deploy_function(
+        FunctionId::new("other-app2"),
+        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
+            .with_trigger_http(Some("other-app2.fx.local".to_owned()))
+    ).await;
+
     let client = TestClient::new(format!("http://localhost:{}", test_port));
 
-    let started_at = Instant::now();
+    async fn make_slow_request(client: &TestClient) -> Duration {
+        let started_at = Instant::now();
+        let result = client.get("/test/limits/cpu-preemption").send().await.unwrap();
+        assert!(result.status().is_success());
+        assert!((Instant::now() - started_at).as_millis() > 1000, "slow request should be slow enough to test cpu preemption");
+        Instant::now() - started_at
+    }
 
-    client.get("/test/limits/cpu-preemption").send().await.unwrap();
+    async fn make_fast_request(client: &TestClient) -> Duration {
+        sleep(Duration::from_millis(100)).await;
+        let started_at = Instant::now();
+        let result = client.get("/").header("Host", "other-app.fx.local").send().await.unwrap();
+        assert!(result.status().is_success());
+        Instant::now() - started_at
+    }
 
-    // assert!(false, "total time spent: {:?}", Instant::now() - started_at);
+    let (slow1, slow2, fast1, fast2, fast3) = join!(
+        make_slow_request(&client),
+        make_slow_request(&client),
+        make_fast_request(&client),
+        make_fast_request(&client),
+        make_fast_request(&client),
+    );
+
+    // verify that slow requests are in fact slow
+    assert!(slow1.as_millis() >= 1000);
+    assert!(slow2.as_millis() >= 1000);
+
+    // verify that fast requests are consistently fast even though runtime is busy with slow requests
+    assert!(fast1.as_millis() <= 25, "fast request1 took {} ms", fast1.as_millis());
+    assert!(fast2.as_millis() <= 25, "fast request2 took {} ms", fast2.as_millis());
+    assert!(fast3.as_millis() <= 25, "fast request3 took {} ms", fast3.as_millis());
 }
 
 async fn init_fx_server() -> TestClient {
@@ -796,6 +839,7 @@ async fn init_fx_server() -> TestClient {
                         server: HttpServerConfig {
                             port: ServerPort { value: test_port },
                         },
+                        workers: None,
                         functions_dir: "/tmp/fx/functions".to_owned(),
                         cron_data_path: None,
                         blob: Some(BlobConfig {

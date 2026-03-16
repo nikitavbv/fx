@@ -13,6 +13,7 @@ pub struct ServerConfig {
 
     #[serde(default)]
     pub server: HttpServerConfig,
+    pub workers: Option<usize>,
 
     pub functions_dir: String,
     pub cron_data_path: Option<String>,
