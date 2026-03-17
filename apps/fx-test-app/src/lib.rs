@@ -1,7 +1,7 @@
 use {
-    std::{time::Duration, collections::HashMap, sync::{Arc, Mutex}, convert::Infallible},
+    std::{time::Duration, collections::HashMap, sync::Mutex, convert::Infallible},
     tracing::info,
-    axum::{Router, routing::{get, post}, Extension, response::{sse::{Sse, Event}, IntoResponse}, extract::Json},
+    axum::{Router, routing::{get, post}, Extension, response::sse::{Sse, Event}, extract::Json},
     lazy_static::lazy_static,
     futures::stream::{self, Stream, StreamExt},
     serde::Deserialize,

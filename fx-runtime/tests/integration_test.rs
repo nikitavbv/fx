@@ -804,6 +804,8 @@ async fn preemption() {
         Instant::now() - started_at
     }
 
+    let normal_fast = make_fast_request(&client).await;
+
     let (slow1, slow2, fast1, fast2, fast3) = join!(
         make_slow_request(&client),
         make_slow_request(&client),
@@ -817,9 +819,9 @@ async fn preemption() {
     assert!(slow2.as_millis() >= 1000);
 
     // verify that fast requests are consistently fast even though runtime is busy with slow requests
-    assert!(fast1.as_millis() <= 25, "fast request1 took {} ms", fast1.as_millis());
-    assert!(fast2.as_millis() <= 25, "fast request2 took {} ms", fast2.as_millis());
-    assert!(fast3.as_millis() <= 25, "fast request3 took {} ms", fast3.as_millis());
+    assert!(fast1.as_millis() <= 25, "fast request1 took {} ms, while normal is {}ms", fast1.as_millis(), normal_fast.as_millis());
+    assert!(fast2.as_millis() <= 25, "fast request2 took {} ms, while normal is {}ms", fast2.as_millis(), normal_fast.as_millis());
+    assert!(fast3.as_millis() <= 25, "fast request3 took {} ms, while normal is {}ms", fast3.as_millis(), normal_fast.as_millis());
 }
 
 async fn init_fx_server() -> TestClient {

@@ -15,6 +15,7 @@ pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, work
         .route("/", get(introspection_home))
         .route("/metrics", get(introspection_metrics))
         .route("/api/functions/{function_id}", delete(management_api_function_remove))
+        .route("/introspection", get(introspection))
         .layer(Extension(metrics))
         .layer(Extension(Arc::new(workers_controller)));
 
