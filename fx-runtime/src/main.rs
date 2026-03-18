@@ -4,34 +4,9 @@
 #![warn(clippy::panic)]
 
 use {
-    std::{
-        io::Cursor,
-        path::{PathBuf, Path},
-        collections::HashMap,
-        net::SocketAddr,
-        convert::Infallible,
-        pin::Pin,
-        rc::Rc,
-        cell::RefCell,
-        task::Poll,
-        thread::JoinHandle,
-        fmt::Debug,
-    },
-    tracing::{Level, info, error, warn},
+    tracing::{Level, info, warn},
     tracing_subscriber::FmtSubscriber,
-    tokio::{fs, sync::oneshot},
-    clap::{Parser, Subcommand, ValueEnum, builder::PossibleValue},
-    ::futures::{FutureExt, StreamExt, future::join_all, future::LocalBoxFuture},
-    hyper::{Response, body::Bytes, server::conn::http1, StatusCode},
-    hyper_util::rt::{TokioIo, TokioTimer},
-    http_body_util::{Full, BodyStream},
-    walkdir::WalkDir,
-    thiserror::Error,
-    notify::Watcher,
-    wasmtime::{AsContext, AsContextMut},
-    futures_intrusive::sync::LocalMutex,
-    slotmap::{SlotMap, Key as SlotMapKey},
-    fx_types::{capnp, abi::FuturePollResult},
+    clap::{Parser, Subcommand},
     fx_runtime::{FxServer, config::ServerConfig},
 };
 
