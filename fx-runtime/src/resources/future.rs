@@ -1,6 +1,6 @@
 use {
     std::{task::Poll, rc::Rc, pin::Pin},
-    futures::{future::{BoxFuture, LocalBoxFuture}, FutureExt},
+    futures::{future::LocalBoxFuture, FutureExt},
     send_wrapper::SendWrapper,
     crate::{
         function::{instance::{FunctionFuturePollError, FunctionInstance}, deployment::FunctionFutureError},

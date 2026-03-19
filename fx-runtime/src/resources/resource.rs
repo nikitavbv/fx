@@ -1,10 +1,10 @@
 use {
     std::{cell::Cell, rc::Rc},
-    futures::{future::BoxFuture, stream::BoxStream},
+    futures::future::BoxFuture,
     slotmap::Key,
     crate::{
-        function::{instance::FunctionInstance, abi::{capnp, abi_function_resources_capnp}},
-        triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse, FetchRequestHeader, FetchRequestBody, HttpBody},
+        function::instance::FunctionInstance,
+        triggers::http::{FetchRequestHeader, FetchRequestBody, HttpBody},
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
             blob::BlobGetResponse,
@@ -14,7 +14,7 @@ use {
     },
     super::{
         future::FutureResource,
-        serialize::{SerializedFunctionResource, SerializableResource},
+        serialize::SerializableResource,
     },
 };
 

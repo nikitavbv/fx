@@ -8,7 +8,6 @@ use {
         },
         triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
         resources::{resource::OwnedFunctionResourceId, FunctionResourceId},
-        definitions::config::ServerConfig,
     },
 };
 
