@@ -59,3 +59,10 @@ struct HttpBodyFrame {
         bytes @1 :Data;
     }
 }
+
+struct FunctionResponse {
+    status @0 :UInt16;
+    headers @2 :List(HttpHeader);
+
+    bodyResource @1 :UInt64;
+}
