@@ -3,7 +3,6 @@ pub use capnp;
 pub mod abi;
 
 capnp::generated_code!(pub mod abi_blob_capnp);
-capnp::generated_code!(pub mod abi_function_resources_capnp);
 capnp::generated_code!(pub mod abi_http_capnp);
 capnp::generated_code!(pub mod abi_kv_capnp);
 capnp::generated_code!(pub mod abi_log_capnp);

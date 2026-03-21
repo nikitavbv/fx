@@ -1,4 +1,4 @@
-pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, abi_metrics_capnp, abi_blob_capnp, abi_function_resources_capnp, abi::FuturePollResult};
+pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, abi_metrics_capnp, abi_blob_capnp, abi::FuturePollResult};
 
 use {
     std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr},

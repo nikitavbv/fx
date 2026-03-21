@@ -3,7 +3,7 @@ use {
     hyper::body::Bytes,
     crate::{
         function::{
-            abi::{capnp, abi_http_capnp, abi_function_resources_capnp},
+            abi::{capnp, abi_http_capnp},
             instance::FunctionInstance,
         },
         triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
@@ -96,7 +96,7 @@ pub(crate) trait DeserializeFunctionResource {
 impl DeserializeFunctionResource for FunctionResponse {
     fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
-        let response = message_reader.get_root::<abi_function_resources_capnp::function_response::Reader>().unwrap();
+        let response = message_reader.get_root::<abi_http_capnp::function_response::Reader>().unwrap();
 
         let mut headers = ::http::HeaderMap::new();
         for header in response.get_headers().unwrap() {

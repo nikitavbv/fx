@@ -3,7 +3,7 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     lazy_static,
-    fx_types::{capnp, abi::FuturePollResult, abi_function_resources_capnp, abi_http_capnp},
+    fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
         sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
@@ -90,7 +90,7 @@ pub(crate) trait SerializeResource {
 impl SerializeResource for FunctionResponse {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
-        let mut resource = message.init_root::<abi_function_resources_capnp::function_response::Builder>();
+        let mut resource = message.init_root::<abi_http_capnp::function_response::Builder>();
         match self.0 {
             FunctionResponseInner::HttpResponse(http) => {
                 resource.set_status(http.status.as_u16());
