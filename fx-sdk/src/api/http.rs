@@ -100,13 +100,13 @@ impl HttpRequest {
         &self.request_data().headers
     }
 
-    pub fn with_body(mut self, body: impl IntoHttpRequestBody) -> Self {
+    pub fn with_body(mut self, body: impl IntoHttpBody) -> Self {
         self.request_data_mut().body = Some(body.into_request_body().0);
         self
     }
 
-    pub fn body(&mut self) -> Option<HttpRequestBody> {
-        self.request_data_mut().read_body().map(|v| HttpRequestBody(v))
+    pub fn body(&mut self) -> Option<HttpBody> {
+        self.request_data_mut().read_body().map(|v| HttpBody(v))
     }
 
     fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
@@ -122,7 +122,7 @@ pub(crate) struct HttpRequestData {
     method: Method,
     url: Uri,
     headers: HeaderMap,
-    body: Option<HttpRequestBodyInner>,
+    body: Option<HttpBodyInner>,
 }
 
 pub struct HttpRequestBody(HttpRequestBodyInner);
@@ -202,7 +202,7 @@ impl HttpRequestData {
         }
     }
 
-    fn read_body(&mut self) -> Option<HttpRequestBodyInner> {
+    fn read_body(&mut self) -> Option<HttpBodyInner> {
         std::mem::replace(&mut self.body, None)
     }
 }
@@ -233,8 +233,8 @@ impl DeserializeHostResource for HttpRequestData {
                 .collect(),
             body: match request.get_body().unwrap().get_body().which().unwrap() {
                 abi_http_capnp::http_request_body::body::Which::Empty(_) => None,
-                abi_http_capnp::http_request_body::body::Which::Bytes(v) => Some(HttpRequestBodyInner::Bytes(v.unwrap().to_vec())),
-                abi_http_capnp::http_request_body::body::Which::HostResource(v) => Some(HttpRequestBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
+                abi_http_capnp::http_request_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
+                abi_http_capnp::http_request_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
             },
         }
     }
@@ -455,6 +455,16 @@ impl DeserializeHostResource for HttpResponse {
 
 #[derive(Debug, Error)]
 pub enum FetchError {}
+
+pub trait IntoHttpBody {
+    fn into_http_body(self) -> HttpBody;
+}
+
+impl IntoHttpBody for Vec<u8> {
+    fn into_http_body(self) -> HttpBody {
+        HttpBody(HttpBodyInner::Bytes(self))
+    }
+}
 
 pub trait IntoHttpRequestBody {
     fn into_request_body(self) -> HttpRequestBody;
