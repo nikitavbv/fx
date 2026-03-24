@@ -101,7 +101,7 @@ impl HttpRequest {
     }
 
     pub fn with_body(mut self, body: impl IntoHttpBody) -> Self {
-        self.request_data_mut().body = Some(body.into_request_body().0);
+        self.request_data_mut().body = Some(body.into_http_body().0);
         self
     }
 
@@ -315,6 +315,16 @@ impl HttpBody {
     pub fn host_resource(resource_id: OwnedResourceId) -> Self {
         Self(HttpBodyInner::HostResource(resource_id))
     }
+
+    pub fn read_all(self) -> Option<Vec<u8>> {
+        match self.0 {
+            HttpBodyInner::Empty => None,
+            HttpBodyInner::Bytes(v) => Some(v),
+            HttpBodyInner::HostResource(_) => todo!("host resource reading into bytes vec"),
+            HttpBodyInner::Stream(_) => todo!("stream reading into bytes vec"),
+            HttpBodyInner::PartiallyReadStream { .. } | HttpBodyInner::FrameSerialized(_) | HttpBodyInner::BytesSerialized(_) => panic!("resource of this type cannot be read"),
+        }
+    }
 }
 
 impl Stream for HttpBody {
@@ -411,9 +421,9 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
         let mut request_body = fetch.init_body().init_body();
         match request.body() {
             Some(body) => match body.0 {
-                HttpRequestBodyInner::Empty => request_body.set_empty(()),
-                HttpRequestBodyInner::Bytes(v) => request_body.set_bytes(&v),
-                HttpRequestBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
+                HttpBodyInner::Empty => request_body.set_empty(()),
+                HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
+                HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
             },
             None => request_body.set_empty(()),
         }
