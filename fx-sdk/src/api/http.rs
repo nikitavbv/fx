@@ -125,72 +125,8 @@ pub(crate) struct HttpRequestData {
     body: Option<HttpBodyInner>,
 }
 
-pub struct HttpRequestBody(HttpRequestBodyInner);
-
-impl HttpRequestBody {
-    fn read_all(self) -> Option<Vec<u8>> {
-        match self.0 {
-            HttpRequestBodyInner::Empty => None,
-            HttpRequestBodyInner::Bytes(v) => Some(v),
-            HttpRequestBodyInner::HostResource(v) => todo!("host resource reading into bytes vec"),
-        }
-    }
-}
-
-impl Default for HttpRequestBody {
-    fn default() -> Self {
-        Self(HttpRequestBodyInner::Empty)
-    }
-}
-
-impl http_body::Body for HttpRequestBody {
-    type Data = bytes::Bytes;
-    type Error = ReadBodyError;
-
-    fn poll_frame(
-        mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let body = std::mem::replace(&mut self.0, HttpRequestBodyInner::Empty);
-        let (new_body, poll) = match body {
-            HttpRequestBodyInner::Empty => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(None)),
-            HttpRequestBodyInner::Bytes(v) => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes::Bytes::from(v)))))),
-            HttpRequestBodyInner::HostResource(resource_id) => {
-                let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
-                let poll_result = FuturePollResult::try_from(poll_result).unwrap();
-                match poll_result {
-                    FuturePollResult::Pending => (HttpRequestBodyInner::HostResource(resource_id), std::task::Poll::Pending),
-                    FuturePollResult::Ready => {
-                        let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
-                        let data: Vec<u8> = vec![0u8; resource_length as usize];
-                        resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
-
-                        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                        let request = resource_reader.get_root::<abi_http_capnp::http_request_body_frame::Reader>().unwrap();
-                        match request.get_body().which().unwrap() {
-                            abi_http_capnp::http_request_body_frame::body::Which::StreamEnd(_) => (HttpRequestBodyInner::Empty, std::task::Poll::Ready(None)),
-                            abi_http_capnp::http_request_body_frame::body::Which::Bytes(v) => (
-                                HttpRequestBodyInner::HostResource(resource_id),
-                                std::task::Poll::Ready(Some(Ok(http_body::Frame::data(bytes::Bytes::from(v.unwrap().to_vec())))))
-                            )
-                        }
-                    },
-                }
-            },
-        };
-        let _ = std::mem::replace(&mut self.0, new_body);
-        poll
-    }
-}
-
 #[derive(Debug, Error)]
 pub enum ReadBodyError {}
-
-pub(crate) enum HttpRequestBodyInner {
-    Empty,
-    Bytes(Vec<u8>),
-    HostResource(OwnedResourceId),
-}
 
 impl HttpRequestData {
     pub fn new(method: Method, url: Uri) -> Self {
@@ -232,9 +168,9 @@ impl DeserializeHostResource for HttpRequestData {
                 ))
                 .collect(),
             body: match request.get_body().unwrap().get_body().which().unwrap() {
-                abi_http_capnp::http_request_body::body::Which::Empty(_) => None,
-                abi_http_capnp::http_request_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
-                abi_http_capnp::http_request_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
+                abi_http_capnp::http_body::body::Which::Empty(_) => None,
+                abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
+                abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
             },
         }
     }
@@ -548,34 +484,6 @@ impl IntoHttpBody for String {
 
 impl IntoHttpBody for HttpBody {
     fn into_http_body(self) -> HttpBody {
-        self
-    }
-}
-
-pub trait IntoHttpRequestBody {
-    fn into_request_body(self) -> HttpRequestBody;
-}
-
-impl IntoHttpRequestBody for Vec<u8> {
-    fn into_request_body(self) -> HttpRequestBody {
-        HttpRequestBody(HttpRequestBodyInner::Bytes(self))
-    }
-}
-
-impl IntoHttpRequestBody for String {
-    fn into_request_body(self) -> HttpRequestBody {
-        HttpRequestBody(HttpRequestBodyInner::Bytes(self.as_bytes().to_vec()))
-    }
-}
-
-impl IntoHttpRequestBody for &str {
-    fn into_request_body(self) -> HttpRequestBody {
-        HttpRequestBody(HttpRequestBodyInner::Bytes(self.as_bytes().to_vec()))
-    }
-}
-
-impl IntoHttpRequestBody for HttpRequestBody {
-    fn into_request_body(self) -> HttpRequestBody {
         self
     }
 }

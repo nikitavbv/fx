@@ -21,11 +21,11 @@ pub(crate) fn serialize_request_body_full(body: Vec<u8>) -> Vec<u8> {
 
 pub(crate) fn serialize_partially_read_stream(frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>) -> Vec<u8> {
     let mut message = capnp::message::Builder::new_default();
-    let serialized_frame = message.init_root::<abi_http_capnp::http_request_body_frame::Builder>();
+    let serialized_frame = message.init_root::<abi_http_capnp::http_body::Builder>();
     let mut serialized_frame = serialized_frame.init_body();
 
     match frame {
-        None => serialized_frame.set_stream_end(()),
+        None => serialized_frame.set_empty(()),
         Some(Err(err)) => todo!("handle error: {err:?}"),
         Some(Ok(frame)) => serialized_frame.set_bytes(&frame.into_data().unwrap()),
     }

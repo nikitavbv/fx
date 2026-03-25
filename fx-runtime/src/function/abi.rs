@@ -495,11 +495,11 @@ pub(super) fn fx_fetch_handler(
         );
 
         match request.get_body().unwrap().get_body().which().unwrap() {
-            abi_http_capnp::http_request_body::body::Which::Empty(_) => {},
-            abi_http_capnp::http_request_body::body::Which::Bytes(v) => {
+            abi_http_capnp::http_body::body::Which::Empty(_) => {},
+            abi_http_capnp::http_body::body::Which::Bytes(v) => {
                 *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
             },
-            abi_http_capnp::http_request_body::body::Which::HostResource(v) => {
+            abi_http_capnp::http_body::body::Which::HostResource(v) => {
                 let resource_id = ResourceId::new(v);
                 match caller.data_mut().resource_remove(&resource_id) {
                     Resource::BlobGetResult(_)
