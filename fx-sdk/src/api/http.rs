@@ -299,6 +299,12 @@ impl HttpResponse {
 
 pub struct HttpBody(pub(crate) HttpBodyInner);
 
+impl Default for HttpBody {
+    fn default() -> Self {
+        Self::empty()
+    }
+}
+
 impl HttpBody {
     pub fn empty() -> Self {
         Self(HttpBodyInner::Empty)
@@ -371,6 +377,54 @@ impl Stream for HttpBody {
     }
 }
 
+impl http_body::Body for HttpBody {
+    type Data = bytes::Bytes;
+    type Error = ReadBodyError;
+
+    fn poll_frame(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+        let inner = std::mem::replace(&mut self.0, HttpBodyInner::Empty);
+
+        let (inner, poll_result) = match inner {
+            HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
+            HttpBodyInner::Bytes(_) => todo!(),
+            HttpBodyInner::BytesSerialized(_) => todo!(),
+            HttpBodyInner::Stream(_) => todo!(),
+            HttpBodyInner::PartiallyReadStream { .. } => todo!(),
+            HttpBodyInner::HostResource(resource_id) => {
+                let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
+                let poll_result = FuturePollResult::try_from(poll_result).unwrap();
+                match poll_result {
+                    FuturePollResult::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
+                    FuturePollResult::Ready => {
+                        let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
+                        let data: Vec<u8> = vec![0u8; resource_length as usize];
+                        resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
+
+                        let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                        let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+
+                        match frame.get_frame().which().unwrap() {
+                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
+                            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
+                                HttpBodyInner::HostResource(resource_id),
+                                std::task::Poll::Ready(Some(Ok(http_body::Frame::data(Bytes::from(v.unwrap().to_vec())))))
+                            ),
+                        }
+                    },
+                }
+            },
+            HttpBodyInner::FrameSerialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
+        };
+
+        self.0 = inner;
+
+        poll_result
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum HttpBodyStreamError {}
 
@@ -423,7 +477,11 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
             Some(body) => match body.0 {
                 HttpBodyInner::Empty => request_body.set_empty(()),
                 HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
+                HttpBodyInner::Stream(_) => todo!("using stream as request body is not supported yet"),
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
+                HttpBodyInner::BytesSerialized(_) => panic!("http body of this type (BytesSerialized) cannot be used as request body"),
+                HttpBodyInner::PartiallyReadStream { .. } => panic!("http body of this type (PartiallyReadStream) cannot be used as request body"),
+                HttpBodyInner::FrameSerialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),
         }
@@ -473,6 +531,24 @@ pub trait IntoHttpBody {
 impl IntoHttpBody for Vec<u8> {
     fn into_http_body(self) -> HttpBody {
         HttpBody(HttpBodyInner::Bytes(self))
+    }
+}
+
+impl IntoHttpBody for &str {
+    fn into_http_body(self) -> HttpBody {
+        HttpBody(HttpBodyInner::Bytes(self.as_bytes().to_vec()))
+    }
+}
+
+impl IntoHttpBody for String {
+    fn into_http_body(self) -> HttpBody {
+        HttpBody(HttpBodyInner::Bytes(self.as_bytes().to_vec()))
+    }
+}
+
+impl IntoHttpBody for HttpBody {
+    fn into_http_body(self) -> HttpBody {
+        self
     }
 }
 
