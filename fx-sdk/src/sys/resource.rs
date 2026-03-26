@@ -279,6 +279,15 @@ pub fn replace_function_resource_with<F: FnOnce(FunctionResource) -> FunctionRes
     })
 }
 
+pub fn replace_function_resource_with_effect<T, F: FnOnce(FunctionResource) -> (FunctionResource, T)>(resource_id: FunctionResourceId, mapper: F) -> T {
+    FUNCTION_RESOURCES.with_borrow_mut(move |resources| {
+        let resource = resources.detach((&resource_id).into()).unwrap();
+        let (resource, effect) = mapper(resource);
+        resources.reattach((&resource_id).into(), resource);
+        effect
+    })
+}
+
 /// returns length of serialized resource
 pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {

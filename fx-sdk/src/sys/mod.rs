@@ -10,6 +10,7 @@ pub use self::{
         drop_function_resource,
         map_function_resource_ref,
         map_function_resource_ref_mut,
+        replace_function_resource_with_effect,
     },
     future::wrap_function_response_future,
 };
@@ -25,7 +26,7 @@ use {
     fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
         logging::{set_panic_hook, init_logger},
-        api::http::{HttpBody, HttpBodyInner},
+        api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
     self::resource::replace_function_resource_with,
 };
@@ -135,6 +136,60 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_resource_drop(resource_id: u64) {
     drop_function_resource(&FunctionResourceId::new(resource_id));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_stream_frame_serialize(resource_id: u64) -> u64 {
+    replace_function_resource_with_effect(FunctionResourceId::new(resource_id), |resource| {
+        match resource {
+            FunctionResource::HttpBody(v) => match v.0 {
+                HttpBodyInner::Empty => {
+                    let mut message = capnp::message::Builder::new_default();
+                    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+                    let mut serialized_frame = serialized_frame.init_body();
+
+                    serialized_frame.set_stream_end(());
+
+                    let serialized_frame = capnp::serialize::write_message_to_words(&message);
+                    let serialized_len = serialized_frame.len();
+
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                },
+                HttpBodyInner::Bytes(v) => {
+                    let serialized = serialize_http_body_full(v);
+                    let serialized_size = serialized.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
+                },
+                HttpBodyInner::BytesSerialized(serialized) => {
+                    let serialized_size = serialized.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
+                },
+                HttpBodyInner::Stream(_) => panic!("resource is not yet ready for serialization"),
+                HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => {
+                    let serialized_size = frame_serialized.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream { stream, frame_serialized })), serialized_size)
+                },
+                HttpBodyInner::HostResource(resource_id) => {
+                    let resource_id = resource_id.consume();
+
+                    let mut message = capnp::message::Builder::new_default();
+                    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+                    let mut serialized_frame = serialized_frame.init_body();
+                    serialized_frame.set_host_resource_id(resource_id.as_ffi());
+
+                    let serialized_frame = capnp::serialize::write_message_to_words(&message);
+                    let serialized_len = serialized_frame.len();
+
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                },
+                HttpBodyInner::FrameSerialized(v) => {
+                    let serialized_len = v.len();
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
+                },
+            },
+            _other => panic!("stream_frame_serialized cannot be invoked on FunctionResource of this type"),
+        }
+    }) as u64
 }
 
 #[unsafe(no_mangle)]

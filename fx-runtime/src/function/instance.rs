@@ -42,6 +42,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
+    fn_stream_frame_serialize: wasmtime::TypedFunc<u64, ()>,
     fn_stream_advance: wasmtime::TypedFunc<u64, ()>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
@@ -98,6 +99,8 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_stream_frame_serialize = instance.get_typed_func(store.as_context_mut(), "_fx_stream_frame_serialize")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_stream_advance = instance.get_typed_func(store.as_context_mut(), "_fx_stream_advance")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
@@ -122,6 +125,7 @@ impl FunctionInstance {
             fn_resource_serialize,
             fn_resource_serialized_ptr,
             fn_resource_drop,
+            fn_stream_frame_serialize,
             fn_stream_advance,
             fn_handler,
         })
