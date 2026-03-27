@@ -210,9 +210,10 @@ impl DefinitionsMonitor {
             .flat_map(|v| v.iter())
             .map(|v| (v.id.clone(), SqlBindingConfig {
                 connection_id: uuid::Uuid::new_v4().to_string(),
-                location: match v.path.as_str() {
-                    ":memory:" => SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string()),
-                    path => SqlBindingConfigLocation::Path(config.config_path.as_ref().unwrap().parent().unwrap().join(&path)),
+                location: if v.in_memory {
+                    SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string())
+                } else {
+                    SqlBindingConfigLocation::DatabaseId(v.database_id.clone())
                 },
                 busy_timeout: v.busy_timeout_ms.map(|v| Duration::from_millis(v)),
             }))

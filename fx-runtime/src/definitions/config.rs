@@ -17,6 +17,7 @@ pub struct ServerConfig {
 
     pub functions_dir: String,
     pub cron_data_path: Option<String>,
+    pub sql: Option<SqlConfig>,
     pub blob: Option<BlobConfig>,
 
     pub logger: Option<LoggerConfig>,
@@ -45,6 +46,19 @@ pub struct ServerPort {
 impl Default for ServerPort {
     fn default() -> Self {
         Self { value: 8080 }
+    }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct SqlConfig {
+    pub path: PathBuf,
+}
+
+impl Default for SqlConfig {
+    fn default() -> Self {
+        Self {
+            path: "/var/lib/fx/sql".parse().unwrap(),
+        }
     }
 }
 
@@ -161,8 +175,8 @@ impl FunctionConfig {
         self
     }
 
-    pub fn with_binding_sql(self, id: String, path: String) -> Self {
-        self.with_binding_sql_config(SqlBindingConfig { id, path, busy_timeout_ms: None })
+    pub fn with_binding_sql(self, id: String, database_id: String) -> Self {
+        self.with_binding_sql_config(SqlBindingConfig { id, database_id, in_memory: false, busy_timeout_ms: None })
     }
 
     pub fn with_binding_sql_config(mut self, config: SqlBindingConfig) -> Self {
@@ -350,16 +364,18 @@ impl FunctionBindingsConfig {
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]
 pub struct SqlBindingConfig {
     pub id: String,
-    pub path: String,
+    pub database_id: String,
+    pub in_memory: bool,
     #[serde(skip)]
     pub busy_timeout_ms: Option<u64>,
 }
 
 impl SqlBindingConfig {
-    pub fn new(id: String, path: String) -> Self {
+    pub fn new(id: String, database_id: String, in_memory: bool) -> Self {
         Self {
             id,
-            path,
+            database_id,
+            in_memory,
             busy_timeout_ms: None,
         }
     }

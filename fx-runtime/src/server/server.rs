@@ -141,6 +141,7 @@ impl FxServer {
         let mut sql_worker_handles = Vec::new();
         for sql_worker in sql_cores.into_iter() {
             let sql_rx = sql_rx.clone();
+            let config = self.config.sql.as_ref().cloned().unwrap_or_default();
 
             let handle = std::thread::spawn(move || {
                 let worker = sql_worker;
@@ -155,7 +156,7 @@ impl FxServer {
 
                 info!(sql_worker_id, "started sql thread");
 
-                run_sql_task(sql_rx);
+                run_sql_task(config.path, sql_rx);
             });
             sql_worker_handles.push(handle);
             sql_worker_id += 1;

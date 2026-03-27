@@ -1,5 +1,5 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, path::PathBuf},
     tokio::sync::oneshot,
     crate::{
         definitions::bindings::{SqlBindingConfig, SqlBindingConfigLocation},
@@ -36,10 +36,14 @@ pub(crate) struct SqlBatchMessage {
     pub(crate) response: oneshot::Sender<Result<(), SqlBatchError>>,
 }
 
-pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
+pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>) {
     use rusqlite::types::ValueRef;
 
     let mut connections = HashMap::<String, rusqlite::Connection>::new();
+
+    if !databases_path.exists() {
+        std::fs::create_dir_all(&databases_path).unwrap();
+    }
 
     while let Ok(msg) = sql_rx.recv() {
         let binding = match &msg {
@@ -58,12 +62,11 @@ pub(crate) fn run_sql_task(sql_rx: flume::Receiver<SqlMessage>) {
                             .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
                             .union(rusqlite::OpenFlags::SQLITE_OPEN_SHARED_CACHE)
                     ).unwrap(),
-                    SqlBindingConfigLocation::Path(v) => {
-                        if let Some(parent) = v.parent() {
-                            std::fs::create_dir_all(parent).unwrap();
-                        }
-                        rusqlite::Connection::open(v).unwrap()
-                    }
+                    SqlBindingConfigLocation::DatabaseId(database_id) => {
+                        let mut database_path = databases_path.join(database_id);
+                        database_path.add_extension(".sqlite");
+                        rusqlite::Connection::open(database_path).unwrap()
+                    },
                 };
                 if let Some(busy_timeout) = binding.busy_timeout {
                     connection.busy_timeout(busy_timeout).unwrap();

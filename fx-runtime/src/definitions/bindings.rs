@@ -1,5 +1,4 @@
 use {
-    std::path::PathBuf,
     tokio::time::Duration,
     crate::function::FunctionId,
 };
@@ -14,7 +13,7 @@ pub(crate) struct SqlBindingConfig {
 #[derive(Debug, Clone)]
 pub(crate) enum SqlBindingConfigLocation {
     InMemory(String),
-    Path(PathBuf),
+    DatabaseId(String),
 }
 
 #[derive(Debug, Clone)]
