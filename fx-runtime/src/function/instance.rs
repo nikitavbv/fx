@@ -42,7 +42,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
-    fn_stream_frame_serialize: wasmtime::TypedFunc<u64, ()>,
+    fn_stream_frame_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_stream_advance: wasmtime::TypedFunc<u64, ()>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,

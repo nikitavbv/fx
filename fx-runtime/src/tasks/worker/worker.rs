@@ -18,7 +18,7 @@ use {
         function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
         triggers::http::HttpHandler,
     },
-    super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController},
+    super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::FunctionInvokeError},
 };
 
 pub(crate) struct WorkerConfig {
@@ -195,11 +195,20 @@ async fn worker_handle_message(
             }
         },
         WorkerMessage::FunctionInvoke { function_id, header, response_tx } => {
-            let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
+            let deployment = match functions.borrow().get(&function_id) {
+                Some(v) => v.clone(),
+                None => {
+                    response_tx.send(Err(FunctionInvokeError::NotFound)).unwrap();
+                    return;
+                }
+            };
+
+            let deployment = function_deployments.borrow().get(&deployment).unwrap().clone();
+
             let function_future = deployment.borrow_mut().handle_request(header, None).await;
             tokio::task::spawn_local(async move {
                 let _response = function_future.await.unwrap();
-                response_tx.send(()).unwrap();
+                response_tx.send(Ok(())).unwrap();
             });
         },
     }

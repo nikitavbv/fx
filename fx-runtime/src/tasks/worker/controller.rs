@@ -6,6 +6,7 @@ use {
         function::FunctionId,
         triggers::http::{FetchRequestHeader, FunctionResponse},
         resources::serialize::SerializedFunctionResource,
+        tasks::worker::messages::FunctionInvokeError,
     },
     super::messages::{WorkerMessage, WorkerLocalMessage},
 };
@@ -41,7 +42,7 @@ impl WorkersController {
         subtasks.collect::<Vec<_>>().await;
     }
 
-    pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) {
+    pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), FunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.workers_tx.get(self.function_invoke_round_robin_counter as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
         self.function_invoke_round_robin_counter = (self.function_invoke_round_robin_counter + 1) % (self.workers_tx.len() as u64);

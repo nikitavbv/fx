@@ -1,6 +1,7 @@
 use {
     std::collections::HashMap,
     tokio::sync::oneshot,
+    thiserror::Error,
     crate::{
         function::{FunctionId, FunctionDeploymentId},
         definitions::{
@@ -35,7 +36,7 @@ pub(crate) enum WorkerMessage {
     FunctionInvoke {
         function_id: FunctionId,
         header: FetchRequestHeader,
-        response_tx: oneshot::Sender<()>,
+        response_tx: oneshot::Sender<Result<(), FunctionInvokeError>>,
     },
 }
 
@@ -45,4 +46,10 @@ pub(crate) enum WorkerLocalMessage {
         header: FetchRequestHeader,
         response_tx: async_unsync::oneshot::Sender<SerializedFunctionResource<FunctionResponse>>,
     }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FunctionInvokeError {
+    #[error("function with this id is not found")]
+    NotFound,
 }
