@@ -13,6 +13,7 @@ use {
             ServerPort,
             FunctionConfig,
             LoggerConfig,
+            SqlConfig,
             BlobConfig,
             SqlBindingConfig,
             FunctionBindingConfig,
@@ -757,6 +758,9 @@ async fn preemption() {
         workers: Some(1),
         functions_dir: "/tmp/fx/functions".to_owned(),
         cron_data_path: None,
+        sql: Some(SqlConfig {
+            path: "/tmp/fx/sql".parse().unwrap(),
+        }),
         blob: Some(BlobConfig {
             path: "/tmp/fx/blob".parse().unwrap(),
         }),
@@ -844,6 +848,9 @@ async fn init_fx_server() -> TestClient {
                         workers: None,
                         functions_dir: "/tmp/fx/functions".to_owned(),
                         cron_data_path: None,
+                        sql: Some(SqlConfig {
+                            path: "/tmp/fx/sql".parse().unwrap(),
+                        }),
                         blob: Some(BlobConfig {
                             path: "/tmp/fx/blob".parse().unwrap(),
                         }),
@@ -859,20 +866,20 @@ async fn init_fx_server() -> TestClient {
                             .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
                             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                             .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
-                            .with_binding_sql("app".to_owned(), ":memory:".to_owned())
-                            .with_binding_sql("cron-test".to_owned(), ":memory:".to_owned())
+                            .with_binding_sql_config(SqlBindingConfig::new("app".to_owned(), "app".to_owned(), true))
+                            .with_binding_sql_config(SqlBindingConfig::new("cron-test".to_owned(), "cron-test".to_owned(), true))
                             .with_binding_sql_config(
-                                SqlBindingConfig::new("contention-test".to_owned(), "/tmp/fx-test/contention.sqlite".to_owned())
+                                SqlBindingConfig::new("contention-test".to_owned(), "contention".to_owned(), false)
                                     .with_busy_timeout_ms(10)
                             )
                             .with_binding_sql_config(
-                                SqlBindingConfig::new("contention-busy".to_owned(), "/tmp/fx-test/contention-busy.sqlite".to_owned())
+                                SqlBindingConfig::new("contention-busy".to_owned(), "contention-busy".to_owned(), false)
                                     .with_busy_timeout_ms(10)
                             )
                             .with_binding_sql_config(
-                                SqlBindingConfig::new("nonexistent-db".to_owned(), "/tmp/fx-test/nonexistent/directory/test.sqlite".to_owned())
+                                SqlBindingConfig::new("nonexistent-db".to_owned(), "test".to_owned(), false)
                             )
-                            .with_binding_sql("migration-sql-error".to_owned(), ":memory:".to_owned())
+                            .with_binding_sql_config(SqlBindingConfig::new("migration-sql-error".to_owned(), "migration-sql-error".to_owned(), true))
                             .with_binding_function(FunctionBindingConfig::new(
                                 "function-rpc".to_owned(),
                                 "test-app-rpc".to_owned(),

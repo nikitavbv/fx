@@ -64,7 +64,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     ).unwrap(),
                     SqlBindingConfigLocation::DatabaseId(database_id) => {
                         let mut database_path = databases_path.join(database_id);
-                        database_path.add_extension(".sqlite");
+                        database_path.add_extension("sqlite");
                         rusqlite::Connection::open(database_path).unwrap()
                     },
                 };
