@@ -210,7 +210,7 @@ impl DefinitionsMonitor {
             .flat_map(|v| v.iter())
             .map(|v| (v.id.clone(), SqlBindingConfig {
                 connection_id: uuid::Uuid::new_v4().to_string(),
-                location: if v.in_memory {
+                location: if v.in_memory.unwrap_or(false) {
                     SqlBindingConfigLocation::InMemory(uuid::Uuid::new_v4().to_string())
                 } else {
                     SqlBindingConfigLocation::DatabaseId(v.database_id.clone())

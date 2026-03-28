@@ -176,7 +176,7 @@ impl FunctionConfig {
     }
 
     pub fn with_binding_sql(self, id: String, database_id: String) -> Self {
-        self.with_binding_sql_config(SqlBindingConfig { id, database_id, in_memory: false, busy_timeout_ms: None })
+        self.with_binding_sql_config(SqlBindingConfig { id, database_id, in_memory: Some(false), busy_timeout_ms: None })
     }
 
     pub fn with_binding_sql_config(mut self, config: SqlBindingConfig) -> Self {
@@ -365,7 +365,7 @@ impl FunctionBindingsConfig {
 pub struct SqlBindingConfig {
     pub id: String,
     pub database_id: String,
-    pub in_memory: bool,
+    pub in_memory: Option<bool>,
     #[serde(skip)]
     pub busy_timeout_ms: Option<u64>,
 }
@@ -375,7 +375,7 @@ impl SqlBindingConfig {
         Self {
             id,
             database_id,
-            in_memory,
+            in_memory: Some(in_memory),
             busy_timeout_ms: None,
         }
     }
