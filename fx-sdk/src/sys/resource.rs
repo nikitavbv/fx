@@ -303,46 +303,39 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
             FunctionResource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Empty => {
                     let mut message = capnp::message::Builder::new_default();
-                    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
-                    let mut serialized_frame = serialized_frame.init_body();
+                    let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
+                    let mut serialized_body = serialized_body.init_body();
 
-                    serialized_frame.set_stream_end(());
+                    serialized_body.set_empty(());
 
                     let serialized_frame = capnp::serialize::write_message_to_words(&message);
                     let serialized_len = serialized_frame.len();
 
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_frame))), serialized_len)
                 },
                 HttpBodyInner::Bytes(v) => {
                     let serialized = serialize_http_body_full(v);
                     let serialized_size = serialized.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized))), serialized_size)
                 },
-                HttpBodyInner::BytesSerialized(serialized) => {
-                    let serialized_size = serialized.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
-                },
-                HttpBodyInner::Stream(_) => panic!("resource is not yet ready for serialization"),
-                HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => {
-                    let serialized_size = frame_serialized.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream { stream, frame_serialized })), serialized_size)
-                },
+                HttpBodyInner::Stream(_) => todo!(),
+                HttpBodyInner::PartiallyReadStream { .. } => panic!("resource of this type cannot be serialized"),
                 HttpBodyInner::HostResource(resource_id) => {
                     let resource_id = resource_id.consume();
 
                     let mut message = capnp::message::Builder::new_default();
-                    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
-                    let mut serialized_frame = serialized_frame.init_body();
-                    serialized_frame.set_host_resource_id(resource_id.as_ffi());
+                    let http_body = message.init_root::<abi_http_capnp::http_body::Builder>();
+                    let mut http_body = http_body.init_body();
+                    http_body.set_host_resource(resource_id.as_ffi());
 
                     let serialized_frame = capnp::serialize::write_message_to_words(&message);
                     let serialized_len = serialized_frame.len();
 
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_frame))), serialized_len)
                 },
-                HttpBodyInner::FrameSerialized(v) => {
+                HttpBodyInner::Serialized(v) => {
                     let serialized_len = v.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))), serialized_len)
                 },
             },
         };

@@ -264,7 +264,7 @@ impl HttpBody {
             HttpBodyInner::Bytes(v) => Some(v),
             HttpBodyInner::HostResource(_) => todo!("host resource reading into bytes vec"),
             HttpBodyInner::Stream(_) => todo!("stream reading into bytes vec"),
-            HttpBodyInner::PartiallyReadStream { .. } | HttpBodyInner::FrameSerialized(_) | HttpBodyInner::BytesSerialized(_) => panic!("resource of this type cannot be read"),
+            HttpBodyInner::PartiallyReadStream { .. } | HttpBodyInner::Serialized(_) => panic!("resource of this type cannot be read"),
         }
     }
 }
@@ -278,7 +278,6 @@ impl Stream for HttpBody {
         let (inner, poll_result) = match inner {
             HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::BytesSerialized(_) => todo!(),
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::PartiallyReadStream { .. } => todo!(),
             HttpBodyInner::HostResource(resource_id) => {
@@ -304,7 +303,7 @@ impl Stream for HttpBody {
                     },
                 }
             },
-            HttpBodyInner::FrameSerialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
+            HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
         };
 
         self.0 = inner;
@@ -326,7 +325,6 @@ impl http_body::Body for HttpBody {
         let (inner, poll_result) = match inner {
             HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::BytesSerialized(_) => todo!(),
             HttpBodyInner::Stream(_) => todo!(),
             HttpBodyInner::PartiallyReadStream { .. } => todo!(),
             HttpBodyInner::HostResource(resource_id) => {
@@ -352,7 +350,7 @@ impl http_body::Body for HttpBody {
                     },
                 }
             },
-            HttpBodyInner::FrameSerialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
+            HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
         };
 
         self.0 = inner;
@@ -373,22 +371,21 @@ impl axum::response::IntoResponse for HttpBody {
 pub(crate) enum HttpBodyInner {
     Empty,
     Bytes(Vec<u8>),
-    BytesSerialized(Vec<u8>),
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
     PartiallyReadStream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
         frame_serialized: Vec<u8>,
     },
     HostResource(OwnedResourceId),
-    FrameSerialized(Vec<u8>),
+    Serialized(Vec<u8>),
 }
 
 pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {
     let mut message = capnp::message::Builder::new_default();
-    let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
-    let mut serialized_frame = serialized_frame.init_body();
+    let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
+    let mut serialized_body = serialized_body.init_body();
 
-    serialized_frame.set_bytes(&body);
+    serialized_body.set_bytes(&body);
 
     capnp::serialize::write_message_to_words(&message)
 }
@@ -415,9 +412,8 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
                 HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
                 HttpBodyInner::Stream(_) => todo!("using stream as request body is not supported yet"),
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
-                HttpBodyInner::BytesSerialized(_) => panic!("http body of this type (BytesSerialized) cannot be used as request body"),
                 HttpBodyInner::PartiallyReadStream { .. } => panic!("http body of this type (PartiallyReadStream) cannot be used as request body"),
-                HttpBodyInner::FrameSerialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
+                HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),
         }

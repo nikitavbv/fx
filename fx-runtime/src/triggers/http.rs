@@ -205,6 +205,11 @@ pub(crate) enum FunctionResourceReader {
     Empty,
     // HttpBody is a resource on function side, no frame is in progress of being read
     Resource(OwnedFunctionResourceId),
+    ResourceReadFuture {
+        instance: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+        future: LocalBoxFuture<'static, ()>,
+    },
     // polling next frame of HttpBody stream
     FramePollFuture {
         instance: Rc<FunctionInstance>,

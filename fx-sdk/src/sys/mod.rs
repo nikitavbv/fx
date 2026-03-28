@@ -55,7 +55,6 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
                 let (body, poll) = match body {
                     HttpBodyInner::Empty => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)))),
                     HttpBodyInner::Bytes(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Bytes(v))))),
-                    HttpBodyInner::BytesSerialized(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(v))))),
                     HttpBodyInner::HostResource(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource(v))))),
                     HttpBodyInner::Stream(mut stream) => match stream.poll_next_unpin(&mut context) {
                         Poll::Pending => (HttpBodyInner::Stream(stream), Poll::Pending),
@@ -80,7 +79,7 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
                         stream,
                         frame_serialized,
                     })))),
-                    HttpBodyInner::FrameSerialized(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))))),
+                    HttpBodyInner::Serialized(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))))),
                 };
 
                 v.0 = body;
@@ -121,12 +120,11 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
             },
             FunctionResource::HttpBody(body) => match body.0 {
                 HttpBodyInner::Bytes(_) => panic!("resource has to be serialized first"),
-                HttpBodyInner::BytesSerialized(ref v) => v.as_ptr(),
                 HttpBodyInner::HostResource(_) => panic!("resource of this type should not be serialized: instead host should read it directly from host resource table"),
                 HttpBodyInner::Empty => panic!("empty body: nothing to serailize"),
                 HttpBodyInner::PartiallyReadStream { stream: _, ref frame_serialized } => frame_serialized.as_ptr(),
                 HttpBodyInner::Stream(_) => panic!("stream has to be read first"),
-                HttpBodyInner::FrameSerialized(ref v) => v.as_ptr(),
+                HttpBodyInner::Serialized(ref v) => v.as_ptr(),
             },
             FunctionResource::BackgroundTask(_) => panic!("resource of this type cannot be serialized"),
         }
@@ -153,16 +151,12 @@ pub extern "C" fn _fx_stream_frame_serialize(resource_id: u64) -> u64 {
                     let serialized_frame = capnp::serialize::write_message_to_words(&message);
                     let serialized_len = serialized_frame.len();
 
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_frame))), serialized_len)
                 },
                 HttpBodyInner::Bytes(v) => {
                     let serialized = serialize_http_body_full(v);
                     let serialized_size = serialized.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
-                },
-                HttpBodyInner::BytesSerialized(serialized) => {
-                    let serialized_size = serialized.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::BytesSerialized(serialized))), serialized_size)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized))), serialized_size)
                 },
                 HttpBodyInner::Stream(_) => panic!("resource is not yet ready for serialization"),
                 HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => {
@@ -180,11 +174,11 @@ pub extern "C" fn _fx_stream_frame_serialize(resource_id: u64) -> u64 {
                     let serialized_frame = capnp::serialize::write_message_to_words(&message);
                     let serialized_len = serialized_frame.len();
 
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(serialized_frame))), serialized_len)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_frame))), serialized_len)
                 },
-                HttpBodyInner::FrameSerialized(v) => {
+                HttpBodyInner::Serialized(v) => {
                     let serialized_len = v.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
+                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))), serialized_len)
                 },
             },
             _other => panic!("stream_frame_serialized cannot be invoked on FunctionResource of this type"),
@@ -202,10 +196,9 @@ pub extern "C" fn _fx_stream_advance(resource_id: u64) {
             HttpBodyInner::Empty
             | HttpBodyInner::HostResource(_) => todo!(),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::BytesSerialized(_) => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)),
             HttpBodyInner::Stream(_) => todo!(),
-            HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))),
-            HttpBodyInner::FrameSerialized(_) => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)),
+            HttpBodyInner::PartiallyReadStream { stream, frame_serialized: _discard } => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))),
+            HttpBodyInner::Serialized(_) => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)),
         },
     });
 }

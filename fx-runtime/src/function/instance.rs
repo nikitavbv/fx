@@ -167,18 +167,18 @@ impl FunctionInstance {
         self.fn_resource_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
 
-    pub(crate) async fn move_serializable_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
+    pub(crate) async fn copy_serializable_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
         let len = self.resource_serialize(resource_id).await as usize;
         let ptr = self.resource_serialized_ptr(resource_id).await as usize;
 
-        let resource_data = {
-            let store = self.store.lock().await;
-            let view = self.memory.data(store.as_context());
-            view[ptr..ptr+len].to_owned()
-        };
+        let store = self.store.lock().await;
+        let view = self.memory.data(store.as_context());
+        view[ptr..ptr+len].to_owned()
+    }
 
+    pub(crate) async fn move_serializable_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
+        let resource_data = self.copy_serializable_resource_to_host(resource_id).await;
         self.resource_drop(resource_id).await;
-
         resource_data
     }
 

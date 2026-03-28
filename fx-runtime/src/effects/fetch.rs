@@ -97,7 +97,23 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
         other => other,
     };
 
-    // if there is a HttpBody resource we can start reading, let's request next frame
+    // if there is a HttpBody resource we can start reading, let's read it to understand its type
+    reader = match reader {
+        FunctionResourceReader::Resource(resource_id) => {
+            let (instance, resource_id) = resource_id.consume();
+
+            let mut resource_read_future = {
+                async move {
+                    instance.copy_serializable_resource_to_host(&resource_id)
+                    todo!("finish this")
+                }.boxed_local()
+            };
+        },
+        other => other,
+    };
+    todo!("continue here");
+
+    // previously: if there is a HttpBody resource we can start reading, let's request next frame
     reader = match reader {
         FunctionResourceReader::Resource(resource_id) => {
             let (instance, resource_id) = resource_id.consume();
