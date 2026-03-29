@@ -6,7 +6,7 @@ use {
     send_wrapper::SendWrapper,
     crate::{
         resources::{
-            serialize::{SerializeResource, SerializedFunctionResource},
+            serialize::{SerializeResource, SerializedFunctionResource, DeserializeFunctionResource},
             ResourceId,
             resource::OwnedFunctionResourceId,
             FunctionResourceId,
@@ -102,7 +102,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let body = match &function_response {
                 Ok(response) => match &response.0 {
                     FunctionResponseInner::HttpResponse(v) => {
-                        HttpBody::for_function_resource(v.body.replace(None).unwrap())
+                        let (instance, body_resource_id) = v.body.replace(None).unwrap().consume();
+                        SerializedFunctionResource::<HttpBody>::new(instance, body_resource_id)
                     }
                 },
                 Err(err) => match err {
@@ -157,6 +158,7 @@ impl hyper::body::Body for HttpBody {
         match &self.0 {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
+            HttpBodyInner::FunctionResourceV2(_) => todo!(),
             HttpBodyInner::FunctionResource(resource) => {
                 let reader = resource.replace(FunctionResourceReader::Empty);
 
@@ -179,6 +181,7 @@ impl hyper::body::Body for HttpBody {
 pub(crate) enum HttpBodyInner {
     Empty,
     Full(SendWrapper<RefCell<Option<Bytes>>>),
+    FunctionResourceV2(SendWrapper<RefCell<SerializedFunctionResource<HttpBodyInner>>>),
     FunctionResource(SendWrapper<RefCell<FunctionResourceReader>>),
     FunctionResourcePartiallyRead {
         reader: SendWrapper<FunctionResourceReader>,
@@ -198,6 +201,12 @@ pub(crate) enum HttpBodyInner {
         frame_serialized: Vec<u8>,
     },
     FrameSerialized(Vec<u8>),
+}
+
+impl DeserializeFunctionResource for HttpBodyInner {
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
+        todo!()
+    }
 }
 
 pub(crate) enum FunctionResourceReader {

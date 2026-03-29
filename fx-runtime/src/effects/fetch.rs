@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     crate::{
         function::abi::{capnp, abi_http_capnp},
-        resources::{serialize::{SerializeResource, SerializableResource}, ResourceId, resource::OwnedFunctionResourceId},
+        resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId, resource::OwnedFunctionResourceId},
         triggers::http::{HttpBody, FunctionResourceReader},
     },
 };
@@ -98,20 +98,7 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
     };
 
     // if there is a HttpBody resource we can start reading, let's read it to understand its type
-    reader = match reader {
-        FunctionResourceReader::Resource(resource_id) => {
-            let (instance, resource_id) = resource_id.consume();
-
-            let mut resource_read_future = {
-                async move {
-                    instance.copy_serializable_resource_to_host(&resource_id)
-                    todo!("finish this")
-                }.boxed_local()
-            };
-        },
-        other => other,
-    };
-    todo!("continue here");
+    todo!("HttpBody should be deserialized somewhere outside and this function should only be used for streams");
 
     // previously: if there is a HttpBody resource we can start reading, let's request next frame
     reader = match reader {
@@ -190,4 +177,10 @@ pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceRe
 pub enum HttpStreamError {
     #[error("failed to read fetch response stream")]
     FetchResponseStreamError(reqwest::Error),
+}
+
+impl DeserializeFunctionResource for HttpBody {
+    fn deserialize(resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Self {
+        todo!()
+    }
 }

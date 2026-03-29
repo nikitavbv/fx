@@ -61,6 +61,12 @@ impl<T: SerializeResource> SerializableResource<T> {
     }
 }
 
+impl SerializeResource for Vec<u8> {
+    fn serialize(self) -> Vec<u8> {
+        self
+    }
+}
+
 /// Resource that origins from function side and is not owned by host.
 /// moved lazily from function to host memory.
 /// if dropped before being moved, cleans up resource on function side.
@@ -77,15 +83,14 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
         }
     }
 
+    pub(crate) async fn copy_to_host(self) -> T {
+        let (instance, resource) = self.resource.consume();
+        T::deserialize(&mut instance.copy_serializable_resource_to_host(&resource).await.as_slice(), instance)
+    }
+
     pub(crate) async fn move_to_host(self) -> T {
         let (instance, resource) = self.resource.consume();
         T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
-    }
-}
-
-impl SerializeResource for Vec<u8> {
-    fn serialize(self) -> Vec<u8> {
-        self
     }
 }
 
@@ -117,4 +122,9 @@ impl DeserializeFunctionResource for Vec<u8> {
     fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Self {
         resource.to_vec()
     }
+}
+
+pub(crate) enum DeserializableResource<T: DeserializeFunctionResource> {
+    Raw(T),
+    Serialized(SerializedFunctionResource<T>),
 }
