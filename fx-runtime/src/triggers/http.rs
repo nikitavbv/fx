@@ -6,7 +6,7 @@ use {
     send_wrapper::SendWrapper,
     crate::{
         resources::{
-            serialize::{SerializeResource, SerializedFunctionResource, DeserializeFunctionResource},
+            serialize::{SerializeResource, SerializedFunctionResource, DeserializeFunctionResource, DeserializableResource},
             ResourceId,
             resource::OwnedFunctionResourceId,
             FunctionResourceId,
@@ -103,15 +103,15 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 Ok(response) => match &response.0 {
                     FunctionResponseInner::HttpResponse(v) => {
                         let (instance, body_resource_id) = v.body.replace(None).unwrap().consume();
-                        SerializedFunctionResource::<HttpBody>::new(instance, body_resource_id)
+                        DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body_resource_id))
                     }
                 },
                 Err(err) => match err {
-                    FunctionDeploymentHandleRequestError::FunctionPanicked => HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n"))
+                    FunctionDeploymentHandleRequestError::FunctionPanicked => DeserializableResource::Raw(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")))
                 }
             };
 
-            let mut response = Response::new(body);
+            let mut response = Response::new(body.copy_to_host().await);
             match function_response {
                 Ok(function_response) => match function_response.0 {
                     FunctionResponseInner::HttpResponse(v) => {

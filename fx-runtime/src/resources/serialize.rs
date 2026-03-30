@@ -128,3 +128,27 @@ pub(crate) enum DeserializableResource<T: DeserializeFunctionResource> {
     Raw(T),
     Serialized(SerializedFunctionResource<T>),
 }
+
+impl<T: DeserializeFunctionResource> DeserializableResource<T> {
+    pub fn from_raw(value: T) -> Self {
+        Self::Raw(value)
+    }
+
+    pub fn from_serialized(value: SerializedFunctionResource<T>) -> Self {
+        Self::Serialized(value)
+    }
+
+    pub async fn copy_to_host(self) -> T {
+        match self {
+            Self::Raw(v) => v,
+            Self::Serialized(v) => v.copy_to_host().await,
+        }
+    }
+
+    pub async fn move_to_host(self) -> T {
+        match self {
+            Self::Raw(v) => v,
+            Self::Serialized(v) => v.move_to_host().await,
+        }
+    }
+}
