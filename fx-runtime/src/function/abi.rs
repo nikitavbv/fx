@@ -542,6 +542,7 @@ pub(super) fn fx_fetch_handler(
                     },
                 }
             },
+            abi_http_capnp::http_body::body::Which::Stream(_) => todo!(),
         }
 
         let client = caller.data().http_client.clone();

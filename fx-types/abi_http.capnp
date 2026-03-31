@@ -29,6 +29,7 @@ struct HttpBody {
         empty @0 :Void;
         bytes @1 :Data;
         hostResource @2 :UInt64;
+        stream @3 :Void;
     }
 }
 
