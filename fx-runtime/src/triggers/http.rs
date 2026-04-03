@@ -265,7 +265,9 @@ impl FunctionStreamReader {
         match self {
             Self::Init(resource_id) => {
                 let (instance, resource_id) = resource_id.consume();
-                let future = todo!();
+                let future = async {
+                    todo!()
+                }.boxed_local();
 
                 Self::FramePollFuture {
                     instance,

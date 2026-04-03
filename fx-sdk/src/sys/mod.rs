@@ -49,43 +49,6 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
             FunctionResource::FunctionResponseFuture(v) => v
                 .poll_unpin(&mut context)
                 .map(|v| Some(FunctionResource::from(v))),
-            FunctionResource::HttpBody(v) => {
-                let body = std::mem::replace(&mut v.0, HttpBodyInner::Empty);
-
-                let (body, poll) = match body {
-                    HttpBodyInner::Empty => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)))),
-                    HttpBodyInner::Bytes(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Bytes(v))))),
-                    HttpBodyInner::HostResource(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource(v))))),
-                    HttpBodyInner::Stream(mut stream) => match stream.poll_next_unpin(&mut context) {
-                        Poll::Pending => (HttpBodyInner::Stream(stream), Poll::Pending),
-                        Poll::Ready(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream {
-                            stream,
-                            frame_serialized: {
-                                let mut message = capnp::message::Builder::new_default();
-                                let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
-                                let mut serialized_frame = serialized_frame.init_body();
-
-                                match v {
-                                    None => serialized_frame.set_stream_end(()),
-                                    Some(Err(err)) => todo!("handle error: {err:?}"),
-                                    Some(Ok(frame)) => serialized_frame.set_bytes(&frame.to_vec()),
-                                }
-
-                                capnp::serialize::write_message_to_words(&message)
-                            },
-                        })))),
-                    },
-                    HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream {
-                        stream,
-                        frame_serialized,
-                    })))),
-                    HttpBodyInner::Serialized(v) => (HttpBodyInner::Empty, Poll::Ready(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))))),
-                };
-
-                v.0 = body;
-
-                poll.map(|v| Some(v))
-            },
             FunctionResource::BackgroundTask(v) => match v.poll_unpin(&mut context) {
                 std::task::Poll::Pending => std::task::Poll::Pending,
                 std::task::Poll::Ready(_) => std::task::Poll::Ready(None),
@@ -134,6 +97,48 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_resource_drop(resource_id: u64) {
     drop_function_resource(&FunctionResourceId::new(resource_id));
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_stream_frame_spoll(resource_id: u64) -> i64 {
+    use std::task::{Context, Waker};
+    let mut context = Context::from_waker(Waker::noop());
+
+    let poll_result = replace_function_resource_with_effect(FunctionResourceId::new(resource_id), |resource| {
+        match resource {
+            FunctionResource::HttpBody(v) => match v.0 {
+                HttpBodyInner::Stream(mut stream) => match stream.poll_next_unpin(&mut context) {
+                    Poll::Pending => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))), Poll::Pending),
+                    Poll::Ready(v) => (
+                        FunctionResource::HttpBody(HttpBody(HttpBodyInner::PartiallyReadStream {
+                            stream,
+                            frame_serialized: {
+                                let mut message = capnp::message::Builder::new_default();
+                                let serialized_frame = message.init_root::<abi_http_capnp::function_http_body_frame::Builder>();
+                                let mut serialized_frame = serialized_frame.init_body();
+
+                                match v {
+                                    None => serialized_frame.set_stream_end(()),
+                                    Some(Err(err)) => todo!("handle error: {err:?}"),
+                                    Some(Ok(frame)) => serialized_frame.set_bytes(&frame.to_vec()),
+                                }
+
+                                capnp::serialize::write_message_to_words(&message)
+                            },
+                        })),
+                        Poll::Ready(())
+                    ),
+                },
+                _other => todo!(),
+            },
+            _other => panic!("not a stream"),
+        }
+    });
+
+    (match poll_result {
+        Poll::Pending => FuturePollResult::Pending,
+        Poll::Ready(()) => FuturePollResult::Ready,
+    }) as i64
 }
 
 #[unsafe(no_mangle)]

@@ -1,8 +1,8 @@
 use {
-    std::{collections::HashMap, task::Poll, cell::RefCell},
+    std::{collections::HashMap, task::Poll, cell::RefCell, rc::Rc},
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,
-    futures::{FutureExt, StreamExt},
+    futures::{FutureExt, StreamExt, future::LocalBoxFuture},
     slotmap::SlotMap,
     wasmtime::{AsContextMut, AsContext},
     send_wrapper::SendWrapper,
@@ -42,6 +42,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
+    fn_stream_frame_poll: wasmtime::TypedFunc<u64, i64>,
     fn_stream_frame_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_stream_advance: wasmtime::TypedFunc<u64, ()>,
     // triggers:
@@ -99,6 +100,8 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_stream_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_stream_frame_poll")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_stream_frame_serialize = instance.get_typed_func(store.as_context_mut(), "_fx_stream_frame_serialize")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_stream_advance = instance.get_typed_func(store.as_context_mut(), "_fx_stream_advance")
@@ -125,6 +128,7 @@ impl FunctionInstance {
             fn_resource_serialize,
             fn_resource_serialized_ptr,
             fn_resource_drop,
+            fn_stream_frame_poll,
             fn_stream_frame_serialize,
             fn_stream_advance,
             fn_handler,
@@ -180,6 +184,18 @@ impl FunctionInstance {
         let resource_data = self.copy_serializable_resource_to_host(resource_id).await;
         self.resource_drop(resource_id).await;
         resource_data
+    }
+
+    pub(crate) async fn stream_frame_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Poll<()> {
+        let mut store = self.store.lock().await;
+        store.data_mut().waker = Some(waker);
+        let frame_poll_result = self.fn_stream_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
+        drop(store);
+
+        match FuturePollResult::try_from(frame_poll_result).unwrap() {
+            FuturePollResult::Pending => Poll::Pending,
+            FuturePollResult::Ready => Poll::Ready(()),
+        }
     }
 
     pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) -> Option<HttpStreamFrame> {
@@ -734,4 +750,42 @@ pub enum FunctionFuturePollError {
     /// Function panicked when future poll was callled
     #[error("function panicked")]
     FunctionPanicked,
+}
+
+pub(crate) struct FunctionFramePollFuture {
+    instance: Rc<FunctionInstance>,
+    resource_id: FunctionResourceId,
+
+    inner_poll_future: Option<LocalBoxFuture<'static, Poll<()>>>,
+}
+
+impl Future for FunctionFramePollFuture {
+    type Output = ();
+
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let inner_poll_future = std::mem::replace(&mut self.inner_poll_future, None);
+
+        let mut inner_poll_future = match inner_poll_future {
+            Some(v) => v,
+            None => {
+                let instance = self.instance.clone();
+                let resource_id = self.resource_id.clone();
+                async move {
+                    let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+                    instance.stream_frame_poll(&resource_id, waker).await
+                }.boxed_local()
+            },
+        };
+
+        let result = match inner_poll_future.poll_unpin(cx) {
+            Poll::Pending => {
+                self.inner_poll_future = Some(inner_poll_future);
+                Poll::Pending
+            },
+            Poll::Ready(Poll::Pending) => Poll::Pending,
+            Poll::Ready(Poll::Ready(())) => Poll::Ready(()),
+        };
+
+        result
+    }
 }
