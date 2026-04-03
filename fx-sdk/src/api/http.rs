@@ -171,7 +171,7 @@ impl DeserializeHostResource for HttpRequestData {
                 abi_http_capnp::http_body::body::Which::Empty(_) => None,
                 abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
                 abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
-                abi_http_capnp::http_body::body::Which::Stream(_) => todo!(),
+                abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
             },
         }
     }

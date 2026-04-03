@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     crate::{
         function::abi::{capnp, abi_http_capnp},
-        resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId, resource::OwnedFunctionResourceId},
+        resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId, resource::OwnedFunctionResourceId, FunctionResourceId},
         triggers::http::{HttpBody, FunctionResourceReader},
     },
 };
@@ -181,6 +181,14 @@ pub enum HttpStreamError {
 
 impl DeserializeFunctionResource for HttpBody {
     fn deserialize(resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Self {
-        todo!()
+        let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
+        let http_body = message_reader.get_root::<abi_http_capnp::http_body::Reader>().unwrap();
+
+        match http_body.get_body().which().unwrap() {
+            abi_http_capnp::http_body::body::Which::Empty(_) => todo!(),
+            abi_http_capnp::http_body::body::Which::Bytes(_) => todo!(),
+            abi_http_capnp::http_body::body::Which::FunctionStream(v) => Self::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::new(v))),
+            abi_http_capnp::http_body::body::Which::HostResource(_) => todo!(),
+        }
     }
 }

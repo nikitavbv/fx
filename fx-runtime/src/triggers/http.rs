@@ -142,6 +142,10 @@ impl HttpBody {
         Self(HttpBodyInner::FunctionResource(SendWrapper::new(RefCell::new(FunctionResourceReader::Resource(resource)))))
     }
 
+    pub fn for_function_stream(resource: OwnedFunctionResourceId) -> Self {
+        Self(HttpBodyInner::FunctionStream(SendWrapper::new(RefCell::new(Some(FunctionStreamReader::new(resource))))))
+    }
+
     pub fn for_stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
         Self(HttpBodyInner::Stream(stream))
     }
@@ -159,6 +163,13 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionResourceV2(_) => todo!(),
+            HttpBodyInner::FunctionStream(resource) => {
+                let reader = resource.replace(None).unwrap();
+                let (next_reader, frame) = reader.poll_frame();
+                resource.replace(next_reader);
+
+                frame.map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v)))))
+            },
             HttpBodyInner::FunctionResource(resource) => {
                 let reader = resource.replace(FunctionResourceReader::Empty);
 
@@ -182,6 +193,7 @@ pub(crate) enum HttpBodyInner {
     Empty,
     Full(SendWrapper<RefCell<Option<Bytes>>>),
     FunctionResourceV2(SendWrapper<RefCell<SerializedFunctionResource<HttpBodyInner>>>),
+    FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
     FunctionResource(SendWrapper<RefCell<FunctionResourceReader>>),
     FunctionResourcePartiallyRead {
         reader: SendWrapper<FunctionResourceReader>,
@@ -233,6 +245,37 @@ pub(crate) enum FunctionResourceReader {
     },
     // HttpBody is stream living on host
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
+}
+
+pub(crate) enum FunctionStreamReader {
+    Init(OwnedFunctionResourceId),
+    FramePollFuture {
+        instance: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+        future: LocalBoxFuture<'static, Poll<()>>,
+    },
+}
+
+impl FunctionStreamReader {
+    fn new(resource: OwnedFunctionResourceId) -> Self {
+        Self::Init(resource)
+    }
+
+    fn poll_frame(self) -> (Option<Self>, Poll<Option<Vec<u8>>>) {
+        match self {
+            Self::Init(resource_id) => {
+                let (instance, resource_id) = resource_id.consume();
+                let future = todo!();
+
+                Self::FramePollFuture {
+                    instance,
+                    resource_id,
+                    future,
+                }.poll_frame()
+            },
+            Self::FramePollFuture { instance, resource_id, future } => todo!(),
+        }
+    }
 }
 
 pub struct FetchRequestHeader {
