@@ -10,7 +10,13 @@ use {
     rand::TryRngCore,
     crate::{
         function::instance::FunctionInstanceState,
-        resources::{Resource, ResourceId, serialize::SerializableResource, future::FutureResource, FunctionResourceId},
+        resources::{
+            Resource,
+            ResourceId,
+            serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
+            future::FutureResource,
+            FunctionResourceId,
+        },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
@@ -476,7 +482,9 @@ pub(super) fn fx_fetch_handler(
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming
                     let body = response.body.replace(None).unwrap();
-                    let body = HttpBody::for_function_resource(body);
+                    let (instance, body) = body.consume();
+                    let body = DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body));
+                    let body = body.copy_to_host().await;
 
                     let http_response = ::http::Response::builder()
                         .status(response.status)

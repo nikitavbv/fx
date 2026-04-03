@@ -12,7 +12,7 @@ use {
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
-            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame, poll_function_resource_reader_frame},
+            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame},
             kv::KvSubscriptionResource,
         },
         tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
@@ -253,9 +253,6 @@ impl FunctionInstance {
                     HttpBodyInner::Empty => todo!(),
                     HttpBodyInner::FunctionResourceV2(_) => todo!(),
                     HttpBodyInner::FunctionStream(_) => todo!(),
-                    HttpBodyInner::FunctionResource(_) => todo!(),
-                    HttpBodyInner::FunctionResourcePartiallyRead { .. } => todo!(),
-                    HttpBodyInner::FunctionResourcePartiallyReadSerialized { .. } => todo!(),
                     HttpBodyInner::Stream(v) => HttpStreamFrame::Stream(v),
                     HttpBodyInner::StreamPartiallyRead { .. } => todo!(),
                     HttpBodyInner::StreamPartiallyReadSerialized { .. } => todo!(),
@@ -466,30 +463,7 @@ impl FunctionInstanceState {
                 },
                 HttpBodyInner::Full(_) => todo!(),
                 HttpBodyInner::FunctionResourceV2(_) => todo!(),
-                HttpBodyInner::FunctionStream(_) => todo!(),
-                HttpBodyInner::FunctionResource(_) => todo!(),
-                HttpBodyInner::FunctionResourcePartiallyRead { reader, frame } => {
-                    let frame_serialized = {
-                        let mut message = capnp::message::Builder::new_default();
-                        let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
-                        let mut serialized_frame = serialized_frame.init_frame();
-
-                        serialized_frame.set_bytes(&frame.to_vec());
-
-                        capnp::serialize::write_message_to_words(&message)
-                    };
-                    let serialized_size = frame_serialized.len();
-
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } )), serialized_size)
-                },
-                HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } => {
-                    let serialized_size = frame_serialized.len();
-
-                    (
-                        Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized })),
-                        serialized_size
-                    )
-                },
+                HttpBodyInner::FunctionStream(_) => todo!(), // note that we are trying to access different function resource here, so copying will be needed
                 HttpBodyInner::Stream(_) => todo!(),
                 HttpBodyInner::StreamPartiallyRead { stream, frame } => {
                     let frame_serialized = {
@@ -638,29 +612,6 @@ impl FunctionInstanceState {
                 HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(),
                 HttpBodyInner::FunctionResourceV2(_) => todo!(),
                 HttpBodyInner::FunctionStream(_) => todo!(),
-                HttpBodyInner::FunctionResource(v) => match v.take().into_inner() {
-                    FunctionResourceReader::Empty => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
-                    FunctionResourceReader::Stream(_) => todo!(),
-
-                    reader => {
-                        let (reader, poll_result) = poll_function_resource_reader_frame(reader, &mut cx);
-                        match poll_result {
-                            Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResource(
-                                SendWrapper::new(RefCell::new(reader)),
-                            ))), Poll::Pending),
-                            Poll::Ready(None) => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
-                            Poll::Ready(Some(frame)) => (Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResourcePartiallyRead {
-                                reader: SendWrapper::new(reader),
-                                frame: frame.unwrap(),
-                            })), Poll::Ready(())),
-                        }
-                    },
-                },
-                HttpBodyInner::FunctionResourcePartiallyRead { reader, frame } => todo!(),
-                HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } => (
-                    Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized })),
-                    Poll::Ready(())
-                ),
                 HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
             Resource::KvSetResult(mut v) => {
@@ -734,17 +685,11 @@ impl FunctionInstanceState {
                 HttpBodyInner::Empty
                 | HttpBodyInner::Full(_)
                 | HttpBodyInner::Stream(_)
-                | HttpBodyInner::StreamPartiallyRead { .. }
-                | HttpBodyInner::FunctionResource(_)
-                | HttpBodyInner::FunctionResourcePartiallyRead { .. } => panic!("HttpBody has to be serialized first"),
+                | HttpBodyInner::StreamPartiallyRead { .. } => panic!("HttpBody has to be serialized first"),
                 HttpBodyInner::FunctionResourceV2(_) => todo!(),
                 HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream(stream)))), frame_serialized),
                 HttpBodyInner::FrameSerialized(v) => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Empty))), v),
-                HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } => (
-                    Some(Resource::HttpBody(HttpBody(HttpBodyInner::FunctionResource(SendWrapper::new(RefCell::new(reader.take())))))),
-                    frame_serialized
-                ),
             },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_)

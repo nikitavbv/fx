@@ -1,6 +1,6 @@
 use {
     std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
-    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream},
+    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
     send_wrapper::SendWrapper,
@@ -18,7 +18,7 @@ use {
             abi::{capnp, abi_http_capnp},
             instance::{FunctionInstance, FunctionFramePollFuture},
         },
-        effects::fetch::{HttpStreamFrame, poll_function_resource_reader_frame, HttpStreamError},
+        effects::fetch::{HttpStreamFrame, HttpStreamError},
     },
 };
 
@@ -138,10 +138,6 @@ impl HttpBody {
         Self(HttpBodyInner::Full(SendWrapper::new(RefCell::new(Some(bytes)))))
     }
 
-    pub fn for_function_resource(resource: OwnedFunctionResourceId) -> Self {
-        Self(HttpBodyInner::FunctionResource(SendWrapper::new(RefCell::new(FunctionResourceReader::Resource(resource)))))
-    }
-
     pub fn for_function_stream(resource: OwnedFunctionResourceId) -> Self {
         Self(HttpBodyInner::FunctionStream(SendWrapper::new(RefCell::new(Some(FunctionStreamReader::new(resource))))))
     }
@@ -156,10 +152,10 @@ impl hyper::body::Body for HttpBody {
     type Error = std::io::Error;
 
     fn poll_frame(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
-        match &self.0 {
+        match &mut self.0 {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionResourceV2(_) => todo!(),
@@ -170,18 +166,12 @@ impl hyper::body::Body for HttpBody {
 
                 frame.map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v)))))
             },
-            HttpBodyInner::FunctionResource(resource) => {
-                let reader = resource.replace(FunctionResourceReader::Empty);
-
-                let (reader, poll_result) = poll_function_resource_reader_frame(reader, cx);
-
-                resource.replace(reader);
-
-                poll_result.map(|v| v.map(|v| v.map(hyper::body::Frame::data)))
-            },
-            HttpBodyInner::FunctionResourcePartiallyRead { .. } => todo!(),
-            HttpBodyInner::FunctionResourcePartiallyReadSerialized { reader, frame_serialized } => todo!(),
-            HttpBodyInner::Stream(_) => todo!(),
+            HttpBodyInner::Stream(v) => v.poll_next_unpin(cx)
+                .map(|v| v.map(|v|
+                    v
+                        .map(|v| hyper::body::Frame::data(v))
+                        .map_err(|err| todo!())
+                )),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that has been serialized to be written to function"),
@@ -194,15 +184,6 @@ pub(crate) enum HttpBodyInner {
     Full(SendWrapper<RefCell<Option<Bytes>>>),
     FunctionResourceV2(SendWrapper<RefCell<SerializedFunctionResource<HttpBodyInner>>>),
     FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
-    FunctionResource(SendWrapper<RefCell<FunctionResourceReader>>),
-    FunctionResourcePartiallyRead {
-        reader: SendWrapper<FunctionResourceReader>,
-        frame: Bytes
-    },
-    FunctionResourcePartiallyReadSerialized {
-        reader: SendWrapper<FunctionResourceReader>,
-        frame_serialized: Vec<u8>,
-    },
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
     StreamPartiallyRead {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
@@ -286,6 +267,14 @@ impl FunctionStreamReader {
         }
 
         (Some(self), result)
+    }
+}
+
+impl Stream for FunctionStreamReader {
+    type Item = Vec<u8>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+        todo!()
     }
 }
 

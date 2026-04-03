@@ -5,8 +5,13 @@ use {
     thiserror::Error,
     crate::{
         function::abi::{capnp, abi_http_capnp},
-        resources::{serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource}, ResourceId, resource::OwnedFunctionResourceId, FunctionResourceId},
-        triggers::http::{HttpBody, FunctionResourceReader},
+        resources::{
+            serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource},
+            ResourceId,
+            resource::{OwnedFunctionResourceId, Resource},
+            FunctionResourceId,
+        },
+        triggers::http::{HttpBody, FunctionResourceReader, HttpBodyInner},
     },
 };
 
@@ -75,104 +80,6 @@ pub(crate) enum HttpStreamFrame {
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
-pub(crate) fn poll_function_resource_reader_frame(mut reader: FunctionResourceReader, cx: &mut std::task::Context<'_>) -> (
-    FunctionResourceReader,
-    Poll<Option<Result<Bytes, std::io::Error>>>,
-) {
-    // first of all, handle cases that do not involve reading from function
-    reader = match reader {
-        FunctionResourceReader::Empty => return (FunctionResourceReader::Empty, Poll::Ready(None)),
-        FunctionResourceReader::Stream(mut stream) => {
-            let frame = stream.poll_next_unpin(cx);
-            return (FunctionResourceReader::Stream(stream), frame.map_err(|_| {
-                todo!("unhandled error");
-            }));
-        },
-        other => other,
-    };
-
-    // if finished reading, then finish this body
-    reader = match reader {
-        FunctionResourceReader::Empty => return (reader, Poll::Ready(None)),
-        other => other,
-    };
-
-    // if there is a HttpBody resource we can start reading, let's read it to understand its type
-    todo!("HttpBody should be deserialized somewhere outside and this function should only be used for streams");
-
-    // previously: if there is a HttpBody resource we can start reading, let's request next frame
-    reader = match reader {
-        FunctionResourceReader::Resource(resource_id) => {
-            let (instance, resource_id) = resource_id.consume();
-
-            let mut next_frame_poll_future = {
-                let resource_id = resource_id.clone();
-                let instance = instance.clone();
-
-                async move {
-                    let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                    instance.future_poll(&resource_id, waker).await.unwrap()
-                }.boxed_local()
-            };
-
-            match next_frame_poll_future.poll_unpin(cx) {
-                Poll::Pending => {
-                    return (FunctionResourceReader::FramePollFuture {
-                        instance,
-                        resource_id,
-                        future: next_frame_poll_future,
-                    }, Poll::Pending);
-                },
-                Poll::Ready(Poll::Pending) => {
-                    return (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Pending);
-                },
-                Poll::Ready(Poll::Ready(_)) => FunctionResourceReader::FrameReadFuture {
-                    instance: instance.clone(),
-                    resource_id: resource_id.clone(),
-                    future: async move {
-                        instance.stream_frame_read(&resource_id).await
-                    }.boxed_local(),
-                },
-            }
-        },
-        FunctionResourceReader::FramePollFuture { instance, resource_id, mut future } => match future.poll_unpin(cx) {
-            Poll::Pending => return (FunctionResourceReader::FramePollFuture {
-                instance,
-                resource_id,
-                future,
-            }, Poll::Pending),
-            Poll::Ready(Poll::Pending) => return (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Pending),
-            Poll::Ready(Poll::Ready(_)) => FunctionResourceReader::FrameReadFuture {
-                instance: instance.clone(),
-                resource_id: resource_id.clone(),
-                future: async move {
-                    instance.stream_frame_read(&resource_id).await
-                }.boxed_local(),
-            },
-        },
-        other => other,
-    };
-
-    // if there is a frame we are currently reading, poll that
-    match reader {
-        FunctionResourceReader::FrameReadFuture { instance, resource_id, mut future } => match future.poll_unpin(cx) {
-            Poll::Pending => todo!(),
-            Poll::Ready(None) => (FunctionResourceReader::Empty, Poll::Ready(None)),
-            Poll::Ready(Some(HttpStreamFrame::Bytes(bytes))) => {
-                (FunctionResourceReader::Resource(OwnedFunctionResourceId::new(instance, resource_id)), Poll::Ready(Some(Ok(Bytes::from(bytes)))))
-            },
-            Poll::Ready(Some(HttpStreamFrame::Stream(mut stream))) => {
-                match stream.poll_next_unpin(cx) {
-                    Poll::Pending => (FunctionResourceReader::Stream(stream), Poll::Pending),
-                    Poll::Ready(None) => (FunctionResourceReader::Empty, Poll::Ready(None)),
-                    Poll::Ready(Some(frame)) => (FunctionResourceReader::Stream(stream), Poll::Ready(Some(Ok(frame.unwrap())))),
-                }
-            },
-        },
-        _ => unreachable!("didn't expect to get this reader state"),
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum HttpStreamError {
     #[error("failed to read fetch response stream")]
@@ -188,7 +95,17 @@ impl DeserializeFunctionResource for HttpBody {
             abi_http_capnp::http_body::body::Which::Empty(_) => todo!(),
             abi_http_capnp::http_body::body::Which::Bytes(_) => todo!(),
             abi_http_capnp::http_body::body::Which::FunctionStream(v) => Self::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::new(v))),
-            abi_http_capnp::http_body::body::Which::HostResource(_) => todo!(),
+            abi_http_capnp::http_body::body::Which::HostResource(v) => {
+                let resource_id = ResourceId::new(v);
+                let body = instance.store.try_lock().unwrap().data_mut().resource_remove(&resource_id);
+                match body {
+                    Resource::HttpBody(v) => match v.0 {
+                        HttpBodyInner::Stream(v) => Self::for_stream(v),
+                        other => todo!(),
+                    },
+                    other => todo!(),
+                }
+            },
         }
     }
 }
