@@ -100,7 +100,7 @@ pub extern "C" fn _fx_resource_drop(resource_id: u64) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn _fx_stream_frame_spoll(resource_id: u64) -> i64 {
+pub extern "C" fn _fx_stream_frame_poll(resource_id: u64) -> i64 {
     use std::task::{Context, Waker};
     let mut context = Context::from_waker(Waker::noop());
 
@@ -129,7 +129,11 @@ pub extern "C" fn _fx_stream_frame_spoll(resource_id: u64) -> i64 {
                         Poll::Ready(())
                     ),
                 },
-                _other => todo!(),
+                HttpBodyInner::PartiallyReadStream { stream, frame_serialized } => todo!(),
+                HttpBodyInner::Empty => todo!(),
+                HttpBodyInner::Bytes(_) => todo!(),
+                HttpBodyInner::HostResource(_) => todo!(),
+                HttpBodyInner::Serialized(_) => panic!("stream poll called for non-stream body!"),
             },
             _other => panic!("not a stream"),
         }

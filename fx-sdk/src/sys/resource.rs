@@ -318,12 +318,15 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
                     let serialized_size = serialized.len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized))), serialized_size)
                 },
-                HttpBodyInner::Stream(_) => {
+                HttpBodyInner::Stream(stream) => {
                     let mut message = capnp::message::Builder::new_default();
                     let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
                     let mut serialized_body = serialized_body.init_body();
 
-                    serialized_body.set_function_stream(resource_id.as_u64());
+                    let stream_resource_id = resources.insert(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))));
+                    let stream_resource_id = FunctionResourceId::new(stream_resource_id.data().as_ffi());
+
+                    serialized_body.set_function_stream(stream_resource_id.as_u64());
 
                     let serialized_body = capnp::serialize::write_message_to_words(&message);
                     let serialized_len = serialized_body.len();

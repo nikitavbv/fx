@@ -258,7 +258,8 @@ async fn async_simple() {
     let response = client.get("/test/sleep").send().await.unwrap();
     let total_time = (Instant::now() - started_at).as_secs();
 
-    assert!(response.status().is_success());
+    let status = response.status();
+    assert!(status.is_success(), "received response: {status:?}. Response body: {:?}", response.text().await.unwrap());
     assert!(total_time >= 2);
     assert!(total_time <= 4);
 }

@@ -198,6 +198,29 @@ impl FunctionInstance {
         }
     }
 
+    pub(crate) async fn stream_frame_read_v2(&self, resource_id: &FunctionResourceId) -> Option<Vec<u8>> {
+        let len = {
+            let mut store = self.store.lock().await;
+            self.fn_stream_frame_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize
+        };
+        let ptr = self.resource_serialized_ptr(resource_id).await as usize;
+
+        let frame_data = {
+            let store = self.store.lock().await;
+            let view = self.memory.data(store.as_context());
+            view[ptr..ptr+len].to_owned()
+        };
+
+        let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let response = reader.get_root::<abi_http_capnp::function_http_body_frame::Reader>().unwrap();
+
+        match response.get_body().which().unwrap() {
+            abi_http_capnp::function_http_body_frame::body::Which::StreamEnd(_) => None,
+            abi_http_capnp::function_http_body_frame::body::Which::Bytes(v) => Some(v.unwrap().to_vec()),
+            abi_http_capnp::function_http_body_frame::body::Which::HostResourceId(resource_id) => panic!("will be deprecated soon"),
+        }
+    }
+
     pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) -> Option<HttpStreamFrame> {
         let len = self.resource_serialize(resource_id).await as usize;
         let ptr = self.resource_serialized_ptr(resource_id).await as usize;
@@ -245,7 +268,7 @@ impl FunctionInstance {
         })
     }
 
-    async fn stream_advance(&self, resource_id: &FunctionResourceId) {
+    pub(crate) async fn stream_advance(&self, resource_id: &FunctionResourceId) {
         let mut store = self.store.lock().await;
         self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
@@ -757,6 +780,16 @@ pub(crate) struct FunctionFramePollFuture {
     resource_id: FunctionResourceId,
 
     inner_poll_future: Option<LocalBoxFuture<'static, Poll<()>>>,
+}
+
+impl FunctionFramePollFuture {
+    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+        Self {
+            instance,
+            resource_id,
+            inner_poll_future: None,
+        }
+    }
 }
 
 impl Future for FunctionFramePollFuture {

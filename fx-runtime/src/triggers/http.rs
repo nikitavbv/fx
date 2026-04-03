@@ -16,7 +16,7 @@ use {
             FunctionDeploymentId,
             deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
             abi::{capnp, abi_http_capnp},
-            instance::FunctionInstance,
+            instance::{FunctionInstance, FunctionFramePollFuture},
         },
         effects::fetch::{HttpStreamFrame, poll_function_resource_reader_frame, HttpStreamError},
     },
@@ -165,7 +165,7 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::FunctionResourceV2(_) => todo!(),
             HttpBodyInner::FunctionStream(resource) => {
                 let reader = resource.replace(None).unwrap();
-                let (next_reader, frame) = reader.poll_frame();
+                let (next_reader, frame) = reader.poll_frame(cx);
                 resource.replace(next_reader);
 
                 frame.map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v)))))
@@ -247,36 +247,45 @@ pub(crate) enum FunctionResourceReader {
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
-pub(crate) enum FunctionStreamReader {
-    Init(OwnedFunctionResourceId),
-    FramePollFuture {
-        instance: Rc<FunctionInstance>,
-        resource_id: FunctionResourceId,
-        future: LocalBoxFuture<'static, Poll<()>>,
-    },
+pub(crate) struct FunctionStreamReader {
+    function: Rc<FunctionInstance>,
+    resource_id: FunctionResourceId,
+    poll_future: Option<LocalBoxFuture<'static, Option<Vec<u8>>>>,
 }
 
 impl FunctionStreamReader {
     fn new(resource: OwnedFunctionResourceId) -> Self {
-        Self::Init(resource)
+        let (function, resource_id) = resource.consume();
+
+        Self {
+            function,
+            resource_id,
+            poll_future: None,
+        }
     }
 
-    fn poll_frame(self) -> (Option<Self>, Poll<Option<Vec<u8>>>) {
-        match self {
-            Self::Init(resource_id) => {
-                let (instance, resource_id) = resource_id.consume();
-                let future = async {
-                    todo!()
-                }.boxed_local();
+    fn poll_frame(mut self, context: &mut std::task::Context<'_>) -> (Option<Self>, Poll<Option<Vec<u8>>>) {
+        let mut poll_future = match std::mem::replace(&mut self.poll_future, None) {
+            Some(v) => v,
+            None => {
+                let function = self.function.clone();
+                let resource_id = self.resource_id.clone();
 
-                Self::FramePollFuture {
-                    instance,
-                    resource_id,
-                    future,
-                }.poll_frame()
+                async move {
+                    FunctionFramePollFuture::new(function.clone(), resource_id.clone()).await;
+                    let result = function.stream_frame_read_v2(&resource_id).await;
+                    function.stream_advance(&resource_id).await;
+                    result
+                }.boxed_local()
             },
-            Self::FramePollFuture { instance, resource_id, future } => todo!(),
+        };
+
+        let result = poll_future.poll_unpin(context);
+        if result.is_pending() {
+            self.poll_future = Some(poll_future);
         }
+
+        (Some(self), result)
     }
 }
 
