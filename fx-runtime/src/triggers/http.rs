@@ -1,6 +1,6 @@
 use {
     std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
-    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
+    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::{BoxStream, LocalBoxStream}, Stream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
     send_wrapper::SendWrapper,
@@ -159,13 +159,10 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionResourceV2(_) => todo!(),
-            HttpBodyInner::FunctionStream(resource) => {
-                let reader = resource.replace(None).unwrap();
-                let (next_reader, frame) = reader.poll_frame(cx);
-                resource.replace(next_reader);
-
-                frame.map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v)))))
-            },
+            HttpBodyInner::FunctionStream(resource) =>
+                resource.borrow_mut().as_mut().unwrap()
+                    .poll_frame(cx)
+                    .map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v))))),
             HttpBodyInner::Stream(v) => v.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
@@ -174,6 +171,9 @@ impl hyper::body::Body for HttpBody {
                 )),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
+            HttpBodyInner::StreamLocal(_) => todo!(),
+            HttpBodyInner::StreamLocalPartiallyRead { .. } => todo!(),
+            HttpBodyInner::StreamLocalPartiallyReadSerialized { .. } => todo!(),
             HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that has been serialized to be written to function"),
         }
     }
@@ -191,6 +191,15 @@ pub(crate) enum HttpBodyInner {
     },
     StreamPartiallyReadSerialized {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
+        frame_serialized: Vec<u8>,
+    },
+    StreamLocal(SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>),
+    StreamLocalPartiallyRead {
+        stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
+        frame: Result<Bytes, HttpStreamError>,
+    },
+    StreamLocalPartiallyReadSerialized {
+        stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
         frame_serialized: Vec<u8>,
     },
     FrameSerialized(Vec<u8>),
@@ -245,7 +254,7 @@ impl FunctionStreamReader {
         }
     }
 
-    fn poll_frame(mut self, context: &mut std::task::Context<'_>) -> (Option<Self>, Poll<Option<Vec<u8>>>) {
+    fn poll_frame(&mut self, context: &mut std::task::Context<'_>) -> Poll<Option<Vec<u8>>> {
         let mut poll_future = match std::mem::replace(&mut self.poll_future, None) {
             Some(v) => v,
             None => {
@@ -266,15 +275,15 @@ impl FunctionStreamReader {
             self.poll_future = Some(poll_future);
         }
 
-        (Some(self), result)
+        result
     }
 }
 
 impl Stream for FunctionStreamReader {
     type Item = Vec<u8>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
-        todo!()
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+        self.poll_frame(cx)
     }
 }
 
