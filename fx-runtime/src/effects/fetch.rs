@@ -93,7 +93,7 @@ impl DeserializeFunctionResource for HttpBody {
 
         match http_body.get_body().which().unwrap() {
             abi_http_capnp::http_body::body::Which::Empty(_) => todo!(),
-            abi_http_capnp::http_body::body::Which::Bytes(_) => todo!(),
+            abi_http_capnp::http_body::body::Which::Bytes(v) => Self::for_bytes(Bytes::copy_from_slice(v.unwrap())),
             abi_http_capnp::http_body::body::Which::FunctionStream(v) => Self::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::new(v))),
             abi_http_capnp::http_body::body::Which::HostResource(v) => {
                 let resource_id = ResourceId::new(v);
