@@ -212,60 +212,12 @@ impl FunctionInstance {
         };
 
         let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-        let response = reader.get_root::<abi_http_capnp::function_http_body_frame::Reader>().unwrap();
+        let response = reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
 
-        match response.get_body().which().unwrap() {
-            abi_http_capnp::function_http_body_frame::body::Which::StreamEnd(_) => None,
-            abi_http_capnp::function_http_body_frame::body::Which::Bytes(v) => Some(v.unwrap().to_vec()),
-            abi_http_capnp::function_http_body_frame::body::Which::HostResourceId(resource_id) => panic!("will be deprecated soon"),
+        match response.get_frame().which().unwrap() {
+            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
+            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
         }
-    }
-
-    pub(crate) async fn stream_frame_read(&self, resource_id: &FunctionResourceId) -> Option<HttpStreamFrame> {
-        let len = self.resource_serialize(resource_id).await as usize;
-        let ptr = self.resource_serialized_ptr(resource_id).await as usize;
-
-        let frame_data = {
-            let store = self.store.lock().await;
-            let view = self.memory.data(store.as_context());
-            view[ptr..ptr+len].to_owned()
-        };
-
-        self.stream_advance(resource_id).await;
-
-        let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-        let response = reader.get_root::<abi_http_capnp::function_http_body_frame::Reader>().unwrap();
-
-        Some(match response.get_body().which().unwrap() {
-            abi_http_capnp::function_http_body_frame::body::Which::StreamEnd(_) => return None,
-            abi_http_capnp::function_http_body_frame::body::Which::Bytes(v) => HttpStreamFrame::Bytes(v.unwrap().to_vec()),
-            abi_http_capnp::function_http_body_frame::body::Which::HostResourceId(resource_id) => match self.store.lock().await.data_mut().resource_remove(&ResourceId::new(resource_id)) {
-                Resource::FetchRequest(_)
-                | Resource::SqlMigrationResult(_)
-                | Resource::SqlQueryResult(_)
-                | Resource::SqlBatchResult(_)
-                | Resource::UnitFuture(_)
-                | Resource::BlobGetResult(_)
-                | Resource::KvSetResult(_)
-                | Resource::KvGetResult(_) => panic!("resource of this type cannot be used as http body"),
-                Resource::FetchResult(_) => todo!(),
-                Resource::HttpBody(v) => match v.0 {
-                    HttpBodyInner::Empty => todo!(),
-                    HttpBodyInner::FunctionResourceV2(_) => todo!(),
-                    HttpBodyInner::FunctionStream(_) => todo!(),
-                    HttpBodyInner::Stream(v) => HttpStreamFrame::Stream(v),
-                    HttpBodyInner::StreamPartiallyRead { .. } => todo!(),
-                    HttpBodyInner::StreamPartiallyReadSerialized { .. } => todo!(),
-                    HttpBodyInner::StreamLocal(_) => todo!(),
-                    HttpBodyInner::StreamLocalPartiallyRead { .. } => todo!(),
-                    HttpBodyInner::StreamLocalPartiallyReadSerialized { .. } => todo!(),
-                    HttpBodyInner::Full(_) => todo!(),
-                    HttpBodyInner::FrameSerialized(_) => panic!("cannot read frame that was serialized to write to function"),
-                },
-                Resource::RequestBody(_) => todo!(),
-                Resource::KvSubscription(_) => todo!(),
-            },
-        })
     }
 
     pub(crate) async fn stream_advance(&self, resource_id: &FunctionResourceId) {

@@ -46,14 +46,6 @@ struct HttpResponse {
     bodyResourceId @1 :UInt64;
 }
 
-struct FunctionHttpBodyFrame {
-    body :union {
-        streamEnd @0 :Void;
-        bytes @1 :Data;
-        hostResourceId @2 :UInt64;
-    }
-}
-
 struct FunctionResponse {
     status @0 :UInt16;
     headers @2 :List(HttpHeader);
