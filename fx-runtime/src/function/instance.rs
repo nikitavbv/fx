@@ -12,7 +12,7 @@ use {
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
-            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamFrame, HttpStreamError},
+            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamError},
             kv::KvSubscriptionResource,
         },
         tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
@@ -24,7 +24,7 @@ use {
             future::FutureResource,
             serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource},
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner, FunctionResourceReader},
+        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner},
     },
     super::FunctionId,
 };

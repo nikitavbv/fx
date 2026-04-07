@@ -18,7 +18,7 @@ use {
             abi::{capnp, abi_http_capnp},
             instance::{FunctionInstance, FunctionFramePollFuture},
         },
-        effects::fetch::{HttpStreamFrame, HttpStreamError},
+        effects::fetch::HttpStreamError,
     },
 };
 
@@ -209,32 +209,6 @@ impl DeserializeFunctionResource for HttpBodyInner {
     fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
         todo!()
     }
-}
-
-pub(crate) enum FunctionResourceReader {
-    // HttpBody is empty or we finished reading it
-    Empty,
-    // HttpBody is a resource on function side, no frame is in progress of being read
-    Resource(OwnedFunctionResourceId),
-    ResourceReadFuture {
-        instance: Rc<FunctionInstance>,
-        resource_id: FunctionResourceId,
-        future: LocalBoxFuture<'static, ()>,
-    },
-    // polling next frame of HttpBody stream
-    FramePollFuture {
-        instance: Rc<FunctionInstance>,
-        resource_id: FunctionResourceId,
-        future: LocalBoxFuture<'static, Poll<()>>,
-    },
-    // frame is ready, reading it now
-    FrameReadFuture {
-        instance: Rc<FunctionInstance>,
-        resource_id: FunctionResourceId,
-        future: LocalBoxFuture<'static, Option<HttpStreamFrame>>,
-    },
-    // HttpBody is stream living on host
-    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
 pub(crate) struct FunctionStreamReader {

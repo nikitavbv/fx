@@ -1,6 +1,4 @@
 use {
-    std::task::Poll,
-    futures::{stream::BoxStream, FutureExt, StreamExt},
     hyper::body::Bytes,
     thiserror::Error,
     crate::{
@@ -11,7 +9,7 @@ use {
             resource::{OwnedFunctionResourceId, Resource},
             FunctionResourceId,
         },
-        triggers::http::{HttpBody, FunctionResourceReader, HttpBodyInner},
+        triggers::http::{HttpBody, HttpBodyInner},
     },
 };
 
@@ -73,11 +71,6 @@ impl SerializeResource for FetchResultWithBodyResource {
 
         capnp::serialize::write_message_to_words(&message)
     }
-}
-
-pub(crate) enum HttpStreamFrame {
-    Bytes(Vec<u8>),
-    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
 #[derive(Error, Debug)]
