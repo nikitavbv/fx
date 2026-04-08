@@ -6,7 +6,7 @@ use {
     send_wrapper::SendWrapper,
     crate::{
         resources::{
-            serialize::{SerializeResource, SerializedFunctionResource, DeserializeFunctionResource, DeserializableResource},
+            serialize::{SerializeResource, SerializedFunctionResource, DeserializeFunctionResource, DeserializableResource, SerializableResource},
             ResourceId,
             resource::OwnedFunctionResourceId,
             FunctionResourceId,
@@ -182,16 +182,11 @@ impl hyper::body::Body for HttpBody {
 pub(crate) enum HttpBodyInner {
     Empty,
     Full(SendWrapper<RefCell<Option<Bytes>>>),
-    FunctionResourceV2(SendWrapper<RefCell<SerializedFunctionResource<HttpBodyInner>>>),
     FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
     StreamPartiallyRead {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame: Result<Bytes, HttpStreamError>,
-    },
-    StreamPartiallyReadSerialized {
-        stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame_serialized: Vec<u8>,
+        frame: SerializableResource<Result<Bytes, HttpStreamError>>,
     },
     StreamLocal(SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>),
     StreamLocalPartiallyRead {
