@@ -428,7 +428,6 @@ impl FunctionInstanceState {
                         frame,
                     })), serialized_size)
                 },
-                HttpBodyInner::StreamPartiallyReadSerialized { .. } => todo!(),
                 HttpBodyInner::StreamLocal(_) => todo!(),
                 HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => {
                     let frame_serialized = {
@@ -567,15 +566,13 @@ impl FunctionInstanceState {
                         Poll::Ready(Some(frame)) => (
                             Resource::HttpBody(HttpBody(HttpBodyInner::StreamPartiallyRead {
                                 stream,
-                                frame,
+                                frame: SerializableResource::Raw(frame),
                             })),
                             Poll::Ready(()),
                         ),
                     }
                 },
                 HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(),
-                HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(),
-                HttpBodyInner::FunctionResourceV2(_) => todo!(),
                 HttpBodyInner::FunctionStream(stream) => {
                     let mut stream = stream.replace(None).unwrap()
                         .map(|v| Result::<_, HttpStreamError>::Ok(hyper::body::Bytes::from(v)))

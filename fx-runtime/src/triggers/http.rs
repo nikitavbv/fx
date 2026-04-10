@@ -170,7 +170,6 @@ impl hyper::body::Body for HttpBody {
                         .map_err(|err| todo!())
                 )),
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
-            HttpBodyInner::StreamPartiallyReadSerialized { stream, frame_serialized } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamLocal(_) => todo!(),
             HttpBodyInner::StreamLocalPartiallyRead { .. } => todo!(),
             HttpBodyInner::StreamLocalPartiallyReadSerialized { .. } => todo!(),

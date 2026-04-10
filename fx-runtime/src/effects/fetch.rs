@@ -102,3 +102,15 @@ impl DeserializeFunctionResource for HttpBody {
         }
     }
 }
+
+impl SerializeResource for Result<hyper::body::Bytes, HttpStreamError> {
+    fn serialize(self) -> Vec<u8> {
+        let mut message = capnp::message::Builder::new_default();
+        let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
+        let mut serialized_frame = serialized_frame.init_frame();
+
+        serialized_frame.set_bytes(&self.unwrap().to_vec());
+
+        capnp::serialize::write_message_to_words(&message)
+    }
+}
