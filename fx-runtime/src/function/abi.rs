@@ -601,7 +601,7 @@ pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<
     caller.data_mut().metrics.counter_increment(MetricId::from_abi(counter_id), delta);
 }
 
-pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64) -> u64 {
+pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64) -> i64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -612,7 +612,10 @@ pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
 
-    caller.data().env.get(key).unwrap().len() as u64
+    match caller.data().env.get(key) {
+        Some(value) => value.len() as i64,
+        None => -1,
+    }
 }
 
 pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) {
@@ -626,7 +629,10 @@ pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
 
-    let value = state.env.get(key).unwrap();
+    let value = match state.env.get(key) {
+        Some(value) => value,
+        None => return,
+    };
     {
         let ptr = value_addr as usize;
         let len = value.len();

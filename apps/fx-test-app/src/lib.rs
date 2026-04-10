@@ -514,7 +514,7 @@ async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>>
 }
 
 async fn env_simple() -> &'static str {
-    let value = env::get("test-env-var");
+    let value = env::get("test-env-var").unwrap();
     assert_eq!("test value", value);
     "ok."
 }
