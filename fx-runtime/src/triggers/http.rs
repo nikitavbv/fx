@@ -158,7 +158,6 @@ impl hyper::body::Body for HttpBody {
         match &mut self.0 {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
-            HttpBodyInner::FunctionResourceV2(_) => todo!(),
             HttpBodyInner::FunctionStream(resource) =>
                 resource.borrow_mut().as_mut().unwrap()
                     .poll_frame(cx)
