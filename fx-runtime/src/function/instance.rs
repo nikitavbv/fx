@@ -683,8 +683,7 @@ impl FunctionInstanceState {
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Empty
                 | HttpBodyInner::Full(_)
-                | HttpBodyInner::Stream(_)
-                | HttpBodyInner::StreamPartiallyRead { .. } => panic!("HttpBody has to be serialized first"),
+                | HttpBodyInner::Stream(_) => panic!("HttpBody has to be serialized first"),
                 HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::StreamPartiallyRead { stream, frame } => (
                     Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream(stream)))),

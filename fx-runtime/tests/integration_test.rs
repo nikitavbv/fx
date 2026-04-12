@@ -265,7 +265,7 @@ async fn async_simple() {
 }
 
 #[tokio::test]
-async fn async_conurrent() {
+async fn async_concurrent() {
     let client = init_fx_server().await;
 
     let started_at = Instant::now();
