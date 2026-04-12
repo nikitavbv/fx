@@ -43,7 +43,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
         req.with_uri("http://localhost:8080/test/http/uri-overwritten".parse().unwrap())
     } else if req.uri().path().starts_with("/test/fetch/body-passthrough") {
         let body = req.body().unwrap();
-        return fetch(req.with_uri("https://httpbin.org/post".parse().unwrap()).with_body(body)).await.unwrap();
+        return fetch(req.with_uri("https://httpbin.org/post".parse().unwrap()).with_body(body).without_header(&axum::http::header::HOST)).await.unwrap();
     } else {
         req
     };
@@ -77,6 +77,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/fetch", get(test_fetch))
             .route("/test/fetch/post", get(test_fetch_post))
             .route("/test/fetch/query", get(test_fetch_query))
+            .route("/test/fetch/with-header", get(test_fetch_with_header))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -432,6 +433,13 @@ async fn test_fetch_query() -> HttpBody {
     ).await.unwrap();
 
     response.into_body()
+}
+
+async fn test_fetch_with_header() -> HttpBody {
+    fetch(
+        HttpRequest::get("https://httpbin.org/headers").unwrap()
+            .with_header("x-custom-header".parse().unwrap(), "custom-value".parse().unwrap())
+    ).await.unwrap().into_body()
 }
 
 async fn test_log() -> &'static str {

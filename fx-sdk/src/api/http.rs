@@ -100,6 +100,16 @@ impl HttpRequest {
         &self.request_data().headers
     }
 
+    pub fn with_header(mut self, name: HeaderName, value: HeaderValue) -> Self {
+        self.request_data_mut().headers.insert(name, value);
+        self
+    }
+
+    pub fn without_header(mut self, name: &HeaderName) -> Self {
+        self.request_data_mut().headers.remove(name);
+        self
+    }
+
     pub fn with_body(mut self, body: impl IntoHttpBody) -> Self {
         self.request_data_mut().body = Some(body.into_http_body().0);
         self
@@ -405,6 +415,16 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
             other => todo!("http method not supported: {other:?}"),
         });
         fetch.set_uri(request.uri().to_string());
+
+        let headers = request.headers();
+        {
+            let mut capnp_headers = fetch.reborrow().init_headers(headers.len() as u32);
+            for (i, (name, value)) in headers.iter().enumerate() {
+                let mut h = capnp_headers.reborrow().get(i as u32);
+                h.set_name(name.as_str());
+                h.set_value(value.to_str().unwrap());
+            }
+        }
 
         let mut request_body = fetch.init_body().init_body();
         match request.body() {

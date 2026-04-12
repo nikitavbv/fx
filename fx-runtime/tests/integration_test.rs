@@ -378,6 +378,17 @@ async fn fetch_query() {
 }
 
 #[tokio::test]
+async fn fetch_with_header() {
+    let client = init_fx_server().await;
+
+    let result = client.get("/test/fetch/with-header").send().await.unwrap();
+    assert!(result.status().is_success());
+    let result = result.text().await.unwrap();
+    assert!(result.contains("X-Custom-Header"));
+    assert!(result.contains("custom-value"));
+}
+
+#[tokio::test]
 async fn log() {
     let client = init_fx_server().await;
 

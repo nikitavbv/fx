@@ -464,14 +464,16 @@ pub(super) fn fx_fetch_handler(
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
     if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
+        let mut http_builder = http::Request::builder()
+            .method(request_method)
+            .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap());
+        for header in request.get_headers().unwrap().into_iter() {
+            let name = header.get_name().unwrap().to_str().unwrap();
+            let value = header.get_value().unwrap().to_str().unwrap();
+            http_builder = http_builder.header(name, value);
+        }
         let header = FetchRequestHeader::from_http_parts(
-            http::Request::builder()
-                .method(request_method)
-                .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap())
-                .body(())
-                .unwrap()
-                .into_parts()
-                .0
+            http_builder.body(()).unwrap().into_parts().0
         );
         let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
@@ -501,6 +503,12 @@ pub(super) fn fx_fetch_handler(
             request_method,
             request_uri
         );
+
+        for header in request.get_headers().unwrap().into_iter() {
+            let name = header.get_name().unwrap().to_str().unwrap();
+            let value = header.get_value().unwrap().to_str().unwrap();
+            fetch_request.headers_mut().insert(name.parse::<http::header::HeaderName>().unwrap(), value.parse::<http::header::HeaderValue>().unwrap());
+        }
 
         match request.get_body().unwrap().get_body().which().unwrap() {
             abi_http_capnp::http_body::body::Which::Empty(_) => {},
