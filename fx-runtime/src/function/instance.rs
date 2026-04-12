@@ -430,20 +430,14 @@ impl FunctionInstanceState {
                 },
                 HttpBodyInner::StreamLocal(_) => todo!(),
                 HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => {
-                    let frame_serialized = {
-                        let mut message = capnp::message::Builder::new_default();
-                        let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
-                        let mut serialized_frame = serialized_frame.init_frame();
+                    let frame = frame.map_to_serialized();
+                    let serialized_size = frame.serialized_size();
 
-                        serialized_frame.set_bytes(&frame.unwrap().to_vec());
-
-                        capnp::serialize::write_message_to_words(&message)
-                    };
-                    let serialized_size = frame_serialized.len();
-
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyReadSerialized { stream, frame_serialized })), serialized_size)
+                    (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyRead {
+                        stream,
+                        frame,
+                    })), serialized_size)
                 },
-                HttpBodyInner::StreamLocalPartiallyReadSerialized { .. } => todo!(),
                 HttpBodyInner::FrameSerialized(v) => {
                     let serialized_len = v.len();
                     (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
@@ -588,7 +582,7 @@ impl FunctionInstanceState {
                         Poll::Ready(Some(frame)) => (
                             Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyRead {
                                 stream,
-                                frame,
+                                frame: SerializableResource::Raw(frame),
                             })),
                             Poll::Ready(()),
                         ),
@@ -603,14 +597,13 @@ impl FunctionInstanceState {
                         Poll::Ready(Some(frame)) => (
                             Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyRead {
                                 stream,
-                                frame,
+                                frame: SerializableResource::Raw(frame),
                             })),
                             Poll::Ready(()),
                         ),
                     }
                 },
                 HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => todo!(),
-                HttpBodyInner::StreamLocalPartiallyReadSerialized { .. } => todo!(),
                 HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
             Resource::KvSetResult(mut v) => {
@@ -690,8 +683,10 @@ impl FunctionInstanceState {
                     frame.into_serialized()
                 ),
                 HttpBodyInner::StreamLocal(_) => todo!(),
-                HttpBodyInner::StreamLocalPartiallyRead { .. } => todo!(),
-                HttpBodyInner::StreamLocalPartiallyReadSerialized { stream, frame_serialized } => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal(stream)))), frame_serialized),
+                HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => (
+                    Some(Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal(stream)))),
+                    frame.into_serialized()
+                ),
                 HttpBodyInner::FrameSerialized(v) => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Empty))), v),
             },
             Resource::KvSubscription(v) => match v {

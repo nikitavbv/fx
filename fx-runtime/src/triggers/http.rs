@@ -171,7 +171,6 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamLocal(_) => todo!(),
             HttpBodyInner::StreamLocalPartiallyRead { .. } => todo!(),
-            HttpBodyInner::StreamLocalPartiallyReadSerialized { .. } => todo!(),
             HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that has been serialized to be written to function"),
         }
     }
@@ -189,11 +188,7 @@ pub(crate) enum HttpBodyInner {
     StreamLocal(SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>),
     StreamLocalPartiallyRead {
         stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
-        frame: Result<Bytes, HttpStreamError>,
-    },
-    StreamLocalPartiallyReadSerialized {
-        stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
-        frame_serialized: Vec<u8>,
+        frame: SerializableResource<Result<Bytes, HttpStreamError>>,
     },
     FrameSerialized(Vec<u8>),
 }
