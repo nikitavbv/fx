@@ -269,6 +269,7 @@ impl DefinitionsMonitor {
             .map(|v| CronTrigger {
                 id: format!("{}::{}", function_id.as_str(), v.id),
                 schedule: cron::Schedule::from_str(&v.schedule).unwrap(),
+                endpoint: v.endpoint.clone(),
             })
             .collect::<Vec<_>>();
 

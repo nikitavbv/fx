@@ -163,6 +163,16 @@ impl FunctionConfig {
         self
     }
 
+    pub fn with_trigger_cron_config(mut self, config: FunctionCronTriggerConfig) -> Self {
+        if self.triggers.is_none() {
+            self.triggers = Some(FunctionTriggersConfig::new());
+        }
+
+        self.triggers = self.triggers.map(|v| v.with_cron_config(config));
+
+        self
+    }
+
     /// Used to configure server externally, for example, in integration tests.
     #[allow(dead_code)]
     pub fn with_binding_blob(mut self, id: String, bucket: String) -> Self {
@@ -259,8 +269,12 @@ impl FunctionTriggersConfig {
         self
     }
 
-    pub fn with_cron(mut self, id: String, schedule: String) -> Self {
-        self.cron = Some(vec![FunctionCronTriggerConfig::new(id, schedule)]);
+    pub fn with_cron(self, id: String, schedule: String) -> Self {
+        self.with_cron_config(FunctionCronTriggerConfig::new(id, schedule))
+    }
+
+    pub fn with_cron_config(mut self, config: FunctionCronTriggerConfig) -> Self {
+        self.cron.get_or_insert(Vec::new()).push(config);
         self
     }
 }
@@ -282,14 +296,21 @@ impl FunctionHttpEndpointConfig {
 pub struct FunctionCronTriggerConfig {
     pub id: String,
     pub schedule: String,
+    pub endpoint: Option<String>,
 }
 
 impl FunctionCronTriggerConfig {
-    fn new(id: String, schedule: String) -> Self {
+    pub fn new(id: String, schedule: String) -> Self {
         Self {
             id,
             schedule,
+            endpoint: None,
         }
+    }
+
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
     }
 }
 

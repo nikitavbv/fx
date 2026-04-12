@@ -22,6 +22,8 @@ struct CronTask {
     task_id: String,
     function_id: FunctionId,
     schedule: cron::Schedule,
+
+    endpoint: Option<String>,
 }
 
 pub(crate) fn run_cron_task(
@@ -57,6 +59,7 @@ pub(crate) fn run_cron_task(
                                 task_id: trigger.id,
                                 function_id: function_id.clone(),
                                 schedule: trigger.schedule,
+                                endpoint: trigger.endpoint,
                             }).chain(tasks.into_iter()).collect();
                         },
                     }
@@ -81,12 +84,12 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
         workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
             http::Request::builder()
                 .method(http::Method::GET)
-                .uri("/_fx/cron")
+                .uri(task.endpoint.as_ref().map(|v| v.as_str()).unwrap_or("/_fx/cron"))
                 .body(())
                 .unwrap()
                 .into_parts()
                 .0
-        })).await;
+        })).await.unwrap();
 
         database.update_run_time(&task.task_id, Utc::now());
     }

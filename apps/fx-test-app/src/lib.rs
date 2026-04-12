@@ -83,6 +83,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/metrics/counter-with-labels-increment", get(test_metrics_counter_with_labels_increment))
             .route("/test/unknown-import", get(test_unknown_import))
             .route("/test/cron", get(read_cron_status))
+            .route("/test/cron/custom-endpoint", get(read_cron_custom_endpoint_status))
             .route("/test/rpc/simple", get(rpc_simple))
             .route("/test/stream/sse", get(test_stream_sse))
             .route("/test/env/simple", get(env_simple))
@@ -95,6 +96,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/limits/memory", get(test_limits_memory))
             .route("/test/limits/cpu-preemption", get(test_cpu_preemption))
             .route("/_fx/cron", get(handle_cron))
+            .route("/_fx/cron/custom-endpoint-for-task", get(handle_cron_custom_endpoint_for_task))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
         req
@@ -474,6 +476,17 @@ async fn handle_cron() -> String {
     }
 }
 
+async fn handle_cron_custom_endpoint_for_task() -> String {
+    let database = cron_database().await;
+    database.exec(SqlQuery::new("insert into test_cron_custom_endpoint_state (v) values (1)")).await.unwrap();
+    let result = database.exec(SqlQuery::new("select sum(v) from test_cron_custom_endpoint_state")).await.unwrap().into_rows()
+        .into_iter().next().unwrap();
+    match &result.columns[0] {
+        SqlValue::Integer(v) => v.to_string(),
+        other => panic!("unexpected result type: {other:?}"),
+    }
+}
+
 async fn read_cron_status() -> String {
     let database = cron_database().await;
     let result = database.exec(SqlQuery::new("select sum(v) from test_cron_state")).await.unwrap().into_rows()
@@ -484,10 +497,21 @@ async fn read_cron_status() -> String {
     }
 }
 
+async fn read_cron_custom_endpoint_status() -> String {
+    let database = cron_database().await;
+    let result = database.exec(SqlQuery::new("select sum(v) from test_cron_custom_endpoint_state")).await.unwrap().into_rows()
+        .into_iter().next().unwrap();
+    match &result.columns[0] {
+        SqlValue::Integer(v) => format!("cron with custom endpoint: {}", v),
+        other => panic!("unexpected result type: {other:?}"),
+    }
+}
+
 async fn cron_database() -> SqlDatabase {
     let database = fx_sdk::sql("cron-test");
     Migrations::new()
         .with_migration(Migration::new("create table test_cron_state (v integer not null)"))
+        .with_migration(Migration::new("create table test_cron_custom_endpoint_state (v integer not null)"))
         .run(&database)
         .await
         .unwrap();

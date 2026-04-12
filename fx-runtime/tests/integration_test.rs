@@ -19,6 +19,7 @@ use {
             FunctionBindingConfig,
             LimitsConfig,
             IntrospectionConfig,
+            FunctionCronTriggerConfig,
         },
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
@@ -578,6 +579,37 @@ async fn cron_simple() {
 }
 
 #[tokio::test]
+async fn cron_custom_endpoint() {
+    let client = init_fx_server().await;
+
+    let result1 = client.get("/test/cron/custom-endpoint").send().await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(result1.contains("cron with custom endpoint:"));
+    let result1 = result1
+        .replace("cron with custom endpoint: ", "")
+        .parse::<u64>()
+        .unwrap();
+
+    sleep(Duration::from_secs(4)).await;
+
+    let result2 = client.get("/test/cron/custom-endpoint").send().await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(result2.contains("cron with custom endpoint:"));
+    let result2 = result2
+        .replace("cron with custom endpoint: ", "")
+        .parse::<u64>()
+        .unwrap();
+
+    assert!(result2 >= result1 + 3); // in 4 seconds we expect cron job to run three times
+}
+
+#[tokio::test]
 async fn rpc_simple() {
     let client = init_fx_server().await;
 
@@ -865,6 +897,7 @@ async fn init_fx_server() -> TestClient {
                             .with_env("test-env-var".to_owned(), "test value".to_owned())
                             .with_trigger_http(None)
                             .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
+                            .with_trigger_cron_config(FunctionCronTriggerConfig::new("test-cron-job-custom-endpoint".to_owned(),  "* * * * * *".to_owned()).with_endpoint("/_fx/cron/custom-endpoint-for-task"))
                             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                             .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
                             .with_binding_sql_config(SqlBindingConfig::new("app".to_owned(), "app".to_owned(), true))
