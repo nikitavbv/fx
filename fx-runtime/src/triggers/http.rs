@@ -143,7 +143,7 @@ impl HttpBody {
     }
 
     pub fn for_stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
-        Self(HttpBodyInner::Stream { stream, frame: RefCell::new(None) })
+        Self(HttpBodyInner::Stream { stream, frame: None })
     }
 }
 
@@ -162,13 +162,12 @@ impl hyper::body::Body for HttpBody {
                 resource.borrow_mut().as_mut().unwrap()
                     .poll_frame(cx)
                     .map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v))))),
-            HttpBodyInner::Stream(v) => v.poll_next_unpin(cx)
+            HttpBodyInner::Stream { stream, frame } => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
                         .map(|v| hyper::body::Frame::data(v))
                         .map_err(|err| todo!())
                 )),
-            HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(), // TODO: can be partially read by both function and host?
             HttpBodyInner::StreamLocal(_) => todo!(),
             HttpBodyInner::StreamLocalPartiallyRead { .. } => todo!(),
             HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that has been serialized to be written to function"),
