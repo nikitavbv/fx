@@ -418,14 +418,13 @@ impl FunctionInstanceState {
                 },
                 HttpBodyInner::Full(_) => todo!(),
                 HttpBodyInner::FunctionStream(_) => todo!(), // note that we are trying to access different function resource here, so copying will be needed
-                HttpBodyInner::Stream(_) => todo!(),
-                HttpBodyInner::StreamPartiallyRead { stream, frame } => {
-                    let frame = frame.map_to_serialized();
+                HttpBodyInner::Stream { stream, mut frame } => {
+                    let frame = std::mem::take(&mut frame).unwrap().map_to_serialized();
                     let serialized_size = frame.serialized_size();
 
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::StreamPartiallyRead {
+                    (Resource::HttpBody(HttpBody(HttpBodyInner::Stream {
                         stream,
-                        frame,
+                        frame: Some(frame),
                     })), serialized_size)
                 },
                 HttpBodyInner::StreamLocal(_) => todo!(),
@@ -551,22 +550,21 @@ impl FunctionInstanceState {
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Empty => todo!(),
                 HttpBodyInner::Full(_) => todo!(),
-                HttpBodyInner::Stream(mut stream) => {
+                HttpBodyInner::Stream { mut stream, frame } => {
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
                     match poll_result {
-                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))), Poll::Pending),
+                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame: None })), Poll::Pending),
                         Poll::Ready(None) => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
                         Poll::Ready(Some(frame)) => (
-                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamPartiallyRead {
+                            Resource::HttpBody(HttpBody(HttpBodyInner::Stream {
                                 stream,
-                                frame: SerializableResource::Raw(frame),
+                                frame: Some(SerializableResource::Raw(frame)),
                             })),
                             Poll::Ready(()),
                         ),
                     }
                 },
-                HttpBodyInner::StreamPartiallyRead { stream, frame } => todo!(),
                 HttpBodyInner::FunctionStream(stream) => {
                     let mut stream = stream.replace(None).unwrap()
                         .map(|v| Result::<_, HttpStreamError>::Ok(hyper::body::Bytes::from(v)))

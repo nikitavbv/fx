@@ -143,7 +143,7 @@ impl HttpBody {
     }
 
     pub fn for_stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
-        Self(HttpBodyInner::Stream(stream))
+        Self(HttpBodyInner::Stream { stream, frame: RefCell::new(None) })
     }
 }
 
@@ -180,10 +180,9 @@ pub(crate) enum HttpBodyInner {
     Empty,
     Full(SendWrapper<RefCell<Option<Bytes>>>),
     FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
-    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
-    StreamPartiallyRead {
+    Stream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame: SerializableResource<Result<Bytes, HttpStreamError>>,
+        frame: Option<SerializableResource<Result<Bytes, HttpStreamError>>>,
     },
     StreamLocal(SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>),
     StreamLocalPartiallyRead {
