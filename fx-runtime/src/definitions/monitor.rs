@@ -198,7 +198,14 @@ impl DefinitionsMonitor {
             for var in config.env.into_iter().flatten() {
                 env.insert(var.id, match var.source {
                     EnvValueSource::Value(v) => v,
-                    EnvValueSource::File(v) => fs::read_to_string(v).await.unwrap(),
+                    EnvValueSource::File(v) => match fs::read_to_string(v).await {
+                        Ok(v) => v,
+                        Err(err) => if err.kind() == std::io::ErrorKind::NotFound {
+                            continue;
+                        } else {
+                            todo!()
+                        },
+                    },
                 });
             }
 

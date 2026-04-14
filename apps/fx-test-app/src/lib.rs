@@ -88,6 +88,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/rpc/simple", get(rpc_simple))
             .route("/test/stream/sse", get(test_stream_sse))
             .route("/test/env/simple", get(env_simple))
+            .route("/test/env/missing-file", get(env_missing_file))
             .route("/test/kv/simple", get(kv_simple))
             .route("/test/kv/distributed-lock", get(kv_distributed_lock))
             .route("/test/kv/pubsub/subscribe", get(kv_pubsub_subscribe))
@@ -538,7 +539,7 @@ async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>>
     let stream = stream::iter(1..=5)
         .then(|i| async move {
             sleep(Duration::from_secs(1)).await;
-            let event = Event::default().data(format!("Message {}", i));
+            let event = Event::default().data(format!("Message {i}"));
             Ok::<_, Infallible>(event)
         });
 
@@ -549,6 +550,13 @@ async fn env_simple() -> &'static str {
     let value = env::get("test-env-var").unwrap();
     assert_eq!("test value", value);
     "ok."
+}
+
+async fn env_missing_file() -> (StatusCode, String) {
+    match env::get("TEST_FILE_ENV_VAR") {
+        None => (StatusCode::OK, "ok.".to_owned()),
+        Some(v) => (StatusCode::INTERNAL_SERVER_ERROR, format!("expected env var to NOT be set in this variable, got: {v}"))
+    }
 }
 
 async fn kv_simple() -> &'static str {

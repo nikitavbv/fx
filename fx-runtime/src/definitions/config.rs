@@ -130,15 +130,19 @@ impl FunctionConfig {
         self
     }
 
-    pub fn with_env(mut self, id: String, value: String) -> Self {
+    pub fn with_env(self, id: String, value: String) -> Self {
+        self.with_env_config(EnvVariableConfig {
+            id,
+            source: EnvValueSource::Value(value),
+        })
+    }
+
+    pub fn with_env_config(mut self, config: EnvVariableConfig) -> Self {
         if self.env.is_none() {
             self.env = Some(Vec::new());
         }
 
-        self.env.as_mut().unwrap().push(EnvVariableConfig {
-            id,
-            source: EnvValueSource::Value(value),
-        });
+        self.env.as_mut().unwrap().push(config);
 
         self
     }
@@ -460,6 +464,15 @@ pub struct EnvVariableConfig {
     pub id: String,
     #[serde(flatten)]
     pub source: EnvValueSource,
+}
+
+impl EnvVariableConfig {
+    pub fn file(id: impl Into<String>, file_path: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            source: EnvValueSource::File(file_path.into().parse().unwrap()),
+        }
+    }
 }
 
 #[derive(Deserialize, Debug, Clone, Eq, PartialEq)]

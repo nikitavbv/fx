@@ -20,6 +20,7 @@ use {
             LimitsConfig,
             IntrospectionConfig,
             FunctionCronTriggerConfig,
+            EnvVariableConfig,
         },
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
@@ -705,6 +706,11 @@ async fn env_simple() {
 }
 
 #[tokio::test]
+async fn env_missing_file() {
+    assert!(init_fx_server().await.get("/test/env/missing-file").send().await.unwrap().status().is_success());
+}
+
+#[tokio::test]
 async fn kv_simple() {
     let client = init_fx_server().await;
 
@@ -931,6 +937,7 @@ async fn init_fx_server() -> TestClient {
                                 Some("function-rpc.fx.local".to_owned())
                             ))
                             .with_binding_kv("test-namespace".to_owned(), "test-namespace".to_owned())
+                            .with_env_config(EnvVariableConfig::file("TEST_FILE_ENV_VAR", "/tmp/fx/test-file-that-does-not-exist"))
                     ).await;
 
                     server.deploy_function(
