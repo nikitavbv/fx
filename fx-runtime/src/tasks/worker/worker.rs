@@ -15,7 +15,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsDelta,
         },
-        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
+        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError, FunctionDeploymentHandleRequestError}},
         triggers::http::HttpHandler,
     },
     super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::FunctionInvokeError},
@@ -207,8 +207,13 @@ async fn worker_handle_message(
 
             let function_future = deployment.borrow_mut().handle_request(header, None).await;
             tokio::task::spawn_local(async move {
-                let _response = function_future.await.unwrap();
-                response_tx.send(Ok(())).unwrap();
+                response_tx.send(
+                    function_future.await
+                        .map(|_| ())
+                        .map_err(|err| match err {
+                            FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionInvokeError::FunctionPanicked,
+                        })
+                ).unwrap();
             });
         },
     }

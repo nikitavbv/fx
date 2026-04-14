@@ -52,4 +52,7 @@ pub(crate) enum WorkerLocalMessage {
 pub(crate) enum FunctionInvokeError {
     #[error("function with this id is not found")]
     NotFound,
+
+    #[error("function panicked during execution")]
+    FunctionPanicked,
 }
