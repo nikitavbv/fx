@@ -119,9 +119,9 @@ impl HttpRequest {
         self.request_data_mut().read_body().map(|v| HttpBody(v))
     }
 
-    fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
+    async fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
         if let Some(v) = self.body() {
-            v.read_all()
+            v.read_all().await
         } else {
             None
         }
@@ -269,13 +269,16 @@ impl HttpBody {
         Self(HttpBodyInner::HostResource(resource_id))
     }
 
-    pub fn read_all(self) -> Option<Vec<u8>> {
+    pub async fn read_all(self) -> Option<Vec<u8>> {
         match self.0 {
             HttpBodyInner::Empty => None,
-            HttpBodyInner::Bytes(v) => Some(v),
-            HttpBodyInner::HostResource(_) => todo!("host resource reading into bytes vec"),
-            HttpBodyInner::Stream(_) => todo!("stream reading into bytes vec"),
-            HttpBodyInner::PartiallyReadStream { .. } | HttpBodyInner::Serialized(_) => panic!("resource of this type cannot be read"),
+            _ => Some(self.map(|v| v.map(|v| v.to_vec()))
+                .try_fold(Vec::new(), |mut acc, chunk| {
+                    acc.extend_from_slice(&chunk);
+                    futures::future::ok(acc)
+                })
+                .await
+                .unwrap()),
         }
     }
 }

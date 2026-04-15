@@ -389,6 +389,17 @@ async fn fetch_with_header() {
     assert!(result.contains("custom-value"));
 }
 
+
+#[tokio::test]
+async fn fetch_body_read_all() {
+    let client = init_fx_server().await;
+
+    let result = client.get("/test/fetch/body-read-all").send().await.unwrap();
+    assert!(result.status().is_success());
+    let result = result.text().await.unwrap();
+    assert!(result.contains("\"url\": \"https://httpbin.org/get\""));
+}
+
 #[tokio::test]
 async fn log() {
     let client = init_fx_server().await;

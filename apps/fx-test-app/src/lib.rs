@@ -78,6 +78,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/fetch/post", get(test_fetch_post))
             .route("/test/fetch/query", get(test_fetch_query))
             .route("/test/fetch/with-header", get(test_fetch_with_header))
+            .route("/test/fetch/body-read-all", get(test_fetch_body_read_all))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -441,6 +442,14 @@ async fn test_fetch_with_header() -> HttpBody {
         HttpRequest::get("https://httpbin.org/headers").unwrap()
             .with_header("x-custom-header".parse().unwrap(), "custom-value".parse().unwrap())
     ).await.unwrap().into_body()
+}
+
+async fn test_fetch_body_read_all() -> String {
+    let response = fetch(
+        HttpRequest::get("https://httpbin.org/get").unwrap()
+    ).await.unwrap();
+
+    String::from_utf8(response.into_body().read_all().await.unwrap()).unwrap()
 }
 
 async fn test_log() -> &'static str {
