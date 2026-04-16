@@ -2,6 +2,7 @@ use {
     tokio::sync::oneshot,
     futures::{stream::FuturesUnordered, StreamExt},
     send_wrapper::SendWrapper,
+    thiserror::Error,
     crate::{
         function::FunctionId,
         triggers::http::{FetchRequestHeader, FunctionResponse},
@@ -42,11 +43,34 @@ impl WorkersController {
         subtasks.collect::<Vec<_>>().await;
     }
 
-    pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), FunctionInvokeError> {
+    pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.workers_tx.get(self.function_invoke_round_robin_counter as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
         self.function_invoke_round_robin_counter = (self.function_invoke_round_robin_counter + 1) % (self.workers_tx.len() as u64);
-        response_rx.await.unwrap()
+        response_rx.await
+            .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?
+            .map_err(WorkersControllerFunctionInvokeError::from)
+    }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum WorkersControllerFunctionInvokeError {
+    #[error("failed to run function because worker shut down")]
+    WorkerShutdown,
+
+    #[error("target function not found")]
+    NotFound,
+
+    #[error("function panicked")]
+    FunctionPanicked,
+}
+
+impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
+    fn from(error: FunctionInvokeError) -> Self {
+        match error {
+            FunctionInvokeError::NotFound => Self::NotFound,
+            FunctionInvokeError::FunctionPanicked => Self::FunctionPanicked,
+        }
     }
 }
 
