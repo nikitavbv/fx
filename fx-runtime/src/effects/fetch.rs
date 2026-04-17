@@ -93,7 +93,7 @@ impl DeserializeFunctionResource for HttpBody {
                 let body = instance.store.try_lock().unwrap().data_mut().resource_remove(&resource_id);
                 match body {
                     Resource::HttpBody(v) => match v.0 {
-                        HttpBodyInner::Stream { stream, frame } => Self::for_stream(stream),
+                        HttpBodyInner::Stream { stream, frame: _ } => Self::for_stream(stream),
                         other => todo!(),
                     },
                     other => todo!(),

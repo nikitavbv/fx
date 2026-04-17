@@ -177,7 +177,7 @@ impl hyper::body::Body for HttpBody {
 
 pub(crate) enum HttpBodyInner {
     Empty,
-    Full(SendWrapper<RefCell<Option<Bytes>>>),
+    Full(SendWrapper<RefCell<Bytes>>),
     FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
     Stream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
