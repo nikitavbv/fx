@@ -135,7 +135,7 @@ pub(crate) struct HttpBody(pub(crate) HttpBodyInner);
 
 impl HttpBody {
     pub fn for_bytes(bytes: Bytes) -> Self {
-        Self(HttpBodyInner::Full(SendWrapper::new(RefCell::new(Some(bytes)))))
+        Self::for_stream(futures::stream::once(async { Ok(bytes) }).boxed())
     }
 
     pub fn for_function_stream(resource: OwnedFunctionResourceId) -> Self {
@@ -157,7 +157,6 @@ impl hyper::body::Body for HttpBody {
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &mut self.0 {
             HttpBodyInner::Empty => Poll::Ready(None),
-            HttpBodyInner::Full(b) => Poll::Ready(b.replace(None).map(|v| Ok(hyper::body::Frame::data(v)))),
             HttpBodyInner::FunctionStream(resource) =>
                 resource.borrow_mut().as_mut().unwrap()
                     .poll_frame(cx)
@@ -177,7 +176,6 @@ impl hyper::body::Body for HttpBody {
 
 pub(crate) enum HttpBodyInner {
     Empty,
-    Full(SendWrapper<RefCell<Bytes>>),
     FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
     Stream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,

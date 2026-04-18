@@ -416,7 +416,6 @@ impl FunctionInstanceState {
 
                     (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(frame_serialized))), serialized_size)
                 },
-                HttpBodyInner::Full(_) => todo!(),
                 HttpBodyInner::FunctionStream(_) => todo!(), // note that we are trying to access different function resource here, so copying will be needed
                 HttpBodyInner::Stream { stream, mut frame } => {
                     let frame = std::mem::take(&mut frame).unwrap().map_to_serialized();
@@ -549,7 +548,6 @@ impl FunctionInstanceState {
             },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Empty => todo!(),
-                HttpBodyInner::Full(_) => todo!(),
                 HttpBodyInner::Stream { mut stream, frame } => {
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
@@ -673,7 +671,6 @@ impl FunctionInstanceState {
             },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Empty
-                | HttpBodyInner::Full(_)
                 | HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::Stream { stream, frame } => (
                     Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame: None }))),
