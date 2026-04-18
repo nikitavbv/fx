@@ -426,14 +426,13 @@ impl FunctionInstanceState {
                         frame: Some(frame),
                     })), serialized_size)
                 },
-                HttpBodyInner::StreamLocal(_) => todo!(),
-                HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => {
-                    let frame = frame.map_to_serialized();
+                HttpBodyInner::StreamLocal { stream, mut frame } => {
+                    let frame = std::mem::take(&mut frame).unwrap().map_to_serialized();
                     let serialized_size = frame.serialized_size();
 
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyRead {
+                    (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal {
                         stream,
-                        frame,
+                        frame: Some(frame),
                     })), serialized_size)
                 },
                 HttpBodyInner::FrameSerialized(v) => {
@@ -573,33 +572,32 @@ impl FunctionInstanceState {
                     let stream = SendWrapper::new(stream);
 
                     match poll_result {
-                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal(stream))), Poll::Pending),
+                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None })), Poll::Pending),
                         Poll::Ready(None) => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
                         Poll::Ready(Some(frame)) => (
-                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyRead {
+                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal {
                                 stream,
-                                frame: SerializableResource::Raw(frame),
+                                frame: Some(SerializableResource::Raw(frame)),
                             })),
                             Poll::Ready(()),
                         ),
                     }
                 },
-                HttpBodyInner::StreamLocal(mut stream) => {
+                HttpBodyInner::StreamLocal { mut stream, frame } => {
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
                     match poll_result {
-                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal(stream))), Poll::Pending),
+                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None })), Poll::Pending),
                         Poll::Ready(None) => (Resource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
                         Poll::Ready(Some(frame)) => (
-                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocalPartiallyRead {
+                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal {
                                 stream,
-                                frame: SerializableResource::Raw(frame),
+                                frame: Some(SerializableResource::Raw(frame)),
                             })),
                             Poll::Ready(()),
                         ),
                     }
                 },
-                HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => todo!(),
                 HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
             Resource::KvSetResult(mut v) => {
@@ -676,10 +674,9 @@ impl FunctionInstanceState {
                     Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame: None }))),
                     frame.unwrap().into_serialized()
                 ),
-                HttpBodyInner::StreamLocal(_) => todo!(),
-                HttpBodyInner::StreamLocalPartiallyRead { stream, frame } => (
-                    Some(Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal(stream)))),
-                    frame.into_serialized()
+                HttpBodyInner::StreamLocal { stream, frame } => (
+                    Some(Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None }))),
+                    frame.unwrap().into_serialized()
                 ),
                 HttpBodyInner::FrameSerialized(v) => (Some(Resource::HttpBody(HttpBody(HttpBodyInner::Empty))), v),
             },
