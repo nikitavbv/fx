@@ -156,7 +156,6 @@ impl hyper::body::Body for HttpBody {
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &mut self.0 {
-            HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::FunctionStream(resource) =>
                 resource.borrow_mut().as_mut().unwrap()
                     .poll_frame(cx)
@@ -174,15 +173,14 @@ impl hyper::body::Body for HttpBody {
 }
 
 pub(crate) enum HttpBodyInner {
-    Empty,
     FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
     Stream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame: Option<SerializableResource<Result<Bytes, HttpStreamError>>>,
+        frame: Option<SerializableResource<Option<Result<Bytes, HttpStreamError>>>>,
     },
     StreamLocal {
         stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
-        frame: Option<SerializableResource<Result<Bytes, HttpStreamError>>>,
+        frame: Option<SerializableResource<Option<Result<Bytes, HttpStreamError>>>>,
     },
     FrameSerialized(Vec<u8>),
 }
