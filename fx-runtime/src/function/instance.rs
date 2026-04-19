@@ -421,10 +421,6 @@ impl FunctionInstanceState {
                         frame: Some(frame),
                     })), serialized_size)
                 },
-                HttpBodyInner::FrameSerialized(v) => {
-                    let serialized_len = v.len();
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), serialized_len)
-                },
             },
             Resource::KvSetResult(v) => {
                 let resource = match v {
@@ -580,7 +576,6 @@ impl FunctionInstanceState {
                         ),
                     }
                 },
-                HttpBodyInner::FrameSerialized(v) => (Resource::HttpBody(HttpBody(HttpBodyInner::FrameSerialized(v))), Poll::Ready(())),
             },
             Resource::KvSetResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
@@ -659,7 +654,6 @@ impl FunctionInstanceState {
                     Some(Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None }))),
                     frame.unwrap().into_serialized()
                 ),
-                HttpBodyInner::FrameSerialized(v) => todo!(),
             },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_)

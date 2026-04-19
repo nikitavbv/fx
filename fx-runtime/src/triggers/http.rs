@@ -167,7 +167,6 @@ impl hyper::body::Body for HttpBody {
                         .map_err(|err| todo!())
                 )),
             HttpBodyInner::StreamLocal { stream, frame } => todo!(),
-            HttpBodyInner::FrameSerialized(v) => panic!("cannot read frame that has been serialized to be written to function"),
         }
     }
 }
@@ -182,7 +181,6 @@ pub(crate) enum HttpBodyInner {
         stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
         frame: Option<SerializableResource<Option<Result<Bytes, HttpStreamError>>>>,
     },
-    FrameSerialized(Vec<u8>),
 }
 
 impl DeserializeFunctionResource for HttpBodyInner {
