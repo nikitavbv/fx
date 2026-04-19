@@ -9,7 +9,7 @@ use {
             resource::{OwnedFunctionResourceId, Resource},
             FunctionResourceId,
         },
-        triggers::http::{HttpBody, HttpBodyInner},
+        triggers::http::HttpBody,
     },
 };
 
@@ -92,10 +92,7 @@ impl DeserializeFunctionResource for HttpBody {
                 let resource_id = ResourceId::new(v);
                 let body = instance.store.try_lock().unwrap().data_mut().resource_remove(&resource_id);
                 match body {
-                    Resource::HttpBody(v) => match v.0 {
-                        HttpBodyInner::Stream { stream, frame: _ } => Self::for_stream(stream),
-                        other => todo!(),
-                    },
+                    Resource::HttpBody(v) => v,
                     other => todo!(),
                 }
             },
