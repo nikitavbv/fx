@@ -401,6 +401,16 @@ async fn fetch_body_read_all() {
 }
 
 #[tokio::test]
+async fn fetch_timeout() {
+    let client = init_fx_server().await;
+
+    let result = client.get("/test/fetch/timeout").send().await.unwrap();
+    assert!(result.status().is_success());
+    let body = result.text().await.unwrap();
+    assert!(body == "connection failed" || body == "connection timeout", "expected fetch error, got: {}", body);
+}
+
+#[tokio::test]
 async fn log() {
     let client = init_fx_server().await;
 

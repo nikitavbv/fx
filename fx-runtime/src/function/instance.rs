@@ -370,13 +370,14 @@ impl FunctionInstanceState {
                     FetchResult::Inline(resource) => {
                         let (parts, body) = resource.into_parts();
                         let body = self.resource_add(Resource::HttpBody(body));
-                        let serialized = SerializableResource::Raw(FetchResultWithBodyResource::new(parts, body)).map_to_serialized();
+                        let serialized = SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).map_to_serialized();
                         let serialized_size = serialized.serialized_size();
                         (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(serialized))), serialized_size)
                     },
                     FetchResult::BodyResource(resource) => {
-                        let serialized_size = resource.serialized_size();
-                        (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(resource))), serialized_size)
+                        let serialized = resource.map_to_serialized();
+                        let serialized_size = serialized.serialized_size();
+                        (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(serialized))), serialized_size)
                     }
                 }
             },

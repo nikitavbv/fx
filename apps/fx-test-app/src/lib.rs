@@ -15,7 +15,7 @@ use {
         sleep,
         HttpRequest,
         HttpResponse,
-        io::{http::{fetch, HttpBody}, blob::BlobGetError, kv::{self, KvSetNxPxError}, env, tasks},
+        io::{http::{fetch, FetchError, HttpBody}, blob::BlobGetError, kv::{self, KvSetNxPxError}, env, tasks},
         StatusCode,
         utils::{axum::handle_request, migrations::{Migrations, Migration, SqlMigrationError}},
         random,
@@ -79,6 +79,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/fetch/query", get(test_fetch_query))
             .route("/test/fetch/with-header", get(test_fetch_with_header))
             .route("/test/fetch/body-read-all", get(test_fetch_body_read_all))
+            .route("/test/fetch/timeout", get(test_fetch_timeout))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -450,6 +451,15 @@ async fn test_fetch_body_read_all() -> String {
     ).await.unwrap();
 
     String::from_utf8(response.into_body().read_all().await.unwrap()).unwrap()
+}
+
+async fn test_fetch_timeout() -> &'static str {
+    match fetch(HttpRequest::get("http://10.255.255.1").unwrap()).await {
+        Ok(_) => "unexpected success",
+        Err(FetchError::ConnectionFailed) => "connection failed",
+        Err(FetchError::ConnectionTimeout) => "connection timeout",
+        Err(_) => "other error",
+    }
 }
 
 async fn test_log() -> &'static str {

@@ -21,7 +21,7 @@ use {
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
             blob::BlobGetResponse,
-            fetch::{FetchResult, FetchResultWithBodyResource, HttpStreamError},
+            fetch::{FetchResult, FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest},
         },
@@ -99,7 +99,7 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
                 FetchResult::Inline(resource) => {
                     let (parts, body) = resource.into_parts();
                     let body = caller.data_mut().resource_add(Resource::HttpBody(body));
-                    SerializableResource::Raw(FetchResultWithBodyResource::new(parts, body)).into_serialized()
+                    SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).into_serialized()
                 },
                 FetchResult::BodyResource(resource) => resource.into_serialized(),
             },
@@ -563,11 +563,24 @@ pub(super) fn fx_fetch_handler(
 
         let client = caller.data().http_client.clone();
         caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
-            let result = client.execute(fetch_request).await.unwrap();
-            let http_response: ::http::Response<reqwest::Body> = result.into();
-            let (parts, body) = http_response.into_parts();
-            let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| HttpStreamError::FetchResponseStreamError(err)).boxed());
-            FetchResult::new(parts, body)
+            match client.execute(fetch_request).await {
+                Ok(result) => {
+                    let http_response: ::http::Response<reqwest::Body> = result.into();
+                    let (parts, body) = http_response.into_parts();
+                    let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| HttpStreamError::FetchResponseStreamError(err)).boxed());
+                    FetchResult::new(parts, body)
+                }
+                Err(err) => {
+                    let error = if err.is_timeout() && err.is_connect() {
+                        FetchResultError::ConnectionTimeout
+                    } else if err.is_timeout() {
+                        FetchResultError::ResponseTimeout
+                    } else {
+                        FetchResultError::ConnectionFailed
+                    };
+                    FetchResult::error(error)
+                }
+            }
         }))).as_u64()
     }
 }

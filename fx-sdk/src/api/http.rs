@@ -449,7 +449,44 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
         unsafe { fx_fetch(fetch.as_ptr() as u64, fetch.len() as u64) }
     );
 
-    Ok(FutureHostResource::<HttpResponse>::new(response_resource).await)
+    FutureHostResource::<Result<HttpResponse, FetchError>>::new(response_resource).await
+}
+
+impl DeserializeHostResource for Result<HttpResponse, FetchError> {
+    fn deserialize(data: &mut &[u8]) -> Self {
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
+        let result = resource_reader.get_root::<abi_http_capnp::fetch_result::Reader>().unwrap();
+
+        match result.get_result().which().unwrap() {
+            abi_http_capnp::fetch_result::result::Which::Ok(response) => {
+                let response = response.unwrap();
+                let mut parts = http::response::Builder::new()
+                    .status(http::StatusCode::from_u16(response.get_status()).unwrap())
+                    .body(())
+                    .unwrap()
+                    .into_parts()
+                    .0;
+
+                for header in response.get_headers().unwrap() {
+                    let name = HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
+                    let value = HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
+                    parts.headers.append(name, value);
+                }
+
+                Ok(HttpResponse {
+                    parts,
+                    body: HttpBody::host_resource(OwnedResourceId::from_ffi(response.get_body_resource_id())),
+                })
+            }
+            abi_http_capnp::fetch_result::result::Which::Error(err) => {
+                Err(match err.unwrap().get_error().which().unwrap() {
+                    abi_http_capnp::fetch_error::error::ConnectionFailed(()) => FetchError::ConnectionFailed,
+                    abi_http_capnp::fetch_error::error::ConnectionTimeout(()) => FetchError::ConnectionTimeout,
+                    abi_http_capnp::fetch_error::error::ResponseTimeout(()) => FetchError::ResponseTimeout,
+                })
+            }
+        }
+    }
 }
 
 impl DeserializeHostResource for HttpResponse {
@@ -478,7 +515,14 @@ impl DeserializeHostResource for HttpResponse {
 }
 
 #[derive(Debug, Error)]
-pub enum FetchError {}
+pub enum FetchError {
+    #[error("connection failed")]
+    ConnectionFailed,
+    #[error("connection timeout")]
+    ConnectionTimeout,
+    #[error("response timeout")]
+    ResponseTimeout,
+}
 
 pub trait IntoHttpBody {
     fn into_http_body(self) -> HttpBody;

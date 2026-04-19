@@ -46,6 +46,21 @@ struct HttpResponse {
     bodyResourceId @1 :UInt64;
 }
 
+struct FetchResult {
+    result :union {
+        ok @0 :HttpResponse;
+        error @1 :FetchError;
+    }
+}
+
+struct FetchError {
+    error :union {
+        connectionFailed @0 :Void;
+        connectionTimeout @1 :Void;
+        responseTimeout @2 :Void;
+    }
+}
+
 struct FunctionResponse {
     status @0 :UInt16;
     headers @2 :List(HttpHeader);

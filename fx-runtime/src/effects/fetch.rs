@@ -15,13 +15,27 @@ use {
 
 pub(crate) enum FetchResult {
     Inline(FetchResultInline),
-    BodyResource(SerializableResource<FetchResultWithBodyResource>),
+    BodyResource(SerializableResource<Result<FetchResultWithBodyResource, FetchResultError>>),
 }
 
 impl FetchResult {
     pub fn new(parts: http::response::Parts, body: HttpBody) -> Self {
         Self::Inline(FetchResultInline::new(parts, body))
     }
+
+    pub fn error(err: FetchResultError) -> Self {
+        Self::BodyResource(SerializableResource::Raw(Err(err)))
+    }
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum FetchResultError {
+    #[error("connection failed")]
+    ConnectionFailed,
+    #[error("connection timeout")]
+    ConnectionTimeout,
+    #[error("response timeout")]
+    ResponseTimeout,
 }
 
 pub(crate) struct FetchResultInline {
@@ -53,21 +67,32 @@ impl FetchResultWithBodyResource {
     }
 }
 
-impl SerializeResource for FetchResultWithBodyResource {
+impl SerializeResource for Result<FetchResultWithBodyResource, FetchResultError> {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
-        let mut fetch_response = message.init_root::<abi_http_capnp::http_response::Builder>();
+        let mut fetch_result = message.init_root::<abi_http_capnp::fetch_result::Builder>();
 
-        fetch_response.set_status(self.parts.status.as_u16());
-
-        let mut headers = fetch_response.reborrow().init_headers(self.parts.headers.len() as u32);
-        for (index, (name, value)) in self.parts.headers.iter().enumerate() {
-            let mut header = headers.reborrow().get(index as u32);
-            header.set_name(name.as_str());
-            header.set_value(value.to_str().unwrap());
+        match self {
+            Ok(ok) => {
+                let mut ok_builder = fetch_result.init_result().init_ok();
+                ok_builder.set_status(ok.parts.status.as_u16());
+                let mut headers = ok_builder.reborrow().init_headers(ok.parts.headers.len() as u32);
+                for (index, (name, value)) in ok.parts.headers.iter().enumerate() {
+                    let mut header = headers.reborrow().get(index as u32);
+                    header.set_name(name.as_str());
+                    header.set_value(value.to_str().unwrap());
+                }
+                ok_builder.reborrow().set_body_resource_id(ok.body.as_u64());
+            }
+            Err(err) => {
+                let mut error_builder = fetch_result.init_result().init_error().init_error();
+                match err {
+                    FetchResultError::ConnectionFailed => error_builder.set_connection_failed(()),
+                    FetchResultError::ConnectionTimeout => error_builder.set_connection_timeout(()),
+                    FetchResultError::ResponseTimeout => error_builder.set_response_timeout(()),
+                }
+            }
         }
-
-        fetch_response.set_body_resource_id(self.body.as_u64());
 
         capnp::serialize::write_message_to_words(&message)
     }
