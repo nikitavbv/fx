@@ -70,7 +70,7 @@ impl FetchResultWithBodyResource {
 impl SerializeResource for Result<FetchResultWithBodyResource, FetchResultError> {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
-        let mut fetch_result = message.init_root::<abi_http_capnp::fetch_result::Builder>();
+        let fetch_result = message.init_root::<abi_http_capnp::fetch_result::Builder>();
 
         match self {
             Ok(ok) => {

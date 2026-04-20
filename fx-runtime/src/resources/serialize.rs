@@ -1,6 +1,7 @@
 use {
     std::{marker::PhantomData, rc::Rc, cell::Cell},
     hyper::body::Bytes,
+    thiserror::Error,
     crate::{
         function::{
             abi::{capnp, abi_http_capnp},
@@ -95,7 +96,15 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
 }
 
 pub(crate) trait DeserializeFunctionResource {
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self;
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, DeserializationError>;
+}
+
+#[derive(Debug, Error)]
+enum DeserializationError {
+    #[error("deserialization failed because of an issue with a resource this resource depends on: {message:?}")]
+    DependencyError {
+        message: String,
+    },
 }
 
 impl DeserializeFunctionResource for FunctionResponse {
