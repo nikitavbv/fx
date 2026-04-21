@@ -84,31 +84,33 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
         }
     }
 
-    pub(crate) async fn copy_to_host(self) -> T {
+    pub(crate) async fn copy_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
         let (instance, resource) = self.resource.consume();
         T::deserialize(&mut instance.copy_serializable_resource_to_host(&resource).await.as_slice(), instance)
     }
 
-    pub(crate) async fn move_to_host(self) -> T {
+    pub(crate) async fn move_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
         let (instance, resource) = self.resource.consume();
         T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
     }
 }
 
 pub(crate) trait DeserializeFunctionResource {
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, DeserializationError>;
+    // having associated type here allows to have custom errors for different types (for example, additional validation while
+    // deserializing or errors while resolving dependencies)
+    type Error;
+
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error>;
 }
 
 #[derive(Debug, Error)]
-enum DeserializationError {
-    #[error("deserialization failed because of an issue with a resource this resource depends on: {message:?}")]
-    DependencyError {
-        message: String,
-    },
+pub(crate) enum DeserializationError {
 }
 
 impl DeserializeFunctionResource for FunctionResponse {
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
+    type Error = DeserializationError;
+
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
         let response = message_reader.get_root::<abi_http_capnp::function_response::Reader>().unwrap();
 
@@ -128,8 +130,10 @@ impl DeserializeFunctionResource for FunctionResponse {
 }
 
 impl DeserializeFunctionResource for Vec<u8> {
-    fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Self {
-        resource.to_vec()
+    type Error = ();
+
+    fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
+        Ok(resource.to_vec())
     }
 }
 

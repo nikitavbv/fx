@@ -479,7 +479,7 @@ pub(super) fn fx_fetch_handler(
 
         caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
             let response = response_rx.await.unwrap();
-            let response = response.move_to_host().await;
+            let response = response.move_to_host().await.unwrap();
             match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming

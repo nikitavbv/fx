@@ -105,11 +105,13 @@ pub enum HttpStreamError {
 }
 
 impl DeserializeFunctionResource for HttpBody {
-    fn deserialize(resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Self {
+    type Error = HttpBodyDeserializeError;
+
+    fn deserialize(resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Result<Self, Self::Error> {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
         let http_body = message_reader.get_root::<abi_http_capnp::http_body::Reader>().unwrap();
 
-        match http_body.get_body().which().unwrap() {
+        Ok(match http_body.get_body().which().unwrap() {
             abi_http_capnp::http_body::body::Which::Empty(_) => todo!(),
             abi_http_capnp::http_body::body::Which::Bytes(v) => Self::for_bytes(Bytes::copy_from_slice(v.unwrap())),
             abi_http_capnp::http_body::body::Which::FunctionStream(v) => Self::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::new(v))),
@@ -121,9 +123,12 @@ impl DeserializeFunctionResource for HttpBody {
                     other => todo!(),
                 }
             },
-        }
+        })
     }
 }
+
+#[derive(Debug, Error)]
+enum HttpBodyDeserializeError {}
 
 impl SerializeResource for Option<Result<hyper::body::Bytes, HttpStreamError>> {
     fn serialize(self) -> Vec<u8> {
