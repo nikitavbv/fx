@@ -100,7 +100,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             };
 
             let body = match &function_response {
-                Ok(response) => match &response.0 {
+                Ok(response) => match &response.as_ref().unwrap().0 {
                     FunctionResponseInner::HttpResponse(v) => {
                         let (instance, body_resource_id) = v.body.replace(None).unwrap().consume();
                         DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body_resource_id))
@@ -111,9 +111,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            let mut response = Response::new(body.copy_to_host().await);
+            let mut response = Response::new(body.copy_to_host().await.unwrap());
             match function_response {
-                Ok(function_response) => match function_response.0 {
+                Ok(function_response) => match function_response.unwrap().0 {
                     FunctionResponseInner::HttpResponse(v) => {
                         *response.status_mut() = v.status;
                         *response.headers_mut() = v.headers;
@@ -184,7 +184,9 @@ pub(crate) enum HttpBodyInner {
 }
 
 impl DeserializeFunctionResource for HttpBodyInner {
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Self {
+    type Error = ();
+
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         todo!()
     }
 }

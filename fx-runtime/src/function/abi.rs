@@ -486,7 +486,7 @@ pub(super) fn fx_fetch_handler(
                     let body = response.body.replace(None).unwrap();
                     let (instance, body) = body.consume();
                     let body = DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body));
-                    let body = body.copy_to_host().await;
+                    let body = body.copy_to_host().await.unwrap();
 
                     let http_response = ::http::Response::builder()
                         .status(response.status)

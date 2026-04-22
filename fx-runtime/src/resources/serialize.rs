@@ -100,7 +100,7 @@ pub(crate) trait DeserializeFunctionResource {
     // deserializing or errors while resolving dependencies)
     type Error;
 
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error>;
+    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> where Self: Sized;
 }
 
 #[derive(Debug, Error)]
@@ -121,11 +121,11 @@ impl DeserializeFunctionResource for FunctionResponse {
             headers.insert(name, value);
         }
 
-        Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
+        Ok(Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: ::http::StatusCode::from_u16(response.get_status()).unwrap(),
             headers,
             body: Cell::new(Some(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(response.get_body_resource())))),
-        }))
+        })))
     }
 }
 
@@ -151,16 +151,16 @@ impl<T: DeserializeFunctionResource> DeserializableResource<T> {
         Self::Serialized(value)
     }
 
-    pub async fn copy_to_host(self) -> T {
+    pub async fn copy_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
         match self {
-            Self::Raw(v) => v,
+            Self::Raw(v) => Ok(v),
             Self::Serialized(v) => v.copy_to_host().await,
         }
     }
 
-    pub async fn move_to_host(self) -> T {
+    pub async fn move_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
         match self {
-            Self::Raw(v) => v,
+            Self::Raw(v) => Ok(v),
             Self::Serialized(v) => v.move_to_host().await,
         }
     }

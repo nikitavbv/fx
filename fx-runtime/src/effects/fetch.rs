@@ -128,7 +128,7 @@ impl DeserializeFunctionResource for HttpBody {
 }
 
 #[derive(Debug, Error)]
-enum HttpBodyDeserializeError {}
+pub(crate) enum HttpBodyDeserializeError {}
 
 impl SerializeResource for Option<Result<hyper::body::Bytes, HttpStreamError>> {
     fn serialize(self) -> Vec<u8> {
