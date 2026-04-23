@@ -120,7 +120,7 @@ impl DeserializeFunctionResource for HttpBody {
                 let body = instance.store.try_lock().unwrap().data_mut().resource_remove(&resource_id);
                 match body {
                     Resource::HttpBody(v) => v,
-                    other => todo!(),
+                    _ => return Err(HttpBodyDeserializeError::HostResourceWrongType),
                 }
             },
         })
@@ -128,7 +128,10 @@ impl DeserializeFunctionResource for HttpBody {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum HttpBodyDeserializeError {}
+pub(crate) enum HttpBodyDeserializeError {
+    #[error("referenced host resource is of wrong type (expected HttpBody)")]
+    HostResourceWrongType,
+}
 
 impl SerializeResource for Option<Result<hyper::body::Bytes, HttpStreamError>> {
     fn serialize(self) -> Vec<u8> {
