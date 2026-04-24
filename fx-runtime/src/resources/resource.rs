@@ -97,7 +97,6 @@ impl From<u64> for FunctionResourceId {
 
 pub(crate) enum Resource {
     FetchRequest(SerializableResource<FetchRequestHeader>),
-    RequestBody(FetchRequestBody),
     HttpBody(HttpBody),
     SqlMigrationResult(FutureResource<SerializableResource<Result<(), SqlMigrationError>>>),
     SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),

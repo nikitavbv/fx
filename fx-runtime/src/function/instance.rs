@@ -529,7 +529,7 @@ impl FunctionInstanceState {
                 ),
             },
             Resource::HttpBody(v) => match v.0 {
-                HttpBodyInner::Stream { mut stream, frame } => {
+                HttpBodyInner::Stream { mut stream, frame: _previous_frame_is_discarded } => {
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
                     match poll_result {
@@ -563,7 +563,7 @@ impl FunctionInstanceState {
                         ),
                     }
                 },
-                HttpBodyInner::StreamLocal { mut stream, frame } => {
+                HttpBodyInner::StreamLocal { mut stream, frame: _previous_frame_is_discarded } => {
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
                     match poll_result {
