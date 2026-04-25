@@ -24,7 +24,7 @@ use {
             future::FutureResource,
             serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource},
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestBody, HttpBody, HttpBodyInner},
+        triggers::http::{HttpBody, HttpBodyInner},
     },
     super::FunctionId,
 };
@@ -381,27 +381,6 @@ impl FunctionInstanceState {
                     }
                 }
             },
-            Resource::RequestBody(v) => match v.0 {
-                FetchRequestBodyInner::Full(v) => {
-                    let serialized = serialize_request_body_full(v);
-                    let serialized_size = serialized.len();
-                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::FullSerialized(serialized))), serialized_size)
-                },
-                FetchRequestBodyInner::FullSerialized(serialized) => {
-                    let serialized_size = serialized.len();
-                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::FullSerialized(serialized))), serialized_size)
-                },
-                FetchRequestBodyInner::Stream(_) => panic!("resource is not yet ready for serialization"),
-                FetchRequestBodyInner::PartiallyReadStream { stream, frame } => {
-                    let frame_serialized = serialize_partially_read_stream(frame);
-                    let serialized_size = frame_serialized.len();
-                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { frame_serialized, stream })), serialized_size)
-                },
-                FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => {
-                    let serialized_size = frame_serialized.len();
-                    (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { frame_serialized, stream })), serialized_size)
-                },
-            },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::FunctionStream(_) => todo!(), // note that we are trying to access different function resource here, so copying will be needed
                 HttpBodyInner::Stream { stream, mut frame } => {
@@ -499,34 +478,6 @@ impl FunctionInstanceState {
             Resource::FetchResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::FetchResult(v), poll_result)
-            },
-            Resource::RequestBody(v) => match v.0 {
-                FetchRequestBodyInner::Full(v) => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Full(v))), Poll::Ready(())),
-                FetchRequestBodyInner::FullSerialized(v) => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::FullSerialized(v))), Poll::Ready(())),
-                FetchRequestBodyInner::Stream(mut stream) => {
-                    use hyper::body::Body;
-
-                    let poll_result = stream.as_mut().poll_frame(&mut cx);
-
-                    match poll_result {
-                        Poll::Pending => (Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Stream(stream))), Poll::Pending),
-                        Poll::Ready(frame) => (
-                            Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStream {
-                                frame,
-                                stream,
-                            })),
-                            Poll::Ready(()),
-                        ),
-                    }
-                },
-                FetchRequestBodyInner::PartiallyReadStream { stream, frame } => (
-                    Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStream { stream, frame })),
-                    Poll::Ready(()),
-                ),
-                FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => (
-                    Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized })),
-                    Poll::Ready(())
-                ),
             },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Stream { mut stream, frame: _previous_frame_is_discarded } => {
@@ -638,13 +589,6 @@ impl FunctionInstanceState {
             | Resource::UnitFuture(_)
             | Resource::KvSetResult(_)
             | Resource::KvGetResult(_) => panic!("resource of this type does not support reading frames"),
-            Resource::RequestBody(v) => match v.0 {
-                FetchRequestBodyInner::Full(_)
-                | FetchRequestBodyInner::Stream(_)
-                | FetchRequestBodyInner::PartiallyReadStream { .. } => panic!("request body has to be serialized first"),
-                FetchRequestBodyInner::FullSerialized(v) => (None, v),
-                FetchRequestBodyInner::PartiallyReadStreamSerialized { stream, frame_serialized } => (Some(Resource::RequestBody(FetchRequestBody(FetchRequestBodyInner::Stream(stream)))), frame_serialized),
-            },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::Stream { stream, frame } => (

@@ -6,7 +6,7 @@ use {
         effects::logs::LogMessageEvent,
         tasks::{sql::SqlMessage, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
-        triggers::http::{FetchRequestHeader, FunctionResponse, FetchRequestBody},
+        triggers::http::{FetchRequestHeader, FunctionResponse, HttpBody},
         resources::{
             Resource,
             serialize::{SerializedFunctionResource, SerializableResource},
@@ -135,7 +135,7 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) async fn handle_request(&mut self, header: FetchRequestHeader, body: Option<FetchRequestBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&mut self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         let instance = if *instance.has_panicked.borrow() {
@@ -153,7 +153,7 @@ impl FunctionDeployment {
                 let mut data = instance.store.lock().await;
                 let data = data.data_mut();
                 if let Some(body) = body {
-                    header.body_resource_id = Some(data.resource_add(Resource::RequestBody(body)));
+                    header.body_resource_id = Some(data.resource_add(Resource::HttpBody(body)));
                 }
                 data.resource_add(Resource::FetchRequest(SerializableResource::Raw(header)))
             };

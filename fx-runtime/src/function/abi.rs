@@ -30,7 +30,7 @@ use {
             kv::{KvMessage, KvOperation},
             blob::BlobMessage,
         },
-        triggers::http::{FetchRequestBodyInner, FetchRequestHeader, FunctionResponseInner, HttpBody},
+        triggers::http::{FetchRequestHeader, FunctionResponseInner, HttpBody},
     },
 };
 
@@ -104,7 +104,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
                 FetchResult::BodyResource(resource) => resource.into_serialized(),
             },
         },
-        Resource::RequestBody(_) => panic!("resource of this type cannot be moved"),
         Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
         Resource::KvGetResult(v) => match v {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
@@ -528,24 +527,6 @@ pub(super) fn fx_fetch_handler(
                     | Resource::KvSetResult(_)
                     | Resource::KvGetResult(_)
                     | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
-                    Resource::RequestBody(v) => match v.0 {
-                        FetchRequestBodyInner::FullSerialized(_)
-                        | FetchRequestBodyInner::PartiallyReadStream { .. }
-                        | FetchRequestBodyInner::PartiallyReadStreamSerialized { .. } => panic!("this body type cannot be used as request body"),
-                        FetchRequestBodyInner::Full(bytes) => {
-                            *fetch_request.body_mut() = Some(reqwest::Body::from(bytes));
-                        },
-                        FetchRequestBodyInner::Stream(stream) => {
-                            let body_stream = BodyStream::new(stream)
-                                .filter_map(|result| async {
-                                    match result {
-                                        Ok(frame) => frame.into_data().ok().map(Ok),
-                                        Err(e) => Some(Err(e)),
-                                    }
-                                });
-                            *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(body_stream));
-                        }
-                    },
                     Resource::HttpBody(body) => {
                         let stream = BodyStream::new(body)
                             .filter_map(|result| async {

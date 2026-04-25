@@ -4,7 +4,7 @@ use {
     slotmap::Key,
     crate::{
         function::instance::FunctionInstance,
-        triggers::http::{FetchRequestHeader, FetchRequestBody, HttpBody},
+        triggers::http::{FetchRequestHeader, HttpBody},
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
             blob::BlobGetResponse,

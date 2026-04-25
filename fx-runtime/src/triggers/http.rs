@@ -3,6 +3,7 @@ use {
     futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::{BoxStream, LocalBoxStream}, Stream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
+    http_body_util::BodyExt,
     send_wrapper::SendWrapper,
     crate::{
         resources::{
@@ -92,7 +93,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 return Ok(response);
             }
 
-            let function_future = target_function_deployment.borrow_mut().handle_request(FetchRequestHeader::from(header), Some(FetchRequestBody::from(body))).await;
+            let function_future = target_function_deployment.borrow_mut().handle_request(FetchRequestHeader::from(header), Some(HttpBody::for_stream(body.into_data_stream().map(|v| v.map_err(|_| todo!())).boxed()))).await;
             let response = function_future.await;
             let function_response = match response {
                 Ok(v) => Ok(v.move_to_host().await),
@@ -274,31 +275,6 @@ impl From<::http::request::Parts> for FetchRequestHeader {
             body_resource_id: None,
         }
     }
-}
-
-pub struct FetchRequestBody(pub(crate) FetchRequestBodyInner);
-
-impl From<hyper::body::Incoming> for FetchRequestBody {
-    fn from(value: hyper::body::Incoming) -> Self {
-        Self(FetchRequestBodyInner::Stream(Box::pin(value)))
-    }
-}
-
-// TODO: can use HttpBody everywhere?
-pub(crate) enum FetchRequestBodyInner {
-    // full body:
-    Full(Vec<u8>),
-    FullSerialized(Vec<u8>),
-    // streaming body:
-    Stream(Pin<Box<hyper::body::Incoming>>),
-    PartiallyReadStream {
-        stream: Pin<Box<hyper::body::Incoming>>,
-        frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>, // TODO: why PartiallyReadStream exists? can't we just go from Stream to PartiallyReadStreamSerialized?
-    },
-    PartiallyReadStreamSerialized {
-        stream: Pin<Box<hyper::body::Incoming>>,
-        frame_serialized: Vec<u8>,
-    },
 }
 
 pub(crate) struct FunctionResponse(pub(crate) FunctionResponseInner);
