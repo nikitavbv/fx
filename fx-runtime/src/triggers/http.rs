@@ -161,7 +161,7 @@ impl hyper::body::Body for HttpBody {
                 resource.borrow_mut().as_mut().unwrap()
                     .poll_frame(cx)
                     .map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v))))),
-            HttpBodyInner::Stream { stream, frame } => stream.poll_next_unpin(cx)
+            HttpBodyInner::Stream { stream, frame: _previous_frame_is_discarded } => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
                         .map(|v| hyper::body::Frame::data(v))

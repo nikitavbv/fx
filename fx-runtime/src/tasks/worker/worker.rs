@@ -25,7 +25,6 @@ pub(crate) struct WorkerConfig {
     pub(crate) core_id: Option<usize>,
     pub(crate) port: u16,
     pub(crate) messages_rx: flume::Receiver<WorkerMessage>,
-    pub(crate) self_tx: flume::Sender<WorkerMessage>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
     pub(crate) kv_tx: flume::Sender<KvMessage>,
     pub(crate) blob_tx: flume::Sender<BlobMessage>,

@@ -1,6 +1,5 @@
 use {
     std::{marker::PhantomData, rc::Rc, cell::Cell},
-    hyper::body::Bytes,
     thiserror::Error,
     crate::{
         function::{
@@ -14,24 +13,6 @@ use {
 
 pub(crate) trait SerializeResource {
     fn serialize(self) -> Vec<u8>;
-}
-
-pub(crate) fn serialize_request_body_full(body: Vec<u8>) -> Vec<u8> {
-    todo!("serialize request body full")
-}
-
-pub(crate) fn serialize_partially_read_stream(frame: Option<Result<hyper::body::Frame<Bytes>, hyper::Error>>) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let serialized_frame = message.init_root::<abi_http_capnp::http_body::Builder>();
-    let mut serialized_frame = serialized_frame.init_body();
-
-    match frame {
-        None => serialized_frame.set_empty(()),
-        Some(Err(err)) => todo!("handle error: {err:?}"),
-        Some(Ok(frame)) => serialized_frame.set_bytes(&frame.into_data().unwrap()),
-    }
-
-    capnp::serialize::write_message_to_words(&message)
 }
 
 pub(crate) enum SerializableResource<T: SerializeResource> {
@@ -143,10 +124,6 @@ pub(crate) enum DeserializableResource<T: DeserializeFunctionResource> {
 }
 
 impl<T: DeserializeFunctionResource> DeserializableResource<T> {
-    pub fn from_raw(value: T) -> Self {
-        Self::Raw(value)
-    }
-
     pub fn from_serialized(value: SerializedFunctionResource<T>) -> Self {
         Self::Serialized(value)
     }
@@ -155,13 +132,6 @@ impl<T: DeserializeFunctionResource> DeserializableResource<T> {
         match self {
             Self::Raw(v) => Ok(v),
             Self::Serialized(v) => v.copy_to_host().await,
-        }
-    }
-
-    pub async fn move_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
-        match self {
-            Self::Raw(v) => Ok(v),
-            Self::Serialized(v) => v.move_to_host().await,
         }
     }
 }

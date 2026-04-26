@@ -22,7 +22,7 @@ use {
             ResourceId,
             Resource,
             future::FutureResource,
-            serialize::{serialize_request_body_full, serialize_partially_read_stream, SerializableResource},
+            serialize::SerializableResource,
         },
         triggers::http::{HttpBody, HttpBodyInner},
     },

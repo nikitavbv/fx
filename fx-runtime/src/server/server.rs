@@ -184,12 +184,10 @@ impl FxServer {
 
         let workers = worker_cores.into_iter()
             .zip(workers_rx.into_iter())
-            .zip(workers_tx.clone().into_iter()).map(|((a, b), c)| (a, b, c))
-            .map(|(core_id, messages_rx, self_tx)| WorkerConfig {
+            .map(|(core_id, messages_rx)| WorkerConfig {
                 core_id,
                 port: self.config.server.port.value,
                 messages_rx,
-                self_tx,
                 sql_tx: sql_tx.clone(),
                 kv_tx: kv_tx.clone(),
                 blob_tx: blob_tx.clone(),
@@ -221,7 +219,6 @@ impl FxServer {
         }
 
         RunningFxServer {
-            worker_tx: workers_tx,
             management_tx,
 
             worker_handles,
@@ -238,7 +235,6 @@ impl FxServer {
 }
 
 pub struct RunningFxServer {
-    worker_tx: Vec<flume::Sender<WorkerMessage>>,
     management_tx: flume::Sender<ManagementMessage>,
 
     worker_handles: Vec<JoinHandle<()>>,
