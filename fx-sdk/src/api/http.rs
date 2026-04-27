@@ -12,8 +12,6 @@ use {
         ResourceId,
         DeserializableHostResource,
         DeserializeHostResource,
-        SerializeResource,
-        SerializableResource,
         OwnedResourceId,
         FutureHostResource,
         fx_fetch,
@@ -119,6 +117,7 @@ impl HttpRequest {
         self.request_data_mut().read_body().map(|v| HttpBody(v))
     }
 
+    #[allow(dead_code)]
     async fn body_into_bytes(&mut self) -> Option<Vec<u8>> {
         if let Some(v) = self.body() {
             v.read_all().await

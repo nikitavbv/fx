@@ -7,7 +7,7 @@ use {
     send_wrapper::SendWrapper,
     crate::{
         resources::{
-            serialize::{SerializeResource, SerializedFunctionResource, DeserializeFunctionResource, DeserializableResource, SerializableResource},
+            serialize::{SerializeResource, SerializedFunctionResource, DeserializableResource, SerializableResource},
             ResourceId,
             resource::OwnedFunctionResourceId,
             FunctionResourceId,
@@ -165,9 +165,14 @@ impl hyper::body::Body for HttpBody {
                 .map(|v| v.map(|v|
                     v
                         .map(|v| hyper::body::Frame::data(v))
-                        .map_err(|err| todo!())
+                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
                 )),
-            HttpBodyInner::StreamLocal { stream, frame } => todo!(),
+            HttpBodyInner::StreamLocal { stream, frame: _previous_frame_is_discarded } => stream.poll_next_unpin(cx)
+                .map(|v| v.map(|v|
+                    v
+                        .map(|v| hyper::body::Frame::data(v))
+                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+                )),
         }
     }
 }
@@ -182,14 +187,6 @@ pub(crate) enum HttpBodyInner {
         stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
         frame: Option<SerializableResource<Option<Result<Bytes, HttpStreamError>>>>,
     },
-}
-
-impl DeserializeFunctionResource for HttpBodyInner {
-    type Error = ();
-
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
-        todo!()
-    }
 }
 
 pub(crate) struct FunctionStreamReader {
