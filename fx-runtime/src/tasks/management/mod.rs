@@ -1,5 +1,6 @@
 use {
     std::{collections::HashMap, sync::Arc},
+    send_wrapper::SendWrapper,
     tokio::sync::oneshot,
     crate::{
         function::FunctionId,
@@ -12,7 +13,10 @@ use {
         },
         introspection::run_introspection_server,
     },
+    self::runtime_state::RuntimeState,
 };
+
+pub(crate) mod runtime_state;
 
 pub(crate) enum ManagementMessage {
     DeployFunction(DeployFunctionMessage),
@@ -43,7 +47,8 @@ pub(crate) fn run_management_task(
         .unwrap();
     let local_set = tokio::task::LocalSet::new();
 
-    let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx, cron_tx);
+    let runtime_state = RuntimeState::new();
+    let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx, cron_tx, runtime_state.clone());
     let metrics = Arc::new(MetricsRegistry::new());
 
     let introspection_enabled = config.introspection.map(|v| v.enabled).unwrap_or(true);
@@ -66,7 +71,7 @@ pub(crate) fn run_management_task(
             },
             async {
                 if introspection_enabled {
-                    run_introspection_server(metrics.clone(), WorkersController::new(workers_tx)).await;
+                    run_introspection_server(metrics.clone(), WorkersController::new(workers_tx), SendWrapper::new(runtime_state)).await;
                 }
             },
         )

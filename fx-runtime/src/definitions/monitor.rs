@@ -16,6 +16,7 @@ use {
             worker::WorkerMessage,
             compiler::CompilerMessage,
             cron::CronMessage,
+            management::runtime_state::RuntimeState,
         },
         definitions::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig, EnvValueSource},
@@ -33,6 +34,7 @@ pub(crate) struct DefinitionsMonitor {
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,
     cron_tx: flume::Sender<CronMessage>,
+    runtime_state: RuntimeState,
 
     // DefinitionsMonitor requests FunctionDeployment creation and assigns IDs to them.
     deployment_id_counter: RefCell<u64>,
@@ -44,6 +46,7 @@ impl DefinitionsMonitor {
         workers_tx: Vec<flume::Sender<WorkerMessage>>,
         compiler_tx: flume::Sender<CompilerMessage>,
         cron_tx: flume::Sender<CronMessage>,
+        runtime_state: RuntimeState,
     ) -> Self {
         Self {
             functions_directory: config.config_path.as_ref().unwrap().parent().unwrap()
@@ -51,6 +54,7 @@ impl DefinitionsMonitor {
             workers_tx,
             compiler_tx,
             cron_tx,
+            runtime_state,
             deployment_id_counter: RefCell::new(0),
         }
     }
@@ -151,8 +155,9 @@ impl DefinitionsMonitor {
         self.functions_directory.join(function_id.as_string())
     }
 
-    fn remove_function(&self, function_id: FunctionId) {
+    pub(crate) fn remove_function(&self, function_id: FunctionId) {
         info!("removing function: {:?}", function_id.as_string());
+        self.runtime_state.remove_function(&function_id);
         for worker in self.workers_tx.iter() {
             worker.send(WorkerMessage::RemoveFunction { function_id: function_id.clone(), on_ready: None }).unwrap();
         }
@@ -160,6 +165,8 @@ impl DefinitionsMonitor {
 
     pub(crate) async fn apply_config(&self, function_id: FunctionId, config: FunctionConfig) {
         info!("applying config for: {:?}", function_id.as_string());
+
+        self.runtime_state.add_function(function_id.clone());
 
         // first, precompile module:
         let module_code = match config.code {

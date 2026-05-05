@@ -899,6 +899,22 @@ async fn preemption() {
     assert!(fast3.as_millis() <= 25, "fast request3 took {} ms, while normal is {}ms", fast3.as_millis(), normal_fast.as_millis());
 }
 
+#[tokio::test]
+async fn introspection_functions_table() {
+    let _client = init_fx_server().await;
+
+    let response = reqwest::Client::new()
+        .get("http://localhost:9000/introspection")
+        .send()
+        .await
+        .unwrap();
+    assert!(response.status().is_success());
+    let html = response.text().await.unwrap();
+
+    assert!(html.contains("test-app"), "introspection page should contain test-app");
+    assert!(html.contains("test-app-rpc"), "introspection page should contain test-app-rpc");
+}
+
 async fn init_fx_server() -> TestClient {
     static TEST_SERVER: OnceLock<TestServer> = OnceLock::new();
 

@@ -1,23 +1,28 @@
 use {
     std::sync::Arc,
     serde::Deserialize,
+    send_wrapper::SendWrapper,
     axum::{Router, routing::{get, delete}, response::Response, Extension, extract},
     leptos::prelude::*,
     crate::{
+        tasks::{
+            management::runtime_state::RuntimeState,
+            worker::WorkersController,
+        },
         effects::metrics::MetricsRegistry,
-        tasks::worker::WorkersController,
         function::FunctionId,
     },
 };
 
-pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController) {
+pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController, runtime_state: SendWrapper<RuntimeState>) {
     let app = Router::new()
         .route("/", get(introspection_home))
         .route("/metrics", get(introspection_metrics))
         .route("/api/functions/{function_id}", delete(management_api_function_remove))
         .route("/introspection", get(introspection))
         .layer(Extension(metrics))
-        .layer(Extension(Arc::new(workers_controller)));
+        .layer(Extension(Arc::new(workers_controller)))
+        .layer(Extension(runtime_state));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await.unwrap();
     axum::serve(listener, app).await.unwrap();
@@ -58,7 +63,29 @@ async fn management_api_function_remove(
     "ok.\n"
 }
 
-async fn introspection() -> Response {
+async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeState>>) -> Response {
+    let functions = runtime_state.functions();
+    let function_count = functions.len();
+
+    let function_rows: Vec<leptos::prelude::AnyView> = if functions.is_empty() {
+        vec![view! {
+            <tr>
+                <td colspan="6" class="empty-state">"no functions deployed"</td>
+            </tr>
+        }.into_any()]
+    } else {
+        functions.iter().map(|f| view! {
+            <tr>
+                <td>{f.as_str()}</td>
+                <td><span class="status ok">"ok"</span></td>
+                <td class="number">"-"</td>
+                <td class="number">"-"</td>
+                <td class="number">"-"</td>
+                <td class="number">"-"</td>
+            </tr>
+        }.into_any()).collect()
+    };
+
     render_component(view! {
         <!DOCTYPE html>
         <html>
@@ -85,7 +112,7 @@ async fn introspection() -> Response {
               </div>
               <div class="summary-item">
                 <span class="label">functions:</span>
-                <span class="value">3</span>
+                <span class="value">{function_count}</span>
               </div>
               <div class="summary-item">
                 <span class="label">consumers:</span>
@@ -116,30 +143,7 @@ async fn introspection() -> Response {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>api</td>
-                    <td><span class="status ok">ok</span></td>
-                    <td class="number">184,729</td>
-                    <td class="number">12</td>
-                    <td class="number">2,847/min</td>
-                    <td class="number">2.4ms</td>
-                  </tr>
-                  <tr>
-                    <td>worker</td>
-                    <td><span class="status ok">ok</span></td>
-                    <td class="number">94,112</td>
-                    <td class="number">0</td>
-                    <td class="number">412/min</td>
-                    <td class="number">45.2ms</td>
-                  </tr>
-                  <tr class="row-warn">
-                    <td>notifier</td>
-                    <td><span class="status degraded">degraded</span></td>
-                    <td class="number">12,847</td>
-                    <td class="number">847</td>
-                    <td class="number">0/min</td>
-                    <td class="number">124.8ms</td>
-                  </tr>
+                  {function_rows}
                 </tbody>
               </table>
             </section>
