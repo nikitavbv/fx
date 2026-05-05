@@ -115,17 +115,12 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
                 <span class="value">{function_count}</span>
               </div>
               <div class="summary-item">
-                <span class="label">consumers:</span>
-                <span class="value">2</span>
-              </div>
-              <div class="summary-item">
                 <span class="label">pending futures:</span>
                 <span class="value">847</span>
               </div>
             </div>
 
             <div class="alerts">
-              <div class="alert alert-error">"consumer 'orders' stuck for 5m 23s"</div>
               <div class="alert alert-warn">"function 'notifier' error rate: 6.5%"</div>
             </div>
 
@@ -144,43 +139,6 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
                 </thead>
                 <tbody>
                   {function_rows}
-                </tbody>
-              </table>
-            </section>
-
-            <section>
-              <h2>Consumers</h2>
-              <table>
-                <thead>
-                  <tr>
-                    <th>queue</th>
-                    <th>function</th>
-                    <th>handler</th>
-                    <th>state</th>
-                    <th>in state</th>
-                    <th class="number">processed</th>
-                    <th class="number">errors</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>notifications</td>
-                    <td>notifier</td>
-                    <td>handle</td>
-                    <td><span class="status waiting">waiting</span></td>
-                    <td>4s</td>
-                    <td class="number">94,112</td>
-                    <td class="number">23</td>
-                  </tr>
-                  <tr class="row-error">
-                    <td>orders</td>
-                    <td>worker</td>
-                    <td>process_order</td>
-                    <td><span class="status stuck">stuck</span></td>
-                    <td>5m 23s</td>
-                    <td class="number">12,000</td>
-                    <td class="number">0</td>
-                  </tr>
                 </tbody>
               </table>
             </section>
