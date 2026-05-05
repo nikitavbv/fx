@@ -13,8 +13,7 @@ pub use {
 };
 
 use {
-    std::{sync::Once, panic, time::Duration, ops::Sub, result::Result as StdResult},
-    lazy_static::lazy_static,
+    std::{time::Duration, ops::Sub, result::Result as StdResult},
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_sql_capnp},
@@ -30,7 +29,6 @@ use {
             fx_time,
         },
         sql::{SqlResult, SqlBatchError},
-        logging::FxLoggingLayer,
     },
 };
 

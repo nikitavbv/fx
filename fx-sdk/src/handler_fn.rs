@@ -1,14 +1,9 @@
 use {
-    std::{pin::Pin, future::Future, collections::HashMap, sync::Mutex, sync::OnceLock},
-    thiserror::Error,
-    serde::{de::DeserializeOwned, Serialize},
-    lazy_static::lazy_static,
-    futures::FutureExt,
+    std::{pin::Pin, future::Future},
     crate::{sys::{FunctionResourceId, FunctionResource, add_function_resource}, api::http::HttpResponse},
 };
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
-type HttpHandlerFunction = Box<dyn Fn(FunctionRequest) -> BoxFuture<FunctionResponse> + Send + Sync>;
 
 pub struct FunctionRequest {}
 

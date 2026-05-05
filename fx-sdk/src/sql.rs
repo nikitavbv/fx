@@ -42,11 +42,6 @@ pub struct SqlResultRow {
     pub columns: Vec<SqlValue>,
 }
 
-pub(crate) struct SqlMigrations {
-    pub database: String,
-    pub migrations: Vec<String>,
-}
-
 #[derive(Debug, Error)]
 pub enum SqlError {
     #[error("binding with this name is not found")]

@@ -285,7 +285,7 @@ impl HttpBody {
 impl Stream for HttpBody {
     type Item = Result<Bytes, HttpBodyStreamError>;
 
-    fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(mut self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         let inner = std::mem::replace(&mut self.0, HttpBodyInner::Empty);
 
         let (inner, poll_result) = match inner {
@@ -586,7 +586,7 @@ impl From<String> for HttpBody {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum HttpStreamError {
+pub enum HttpStreamError {
     #[error("failed to read axum stream: {0:?}")]
     AxumStreamRead(axum::Error),
 }

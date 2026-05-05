@@ -145,7 +145,7 @@ impl KvSubscriptionStream {
 impl Stream for KvSubscriptionStream {
     type Item = Vec<u8>;
 
-    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         let poll_result = self.resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
         let poll_result = FuturePollResult::try_from(poll_result).unwrap();
         if let FuturePollResult::Pending = poll_result {

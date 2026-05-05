@@ -2,7 +2,7 @@ use {
     futures::FutureExt,
     crate::{
         sys::{FunctionResource, FunctionResourceId, add_function_resource},
-        handler_fn::{FunctionResponse, IntoFunctionResponse},
+        handler_fn::IntoFunctionResponse,
     },
 };
 

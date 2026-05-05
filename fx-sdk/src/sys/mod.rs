@@ -17,15 +17,14 @@ pub use self::{
 
 pub(crate) use self::{
     logs::log,
-    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId, HostUnitFuture, SerializeResource},
+    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId, HostUnitFuture},
 };
 
 use {
-    std::{task::Poll, io::Cursor},
+    std::task::Poll,
     futures::{FutureExt, StreamExt},
     fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
-        logging::{set_panic_hook, init_logger},
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
     self::resource::replace_function_resource_with,
