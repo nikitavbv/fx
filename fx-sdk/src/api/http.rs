@@ -261,7 +261,7 @@ impl HttpBody {
     }
 
     pub fn stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
-        Self(HttpBodyInner::Stream(stream))
+        Self(HttpBodyInner::Stream { stream, frame_serialized: None })
     }
 
     pub fn host_resource(resource_id: OwnedResourceId) -> Self {
@@ -291,8 +291,7 @@ impl Stream for HttpBody {
         let (inner, poll_result) = match inner {
             HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::Stream(_) => todo!(),
-            HttpBodyInner::PartiallyReadStream { .. } => todo!(),
+            HttpBodyInner::Stream { stream, frame_serialized } => todo!(),
             HttpBodyInner::HostResource(resource_id) => {
                 let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
                 let poll_result = FuturePollResult::try_from(poll_result).unwrap();
@@ -338,8 +337,7 @@ impl http_body::Body for HttpBody {
         let (inner, poll_result) = match inner {
             HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::Stream(_) => todo!(),
-            HttpBodyInner::PartiallyReadStream { .. } => todo!(),
+            HttpBodyInner::Stream { stream, frame_serialized } => todo!(),
             HttpBodyInner::HostResource(resource_id) => {
                 let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
                 let poll_result = FuturePollResult::try_from(poll_result).unwrap();
@@ -384,10 +382,9 @@ impl axum::response::IntoResponse for HttpBody {
 pub(crate) enum HttpBodyInner {
     Empty,
     Bytes(Vec<u8>),
-    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
-    PartiallyReadStream {
+    Stream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame_serialized: Vec<u8>,
+        frame_serialized: Option<Vec<u8>>,
     },
     HostResource(OwnedResourceId),
     Serialized(Vec<u8>),
@@ -433,9 +430,8 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
             Some(body) => match body.0 {
                 HttpBodyInner::Empty => request_body.set_empty(()),
                 HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
-                HttpBodyInner::Stream(_) => todo!("using stream as request body is not supported yet"),
+                HttpBodyInner::Stream { stream, frame_serialized } => todo!("using stream as request body is not supported yet"),
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
-                HttpBodyInner::PartiallyReadStream { .. } => panic!("http body of this type (PartiallyReadStream) cannot be used as request body"),
                 HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),

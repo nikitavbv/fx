@@ -318,12 +318,12 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
                     let serialized_size = serialized.len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized))), serialized_size)
                 },
-                HttpBodyInner::Stream(stream) => {
+                HttpBodyInner::Stream { stream, frame_serialized } => {
                     let mut message = capnp::message::Builder::new_default();
                     let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
                     let mut serialized_body = serialized_body.init_body();
 
-                    let stream_resource_id = resources.insert(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream(stream))));
+                    let stream_resource_id = resources.insert(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame_serialized })));
                     let stream_resource_id = FunctionResourceId::new(stream_resource_id.data().as_ffi());
 
                     serialized_body.set_function_stream(stream_resource_id.as_u64());
@@ -333,7 +333,6 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
 
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_body))), serialized_len)
                 },
-                HttpBodyInner::PartiallyReadStream { .. } => panic!("resource of this type cannot be serialized"),
                 HttpBodyInner::HostResource(resource_id) => {
                     let resource_id = resource_id.consume();
 
