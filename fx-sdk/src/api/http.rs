@@ -335,14 +335,19 @@ impl http_body::Body for HttpBody {
 
     fn poll_frame(
         mut self: std::pin::Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         let inner = std::mem::replace(&mut self.0, HttpBodyInner::Empty);
 
         let (inner, poll_result) = match inner {
             HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::Stream { stream, frame_serialized } => todo!(),
+            HttpBodyInner::Stream { mut stream, frame_serialized: _frame_discard } => {
+                let poll_result = stream.poll_next_unpin(cx)
+                    .map(|v| v.map(|v| v.map(|v| http_body::Frame::data(v))))
+                    .map_err(|_| todo!());
+                (HttpBodyInner::Stream { stream, frame_serialized: None }, poll_result)
+            },
             HttpBodyInner::HostResource(resource_id) => {
                 let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
                 let poll_result = FuturePollResult::try_from(poll_result).unwrap();
