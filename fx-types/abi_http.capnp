@@ -60,10 +60,3 @@ struct FetchError {
         responseTimeout @2 :Void;
     }
 }
-
-struct FunctionResponse {
-    status @0 :UInt16;
-    headers @2 :List(HttpHeader);
-
-    bodyResource @1 :UInt64;
-}

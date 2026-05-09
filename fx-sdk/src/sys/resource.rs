@@ -90,7 +90,7 @@ pub(crate) trait SerializeResource {
 impl SerializeResource for FunctionResponse {
     fn serialize(self) -> Vec<u8> {
         let mut message = capnp::message::Builder::new_default();
-        let mut resource = message.init_root::<abi_http_capnp::function_response::Builder>();
+        let mut resource = message.init_root::<abi_http_capnp::http_response::Builder>();
         match self.0 {
             FunctionResponseInner::HttpResponse(http) => {
                 resource.set_status(http.status.as_u16());
@@ -102,7 +102,7 @@ impl SerializeResource for FunctionResponse {
                     header.set_value(value.to_str().unwrap());
                 }
 
-                resource.set_body_resource(http.body.as_u64());
+                resource.set_body_resource_id(http.body.as_u64());
             }
         }
         capnp::serialize::write_message_to_words(&message)

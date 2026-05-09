@@ -93,7 +93,7 @@ impl DeserializeFunctionResource for FunctionResponse {
 
     fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
-        let response = message_reader.get_root::<abi_http_capnp::function_response::Reader>().unwrap();
+        let response = message_reader.get_root::<abi_http_capnp::http_response::Reader>().unwrap();
 
         let mut headers = ::http::HeaderMap::new();
         for header in response.get_headers().unwrap() {
@@ -105,7 +105,7 @@ impl DeserializeFunctionResource for FunctionResponse {
         Ok(Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: ::http::StatusCode::from_u16(response.get_status()).unwrap(),
             headers,
-            body: Cell::new(Some(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(response.get_body_resource())))),
+            body: Cell::new(Some(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(response.get_body_resource_id())))),
         })))
     }
 }
