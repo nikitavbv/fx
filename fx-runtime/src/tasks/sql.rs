@@ -72,12 +72,10 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     connection.busy_timeout(busy_timeout).unwrap();
                 }
                 if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
-                    let error_code = err.sqlite_error().unwrap().code;
-                    if error_code == rusqlite::ErrorCode::DatabaseBusy
-                        || error_code == rusqlite::ErrorCode::DatabaseLocked {
+                    if is_database_busy_error(&err) {
                         Err(SqlQueryExecutionError::DatabaseBusy)
                     } else {
-                        panic!("unexpected sqlite error: {err:?}")
+                        todo!("unhandled sqlite error: {err:?}")
                     }
                 } else {
                     connection.pragma_update(None, "synchronous", "NORMAL").unwrap();
@@ -98,7 +96,17 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     }
                 };
 
-                let mut stmt = connection.prepare(&msg.statement).unwrap();
+                let mut stmt = match connection.prepare(&msg.statement) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        if is_database_busy_error(&err) {
+                            msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy)).unwrap();
+                            continue;
+                        } else {
+                            todo!("unhandled sqlite error: {err:?}");
+                        }
+                    }
+                };
                 let result_columns = stmt.column_count();
 
                 let mut rows = stmt.query(rusqlite::params_from_iter(msg.params.into_iter())).unwrap();
@@ -230,4 +238,9 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
             },
         }
     }
+}
+
+fn is_database_busy_error(err: &rusqlite::Error) -> bool {
+    let error_code = err.sqlite_error().unwrap().code;
+    error_code == rusqlite::ErrorCode::DatabaseBusy || error_code == rusqlite::ErrorCode::DatabaseLocked
 }
