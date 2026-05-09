@@ -14,6 +14,8 @@ use {
         DeserializeHostResource,
         OwnedResourceId,
         FutureHostResource,
+        FunctionResource,
+        add_function_resource,
         fx_fetch,
         fx_future_poll,
         fx_resource_serialize,
@@ -440,7 +442,9 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
             Some(body) => match body.0 {
                 HttpBodyInner::Empty => request_body.set_empty(()),
                 HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
-                HttpBodyInner::Stream { stream, frame_serialized } => todo!("using stream as request body is not supported yet"),
+                HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
+                    request_body.set_function_stream(add_function_resource(FunctionResource::HttpBody(HttpBody::stream(stream))).as_u64())
+                },
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
                 HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },

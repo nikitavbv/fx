@@ -105,28 +105,29 @@ pub extern "C" fn _fx_stream_frame_poll(resource_id: u64) -> i64 {
     let poll_result = replace_function_resource_with_effect(FunctionResourceId::new(resource_id), |resource| {
         match resource {
             FunctionResource::HttpBody(v) => match v.0 {
-                HttpBodyInner::Stream { mut stream, frame_serialized } => match stream.poll_next_unpin(&mut context) {
-                    Poll::Pending => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame_serialized: None })), Poll::Pending),
-                    Poll::Ready(v) => (
-                        FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream {
-                            stream,
-                            frame_serialized: Some({
-                                let mut message = capnp::message::Builder::new_default();
-                                let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
-                                let mut serialized_frame = serialized_frame.init_frame();
+                HttpBodyInner::Stream { mut stream, frame_serialized: _previous_frame_discarded } =>
+                    match stream.poll_next_unpin(&mut context) {
+                        Poll::Pending => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame_serialized: None })), Poll::Pending),
+                        Poll::Ready(v) => (
+                            FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream {
+                                stream,
+                                frame_serialized: Some({
+                                    let mut message = capnp::message::Builder::new_default();
+                                    let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
+                                    let mut serialized_frame = serialized_frame.init_frame();
 
-                                match v {
-                                    None => serialized_frame.set_stream_end(()),
-                                    Some(Err(err)) => todo!("handle error: {err:?}"),
-                                    Some(Ok(frame)) => serialized_frame.set_bytes(&frame.to_vec()),
-                                }
+                                    match v {
+                                        None => serialized_frame.set_stream_end(()),
+                                        Some(Err(err)) => todo!("handle error: {err:?}"),
+                                        Some(Ok(frame)) => serialized_frame.set_bytes(&frame.to_vec()),
+                                    }
 
-                                capnp::serialize::write_message_to_words(&message)
-                            }),
-                        })),
-                        Poll::Ready(())
-                    ),
-                },
+                                    capnp::serialize::write_message_to_words(&message)
+                                }),
+                            })),
+                            Poll::Ready(())
+                        ),
+                    },
                 HttpBodyInner::Empty => todo!(),
                 HttpBodyInner::Bytes(_) => todo!(),
                 HttpBodyInner::HostResource(_) => todo!(),

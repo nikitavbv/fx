@@ -1,11 +1,10 @@
 use {
-    std::{sync::{OnceLock, Mutex, Arc}, cell::{RefCell, LazyCell, OnceCell, Cell}, marker::PhantomData, borrow::BorrowMut},
+    std::{cell::{RefCell, LazyCell, Cell}, marker::PhantomData},
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
-    lazy_static,
     fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
-        handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
+        handler_fn::{FunctionResponse, FunctionResponseInner},
         sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
