@@ -274,11 +274,14 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
 }
 
 pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
+    debug!("fx_future_poll_handler - enter");
     let resource_id = ResourceId::new(future_resource_id);
-    (match caller.data_mut().resource_poll(&resource_id) {
+    let result = (match caller.data_mut().resource_poll(&resource_id) {
         Poll::Pending => FuturePollResult::Pending,
         Poll::Ready(_) => FuturePollResult::Ready,
-    }) as i64
+    }) as i64;
+    debug!("fx_future_poll_handler - exit");
+    result
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {

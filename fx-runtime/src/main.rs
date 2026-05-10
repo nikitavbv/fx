@@ -5,8 +5,8 @@
 
 use {
     std::path::PathBuf,
-    tracing::{Level, info, warn},
-    tracing_subscriber::FmtSubscriber,
+    tracing::{info, warn},
+    tracing_subscriber::{FmtSubscriber, EnvFilter},
     clap::{Parser, Subcommand},
     fx_runtime::{FxServer, config::ServerConfig},
 };
@@ -17,7 +17,7 @@ struct Args {
     #[command(subcommand)]
     command: Command,
 
-    #[arg(long)]
+    #[arg(long, action)]
     debug: Option<bool>,
 }
 
@@ -34,8 +34,13 @@ static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
     let args = Args::parse();
+    let env_filter = if args.debug.unwrap_or(false) {
+        EnvFilter::new("fx_runtime=debug,info")
+    } else {
+        EnvFilter::new("info")
+    };
     FmtSubscriber::builder()
-        .with_max_level(if args.debug.unwrap_or(false) { Level::DEBUG } else { Level::INFO })
+        .with_env_filter(env_filter)
         .init();
 
     match args.command {
