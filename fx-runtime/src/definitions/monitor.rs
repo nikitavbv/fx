@@ -16,7 +16,7 @@ use {
             worker::WorkerMessage,
             compiler::CompilerMessage,
             cron::CronMessage,
-            management::runtime_state::RuntimeState,
+            management::runtime_state::{RuntimeState, CronTaskInfo},
         },
         definitions::{
             config::{ServerConfig, FunctionConfig, FunctionCodeConfig, EnvValueSource},
@@ -282,10 +282,23 @@ impl DefinitionsMonitor {
             .flat_map(|v| v.iter())
             .map(|v| CronTrigger {
                 id: format!("{}::{}", function_id.as_str(), v.id),
+                name: v.id.clone(),
                 schedule: cron::Schedule::from_str(&v.schedule).unwrap(),
                 endpoint: v.endpoint.clone(),
             })
             .collect::<Vec<_>>();
+
+        let cron_task_infos = config.triggers.iter()
+            .flat_map(|v| v.cron.iter())
+            .flat_map(|v| v.iter())
+            .map(|v| CronTaskInfo {
+                name: v.id.clone(),
+                function_id: function_id.clone(),
+                schedule: v.schedule.clone(),
+                endpoint: v.endpoint.clone(),
+            })
+            .collect();
+        self.runtime_state.set_cron_tasks(function_id.clone(), cron_task_infos);
 
         self.cron_tx.send_async(CronMessage::ScheduleAdd {
             function_id,

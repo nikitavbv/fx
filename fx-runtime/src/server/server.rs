@@ -13,7 +13,7 @@ use {
             sql::{SqlMessage, run_sql_task},
             compiler::CompilerMessage,
             management::{ManagementMessage, run_management_task, DeployFunctionMessage},
-            cron::run_cron_task,
+            cron::{run_cron_task, CronTaskEvent},
             kv::run_kv_task,
             blob::run_blob_task,
         },
@@ -60,6 +60,7 @@ impl FxServer {
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
         let (logger_tx, logger_rx) = flume::unbounded::<LogMessageEvent>();
         let (cron_tx, cron_rx) = flume::unbounded();
+        let (cron_event_tx, cron_event_rx) = flume::unbounded::<CronTaskEvent>();
         let (kv_tx, kv_rx) = flume::unbounded();
         let (blob_tx, blob_rx) = flume::unbounded();
 
@@ -86,7 +87,7 @@ impl FxServer {
             std::thread::spawn(move || {
                 info!("started management thread");
 
-                run_management_task(config, workers_tx, compiler_tx, cron_tx, management_rx);
+                run_management_task(config, workers_tx, compiler_tx, cron_tx, cron_event_rx, management_rx);
             })
         };
 
@@ -129,7 +130,7 @@ impl FxServer {
 
             std::thread::spawn(move || {
                 info!("started cron thread");
-                run_cron_task(cron_database, workers_controller, cron_rx);
+                run_cron_task(cron_database, workers_controller, cron_rx, cron_event_tx);
             })
         };
 

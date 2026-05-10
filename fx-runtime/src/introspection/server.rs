@@ -1,5 +1,6 @@
 use {
     std::sync::Arc,
+    chrono::{DateTime, Utc},
     serde::Deserialize,
     send_wrapper::SendWrapper,
     axum::{Router, routing::{get, delete}, response::Response, Extension, extract},
@@ -84,6 +85,35 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
                 <td class="number">"-"</td>
             </tr>
         }.into_any()).collect()
+    };
+
+    let cron_tasks = runtime_state.cron_tasks();
+    let cron_rows: Vec<leptos::prelude::AnyView> = if cron_tasks.is_empty() {
+        vec![view! {
+            <tr>
+                <td colspan="6" class="empty-state">"no cron tasks configured"</td>
+            </tr>
+        }.into_any()]
+    } else {
+        cron_tasks.iter().map(|t| {
+            let name = t.name.clone();
+            let function_id = t.function_id.as_str().to_owned();
+            let schedule = t.schedule.clone();
+            let last_run = runtime_state.cron_last_run(&t.name, &t.function_id)
+                .as_ref()
+                .map(format_datetime)
+                .unwrap_or_else(|| "never".to_owned());
+            view! {
+                <tr>
+                    <td>{name}</td>
+                    <td>{function_id}</td>
+                    <td>{schedule}</td>
+                    <td>{last_run}</td>
+                    <td>"-"</td>
+                    <td><span class="status idle">"idle"</span></td>
+                </tr>
+            }.into_any()
+        }).collect()
     };
 
     render_component(view! {
@@ -181,22 +211,7 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>cleanup</td>
-                    <td>worker</td>
-                    <td>0 * * * *</td>
-                    <td>12m ago</td>
-                    <td>in 48m</td>
-                    <td><span class="status idle">idle</span></td>
-                  </tr>
-                  <tr>
-                    <td>daily-report</td>
-                    <td>notifier</td>
-                    <td>0 9 * * *</td>
-                    <td>6h ago</td>
-                    <td>in 18h</td>
-                    <td><span class="status idle">idle</span></td>
-                  </tr>
+                  {cron_rows}
                 </tbody>
               </table>
             </section>
@@ -208,4 +223,8 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
         </body>
         </html>
     })
+}
+
+fn format_datetime(dt: &DateTime<Utc>) -> String {
+    dt.format("%Y-%m-%d %H:%M:%S UTC").to_string()
 }

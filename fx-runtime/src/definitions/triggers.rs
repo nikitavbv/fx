@@ -5,6 +5,7 @@ pub(crate) struct FunctionHttpListener {
 
 pub(crate) struct CronTrigger {
     pub(crate) id: String,
+    pub(crate) name: String,
     pub(crate) schedule: cron::Schedule,
     pub(crate) endpoint: Option<String>,
 }

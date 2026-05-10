@@ -913,6 +913,10 @@ async fn introspection_functions_table() {
 
     assert!(html.contains("test-app"), "introspection page should contain test-app");
     assert!(html.contains("test-app-rpc"), "introspection page should contain test-app-rpc");
+
+    // verify cron section shows real tasks
+    assert!(html.contains("test-cron-job"), "introspection page should show cron task");
+    assert!(html.contains("test-cron-job-custom-endpoint"), "introspection page should show custom endpoint cron task");
 }
 
 async fn init_fx_server() -> TestClient {

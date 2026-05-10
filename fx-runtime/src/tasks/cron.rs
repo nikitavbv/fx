@@ -1,7 +1,7 @@
 use {
     tracing::info,
     tokio::time::Duration,
-    chrono::Utc,
+    chrono::{DateTime, Utc},
     crate::{
         triggers::{cron::CronDatabase, http::FetchRequestHeader},
         tasks::worker::WorkersController,
@@ -9,6 +9,15 @@ use {
         function::FunctionId,
     },
 };
+
+#[derive(Clone, Debug)]
+pub enum CronTaskEvent {
+    Run {
+        name: String,
+        function_id: FunctionId,
+        run_at: DateTime<Utc>,
+    },
+}
 
 pub(crate) enum CronMessage {
     ScheduleAdd {
@@ -19,17 +28,18 @@ pub(crate) enum CronMessage {
 
 #[derive(Debug)]
 struct CronTask {
+    name: String,
     task_id: String,
     function_id: FunctionId,
     schedule: cron::Schedule,
-
     endpoint: Option<String>,
 }
 
 pub(crate) fn run_cron_task(
     mut database: CronDatabase,
     mut workers_controller: WorkersController,
-    msg_rx: flume::Receiver<CronMessage>
+    msg_rx: flume::Receiver<CronMessage>,
+    cron_events: flume::Sender<CronTaskEvent>,
 ) {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -56,6 +66,7 @@ pub(crate) fn run_cron_task(
                     match message {
                         CronMessage::ScheduleAdd { function_id, schedule } => {
                             tasks = schedule.into_iter().map(|trigger| CronTask {
+                                name: trigger.name,
                                 task_id: trigger.id,
                                 function_id: function_id.clone(),
                                 schedule: trigger.schedule,
@@ -66,14 +77,14 @@ pub(crate) fn run_cron_task(
                 },
 
                 _ = cron_interval.tick() => {
-                    run_tasks(&mut database, &mut workers_controller, &tasks).await;
+                    run_tasks(&mut database, &mut workers_controller, &cron_events, &tasks).await;
                 }
             }
         }
     }));
 }
 
-async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, tasks: &Vec<CronTask>) {
+async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) {
     for task in tasks {
         if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
             if task.schedule.after(&prev_run_time).next().unwrap() > Utc::now() {
@@ -91,6 +102,13 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
                 .0
         })).await.unwrap();
 
-        database.update_run_time(&task.task_id, Utc::now());
+        let run_at = Utc::now();
+        database.update_run_time(&task.task_id, run_at);
+
+        cron_events.send_async(CronTaskEvent::Run {
+            name: task.name.clone(),
+            function_id: task.function_id.clone(),
+            run_at,
+        }).await.unwrap();
     }
 }
