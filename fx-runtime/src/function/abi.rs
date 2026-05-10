@@ -3,6 +3,7 @@ pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, a
 use {
     std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr},
     tokio::{sync::oneshot, time::Duration},
+    tracing::debug,
     http::Method,
     http_body_util::{BodyStream, BodyExt},
     wasmtime::{AsContext, AsContextMut},
@@ -435,6 +436,8 @@ pub(super) fn fx_fetch_handler(
     req_ptr: u64,
     req_len: u64,
 ) -> u64 {
+    debug!("fx_fetch_handler - enter");
+
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -462,7 +465,7 @@ pub(super) fn fx_fetch_handler(
     let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
-    if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
+    let result = if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
         let mut http_builder = http::Request::builder()
             .method(request_method)
             .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap());
@@ -563,7 +566,11 @@ pub(super) fn fx_fetch_handler(
                 }
             }
         }))).as_u64()
-    }
+    };
+
+    debug!("fx_fetch_handler - exit");
+
+    result
 }
 
 pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {

@@ -16,6 +16,9 @@ use {
 struct Args {
     #[command(subcommand)]
     command: Command,
+
+    #[arg(long)]
+    debug: Option<bool>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -30,8 +33,10 @@ enum Command {
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
-    FmtSubscriber::builder().with_max_level(Level::INFO).init();
     let args = Args::parse();
+    FmtSubscriber::builder()
+        .with_max_level(if args.debug.unwrap_or(false) { Level::DEBUG } else { Level::INFO })
+        .init();
 
     match args.command {
         Command::Serve { config_file } => {
