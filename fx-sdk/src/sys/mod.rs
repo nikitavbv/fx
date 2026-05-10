@@ -1,9 +1,18 @@
 pub use self::{
+    resource::{ResourceId, FunctionResourceId},
+    future::wrap_function_response_future,
+};
+
+pub(crate) use self::{
+    logs::log,
     resource::{
-        ResourceId,
-        FunctionResourceId,
-        FunctionResource,
         SerializableResource,
+        DeserializableHostResource,
+        DeserializeHostResource,
+        FutureHostResource,
+        OwnedResourceId,
+        HostUnitFuture,
+        FunctionResource,
         add_function_resource,
         replace_function_resource,
         serialize_function_resource,
@@ -12,12 +21,6 @@ pub use self::{
         map_function_resource_ref_mut,
         replace_function_resource_with_effect,
     },
-    future::wrap_function_response_future,
-};
-
-pub(crate) use self::{
-    logs::log,
-    resource::{DeserializableHostResource, DeserializeHostResource, FutureHostResource, OwnedResourceId, HostUnitFuture},
 };
 
 use {

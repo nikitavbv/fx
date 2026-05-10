@@ -48,7 +48,7 @@ impl Into<DefaultKey> for &FunctionResourceId {
     }
 }
 
-pub enum FunctionResource {
+pub(crate) enum FunctionResource {
     FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
     HttpBody(HttpBody),
@@ -61,7 +61,7 @@ impl From<FunctionResponse> for FunctionResource {
     }
 }
 
-pub enum SerializableResource<T: SerializeResource> {
+pub(crate) enum SerializableResource<T: SerializeResource> {
     Raw(T),
     Serialized(Vec<u8>),
 }
@@ -240,11 +240,11 @@ impl Future for HostUnitFuture {
     }
 }
 
-pub fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
+pub(crate) fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
     FUNCTION_RESOURCES.with_borrow_mut(|v| FunctionResourceId::new(v.insert(resource).data().as_ffi()))
 }
 
-pub fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
+pub(crate) fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
     let resource = FUNCTION_RESOURCES.with_borrow_mut(|v| v.detach(resource_id.into()).unwrap());
 
     let result = mapper(&resource);
@@ -254,7 +254,7 @@ pub fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource_
     result
 }
 
-pub fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
+pub(crate) fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
     let mut resource = FUNCTION_RESOURCES.with_borrow_mut(|v| v.detach(resource_id.into()).unwrap());
 
     let result = mapper(&mut resource);
@@ -264,13 +264,13 @@ pub fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(r
     result
 }
 
-pub fn replace_function_resource(resource_id: &FunctionResourceId, new_resource: FunctionResource) {
+pub(crate) fn replace_function_resource(resource_id: &FunctionResourceId, new_resource: FunctionResource) {
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {
         *resources.get_mut(resource_id.into()).unwrap() = new_resource;
     })
 }
 
-pub fn replace_function_resource_with<F: FnOnce(FunctionResource) -> FunctionResource>(resource_id: FunctionResourceId, mapper: F) {
+pub(crate) fn replace_function_resource_with<F: FnOnce(FunctionResource) -> FunctionResource>(resource_id: FunctionResourceId, mapper: F) {
     FUNCTION_RESOURCES.with_borrow_mut(move |resources| {
         let resource = resources.detach((&resource_id).into()).unwrap();
         let resource = mapper(resource);
@@ -278,7 +278,7 @@ pub fn replace_function_resource_with<F: FnOnce(FunctionResource) -> FunctionRes
     })
 }
 
-pub fn replace_function_resource_with_effect<T, F: FnOnce(FunctionResource) -> (FunctionResource, T)>(resource_id: FunctionResourceId, mapper: F) -> T {
+pub(crate) fn replace_function_resource_with_effect<T, F: FnOnce(FunctionResource) -> (FunctionResource, T)>(resource_id: FunctionResourceId, mapper: F) -> T {
     FUNCTION_RESOURCES.with_borrow_mut(move |resources| {
         let resource = resources.detach((&resource_id).into()).unwrap();
         let (resource, effect) = mapper(resource);
@@ -288,7 +288,7 @@ pub fn replace_function_resource_with_effect<T, F: FnOnce(FunctionResource) -> (
 }
 
 /// returns length of serialized resource
-pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
+pub(crate) fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {
         let resource = resources.detach(resource_id.into()).unwrap();
         let (resource, serialized_size) = match resource {
@@ -356,6 +356,6 @@ pub fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
     }) as u64
 }
 
-pub fn drop_function_resource(resource_id: &FunctionResourceId) {
+pub(crate) fn drop_function_resource(resource_id: &FunctionResourceId) {
     FUNCTION_RESOURCES.with_borrow_mut(|v| v.remove(resource_id.into()));
 }

@@ -1,5 +1,5 @@
 use {
-    axum::{http::Request, body::Body},
+    axum::http::Request,
     tower::Service,
     futures::{StreamExt, TryStreamExt},
     crate::{HttpRequest, HttpResponse, api::http::HttpStreamError},
