@@ -130,6 +130,8 @@ pub(super) fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, Function
 }
 
 pub(super) fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
+    debug!("fx_stream_frame_read_handler - enter");
+
     let serialized_frame = caller.data_mut().stream_read_frame(&ResourceId::from(resource_id));
 
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -138,6 +140,8 @@ pub(super) fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, Func
     let ptr = ptr as usize;
 
     view[ptr..ptr+serialized_frame.len()].copy_from_slice(&serialized_frame);
+
+    debug!("fx_stream_frame_read_handler - exit");
 }
 
 pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
