@@ -650,7 +650,7 @@ async fn kv_tasks_background_status() -> (StatusCode, &'static str) {
 
 async fn test_limits_memory() -> String {
     let mut data: Vec<u8> = Vec::new();
-    data.resize(1 * 1024 * 1024 * 1024, 0xA5); // try to make vec very large to trigger memory limits, 1GB in this case (remember that wasm32 has 4GB size limit)
+    data.resize(1024 * 1024 * 1024, 0xA5); // try to make vec very large to trigger memory limits, 1GB in this case (remember that wasm32 has 4GB size limit)
     format!("large allocation worked (unexpectedly): {:?}", data.len())
 }
 

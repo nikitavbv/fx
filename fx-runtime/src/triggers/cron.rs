@@ -25,7 +25,7 @@ impl CronDatabase {
                 .with_param(SqlValue::Text(task_id.to_owned()))
         ).unwrap();
 
-        let datetime = match result.rows.get(0)?.columns.get(0).unwrap() {
+        let datetime = match result.rows.first()?.columns.first().unwrap() {
             SqlValue::Text(text) => text,
             other => panic!("unexpected type for last_run_at: {other:?}"),
         };

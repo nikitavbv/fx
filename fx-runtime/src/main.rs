@@ -4,6 +4,7 @@
 #![warn(clippy::panic)]
 
 use {
+    std::path::PathBuf,
     tracing::{Level, info, warn},
     tracing_subscriber::FmtSubscriber,
     clap::{Parser, Subcommand},
@@ -34,7 +35,16 @@ fn main() {
 
     match args.command {
         Command::Serve { config_file } => {
-            let config_path = std::env::current_dir().unwrap().join(config_file);
+            let current_dir = match std::env::current_dir() {
+                Ok(v) => v,
+                Err(err) => {
+                    let default_work_dir = PathBuf::from("/var/lib/fx");
+                    warn!("failed to get workdir: {err:?}. Defaulting to {default_work_dir:?}");
+                    default_work_dir
+                }
+            };
+            let config_path = current_dir.join(config_file);
+
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path);
 
