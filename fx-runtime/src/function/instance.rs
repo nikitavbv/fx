@@ -157,7 +157,7 @@ impl FunctionInstance {
             FuturePollResult::Ready => Poll::Ready(()),
         });
 
-        debug!("host: future_poll - exit");
+        debug!("host: future_poll - exit, result: {result:?}");
 
         result
     }

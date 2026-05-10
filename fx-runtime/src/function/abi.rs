@@ -284,7 +284,7 @@ pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionIn
         Poll::Pending => FuturePollResult::Pending,
         Poll::Ready(_) => FuturePollResult::Ready,
     }) as i64;
-    debug!("fx_future_poll_handler - exit");
+    debug!(result, "fx_future_poll_handler - exit");
     result
 }
 
