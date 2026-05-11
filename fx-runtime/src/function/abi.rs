@@ -513,6 +513,7 @@ pub(super) fn fx_fetch_handler(
             request_uri
         );
 
+        // TODO: add integration test for this
         *fetch_request.timeout_mut() = Some(Duration::from_secs(3));
 
         for header in request.get_headers().unwrap().into_iter() {

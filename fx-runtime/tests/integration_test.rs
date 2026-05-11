@@ -411,6 +411,13 @@ async fn fetch_timeout() {
 }
 
 #[tokio::test]
+async fn fetch_read_timeout() {
+    let client = init_fx_server().await;
+
+    // TODO
+}
+
+#[tokio::test]
 async fn log() {
     let client = init_fx_server().await;
 
@@ -958,7 +965,10 @@ async fn init_fx_server() -> TestClient {
                             .with_trigger_cron_config(FunctionCronTriggerConfig::new("test-cron-job-custom-endpoint".to_owned(),  "* * * * * *".to_owned()).with_endpoint("/_fx/cron/custom-endpoint-for-task"))
                             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                             .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
-                            .with_binding_sql_config(SqlBindingConfig::new("app".to_owned(), "app".to_owned(), true))
+                            .with_binding_sql_config(
+                                SqlBindingConfig::new("app".to_owned(), "app".to_owned(), true)
+                                    .with_busy_timeout_ms(100) // needed to prevent DATABASE_BUSY in some tests sometimes (without it, if database is used by other request it will fail instantly)
+                            )
                             .with_binding_sql_config(SqlBindingConfig::new("cron-test".to_owned(), "cron-test".to_owned(), true))
                             .with_binding_sql_config(
                                 SqlBindingConfig::new("contention-test".to_owned(), "contention".to_owned(), false)
