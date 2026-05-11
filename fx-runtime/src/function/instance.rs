@@ -474,6 +474,7 @@ impl FunctionInstanceState {
                 (Resource::SqlBatchResult(v), poll_result)
             },
             Resource::UnitFuture(mut v) => {
+                debug!("resource_poll: unit future");
                 let poll_result = v.poll_unpin(&mut cx);
                 (Resource::UnitFuture(v), poll_result)
             },
@@ -482,11 +483,13 @@ impl FunctionInstanceState {
                 (Resource::BlobGetResult(v), poll_result)
             },
             Resource::FetchResult(mut v) => {
+                debug!("resource_poll: fetch result");
                 let poll_result = v.poll(&mut cx);
                 (Resource::FetchResult(v), poll_result)
             },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Stream { mut stream, frame: _previous_frame_is_discarded } => {
+                    debug!("resource_poll: http_body - stream");
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
                     match poll_result {
@@ -501,6 +504,8 @@ impl FunctionInstanceState {
                     }
                 },
                 HttpBodyInner::FunctionStream(stream) => {
+                    debug!("resource_poll: http_body - function stream");
+
                     let mut stream = stream.replace(None).unwrap()
                         .map(|v| Result::<_, HttpStreamError>::Ok(hyper::body::Bytes::from(v)))
                         .boxed_local();
@@ -521,6 +526,8 @@ impl FunctionInstanceState {
                     }
                 },
                 HttpBodyInner::StreamLocal { mut stream, frame: _previous_frame_is_discarded } => {
+                    debug!("resource_poll: http_body - stream local");
+
                     let poll_result = stream.poll_next_unpin(&mut cx);
 
                     match poll_result {
