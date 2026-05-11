@@ -513,6 +513,8 @@ pub(super) fn fx_fetch_handler(
             request_uri
         );
 
+        *fetch_request.timeout_mut() = Some(Duration::from_secs(3));
+
         for header in request.get_headers().unwrap().into_iter() {
             let name = header.get_name().unwrap().to_str().unwrap();
             let value = header.get_value().unwrap().to_str().unwrap();
