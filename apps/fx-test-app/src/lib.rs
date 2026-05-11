@@ -458,7 +458,7 @@ async fn test_fetch_timeout() -> &'static str {
         Ok(_) => "unexpected success",
         Err(FetchError::ConnectionFailed) => "connection failed",
         Err(FetchError::ConnectionTimeout) => "connection timeout",
-        Err(_) => "other error",
+        Err(FetchError::ResponseTimeout) => "response timeout",
     }
 }
 

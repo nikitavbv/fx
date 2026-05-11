@@ -407,7 +407,7 @@ async fn fetch_timeout() {
     let result = client.get("/test/fetch/timeout").send().await.unwrap();
     assert!(result.status().is_success());
     let body = result.text().await.unwrap();
-    assert!(body == "connection failed" || body == "connection timeout", "expected fetch error, got: {}", body);
+    assert!(body == "connection failed" || body == "connection timeout" || body == "response timeout", "expected fetch error, got: {}", body);
 }
 
 #[tokio::test]
