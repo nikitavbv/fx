@@ -1,11 +1,10 @@
 use {
-    std::{fs, sync::{Arc, OnceLock}, time::Instant, env::current_dir},
+    std::{fs, sync::{Arc, OnceLock}, time::Instant},
     once_cell::sync::Lazy,
-    tokio::{join, sync::{OnceCell, Mutex}, time::{sleep, Duration}},
+    tokio::{join, time::{sleep, Duration}},
     futures::{StreamExt, stream::FuturesUnordered, FutureExt},
     fx_runtime::{
         FxServer,
-        server::RunningFxServer,
         function::FunctionId,
         config::{
             ServerConfig,
@@ -848,6 +847,7 @@ async fn preemption() {
         logger: None,
         introspection: Some(IntrospectionConfig {
             enabled: false,
+            port: 9000,
         }),
     }).start();
 
@@ -927,6 +927,36 @@ async fn introspection_functions_table() {
     // verify cron section shows real tasks
     assert!(html.contains("test-cron-job"), "introspection page should show cron task");
     assert!(html.contains("test-cron-job-custom-endpoint"), "introspection page should show custom endpoint cron task");
+}
+
+#[tokio::test]
+async fn introspection_cron_running_state() {
+    let _client = init_fx_server().await;
+
+    let client = reqwest::Client::new();
+    let mut found_running = false;
+    for _ in 0..100 {
+        let response = client
+            .get("http://localhost:9000/introspection")
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+        let html = response.text().await.unwrap();
+
+        let slow_cron_row = html.split("<tr>")
+            .find(|row| row.contains("<td>slow-cron</td>"));
+        if let Some(row) = slow_cron_row {
+            if row.contains(r#"<span class="status running">running</span>"#) {
+                found_running = true;
+                break;
+            }
+        }
+
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    assert!(found_running, "slow-cron row should show 'running' state");
 }
 
 async fn init_fx_server() -> TestClient {
@@ -1040,6 +1070,16 @@ async fn init_fx_server() -> TestClient {
                             .with_trigger_http(Some("limit-memory.fx.local".to_owned()))
                             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                             .with_limits(LimitsConfig::new().with_memory_bytes(128 * 1024 * 1024))
+                    ).await;
+
+                    server.deploy_function(
+                        FunctionId::new("test-app-slow-cron"),
+                        FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
+                            .with_trigger_cron_config(
+                                FunctionCronTriggerConfig::new("slow-cron".to_owned(), "*/5 * * * * *".to_owned())
+                                    .with_endpoint("/_fx/cron/slow")
+                            )
+                            .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                     ).await;
 
                     TestServer {

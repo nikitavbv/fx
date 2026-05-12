@@ -1,5 +1,5 @@
 use {
-    std::{cell::RefCell, collections::HashMap, rc::Rc},
+    std::{cell::RefCell, collections::{HashMap, HashSet}, rc::Rc},
     chrono::{DateTime, Utc},
     crate::function::FunctionId,
 };
@@ -17,6 +17,7 @@ pub struct RuntimeState {
     functions: Rc<RefCell<Vec<FunctionId>>>,
     cron_tasks: Rc<RefCell<Vec<CronTaskInfo>>>,
     cron_last_runs: Rc<RefCell<HashMap<(FunctionId, String), DateTime<Utc>>>>,
+    cron_running: Rc<RefCell<HashSet<(FunctionId, String)>>>,
 }
 
 impl RuntimeState {
@@ -25,6 +26,7 @@ impl RuntimeState {
             functions: Rc::new(RefCell::new(Vec::new())),
             cron_tasks: Rc::new(RefCell::new(Vec::new())),
             cron_last_runs: Rc::new(RefCell::new(HashMap::new())),
+            cron_running: Rc::new(RefCell::new(HashSet::new())),
         }
     }
 
@@ -56,10 +58,19 @@ impl RuntimeState {
     }
 
     pub fn record_cron_run(&self, name: String, function_id: FunctionId, run_at: DateTime<Utc>) {
-        self.cron_last_runs.borrow_mut().insert((function_id, name), run_at);
+        self.cron_last_runs.borrow_mut().insert((function_id.clone(), name.clone()), run_at);
+        self.cron_running.borrow_mut().remove(&(function_id, name));
     }
 
     pub fn cron_last_run(&self, name: &str, function_id: &FunctionId) -> Option<DateTime<Utc>> {
         self.cron_last_runs.borrow().get(&(function_id.clone(), name.to_owned())).copied()
+    }
+
+    pub fn mark_cron_running(&self, name: String, function_id: FunctionId) {
+        self.cron_running.borrow_mut().insert((function_id, name));
+    }
+
+    pub fn is_cron_running(&self, name: &str, function_id: &FunctionId) -> bool {
+        self.cron_running.borrow().contains(&(function_id.clone(), name.to_owned()))
     }
 }

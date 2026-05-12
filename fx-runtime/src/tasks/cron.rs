@@ -12,6 +12,10 @@ use {
 
 #[derive(Clone, Debug)]
 pub enum CronTaskEvent {
+    Start {
+        name: String,
+        function_id: FunctionId,
+    },
     Run {
         name: String,
         function_id: FunctionId,
@@ -92,7 +96,12 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
             }
         };
 
-        workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
+        cron_events.send_async(CronTaskEvent::Start {
+            name: task.name.clone(),
+            function_id: task.function_id.clone(),
+        }).await.unwrap();
+
+        let result = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
             http::Request::builder()
                 .method(http::Method::GET)
                 .uri(task.endpoint.as_ref().map(|v| v.as_str()).unwrap_or("/_fx/cron"))
@@ -100,7 +109,7 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
                 .unwrap()
                 .into_parts()
                 .0
-        })).await.unwrap();
+        })).await;
 
         let run_at = Utc::now();
         database.update_run_time(&task.task_id, run_at);
@@ -110,5 +119,7 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
             function_id: task.function_id.clone(),
             run_at,
         }).await.unwrap();
+
+        result.unwrap();
     }
 }

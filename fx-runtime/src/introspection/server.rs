@@ -15,7 +15,7 @@ use {
     },
 };
 
-pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController, runtime_state: SendWrapper<RuntimeState>) {
+pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController, runtime_state: SendWrapper<RuntimeState>, port: u16) {
     let app = Router::new()
         .route("/", get(introspection_home))
         .route("/metrics", get(introspection_metrics))
@@ -25,7 +25,7 @@ pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, work
         .layer(Extension(Arc::new(workers_controller)))
         .layer(Extension(runtime_state));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:9000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -103,6 +103,11 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
                 .as_ref()
                 .map(format_datetime)
                 .unwrap_or_else(|| "never".to_owned());
+            let status = if runtime_state.is_cron_running(&t.name, &t.function_id) {
+                view! { <span class="status running">"running"</span> }.into_any()
+            } else {
+                view! { <span class="status idle">"idle"</span> }.into_any()
+            };
             view! {
                 <tr>
                     <td>{name}</td>
@@ -110,7 +115,7 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
                     <td>{schedule}</td>
                     <td>{last_run}</td>
                     <td>"-"</td>
-                    <td><span class="status idle">"idle"</span></td>
+                    <td>{status}</td>
                 </tr>
             }.into_any()
         }).collect()

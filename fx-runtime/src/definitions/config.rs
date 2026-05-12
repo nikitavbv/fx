@@ -93,6 +93,12 @@ pub enum LoggerConfig {
 #[derive(Deserialize, Clone)]
 pub struct IntrospectionConfig {
     pub enabled: bool,
+    #[serde(default = "default_introspection_port")]
+    pub port: u16,
+}
+
+fn default_introspection_port() -> u16 {
+    9000
 }
 
 #[derive(Deserialize, Clone)]

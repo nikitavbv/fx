@@ -102,6 +102,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/limits/cpu-preemption", get(test_cpu_preemption))
             .route("/_fx/cron", get(handle_cron))
             .route("/_fx/cron/custom-endpoint-for-task", get(handle_cron_custom_endpoint_for_task))
+            .route("/_fx/cron/slow", get(handle_cron_slow))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
         req
@@ -511,6 +512,11 @@ async fn handle_cron() -> String {
         SqlValue::Integer(v) => v.to_string(),
         other => panic!("unexpected result type: {other:?}"),
     }
+}
+
+async fn handle_cron_slow() -> &'static str {
+    sleep(Duration::from_secs(1)).await;
+    "slow cron done"
 }
 
 async fn handle_cron_custom_endpoint_for_task() -> String {

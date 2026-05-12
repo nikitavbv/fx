@@ -53,7 +53,9 @@ pub(crate) fn run_management_task(
     let definitions_monitor = DefinitionsMonitor::new(&config, workers_tx.clone(), compiler_tx, cron_tx.clone(), runtime_state.clone());
     let metrics = Arc::new(MetricsRegistry::new());
 
-    let introspection_enabled = config.introspection.map(|v| v.enabled).unwrap_or(true);
+    let (introspection_enabled, introspection_port) = config.introspection
+        .map(|v| (v.enabled, v.port))
+        .unwrap_or((true, 9000));
 
     tokio_runtime.block_on(local_set.run_until(async {
         tokio::join!(
@@ -88,6 +90,9 @@ pub(crate) fn run_management_task(
                                 },
                             };
                             match event {
+                                CronTaskEvent::Start { name, function_id } => {
+                                    runtime_state.mark_cron_running(name, function_id);
+                                },
                                 CronTaskEvent::Run { name, function_id, run_at } => {
                                     runtime_state.record_cron_run(name, function_id, run_at);
                                 },
@@ -98,7 +103,7 @@ pub(crate) fn run_management_task(
             },
             async {
                 if introspection_enabled {
-                    run_introspection_server(metrics.clone(), WorkersController::new(workers_tx), SendWrapper::new(runtime_state.clone())).await;
+                    run_introspection_server(metrics.clone(), WorkersController::new(workers_tx), SendWrapper::new(runtime_state.clone()), introspection_port).await;
                 }
             },
         )
