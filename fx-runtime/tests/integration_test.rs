@@ -414,7 +414,10 @@ async fn fetch_timeout() {
 async fn fetch_read_timeout() {
     let client = init_fx_server().await;
 
-    // TODO
+    let result = client.get("/test/fetch/response-timeout").send().await.unwrap();
+    assert!(result.status().is_success());
+    let body = result.text().await.unwrap();
+    assert!(body == "response timeout", "expected fetch error, got: {}", body);
 }
 
 #[tokio::test]

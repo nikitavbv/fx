@@ -80,6 +80,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/fetch/with-header", get(test_fetch_with_header))
             .route("/test/fetch/body-read-all", get(test_fetch_body_read_all))
             .route("/test/fetch/timeout", get(test_fetch_timeout))
+            .route("/test/fetch/response-timeout", get(test_fetch_response_timeout))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -459,6 +460,14 @@ async fn test_fetch_timeout() -> &'static str {
         Err(FetchError::ConnectionFailed) => "connection failed",
         Err(FetchError::ConnectionTimeout) => "connection timeout",
         Err(FetchError::ResponseTimeout) => "response timeout",
+    }
+}
+
+async fn test_fetch_response_timeout() -> &'static str {
+    match fetch(HttpRequest::get("http://httpbin.org/delay/10").unwrap()).await {
+        Ok(_) => "unexpected success",
+        Err(FetchError::ResponseTimeout) => "response timeout",
+        Err(_) => "unexpected other error",
     }
 }
 
