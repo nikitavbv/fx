@@ -295,7 +295,6 @@ impl DefinitionsMonitor {
                 name: v.id.clone(),
                 function_id: function_id.clone(),
                 schedule: v.schedule.clone(),
-                endpoint: v.endpoint.clone(),
             })
             .collect();
         self.runtime_state.set_cron_tasks(function_id.clone(), cron_task_infos);

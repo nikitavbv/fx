@@ -164,14 +164,14 @@ impl hyper::body::Body for HttpBody {
             HttpBodyInner::Stream { stream, frame: _previous_frame_is_discarded } => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
-                        .map(|v| hyper::body::Frame::data(v))
-                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+                        .map(hyper::body::Frame::data)
+                        .map_err(std::io::Error::other)
                 )),
             HttpBodyInner::StreamLocal { stream, frame: _previous_frame_is_discarded } => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
-                        .map(|v| hyper::body::Frame::data(v))
-                        .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+                        .map(hyper::body::Frame::data)
+                        .map_err(std::io::Error::other)
                 )),
         }
     }
@@ -207,7 +207,7 @@ impl FunctionStreamReader {
     }
 
     fn poll_frame(&mut self, context: &mut std::task::Context<'_>) -> Poll<Option<Vec<u8>>> {
-        let mut poll_future = match std::mem::replace(&mut self.poll_future, None) {
+        let mut poll_future = match self.poll_future.take() {
             Some(v) => v,
             None => {
                 let function = self.function.clone();
@@ -292,7 +292,7 @@ impl SerializeResource for FetchRequestHeader {
         let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
 
         resource.set_uri(self.uri().to_string());
-        resource.set_method(match &*self.method() {
+        resource.set_method(match self.method() {
             &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
             &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
             &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,

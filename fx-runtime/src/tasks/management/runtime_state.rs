@@ -9,7 +9,6 @@ pub struct CronTaskInfo {
     pub name: String,
     pub function_id: FunctionId,
     pub schedule: String,
-    pub endpoint: Option<String>,
 }
 
 #[derive(Clone)]
