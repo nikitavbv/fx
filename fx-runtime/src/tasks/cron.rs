@@ -1,6 +1,6 @@
 use {
     tracing::info,
-    tokio::time::Duration,
+    tokio::time::{Duration, Instant},
     chrono::{DateTime, Utc, TimeDelta},
     crate::{
         triggers::{cron::CronDatabase, http::FetchRequestHeader},
@@ -9,6 +9,8 @@ use {
         function::FunctionId,
     },
 };
+
+const MINIMUM_CRON_FREQUENCY_MS: u64 = 1000;
 
 #[derive(Clone, Debug)]
 pub enum CronTaskEvent {
@@ -53,19 +55,29 @@ pub(crate) fn run_cron_task(
     let local_set = tokio::task::LocalSet::new();
 
     tokio_runtime.block_on(local_set.run_until(async {
-        let mut cron_interval = tokio::time::interval(Duration::from_secs(1));
-
         let mut tasks = Vec::<CronTask>::new();
+        let sleep = tokio::time::sleep(Duration::from_millis(0));
+        tokio::pin!(sleep);
 
         loop {
             tokio::select! {
+                _ = &mut sleep => {
+                    let next_time = run_tasks(&mut database, &mut workers_controller, &cron_events, &tasks).await;
+                    let dur = if let Some(next_time) = next_time {
+                        Duration::from_millis((next_time - Utc::now()).num_milliseconds().max(0).min(MINIMUM_CRON_FREQUENCY_MS as i64) as u64)
+                    } else {
+                        Duration::from_millis(MINIMUM_CRON_FREQUENCY_MS)
+                    };
+                    sleep.as_mut().reset(Instant::now() + dur);
+                }
+
                 message = msg_rx.recv_async() => {
                     let message = match message {
                         Ok(v) => v,
                         Err(flume::RecvError::Disconnected) => {
                             info!("stopping cron task, because channel handle is dropped");
                             break;
-                        },
+                        }
                     };
 
                     match message {
@@ -79,21 +91,21 @@ pub(crate) fn run_cron_task(
                             }).chain(tasks.into_iter()).collect();
                         },
                     }
-                },
 
-                _ = cron_interval.tick() => {
-                    run_tasks(&mut database, &mut workers_controller, &cron_events, &tasks).await;
+                    sleep.as_mut().reset(Instant::now());
                 }
             }
         }
     }));
 }
 
-async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) {
+async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) -> Option<DateTime<Utc>> {
+    let mut next_run: Option<DateTime<Utc>> = None;
+
     for task in tasks {
+        let now = Utc::now();
         let delay = if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
             let next_scheduled_run = task.schedule.after(&prev_run_time).next().unwrap();
-            let now = Utc::now();
 
             if next_scheduled_run > now {
                 continue;
@@ -103,6 +115,8 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
         } else {
             None
         };
+        let task_next_run = task.schedule.after(&now).next().unwrap();
+        next_run = Some(next_run.map(|v| v.min(task_next_run)).unwrap_or(task_next_run));
 
         cron_events.send_async(CronTaskEvent::Start {
             name: task.name.clone(),
@@ -131,4 +145,6 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
 
         result.unwrap();
     }
+
+    next_run
 }
