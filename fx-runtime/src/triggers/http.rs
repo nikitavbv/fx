@@ -62,7 +62,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     return Box::pin(async move {
                         let mut response = Response::new(HttpBody::for_bytes(Bytes::from("invalid Host header\n".as_bytes())));
                         *response.status_mut() = StatusCode::BAD_REQUEST;
-                        return Ok(response);
+                        Ok(response)
                     });
                 }
             },

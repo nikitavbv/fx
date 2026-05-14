@@ -32,6 +32,15 @@ pub(crate) struct WorkerConfig {
     pub(crate) management_tx: flume::Sender<ManagementMessage>,
 }
 
+#[derive(Clone)]
+struct WorkerWorld {
+    wasmtime: Rc<wasmtime::Engine>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
+    functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
+    http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
+    http_default: Rc<RefCell<Option<FunctionId>>>,
+}
+
 pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) {
     // setup async runtime:
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
@@ -51,11 +60,13 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
     socket.listen(1024).unwrap();
 
     // setup wasm runtime:
-    let wasmtime = Rc::new(wasmtime);
-    let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>> = Rc::new(RefCell::new(HashMap::new()));
-    let functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>> = Rc::new(RefCell::new(HashMap::new()));
-    let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
-    let http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
+    let world = WorkerWorld {
+        wasmtime: Rc::new(wasmtime),
+        function_deployments: Rc::new(RefCell::new(HashMap::new())),
+        functions: Rc::new(RefCell::new(HashMap::new())),
+        http_hosts: Rc::new(RefCell::new(HashMap::new())),
+        http_default: Rc::new(RefCell::new(None)),
+    };
 
     // run worker:
     tokio_runtime.block_on(local_set.run_until(async {
@@ -71,21 +82,17 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
             tokio::select! {
                 message = worker.messages_rx.recv_async() => {
                     worker_handle_message(
-                        wasmtime.clone(),
+                        &world,
                         &worker,
                         local_controller.clone(),
-                        function_deployments.clone(),
-                        functions.clone(),
-                        http_hosts.clone(),
-                        http_default.clone(),
                         message.unwrap(),
                     ).await;
                 },
 
                 message = local_message_queue_rx.recv() => {
                     worker_handle_local_message(
-                        function_deployments.clone(),
-                        functions.clone(),
+                        world.function_deployments.clone(),
+                        world.functions.clone(),
                         message.unwrap(),
                     ).await;
                 }
@@ -93,16 +100,16 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                 connection = listener.accept() => {
                     worker_handle_http_connection(
                         &graceful,
-                        function_deployments.clone(),
-                        functions.clone(),
-                        http_hosts.clone(),
-                        http_default.clone(),
+                        world.function_deployments.clone(),
+                        world.functions.clone(),
+                        world.http_hosts.clone(),
+                        world.http_default.clone(),
                         connection,
                     ).await;
                 },
 
                 _ = metrics_flush_interval.tick() => {
-                    worker_handle_metrics_flush(&worker, function_deployments.clone());
+                    worker_handle_metrics_flush(&worker, world.function_deployments.clone());
                 }
             }
         }
@@ -110,13 +117,9 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 }
 
 async fn worker_handle_message(
-    wasmtime: Rc<wasmtime::Engine>,
+    world: &WorkerWorld,
     worker: &WorkerConfig,
     local_controller: LocalWorkerController,
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
-    functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
-    http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
-    http_default: Rc<RefCell<Option<FunctionId>>>,
     message: WorkerMessage
 ) {
     match message {
@@ -133,7 +136,7 @@ async fn worker_handle_message(
             bindings_functions,
         } => {
             let deployment = FunctionDeployment::new(
-                wasmtime,
+                world.wasmtime.clone(),
                 limit_memory_bytes,
                 local_controller.clone(),
                 worker.logger_tx.clone(),
@@ -160,41 +163,41 @@ async fn worker_handle_message(
                 },
             };
 
-            function_deployments.borrow_mut().insert(
+            world.function_deployments.borrow_mut().insert(
                 deployment_id.clone(),
                 Rc::new(deployment)
             );
             // TODO: cleanup old deployments
-            functions.borrow_mut().insert(function_id.clone(), deployment_id);
+            world.functions.borrow_mut().insert(function_id.clone(), deployment_id);
 
             {
-                let mut http_hosts = http_hosts.borrow_mut();
+                let mut http_hosts = world.http_hosts.borrow_mut();
                 http_hosts.retain(|_k, v| v != &function_id);
                 http_hosts.extend(http_listeners.iter().filter_map(|v| v.host.as_ref()).map(|v| (v.to_lowercase(), function_id.clone())));
             }
 
-            if http_listeners.iter().find(|v| v.host.is_none()).is_some() {
-                *http_default.borrow_mut() = Some(function_id.clone());
+            if http_listeners.iter().any(|v| v.host.is_none()) {
+                *world.http_default.borrow_mut() = Some(function_id.clone());
             }
         },
         WorkerMessage::RemoveFunction { function_id, on_ready } => {
-            http_hosts.borrow_mut().retain(|_k, v| v != &function_id);
+            world.http_hosts.borrow_mut().retain(|_k, v| v != &function_id);
             {
-                let mut http_default = http_default.borrow_mut();
+                let mut http_default = world.http_default.borrow_mut();
                 if http_default.is_some() && http_default.as_ref().unwrap() == &function_id {
                     *http_default = None;
                 }
             }
 
-            let deployment = functions.borrow_mut().remove(&function_id).unwrap();
-            function_deployments.borrow_mut().remove(&deployment);
+            let deployment = world.functions.borrow_mut().remove(&function_id).unwrap();
+            world.function_deployments.borrow_mut().remove(&deployment);
 
             if let Some(on_ready) = on_ready {
                 on_ready.send(()).unwrap();
             }
         },
         WorkerMessage::FunctionInvoke { function_id, header, response_tx } => {
-            let deployment = match functions.borrow().get(&function_id) {
+            let deployment = match world.functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
                 None => {
                     response_tx.send(Err(FunctionInvokeError::NotFound)).unwrap();
@@ -202,7 +205,7 @@ async fn worker_handle_message(
                 }
             };
 
-            let deployment = function_deployments.borrow().get(&deployment).unwrap().clone();
+            let deployment = world.function_deployments.borrow().get(&deployment).unwrap().clone();
 
             let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
