@@ -647,7 +647,7 @@ async fn cron_custom_endpoint() {
         .parse::<u64>()
         .unwrap();
 
-    assert!(result2 >= result1 + 3); // in 4 seconds we expect cron job to run three times
+    assert!(result2 >= result1 + 3, "expected cron job to run 3 times in 4 seconds, however that is NOT true: {result2} >= {result1} + 3"); // in 4 seconds we expect cron job to run three times
 }
 
 #[tokio::test]
