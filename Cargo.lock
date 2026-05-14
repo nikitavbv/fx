@@ -1340,6 +1340,7 @@ dependencies = [
  "fx-sdk",
  "lazy_static",
  "serde",
+ "serde_json",
  "sha2",
  "sqlx",
  "stream-reduce",

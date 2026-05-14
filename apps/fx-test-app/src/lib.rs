@@ -76,6 +76,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/blob/wrong-binding-name", get(test_blob_wrong_binding_name))
             .route("/test/fetch", get(test_fetch))
             .route("/test/fetch/post", get(test_fetch_post))
+            .route("/test/fetch/json", get(test_fetch_json))
             .route("/test/fetch/query", get(test_fetch_query))
             .route("/test/fetch/with-header", get(test_fetch_with_header))
             .route("/test/fetch/body-read-all", get(test_fetch_body_read_all))
@@ -426,6 +427,15 @@ async fn test_fetch() -> HttpBody {
 async fn test_fetch_post() -> HttpBody {
     let response = fetch(
         HttpRequest::post("https://httpbin.org/post").unwrap().with_body("test fx request body")
+    ).await.unwrap();
+
+    response.into_body()
+}
+
+async fn test_fetch_json() -> HttpBody {
+    let response = fetch(
+        HttpRequest::post("https://httpbin.org/post").unwrap()
+            .with_json(&serde_json::json!({"key": "value"}))
     ).await.unwrap();
 
     response.into_body()

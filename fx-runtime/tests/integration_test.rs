@@ -94,6 +94,16 @@ async fn http_body() {
 }
 
 #[tokio::test]
+async fn fetch_json() {
+    let client = init_fx_server().await;
+    let response = client.get("/test/fetch/json").send().await.unwrap();
+    assert!(response.status().is_success());
+    let text = response.text().await.unwrap();
+    assert!(text.contains(r#""Content-Type": "application/json""#), "httpbin response should show application/json content-type");
+    assert!(text.contains(r#""key": "value""#), "httpbin response should contain the json payload");
+}
+
+#[tokio::test]
 async fn http_reserved_namespace() {
     let client = init_fx_server().await;
     let response = client.get("/_fx/cron").send().await.unwrap();

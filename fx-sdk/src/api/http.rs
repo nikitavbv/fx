@@ -115,6 +115,13 @@ impl HttpRequest {
         self
     }
 
+    pub fn with_json(self, body: &impl Serialize) -> Self {
+        self.with_header(
+            HeaderName::from_static("content-type"),
+            HeaderValue::from_static("application/json"),
+        ).with_body(serde_json::to_vec(body).unwrap())
+    }
+
     pub fn body(&mut self) -> Option<HttpBody> {
         self.request_data_mut().read_body().map(|v| HttpBody(v))
     }
