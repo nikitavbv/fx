@@ -1,7 +1,7 @@
 use {
     tracing::info,
     tokio::time::Duration,
-    chrono::{DateTime, Utc},
+    chrono::{DateTime, Utc, TimeDelta},
     crate::{
         triggers::{cron::CronDatabase, http::FetchRequestHeader},
         tasks::worker::WorkersController,
@@ -20,6 +20,7 @@ pub enum CronTaskEvent {
         name: String,
         function_id: FunctionId,
         run_at: DateTime<Utc>,
+        delay: Option<TimeDelta>, // delay from expected run time. None if runs for first time.
     },
 }
 
@@ -90,10 +91,17 @@ pub(crate) fn run_cron_task(
 
 async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) {
     for task in tasks {
-        if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
-            if task.schedule.after(&prev_run_time).next().unwrap() > Utc::now() {
+        let delay = if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
+            let next_scheduled_run = task.schedule.after(&prev_run_time).next().unwrap();
+            let now = Utc::now();
+
+            if next_scheduled_run > now {
                 continue;
             }
+
+            Some(now - next_scheduled_run)
+        } else {
+            None
         };
 
         cron_events.send_async(CronTaskEvent::Start {
@@ -118,6 +126,7 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
             name: task.name.clone(),
             function_id: task.function_id.clone(),
             run_at,
+            delay,
         }).await.unwrap();
 
         result.unwrap();

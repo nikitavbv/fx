@@ -647,7 +647,10 @@ async fn cron_custom_endpoint() {
         .parse::<u64>()
         .unwrap();
 
-    assert!(result2 >= result1 + 3, "expected cron job to run 3 times in 4 seconds, however that is NOT true: {result2} >= {result1} + 3"); // in 4 seconds we expect cron job to run three times
+    if result2 < result1 + 3 {
+        let metrics = client.introspection_get("/metrics").send().await.unwrap().text().await.unwrap();
+        panic!("expected cron job to run 3 times in 4 seconds, however that is NOT true: {result2} >= {result1} + 3, metrics:\n{metrics}");
+    }
 }
 
 #[tokio::test]
@@ -827,6 +830,7 @@ async fn test_limits_memory() {
 #[tokio::test]
 async fn preemption() {
     let test_port = 8081;
+    let introspection_port = 9000;
 
     // using separate server instance to avoid affecting other tests
     let server = FxServer::new(ServerConfig {
@@ -846,7 +850,7 @@ async fn preemption() {
         logger: None,
         introspection: Some(IntrospectionConfig {
             enabled: false,
-            port: 9000,
+            port: introspection_port,
         }),
     }).start();
 
@@ -870,7 +874,7 @@ async fn preemption() {
             .with_trigger_http(Some("other-app2.fx.local".to_owned()))
     ).await;
 
-    let client = TestClient::new(format!("http://localhost:{}", test_port));
+    let client = TestClient::new(format!("http://localhost:{test_port}"), format!("http://localhost:{introspection_port}"));
 
     async fn make_slow_request(client: &TestClient) -> Duration {
         let started_at = Instant::now();
@@ -963,6 +967,7 @@ async fn init_fx_server() -> TestClient {
 
     let test_server = TEST_SERVER.get_or_init(|| {
         let test_port: u16 = 8080;
+        let introspection_port: u16 = 9000;
 
         std::thread::spawn(move || {
             tokio::runtime::Builder::new_current_thread()
@@ -985,7 +990,7 @@ async fn init_fx_server() -> TestClient {
                             path: "/tmp/fx/blob".parse().unwrap(),
                         }),
                         logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
-                        introspection: None,
+                        introspection: Some(IntrospectionConfig { enabled: true, port: introspection_port }),
                     }).start();
 
                     server.deploy_function(
@@ -1083,13 +1088,14 @@ async fn init_fx_server() -> TestClient {
 
                     TestServer {
                         server,
-                        base_url: format!("http://localhost:{}", test_port),
+                        base_url: format!("http://localhost:{test_port}"),
+                        introspection_url: format!("http://localhost:{introspection_port}")
                     }
                 })
         }).join().unwrap()
     });
 
-    TestClient::new(test_server.base_url.clone())
+    TestClient::new(test_server.base_url.clone(), test_server.introspection_url.clone())
 }
 
 // TODO: add test that verifies that counter metrics with labels are recorded correctly

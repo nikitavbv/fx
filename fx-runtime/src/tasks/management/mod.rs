@@ -6,7 +6,7 @@ use {
     crate::{
         function::FunctionId,
         definitions::{config::{FunctionConfig, ServerConfig}, monitor::DefinitionsMonitor},
-        effects::metrics::{FunctionMetricsDelta, MetricsRegistry},
+        effects::metrics::{FunctionMetricsDelta, MetricsRegistry, MetricKey},
         tasks::{
             worker::{WorkerMessage, WorkersController},
             compiler::CompilerMessage,
@@ -93,8 +93,11 @@ pub(crate) fn run_management_task(
                                 CronTaskEvent::Start { name, function_id } => {
                                     runtime_state.mark_cron_running(name, function_id);
                                 },
-                                CronTaskEvent::Run { name, function_id, run_at } => {
-                                    runtime_state.record_cron_run(name, function_id, run_at);
+                                CronTaskEvent::Run { name, function_id, run_at, delay } => {
+                                    runtime_state.record_cron_run(name.clone(), function_id.clone(), run_at);
+                                    if let Some(delay) = delay {
+                                        metrics.counter_float_increment(MetricKey::new("cron_task_delay_seconds").with_label("task".to_owned(), format!("{:?}::{name}", function_id)), delay.as_seconds_f64());
+                                    }
                                 },
                             }
                         }

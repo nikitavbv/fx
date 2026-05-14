@@ -9,6 +9,20 @@ pub(crate) struct MetricKey {
     pub(crate) labels: Vec<(String, String)>,
 }
 
+impl MetricKey {
+    pub(crate) fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            labels: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_label(mut self, key: String, value: String) -> Self {
+        self.labels.push((key, value));
+        self
+    }
+}
+
 #[derive(Clone, Copy, Eq, PartialEq, Hash)]
 pub(crate) struct MetricId {
     id: u64,
@@ -68,12 +82,14 @@ impl FunctionMetricsState {
 }
 
 pub(crate) struct MetricsRegistry {
+    runtime_counters_float: RwLock<HashMap<MetricKey, f64>>,
     function_metrics: RwLock<HashMap<FunctionId, FunctionMetricsDelta>>,
 }
 
 impl MetricsRegistry {
     pub fn new() -> Self {
         Self {
+            runtime_counters_float: RwLock::new(HashMap::new()),
             function_metrics: RwLock::new(HashMap::new()),
         }
     }
@@ -88,10 +104,31 @@ impl MetricsRegistry {
         }
     }
 
+    pub fn counter_float_increment(&self, metric_key: MetricKey, delta: f64) {
+        *self.runtime_counters_float.write().unwrap().entry(metric_key).or_insert(0.0) += delta;
+    }
+
     pub fn encode(&self) -> String {
         let mut result = String::new();
+
+        // runtime counters:
+        for (metric_key, counter_value) in self.runtime_counters_float.read().unwrap().iter() {
+            let metric_name = sanitize_metric_name(&metric_key.name);
+
+            result.push_str("# TYPE ");
+            result.push_str(metric_name.as_str());
+            result.push_str(" counter\n");
+            result.push_str(metric_name.as_str());
+
+            append_metric_labels(&mut result, &metric_key.labels);
+            result.push(' ');
+            result.push_str(counter_value.to_string().as_str());
+            result.push('\n');
+        }
+
         let all_metrics = self.function_metrics.read().unwrap();
 
+        // function counters:
         for (function_id, function_metrics) in all_metrics.iter() {
             let function_id = sanitize_metric_name(function_id.as_str());
 
@@ -110,21 +147,7 @@ impl MetricsRegistry {
                 result.push_str(" counter\n");
                 result.push_str(metric_name.as_str());
 
-                if !counter_key.labels.is_empty() {
-                    result.push('{');
-
-                    for (index, (label_key, label_value)) in counter_key.labels.iter().enumerate() {
-                        if index > 0 {
-                            result.push(',');
-                        }
-                        result.push_str(sanitize_label_name(label_key.as_str()).as_str());
-                        result.push_str("=\"");
-                        result.push_str(escape_label_value(label_value.as_str()).as_str());
-                        result.push('"');
-                    }
-
-                    result.push('}')
-                }
+                append_metric_labels(&mut result, &counter_key.labels);
 
                 result.push(' ');
                 result.push_str(counter_value.to_string().as_str());
@@ -134,6 +157,26 @@ impl MetricsRegistry {
 
         result
     }
+}
+
+fn append_metric_labels(output: &mut String, labels: &Vec<(String, String)>) {
+    if labels.is_empty() {
+        return;
+    }
+
+    output.push('{');
+
+    for (index, (label_key, label_value)) in labels.iter().enumerate() {
+        if index > 0 {
+            output.push(',');
+        }
+        output.push_str(sanitize_label_name(label_key.as_str()).as_str());
+        output.push_str("=\"");
+        output.push_str(escape_label_value(label_value.as_str()).as_str());
+        output.push('"');
+    }
+
+    output.push('}')
 }
 
 fn sanitize_metric_name(s: &str) -> String {
