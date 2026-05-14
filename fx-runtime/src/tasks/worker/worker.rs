@@ -52,7 +52,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 
     // setup wasm runtime:
     let wasmtime = Rc::new(wasmtime);
-    let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>> = Rc::new(RefCell::new(HashMap::new()));
+    let function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>> = Rc::new(RefCell::new(HashMap::new()));
     let functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>> = Rc::new(RefCell::new(HashMap::new()));
     let http_hosts: Rc<RefCell<HashMap<String, FunctionId>>> = Rc::new(RefCell::new(HashMap::new()));
     let http_default: Rc<RefCell<Option<FunctionId>>> = Rc::new(RefCell::new(None));
@@ -102,7 +102,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                 },
 
                 _ = metrics_flush_interval.tick() => {
-                    worker_handle_metrics_flush(&worker, function_deployments.clone()).await;
+                    worker_handle_metrics_flush(&worker, function_deployments.clone());
                 }
             }
         }
@@ -113,7 +113,7 @@ async fn worker_handle_message(
     wasmtime: Rc<wasmtime::Engine>,
     worker: &WorkerConfig,
     local_controller: LocalWorkerController,
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
@@ -162,7 +162,7 @@ async fn worker_handle_message(
 
             function_deployments.borrow_mut().insert(
                 deployment_id.clone(),
-                Rc::new(RefCell::new(deployment))
+                Rc::new(deployment)
             );
             // TODO: cleanup old deployments
             functions.borrow_mut().insert(function_id.clone(), deployment_id);
@@ -204,7 +204,7 @@ async fn worker_handle_message(
 
             let deployment = function_deployments.borrow().get(&deployment).unwrap().clone();
 
-            let function_future = deployment.borrow_mut().handle_request(header, None).await;
+            let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
                 response_tx.send(
                     function_future.await
@@ -219,14 +219,14 @@ async fn worker_handle_message(
 }
 
 async fn worker_handle_local_message(
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
     message: WorkerLocalMessage
 ) {
     match message {
         WorkerLocalMessage::FunctionInvoke { function_id, header, response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
-            let function_future = deployment.borrow_mut().handle_request(header, None).await;
+            let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
                 let response = function_future.await.unwrap();
                 response_tx.send(response).unwrap();
@@ -237,7 +237,7 @@ async fn worker_handle_local_message(
 
 async fn worker_handle_http_connection(
     graceful: &hyper_util::server::graceful::GracefulShutdown,
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
@@ -275,24 +275,25 @@ async fn worker_handle_http_connection(
     });
 }
 
-async fn worker_handle_metrics_flush(
+fn worker_handle_metrics_flush(
     worker: &WorkerConfig,
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
 ) {
     // copying references to instances to avoid holding references to instances across store lock await point
     let instances = function_deployments
         .borrow()
         .values()
-        .map(|deployment| {
-            let deployment = deployment.borrow();
-            (deployment.function_id.clone(), deployment.instance.clone())
-        })
+        .map(|deployment| (deployment.function_id.clone(), deployment.instance.clone()))
         .collect::<Vec<_>>();
 
     let mut function_metrics = HashMap::<FunctionId, FunctionMetricsDelta, _>::new();
 
     for (function_id, instance) in instances {
-        let mut store = instance.store.lock().await;
+        let instance = instance.borrow();
+        let mut store = match instance.store.try_lock() {
+            Some(v) => v,
+            None => continue,
+        };
         let state = store.data_mut();
 
         let metrics_delta = state.metrics.flush_delta();

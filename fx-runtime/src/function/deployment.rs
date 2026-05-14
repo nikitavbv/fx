@@ -1,5 +1,5 @@
 use {
-    std::{rc::Rc, collections::HashMap, pin::Pin},
+    std::{rc::Rc, collections::HashMap, pin::Pin, cell::RefCell},
     thiserror::Error,
     serde::{Serialize, Deserialize},
     crate::{
@@ -31,7 +31,7 @@ impl FunctionDeploymentId {
 pub(crate) struct FunctionDeployment {
     pub(crate) function_id: FunctionId,
     template: FunctionTemplate,
-    pub(crate) instance: Rc<FunctionInstance>,
+    pub(crate) instance: RefCell<Rc<FunctionInstance>>,
 }
 
 impl FunctionDeployment {
@@ -131,20 +131,20 @@ impl FunctionDeployment {
         Ok(Self {
             function_id,
             template,
-            instance: Rc::new(instance),
+            instance: RefCell::new(Rc::new(instance)),
         })
     }
 
-    pub(crate) async fn handle_request(&mut self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
-        let instance = if *instance.has_panicked.borrow() {
+        let instance = if *instance.borrow().has_panicked.borrow() {
             let instance = self.template.instantiate().await.unwrap();
             let instance = Rc::new(instance);
-            self.instance = instance.clone();
+            *self.instance.borrow_mut() = instance.clone();
             instance
         } else {
-            instance
+            instance.borrow().clone()
         };
 
         Box::pin(async move {

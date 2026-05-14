@@ -32,7 +32,6 @@ use {
 mod common;
 
 static LOGGER: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
-static LOGGER_CUSTOM_FUNCTION: Lazy<Arc<TestLogger>> = Lazy::new(|| Arc::new(TestLogger::new()));
 
 #[tokio::test]
 async fn simple() {

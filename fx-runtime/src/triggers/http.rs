@@ -29,7 +29,7 @@ pub(crate) struct HttpHandler {
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
 }
 
 impl HttpHandler {
@@ -37,7 +37,7 @@ impl HttpHandler {
         http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
         http_default: Rc<RefCell<Option<FunctionId>>>,
         functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
-        function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<RefCell<FunctionDeployment>>>>>,
+        function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
     ) -> Self {
         Self {
             http_hosts,
@@ -93,7 +93,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 return Ok(response);
             }
 
-            let function_future = target_function_deployment.borrow_mut().handle_request(FetchRequestHeader::from(header), Some(HttpBody::for_stream(body.into_data_stream().map(|v| v.map_err(|_| todo!())).boxed()))).await;
+            let function_future = target_function_deployment
+                .handle_request(
+                    FetchRequestHeader::from(header),
+                    Some(HttpBody::for_stream(body.into_data_stream().map(|v| v.map_err(|_| todo!())).boxed()))
+                ).await;
             let response = function_future.await;
             let function_response = match response {
                 Ok(v) => Ok(v.move_to_host().await),
