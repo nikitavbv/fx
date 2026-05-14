@@ -96,7 +96,7 @@ pub(crate) fn run_management_task(
                                 CronTaskEvent::Run { name, function_id, run_at, delay } => {
                                     runtime_state.record_cron_run(name.clone(), function_id.clone(), run_at);
                                     if let Some(delay) = delay {
-                                        metrics.counter_float_increment(MetricKey::new("cron_task_delay_seconds").with_label("task".to_owned(), format!("{:?}::{name}", function_id)), delay.as_seconds_f64());
+                                        metrics.counter_float_increment(MetricKey::new("cron_task_delay_seconds").with_label("task".to_owned(), format!("{}::{name}", function_id.as_str())), delay.as_seconds_f64());
                                     }
                                 },
                             }
