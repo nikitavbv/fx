@@ -162,8 +162,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 let txn = match connection.transaction() {
                     Ok(v) => v,
                     Err(err) => {
-                        let error_code = err.sqlite_error().unwrap().code;
-                        if error_code == rusqlite::ErrorCode::DatabaseBusy {
+                        if is_database_busy_error(&err) {
                             msg.response.send(Err(SqlBatchError::DatabaseBusy)).unwrap();
                             continue;
                         } else {
