@@ -254,7 +254,7 @@ impl RunningFxServer {
     pub async fn deploy_function(&self, function_id: FunctionId, function_config: FunctionConfig) {
         let (response_tx, response_rx) = oneshot::channel();
 
-        self.management_tx.send_async(ManagementMessage::DeployFunction(DeployFunctionMessage { function_id, function_config, on_ready: response_tx })).await.unwrap();
+        self.management_tx.send_async(ManagementMessage::DeployFunction(Box::new(DeployFunctionMessage { function_id, function_config, on_ready: response_tx }))).await.unwrap();
 
         response_rx.await.unwrap();
     }

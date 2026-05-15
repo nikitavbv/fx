@@ -76,10 +76,8 @@ impl Kv {
     }
 
     fn set(&mut self, request: KvSetRequest) -> Result<(), KvSetError> {
-        if request.nx {
-            if self.get(&request.key).is_some() {
-                return Err(KvSetError::AlreadyExists);
-            }
+        if request.nx && self.get(&request.key).is_some() {
+            return Err(KvSetError::AlreadyExists);
         }
 
         self.kv.insert(request.key, Value {
@@ -93,13 +91,11 @@ impl Kv {
     fn get(&self, key: &Vec<u8>) -> Option<&Vec<u8>> {
         let key = self.kv.get(key)?;
 
-        if let Some(expires_at) = key.expires_at {
-            if expires_at <= self.current_time() {
-                return None;
-            }
+        if let Some(expires_at) = key.expires_at && expires_at <= self.current_time() {
+            return None;
         }
 
-        return Some(&key.value);
+        Some(&key.value)
     }
 
     fn delex(&mut self, request: KvDelexRequest) {

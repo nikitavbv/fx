@@ -20,7 +20,7 @@ use {
 pub(crate) mod runtime_state;
 
 pub(crate) enum ManagementMessage {
-    DeployFunction(DeployFunctionMessage),
+    DeployFunction(Box<DeployFunctionMessage>),
     WorkerMetrics(MetricsFlushMessage),
 }
 

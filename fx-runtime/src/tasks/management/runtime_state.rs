@@ -15,7 +15,7 @@ pub struct CronTaskInfo {
 pub struct RuntimeState {
     functions: Rc<RefCell<Vec<FunctionId>>>,
     cron_tasks: Rc<RefCell<Vec<CronTaskInfo>>>,
-    cron_last_runs: Rc<RefCell<HashMap<(FunctionId, String), DateTime<Utc>>>>,
+    cron_last_runs: Rc<RefCell<HashMap<CronTaskKey, DateTime<Utc>>>>,
     cron_running: Rc<RefCell<HashSet<(FunctionId, String)>>>,
 }
 
@@ -57,12 +57,12 @@ impl RuntimeState {
     }
 
     pub fn record_cron_run(&self, name: String, function_id: FunctionId, run_at: DateTime<Utc>) {
-        self.cron_last_runs.borrow_mut().insert((function_id.clone(), name.clone()), run_at);
+        self.cron_last_runs.borrow_mut().insert(CronTaskKey { function_id: function_id.clone(), task_name: name.clone() }, run_at);
         self.cron_running.borrow_mut().remove(&(function_id, name));
     }
 
     pub fn cron_last_run(&self, name: &str, function_id: &FunctionId) -> Option<DateTime<Utc>> {
-        self.cron_last_runs.borrow().get(&(function_id.clone(), name.to_owned())).copied()
+        self.cron_last_runs.borrow().get(&CronTaskKey { function_id: function_id.clone(), task_name: name.to_owned() }).copied()
     }
 
     pub fn mark_cron_running(&self, name: String, function_id: FunctionId) {
@@ -72,4 +72,10 @@ impl RuntimeState {
     pub fn is_cron_running(&self, name: &str, function_id: &FunctionId) -> bool {
         self.cron_running.borrow().contains(&(function_id.clone(), name.to_owned()))
     }
+}
+
+#[derive(Eq, PartialEq, Hash)]
+struct CronTaskKey {
+    function_id: FunctionId,
+    task_name: String,
 }
