@@ -1,5 +1,5 @@
 use {
-    std::path::PathBuf,
+    std::path::{PathBuf, Path},
     rusqlite::OptionalExtension,
     tokio::{sync::oneshot, fs},
 };
@@ -87,7 +87,7 @@ fn hash_key_for_object(bucket_name: &str, key: &[u8]) -> String {
     hasher.finalize().to_hex().to_string()
 }
 
-async fn key_path(data_path: &PathBuf, key: &str) -> PathBuf {
+async fn key_path(data_path: &Path, key: &str) -> PathBuf {
     let dir_path = data_path.join(&key[0..2]).join(&key[2..4]);
     if !dir_path.exists() {
         fs::create_dir_all(&dir_path).await.unwrap();

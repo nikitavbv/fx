@@ -126,7 +126,7 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
         let result = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
             http::Request::builder()
                 .method(http::Method::GET)
-                .uri(task.endpoint.as_ref().map(|v| v.as_str()).unwrap_or("/_fx/cron"))
+                .uri(task.endpoint.as_deref().unwrap_or("/_fx/cron"))
                 .body(())
                 .unwrap()
                 .into_parts()

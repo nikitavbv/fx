@@ -197,9 +197,8 @@ impl FxServer {
             })
             .collect::<Vec<_>>();
 
-        let mut worker_id = 0;
         let mut worker_handles = Vec::new();
-        for worker in workers.into_iter() {
+        for (worker_id, worker) in workers.into_iter().enumerate() {
             let wasmtime = wasmtime.clone();
 
             let handle = std::thread::spawn(move || {
@@ -216,7 +215,6 @@ impl FxServer {
                 run_worker_task(worker, wasmtime);
             });
             worker_handles.push(handle);
-            worker_id += 1;
         }
 
         RunningFxServer {
