@@ -189,8 +189,12 @@ async fn worker_handle_message(
                 }
             }
 
-            let deployment = world.functions.borrow_mut().remove(&function_id).unwrap();
-            world.function_deployments.borrow_mut().remove(&deployment);
+            // removing function is an idempotent operation: requesting function to be removed multiple times consecutively
+            // must result in the same behavior and response as the first. That's why we silently ignore if deployment does not
+            // exist instead of returning an error via on_ready.
+            if let Some(deployment) = world.functions.borrow_mut().remove(&function_id) {
+                world.function_deployments.borrow_mut().remove(&deployment);
+            }
 
             if let Some(on_ready) = on_ready {
                 on_ready.send(()).unwrap();

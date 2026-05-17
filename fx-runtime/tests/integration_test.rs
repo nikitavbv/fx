@@ -605,6 +605,17 @@ async fn function_remove() {
 }
 
 #[tokio::test]
+async fn function_remove_non_existent() {
+    let _server = init_fx_server().await;
+
+    let result = reqwest::Client::new().delete("http://localhost:9000/api/functions/test-app-for-remove-non-existent")
+        .send()
+        .await
+        .unwrap();
+    assert!(result.status().is_success());
+}
+
+#[tokio::test]
 async fn cron_simple() {
     let client = init_fx_server().await;
 

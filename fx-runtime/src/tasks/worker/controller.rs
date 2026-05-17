@@ -26,7 +26,7 @@ impl WorkersController {
         }
     }
 
-    pub(crate) async fn function_remove(&self, function_id: &FunctionId) {
+    pub(crate) async fn function_remove(&self, function_id: &FunctionId) -> Result<(), FunctionRemoveError> {
         let subtasks = FuturesUnordered::new();
 
         for worker in &self.workers_tx {
@@ -36,11 +36,15 @@ impl WorkersController {
                     function_id: function_id.clone(),
                     on_ready: Some(on_ready_tx),
                 }).await.unwrap();
-                on_ready_rx.await.unwrap();
+                on_ready_rx.await
+                    .map_err(|_| FunctionRemoveError::WorkerShutdown)
             });
         }
 
-        subtasks.collect::<Vec<_>>().await;
+        for result in subtasks.collect::<Vec<_>>().await {
+            result?;
+        }
+        Ok(())
     }
 
     pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
@@ -51,6 +55,12 @@ impl WorkersController {
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?
             .map_err(WorkersControllerFunctionInvokeError::from)
     }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FunctionRemoveError {
+    #[error("failed to remove function because worker shut down")]
+    WorkerShutdown,
 }
 
 #[derive(Debug, Error)]

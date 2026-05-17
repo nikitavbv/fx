@@ -3,12 +3,12 @@ use {
     chrono::{DateTime, Utc},
     serde::Deserialize,
     send_wrapper::SendWrapper,
-    axum::{Router, routing::{get, delete}, response::Response, Extension, extract},
+    axum::{Router, routing::{get, delete}, response::Response, Extension, extract, http::StatusCode},
     leptos::prelude::*,
     crate::{
         tasks::{
             management::runtime_state::RuntimeState,
-            worker::WorkersController,
+            worker::{WorkersController, FunctionRemoveError},
         },
         effects::metrics::MetricsRegistry,
         function::FunctionId,
@@ -59,9 +59,11 @@ struct FunctionIdPathArgument {
 async fn management_api_function_remove(
     Extension(workers_controller): Extension<Arc<WorkersController>>,
     extract::Path(function_id): extract::Path<FunctionIdPathArgument>
-) -> &'static str {
-    workers_controller.function_remove(&FunctionId::new(&function_id.function_id)).await;
-    "ok.\n"
+) -> (StatusCode, &'static str) {
+    match workers_controller.function_remove(&FunctionId::new(&function_id.function_id)).await {
+        Ok(_) => (StatusCode::OK, "ok.\n"),
+        Err(FunctionRemoveError::WorkerShutdown) => (StatusCode::SERVICE_UNAVAILABLE, "fx worker shutdown.\n")
+    }
 }
 
 async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeState>>) -> Response {
