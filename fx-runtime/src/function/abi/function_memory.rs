@@ -1,0 +1,69 @@
+use {
+    thiserror::Error,
+    crate::function::instance::FunctionInstanceState,
+};
+
+pub(crate) struct FunctionMemory {
+    memory: wasmtime::Memory,
+}
+
+impl FunctionMemory {
+    pub(crate) fn from_caller(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>) -> Result<Self, FunctionMemoryError> {
+        caller.get_export("memory")
+            .ok_or(FunctionMemoryError::MemoryNotFound)
+            .and_then(|v| v.into_memory().ok_or(FunctionMemoryError::MemoryNotMemory))
+            .map(|memory| Self { memory })
+    }
+
+    pub(crate) fn view<'a>(&'a self, context: &'a wasmtime::StoreContext<'_, FunctionInstanceState>) -> FunctionMemoryView<'a> {
+        FunctionMemoryView {
+            view: self.memory.data(context),
+        }
+    }
+}
+
+pub(crate) struct FunctionMemoryView<'a> {
+    view: &'a [u8],
+}
+
+impl<'a> FunctionMemoryView<'a> {
+    pub(crate) fn str_ref(&self, ptr: u64, len: u64) -> Result<&str, FunctionMemoryGetStringError> {
+        let ptr = ptr as usize;
+        let len = len as usize;
+        self.view.get(ptr..ptr+len)
+            .ok_or(FunctionMemoryGetStringError::OutOfBounds)
+            .and_then(|v| str::from_utf8(v).map_err(|_| FunctionMemoryGetStringError::FailedToDecode))
+    }
+
+    pub(crate) fn vec_clone(&self, ptr: u64, len: u64) -> Result<Vec<u8>, FunctionMemoryAccessError> {
+        let ptr = ptr as usize;
+        let len = len as usize;
+        self.view.get(ptr..ptr+len)
+            .ok_or(FunctionMemoryAccessError::OutOfBounds)
+            .map(|v| v.to_vec())
+    }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FunctionMemoryError {
+    #[error("memory export not found")]
+    MemoryNotFound,
+
+    #[error("exported memory is not a memory")]
+    MemoryNotMemory,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FunctionMemoryAccessError {
+    #[error("index into function memory is out of bounds of memory view")]
+    OutOfBounds,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FunctionMemoryGetStringError {
+    #[error("index into function memory is out of bounds of memory view")]
+    OutOfBounds,
+
+    #[error("failed to decode string as utf8")]
+    FailedToDecode,
+}

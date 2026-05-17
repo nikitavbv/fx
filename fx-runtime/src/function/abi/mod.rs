@@ -35,6 +35,8 @@ use {
     },
 };
 
+mod function_memory;
+
 pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
@@ -356,6 +358,8 @@ pub(super) fn fx_blob_put_handler(
     }.boxed())).as_u64()
 }
 
+// TODO: error handling. Return 0 from this function if everything is ok (and write resource id directly
+// into function memory). Non-0 return codes are error codes.
 pub(super) fn fx_blob_get_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     binding_ptr: u64,
@@ -363,22 +367,14 @@ pub(super) fn fx_blob_get_handler(
     key_ptr: u64,
     key_len: u64,
 ) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let memory = memory.view(&context);
 
-    let binding = {
-        let ptr = binding_ptr as usize;
-        let len = binding_len as usize;
-        str::from_utf8(&view[ptr..ptr+len]).unwrap()
-    };
+    let binding = memory.str_ref(binding_ptr, binding_len).unwrap();
     let bucket = caller.data().bindings_blob.get(binding).map(|v| v.bucket.clone());
 
-    let key = {
-        let ptr = key_ptr as usize;
-        let len = key_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
+    let key = memory.vec_clone(key_ptr, key_len).unwrap();
 
     let blob_tx = caller.data().blob_tx.clone();
 
