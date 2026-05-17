@@ -44,6 +44,7 @@ impl BlobBucket {
             BlobGetResponse::NotFound => Ok(None),
             BlobGetResponse::Ok(v) => Ok(Some(v)),
             BlobGetResponse::BindingNotExists => Err(BlobGetError::BindingNotExists),
+            BlobGetResponse::InternalSdkError => Err(BlobGetError::InternalSdkError),
         }
     }
 
@@ -65,6 +66,7 @@ enum BlobGetResponse {
     NotFound,
     Ok(Vec<u8>),
     BindingNotExists,
+    InternalSdkError,
 }
 
 impl DeserializeHostResource for BlobGetResponse {
@@ -75,6 +77,9 @@ impl DeserializeHostResource for BlobGetResponse {
             abi_blob_capnp::blob_get_response::response::Which::NotFound(_) => BlobGetResponse::NotFound,
             abi_blob_capnp::blob_get_response::response::Which::Value(v) => BlobGetResponse::Ok(v.unwrap().to_vec()),
             abi_blob_capnp::blob_get_response::response::Which::BindingNotExists(_) => BlobGetResponse::BindingNotExists,
+            abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentOutOfBounds(_)
+            | abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentFailedToDecode(_)
+            | abi_blob_capnp::blob_get_response::response::Which::BadRequestFailedToAccessMemory(_) => BlobGetResponse::InternalSdkError,
         }
     }
 }
@@ -83,4 +88,7 @@ impl DeserializeHostResource for BlobGetResponse {
 pub enum BlobGetError {
     #[error("blob binding with this name does not exist")]
     BindingNotExists,
+
+    #[error("failed to read sdk because of internal error in fx sdk")]
+    InternalSdkError,
 }

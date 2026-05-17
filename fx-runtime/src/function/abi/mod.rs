@@ -35,7 +35,7 @@ use {
     },
 };
 
-mod function_memory;
+pub(crate) mod function_memory;
 
 pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
@@ -358,8 +358,6 @@ pub(super) fn fx_blob_put_handler(
     }.boxed())).as_u64()
 }
 
-// TODO: error handling. Return 0 from this function if everything is ok (and write resource id directly
-// into function memory). Non-0 return codes are error codes.
 pub(super) fn fx_blob_get_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     binding_ptr: u64,
@@ -367,14 +365,27 @@ pub(super) fn fx_blob_get_handler(
     key_ptr: u64,
     key_len: u64,
 ) -> u64 {
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    fn handle_ready_resource(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>, resource: BlobGetResponse) -> u64 {
+        caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::Ready(SerializableResource::Raw(resource)))).as_u64()
+    }
+
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)),
+    };
     let context = caller.as_context();
     let memory = memory.view(&context);
 
-    let binding = memory.str_ref(binding_ptr, binding_len).unwrap();
+    let binding = match memory.str_ref(binding_ptr, binding_len) {
+        Ok(v) => v,
+        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)),
+    };
     let bucket = caller.data().bindings_blob.get(binding).map(|v| v.bucket.clone());
 
-    let key = memory.vec_clone(key_ptr, key_len).unwrap();
+    let key = match memory.vec_clone(key_ptr, key_len) {
+        Ok(v) => v,
+        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)),
+    };
 
     let blob_tx = caller.data().blob_tx.clone();
 
