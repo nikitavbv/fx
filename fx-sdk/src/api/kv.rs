@@ -20,6 +20,7 @@ use {
     },
 };
 
+#[derive(Clone, Debug)]
 pub struct Kv {
     binding: String,
 }
