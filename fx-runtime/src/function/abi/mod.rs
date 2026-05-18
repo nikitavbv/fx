@@ -3,7 +3,7 @@ pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, a
 use {
     std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr},
     tokio::{sync::oneshot, time::Duration},
-    tracing::debug,
+    tracing::{debug, error},
     http::Method,
     http_body_util::{BodyStream, BodyExt},
     wasmtime::{AsContext, AsContextMut},
@@ -37,12 +37,24 @@ use {
 
 pub(crate) mod function_memory;
 
-pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: i64, req_len: i64) {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) {
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to handle log message, failed to access function memory: {err:?}");
+            return;
+        },
+    };
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let memory = memory.view(&context);
 
-    let mut message_bytes = &view[req_addr as usize..(req_addr + req_len) as usize];
+    let mut message_bytes = match memory.slice(req_addr, req_len) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to handle log message, failed to read function memory: {err:?}");
+            return;
+        },
+    };
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
     let message = message_reader.get_root::<abi_log_capnp::log_message::Reader>().unwrap();
 

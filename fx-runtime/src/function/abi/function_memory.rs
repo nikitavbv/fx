@@ -27,20 +27,20 @@ pub(crate) struct FunctionMemoryView<'a> {
 }
 
 impl<'a> FunctionMemoryView<'a> {
-    pub(crate) fn str_ref(&self, ptr: u64, len: u64) -> Result<&str, FunctionMemoryGetStringError> {
+    pub(crate) fn slice(&self, ptr: u64, len: u64) -> Result<&[u8], FunctionMemoryAccessError> {
         let ptr = ptr as usize;
         let len = len as usize;
-        self.view.get(ptr..ptr+len)
-            .ok_or(FunctionMemoryGetStringError::OutOfBounds)
-            .and_then(|v| str::from_utf8(v).map_err(|_| FunctionMemoryGetStringError::FailedToDecode))
+        self.view.get(ptr..ptr+len).ok_or(FunctionMemoryAccessError::OutOfBounds)
     }
 
     pub(crate) fn vec_clone(&self, ptr: u64, len: u64) -> Result<Vec<u8>, FunctionMemoryAccessError> {
-        let ptr = ptr as usize;
-        let len = len as usize;
-        self.view.get(ptr..ptr+len)
-            .ok_or(FunctionMemoryAccessError::OutOfBounds)
-            .map(|v| v.to_vec())
+        self.slice(ptr, len).map(|v| v.to_vec())
+    }
+
+    pub(crate) fn str_ref(&self, ptr: u64, len: u64) -> Result<&str, FunctionMemoryGetStringError> {
+        self.slice(ptr, len)
+            .map_err(FunctionMemoryGetStringError::from)
+            .and_then(|v| str::from_utf8(v).map_err(|_| FunctionMemoryGetStringError::FailedToDecode))
     }
 }
 
@@ -66,4 +66,12 @@ pub(crate) enum FunctionMemoryGetStringError {
 
     #[error("failed to decode string as utf8")]
     FailedToDecode,
+}
+
+impl From<FunctionMemoryAccessError> for FunctionMemoryGetStringError {
+    fn from(err: FunctionMemoryAccessError) -> Self {
+        match err {
+            FunctionMemoryAccessError::OutOfBounds => Self::OutOfBounds,
+        }
+    }
 }
