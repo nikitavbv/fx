@@ -1,9 +1,9 @@
 pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, abi_metrics_capnp, abi_blob_capnp, abi::FuturePollResult};
 
 use {
-    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr},
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap},
     tokio::{sync::oneshot, time::Duration},
-    tracing::{debug, error},
+    tracing::{debug, error, warn},
     http::Method,
     http_body_util::{BodyStream, BodyExt},
     wasmtime::{AsContext, AsContextMut},
@@ -55,34 +55,66 @@ pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSt
             return;
         },
     };
-    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
-    let message = message_reader.get_root::<abi_log_capnp::log_message::Reader>().unwrap();
+    let message_reader = match capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to handle log message, failed to read message: {err:?}");
+            return;
+        }
+    };
+    let message = match message_reader.get_root::<abi_log_capnp::log_message::Reader>() {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to handle log message, failed to get message root: {err:?}");
+            return;
+        }
+    };
 
     let message: LogMessageEvent = LogMessageEvent::new(
         LogSource::function(&caller.data().function_id),
-        match message.get_event_type().unwrap() {
+        message.get_event_type().map(|v| match v {
             abi_log_capnp::EventType::Begin => LogEventType::Begin,
             abi_log_capnp::EventType::End => LogEventType::End,
             abi_log_capnp::EventType::Instant => LogEventType::Instant,
-        },
-        match message.get_level().unwrap() {
+        }).unwrap_or(LogEventType::Instant),
+        message.get_level().map(|v| match v {
             abi_log_capnp::LogLevel::Trace => LogEventLevel::Trace,
             abi_log_capnp::LogLevel::Debug => LogEventLevel::Debug,
             abi_log_capnp::LogLevel::Info => LogEventLevel::Info,
             abi_log_capnp::LogLevel::Warn => LogEventLevel::Warn,
             abi_log_capnp::LogLevel::Error => LogEventLevel::Error,
-        },
-        message.get_fields().unwrap()
-            .into_iter()
-            .map(|v| (
-                v.get_name().unwrap().to_string().unwrap(),
-                EventFieldValue::Text(v.get_value().unwrap().to_string().unwrap())
-            ))
-            .collect()
+        }).unwrap_or(LogEventLevel::Info),
+        match message.get_fields() {
+            Ok(fields) => fields
+                .into_iter()
+                .filter_map(|v| {
+                    let name = match v.get_name().ok()?.to_string() {
+                        Ok(v) => v,
+                        Err(err) => {
+                            error!("failed to decode log message field name: {err:?}");
+                            return None;
+                        }
+                    };
+                    let value = match v.get_value().ok()?.to_string() {
+                        Ok(v) => v,
+                        Err(err) => {
+                            error!("failed to decode log message field value: {err:?}");
+                            return None;
+                        }
+                    };
+
+                    Some((name, EventFieldValue::Text(value)))
+                })
+                .collect(),
+            Err(_) => HashMap::new(),
+        }
     ).into();
 
-    caller.data().logger_tx.send(message).unwrap();
+    if caller.data().logger_tx.send(message).is_err() {
+        warn!("failed to write log message to logger: log channel is closed.");
+    }
 }
+
 
 pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
