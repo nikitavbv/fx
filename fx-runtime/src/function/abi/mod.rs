@@ -163,12 +163,11 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
         Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
     };
 
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
     let mut context = caller.as_context_mut();
-    let view = memory.data_mut(&mut context);
-    let ptr = ptr as usize;
+    let mut view = memory.view_mut(&mut context);
 
-    view[ptr..ptr+resource.len()].copy_from_slice(&resource);
+    view.copy_from_slice(ptr, resource.len() as u64, &resource).unwrap();
 }
 
 pub(super) fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {

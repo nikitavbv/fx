@@ -20,6 +20,12 @@ impl FunctionMemory {
             view: self.memory.data(context),
         }
     }
+
+    pub(crate) fn view_mut<'a>(&'a self, context: &'a mut wasmtime::StoreContextMut<'_, FunctionInstanceState>) -> FunctionMemoryViewMut<'a> {
+        FunctionMemoryViewMut {
+            view: self.memory.data_mut(context),
+        }
+    }
 }
 
 pub(crate) struct FunctionMemoryView<'a> {
@@ -41,6 +47,19 @@ impl<'a> FunctionMemoryView<'a> {
         self.slice(ptr, len)
             .map_err(FunctionMemoryGetStringError::from)
             .and_then(|v| str::from_utf8(v).map_err(|_| FunctionMemoryGetStringError::FailedToDecode))
+    }
+}
+
+pub(crate) struct FunctionMemoryViewMut<'a> {
+    view: &'a mut [u8],
+}
+
+impl<'a> FunctionMemoryViewMut<'a> {
+    pub(crate) fn copy_from_slice(&mut self, ptr: u64, len: u64, copy_from: &[u8]) -> Result<(), FunctionMemoryAccessError> {
+        let ptr = ptr as usize;
+        let len = len as usize;
+        self.view.get_mut(ptr..ptr+len).ok_or(FunctionMemoryAccessError::OutOfBounds)?.copy_from_slice(copy_from);
+        Ok(())
     }
 }
 
