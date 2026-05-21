@@ -117,7 +117,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     let row = match row {
                         Ok(v) => v,
                         Err(err) => {
-                            if err.sqlite_error().unwrap().code == rusqlite::ErrorCode::DatabaseBusy {
+                            if is_database_busy_error(&err) {
                                 break Err(SqlQueryExecutionError::DatabaseBusy);
                             } else {
                                 panic!("unexpected sqlite error: {err:?}")

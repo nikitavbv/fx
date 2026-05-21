@@ -9,6 +9,7 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures::{FutureExt, StreamExt, TryStreamExt},
     rand::TryRngCore,
+    fx_types::abi::ResourceMoveFromHostResult,
     crate::{
         function::instance::FunctionInstanceState,
         resources::{
@@ -120,7 +121,7 @@ pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, Fun
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
 }
 
-pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
+pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
         Resource::FetchRequest(req) => req.into_serialized(),
         Resource::SqlQueryResult(req) => match req {
@@ -163,11 +164,22 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
         Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
     };
 
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(err) => match err {
+            function_memory::FunctionMemoryError::MemoryNotFound
+            | function_memory::FunctionMemoryError::MemoryNotMemory => return ResourceMoveFromHostResult::FailedToAccessMemory as u64,
+        }
+    };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
 
-    view.copy_from_slice(ptr, resource.len() as u64, &resource).unwrap();
+    (match view.copy_from_slice(ptr, resource.len() as u64, &resource) {
+        Ok(_) => ResourceMoveFromHostResult::Ok,
+        Err(err) => match err {
+            function_memory::FunctionMemoryAccessError::OutOfBounds => ResourceMoveFromHostResult::ArgumentOutOfMemoryBounds,
+        }
+    }) as u64
 }
 
 pub(super) fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
