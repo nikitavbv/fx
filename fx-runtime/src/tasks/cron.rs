@@ -23,6 +23,7 @@ pub enum CronTaskEvent {
         function_id: FunctionId,
         run_at: DateTime<Utc>,
         delay: Option<TimeDelta>, // delay from expected run time. None if runs for first time.
+        iteration_delay: Duration, // delay introduced by other tasks running before this task in single cron iteration.
     },
 }
 
@@ -100,6 +101,7 @@ pub(crate) fn run_cron_task(
 }
 
 async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) -> Option<DateTime<Utc>> {
+    let iteration_start_time = Instant::now();
     let mut next_run: Option<DateTime<Utc>> = None;
 
     for task in tasks {
@@ -123,6 +125,7 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
             function_id: task.function_id.clone(),
         }).await.unwrap();
 
+        let iteration_delay = Instant::now() - iteration_start_time;
         let result = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
             http::Request::builder()
                 .method(http::Method::GET)
@@ -141,6 +144,7 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
             function_id: task.function_id.clone(),
             run_at,
             delay,
+            iteration_delay,
         }).await.unwrap();
 
         result.unwrap();

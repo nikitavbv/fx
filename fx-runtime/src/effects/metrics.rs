@@ -17,8 +17,8 @@ impl MetricKey {
         }
     }
 
-    pub(crate) fn with_label(mut self, key: String, value: String) -> Self {
-        self.labels.push((key, value));
+    pub(crate) fn with_label(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.labels.push((key.into(), value.into()));
         self
     }
 }

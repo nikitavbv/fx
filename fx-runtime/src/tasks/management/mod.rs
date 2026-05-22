@@ -93,11 +93,13 @@ pub(crate) fn run_management_task(
                                 CronTaskEvent::Start { name, function_id } => {
                                     runtime_state.mark_cron_running(name, function_id);
                                 },
-                                CronTaskEvent::Run { name, function_id, run_at, delay } => {
+                                CronTaskEvent::Run { name, function_id, run_at, delay, iteration_delay } => {
                                     runtime_state.record_cron_run(name.clone(), function_id.clone(), run_at);
+                                    let task_tag_value = format!("{}::{name}", function_id.as_str());
                                     if let Some(delay) = delay {
-                                        metrics.counter_float_increment(MetricKey::new("cron_task_delay_seconds").with_label("task".to_owned(), format!("{}::{name}", function_id.as_str())), delay.as_seconds_f64());
+                                        metrics.counter_float_increment(MetricKey::new("cron_task_delay_seconds").with_label("task", &task_tag_value), delay.as_seconds_f64());
                                     }
+                                    metrics.counter_float_increment(MetricKey::new("cron_task_iteration_delay_seconds").with_label("task", task_tag_value), iteration_delay.as_secs_f64());
                                 },
                             }
                         }
