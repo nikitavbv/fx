@@ -191,12 +191,11 @@ pub(super) fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, Func
 
     let serialized_frame = caller.data_mut().stream_read_frame(&ResourceId::from(resource_id));
 
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
     let mut context = caller.as_context_mut();
-    let view = memory.data_mut(&mut context);
-    let ptr = ptr as usize;
+    let mut view = memory.view_mut(&mut context);
 
-    view[ptr..ptr+serialized_frame.len()].copy_from_slice(&serialized_frame);
+    view.copy_from_slice(ptr, serialized_frame.len() as u64, &serialized_frame).unwrap();
 
     debug!("fx_stream_frame_read_handler - exit");
 }
