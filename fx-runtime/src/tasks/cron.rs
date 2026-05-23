@@ -1,5 +1,5 @@
 use {
-    tracing::info,
+    tracing::{info, error},
     tokio::time::{Duration, Instant},
     chrono::{DateTime, Utc, TimeDelta},
     crate::{
@@ -147,7 +147,9 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
             iteration_delay,
         }).await.unwrap();
 
-        result.unwrap();
+        if let Err(err) = result {
+            error!("failed to run function when executing cron task: {err:?}");
+        }
     }
 
     next_run

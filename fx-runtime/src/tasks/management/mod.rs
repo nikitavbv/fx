@@ -5,7 +5,7 @@ use {
     tracing::info,
     crate::{
         function::FunctionId,
-        definitions::{config::{FunctionConfig, ServerConfig}, monitor::DefinitionsMonitor},
+        definitions::{config::{FunctionConfig, ServerConfig}, monitor::{DefinitionsMonitor, ApplyConfigError}},
         effects::metrics::{FunctionMetricsDelta, MetricsRegistry, MetricKey},
         tasks::{
             worker::{WorkerMessage, WorkersController},
@@ -73,8 +73,15 @@ pub(crate) fn run_management_task(
                             };
                             match msg {
                                 ManagementMessage::DeployFunction(msg) => {
-                                    definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
+                                    let result = definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
                                     msg.on_ready.send(()).unwrap();
+                                    match result {
+                                        Ok(_) => {},
+                                        Err(ApplyConfigError::CronTaskShutdown) => {
+                                            info!("stopping management task, because cron task is stopped");
+                                            break;
+                                        },
+                                    }
                                 },
                                 ManagementMessage::WorkerMetrics(msg) => {
                                     metrics.update(msg.function_metrics);

@@ -90,7 +90,13 @@ impl DefinitionsMonitor {
                 }
             };
 
-            self.apply_config(function_id, function_config).await;
+            match self.apply_config(function_id, function_config).await {
+                Ok(_) => continue,
+                Err(ApplyConfigError::CronTaskShutdown) => {
+                    info!("shutting down definitions monitor because cron task shutdown.");
+                    return;
+                },
+            };
         }
 
         info!("listening for definition changes");
@@ -138,7 +144,13 @@ impl DefinitionsMonitor {
                 }
             };
 
-            self.apply_config(function_id, function_config).await;
+            match self.apply_config(function_id, function_config).await {
+                Ok(_) => continue,
+                Err(ApplyConfigError::CronTaskShutdown) => {
+                    info!("shutting down definitions monitor because cron task shutdown.");
+                    return;
+                },
+            }
         }
     }
 
@@ -163,7 +175,7 @@ impl DefinitionsMonitor {
         }
     }
 
-    pub(crate) async fn apply_config(&self, function_id: FunctionId, config: FunctionConfig) {
+    pub(crate) async fn apply_config(&self, function_id: FunctionId, config: FunctionConfig) -> Result<(), ApplyConfigError> {
         info!("applying config for: {:?}", function_id.as_string());
 
         self.runtime_state.add_function(function_id.clone());
@@ -302,7 +314,7 @@ impl DefinitionsMonitor {
         self.cron_tx.send_async(CronMessage::ScheduleAdd {
             function_id,
             schedule: cron_triggers,
-        }).await.unwrap();
+        }).await.map_err(|_| ApplyConfigError::CronTaskShutdown)
     }
 
     fn next_deployment_id(&self) -> FunctionDeploymentId {
@@ -316,4 +328,10 @@ impl DefinitionsMonitor {
 enum FunctionIdDetectionError {
     #[error("config path missing .fx.yaml extension")]
     PathMissingExtension,
+}
+
+#[derive(Error, Debug)]
+pub(crate) enum ApplyConfigError {
+    #[error("failed to apply config. Cannot apply updated cron config because cron task shutdown")]
+    CronTaskShutdown,
 }

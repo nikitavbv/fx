@@ -262,7 +262,9 @@ impl RunningFxServer {
             handle.join().unwrap();
         }
         for handle in self.sql_worker_handles {
-            handle.join().unwrap();
+            if let Err(err) = handle.join() {
+                error!("worker thread panic detected: {err:?}");
+            }
         }
         self.kv_thread_handle.join().unwrap();
         self.blob_thread_handle.join().unwrap();
@@ -271,5 +273,6 @@ impl RunningFxServer {
         self.logger_thread_handle.join().unwrap();
         self.management_thread_handle.join().unwrap();
         self.timer_thread_handle.join().unwrap();
+        info!("server shutdown all threads.");
     }
 }

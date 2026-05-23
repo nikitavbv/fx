@@ -1,7 +1,7 @@
 use {
     std::{net::SocketAddr, rc::Rc, collections::HashMap, cell::RefCell},
     tokio::time::Duration,
-    tracing::{warn, error},
+    tracing::{info, warn, error},
     hyper_util::rt::{TokioIo, TokioTimer},
     hyper::server::conn::http1,
     crate::{
@@ -80,13 +80,17 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 
         loop {
             tokio::select! {
-                message = worker.messages_rx.recv_async() => {
-                    worker_handle_message(
+                message = worker.messages_rx.recv_async() => match message {
+                    Ok(message) => worker_handle_message(
                         &world,
                         &worker,
                         local_controller.clone(),
-                        message.unwrap(),
-                    ).await;
+                        message,
+                    ).await,
+                    Err(_) => {
+                        info!("stopping worker thread because worker controller was dropped.");
+                        return;
+                    }
                 },
 
                 message = local_message_queue_rx.recv() => {
