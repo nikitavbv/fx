@@ -259,11 +259,13 @@ impl RunningFxServer {
 
     pub fn wait_until_finished(self) {
         for handle in self.worker_handles {
-            handle.join().unwrap();
+            if let Err(err) = handle.join() {
+                error!("worker thread panic detected: {err:?}");
+            }
         }
         for handle in self.sql_worker_handles {
             if let Err(err) = handle.join() {
-                error!("worker thread panic detected: {err:?}");
+                error!("sql worker thread panic detected: {err:?}");
             }
         }
         self.kv_thread_handle.join().unwrap();

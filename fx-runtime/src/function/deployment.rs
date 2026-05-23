@@ -100,11 +100,14 @@ impl FunctionDeployment {
 
         let instance_template = linker.instantiate_pre(&module)
             .map_err(|err| {
-                if let Some(_) = err.downcast_ref::<wasmtime::UnknownImportError>() {
+                if err.downcast_ref::<wasmtime::UnknownImportError>().is_some() {
                     return DeploymentInitError::MissingImport;
-                } else {
-                    todo!("handle other error: {err:?}")
                 }
+                let err_str = err.to_string();
+                if err_str.contains("incompatible import type") {
+                    return DeploymentInitError::IncompatibleImport { details: err_str };
+                }
+                panic!("unexpected error during module instantiation: {err:?}")
             })?;
 
         let template = FunctionTemplate::new(
@@ -181,6 +184,8 @@ impl FunctionDeployment {
 pub(crate) enum DeploymentInitError {
     #[error("function requested import that fx runtime does not provide")]
     MissingImport,
+    #[error("incompatible import type - was the function compiled with a different fx sdk version? {details:?}")]
+    IncompatibleImport { details: String },
     #[error("function does not provide export that fx runtime expects")]
     MissingExport,
 }
