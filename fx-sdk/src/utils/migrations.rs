@@ -72,6 +72,9 @@ pub enum SqlMigrationError {
 
     #[error("sql error: {message:?}")]
     SqlError { message: String },
+
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
 }
 
 impl DeserializeHostResource for Result<(), SqlMigrationError> {
@@ -90,6 +93,7 @@ impl DeserializeHostResource for Result<(), SqlMigrationError> {
                 abi_sql_capnp::sql_migrate_error::error::Which::SqlError(message) => SqlMigrationError::SqlError {
                     message: message.unwrap().to_string().unwrap(),
                 },
+                abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
             }),
         }
     }

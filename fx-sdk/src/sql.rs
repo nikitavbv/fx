@@ -58,6 +58,8 @@ pub enum SqlBatchError {
     DatabaseBusy,
     #[error("statement failed: {reason:?}")]
     StatementFailed { reason: String },
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
 }
 
 impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {
@@ -113,6 +115,7 @@ impl DeserializeHostResource for Result<(), SqlBatchError> {
                 abi_sql_capnp::sql_batch_error::error::Which::BindingNotFound(_) => SqlBatchError::BindingNotFound,
                 abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
                 abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
+                abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
             }),
         }
     }

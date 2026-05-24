@@ -38,6 +38,7 @@ struct SqlMigrateError {
         bindingNotFound @1 :Void;
         executionError @2 :Text;
         sqlError @3 :Text;
+        runtimeShutdown @4 :Void;
     }
 }
 
@@ -63,6 +64,7 @@ struct SqlBatchError {
         databaseBusy @0 :Void;
         bindingNotFound @1 :Void;
         statementFailed @2 :Text;
+        runtimeShutdown @3 :Void;
     }
 }
 

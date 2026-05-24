@@ -4,6 +4,7 @@ use {
     crate::{
         function::abi::{capnp, abi_sql_capnp},
         resources::serialize::SerializeResource,
+        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError},
     },
 };
 
@@ -36,6 +37,19 @@ pub(crate) enum SqlMigrationError {
     SqlError {
         message: String,
     },
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
+}
+
+impl From<SqlTaskMigrationError> for SqlMigrationError {
+    fn from(err: SqlTaskMigrationError) -> Self {
+        match err {
+            SqlTaskMigrationError::BindingNotFound => Self::BindingNotFound,
+            SqlTaskMigrationError::DatabaseBusy => Self::DatabaseBusy,
+            SqlTaskMigrationError::MigrationExecutionError { message } => Self::MigrationExecutionError { message },
+            SqlTaskMigrationError::SqlError { message } => Self::SqlError { message },
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -46,6 +60,18 @@ pub(crate) enum SqlBatchError {
     DatabaseBusy,
     #[error("statement failed: {reason:?}")]
     StatementFailed { reason: String },
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
+}
+
+impl From<SqlTaskBatchError> for SqlBatchError {
+    fn from(err: SqlTaskBatchError) -> Self {
+        match err {
+            SqlTaskBatchError::BindingNotFound => Self::BindingNotFound,
+            SqlTaskBatchError::DatabaseBusy => Self::DatabaseBusy,
+            SqlTaskBatchError::StatementFailed { reason } => Self::StatementFailed { reason },
+        }
+    }
 }
 
 impl SerializeResource for Result<Vec<SqlRow>, SqlQueryError> {
@@ -101,6 +127,7 @@ impl SerializeResource for Result<(), SqlMigrationError> {
                     SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
                     SqlMigrationError::MigrationExecutionError { message } => response_error.set_execution_error(message),
                     SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
+                    SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 }
             }
         }
@@ -125,6 +152,7 @@ impl SerializeResource for Result<(), SqlBatchError> {
                     SqlBatchError::DatabaseBusy => response_error.set_database_busy(()),
                     SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
                     SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
+                    SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 }
             }
         }

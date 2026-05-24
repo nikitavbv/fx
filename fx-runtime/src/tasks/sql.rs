@@ -1,9 +1,10 @@
 use {
     std::{collections::HashMap, path::PathBuf},
     tokio::sync::oneshot,
+    thiserror::Error,
     crate::{
         definitions::bindings::{SqlBindingConfig, SqlBindingConfigLocation},
-        effects::sql::{SqlValue, SqlBatchError, SqlQueryExecutionError, SqlRow, SqlMigrationError},
+        effects::sql::{SqlValue, SqlQueryExecutionError, SqlRow},
     },
 };
 
@@ -26,14 +27,41 @@ pub(crate) struct SqlExecMessage {
 pub(crate) struct SqlMigrateMessage {
     pub(crate) binding: SqlBindingConfig,
     pub(crate) migrations: Vec<String>,
-    pub(crate) response: oneshot::Sender<Result<(), SqlMigrationError>>,
+    pub(crate) response: oneshot::Sender<Result<(), SqlTaskMigrationError>>,
 }
 
 #[derive(Debug)]
 pub(crate) struct SqlBatchMessage {
     pub(crate) binding: SqlBindingConfig,
     pub(crate) queries: Vec<(String, Vec<SqlValue>)>,
-    pub(crate) response: oneshot::Sender<Result<(), SqlBatchError>>,
+    pub(crate) response: oneshot::Sender<Result<(), SqlTaskBatchError>>,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum SqlTaskMigrationError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
+    #[error("database is locked")]
+    DatabaseBusy,
+    #[error("migration execution error: {message:?}")]
+    MigrationExecutionError {
+        message: String,
+    },
+    /// SqlError is very similar to MigrationExecutionError, but with more information available
+    #[error("sql error: {message:?}")]
+    SqlError {
+        message: String,
+    },
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum SqlTaskBatchError {
+    #[error("binding with this name is not found")]
+    BindingNotFound,
+    #[error("database is locked")]
+    DatabaseBusy,
+    #[error("statement failed: {reason:?}")]
+    StatementFailed { reason: String },
 }
 
 pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>) {
@@ -153,7 +181,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlQueryExecutionError::DatabaseBusy => {
-                            msg.response.send(Err(SqlBatchError::DatabaseBusy)).unwrap();
+                            msg.response.send(Err(SqlTaskBatchError::DatabaseBusy)).unwrap();
                             continue;
                         }
                     }
@@ -163,7 +191,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => {
                         if is_database_busy_error(&err) {
-                            msg.response.send(Err(SqlBatchError::DatabaseBusy)).unwrap();
+                            msg.response.send(Err(SqlTaskBatchError::DatabaseBusy)).unwrap();
                             continue;
                         } else {
                             panic!("unexpected sqlite error: {err:?}");
@@ -177,9 +205,9 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     match txn.execute(&statement, rusqlite::params_from_iter(params.into_iter())) {
                         Ok(_) => {},
                         Err(rusqlite::Error::SqliteFailure(_, Some(reason))) => {
-                            execution_result = Err(SqlBatchError::StatementFailed { reason });
+                            execution_result = Err(SqlTaskBatchError::StatementFailed { reason });
                         },
-                        Err(_) => panic!("unexpected sqlite error"),
+                        Err(err) => panic!("unexpected sqlite error: {err:?}"),
                     }
                 };
 
@@ -187,7 +215,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     .and_then(|_| txn.commit().map_err(|err| {
                         let error_code = err.sqlite_error().unwrap().code;
                         if error_code == rusqlite::ErrorCode::DatabaseBusy {
-                            SqlBatchError::DatabaseBusy
+                            SqlTaskBatchError::DatabaseBusy
                         } else {
                             panic!("unexpected sqlite error: {err:?}");
                         }
@@ -200,7 +228,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlQueryExecutionError::DatabaseBusy => {
-                            msg.response.send(Err(SqlMigrationError::DatabaseBusy)).unwrap();
+                            msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy)).unwrap();
                             continue;
                         }
                     }
@@ -218,13 +246,13 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Err(err) => match err {
                         rusqlite_migration::Error::RusqliteError { query: _, err } => match err {
                             rusqlite::Error::SqliteFailure(error, message) => match error.code {
-                                rusqlite::ErrorCode::DatabaseBusy => Err(SqlMigrationError::DatabaseBusy),
-                                rusqlite::ErrorCode::Unknown => Err(SqlMigrationError::MigrationExecutionError {
+                                rusqlite::ErrorCode::DatabaseBusy => Err(SqlTaskMigrationError::DatabaseBusy),
+                                rusqlite::ErrorCode::Unknown => Err(SqlTaskMigrationError::MigrationExecutionError {
                                     message: message.unwrap(),
                                 }),
                                 other => panic!("unexpected sqlite error: {other:?}"),
                             },
-                            rusqlite::Error::SqlInputError { error: _, msg, sql: _, offset: _ } => Err(SqlMigrationError::SqlError {
+                            rusqlite::Error::SqlInputError { error: _, msg, sql: _, offset: _ } => Err(SqlTaskMigrationError::SqlError {
                                 message: msg,
                             }),
                             other => panic!("unexpected sqlite error: {other:?}"),
