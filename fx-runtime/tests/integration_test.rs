@@ -472,10 +472,19 @@ async fn log_span() {
     assert!(result.status().is_success());
 
     // both events include fields inherited from span
-    let first_message = LOGGER.events()
-        .into_iter()
-        .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("first message".to_owned())).unwrap_or(false))
-        .expect("expected first message to be present");
+    let mut first_message = None;
+    for _ in 0..10 {
+        first_message = LOGGER.events()
+            .into_iter()
+            .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("first message".to_owned())).unwrap_or(false));
+
+        if first_message.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let first_message = first_message.expect("expected first message to be present");
+
     let second_message = LOGGER.events()
         .into_iter()
         .find(|v| v.fields.get("message").map(|v| v == &EventFieldValue::Text("second message".to_owned())).unwrap_or(false))
