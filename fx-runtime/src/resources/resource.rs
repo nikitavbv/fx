@@ -1,7 +1,8 @@
 use {
     std::{cell::Cell, rc::Rc},
-    futures::future::BoxFuture,
+    futures::future::{BoxFuture, LocalBoxFuture},
     slotmap::Key,
+    send_wrapper::SendWrapper,
     crate::{
         function::instance::FunctionInstance,
         triggers::http::{FetchRequestHeader, HttpBody},
@@ -102,8 +103,9 @@ pub(crate) enum Resource {
     SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),
     SqlBatchResult(FutureResource<SerializableResource<Result<(), SqlBatchError>>>),
     UnitFuture(BoxFuture<'static, ()>),
+    ResourceFuture(SendWrapper<LocalBoxFuture<'static, Box<Resource>>>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
-    FetchResult(FutureResource<FetchResult>),
+    FetchResult(FetchResult),
     KvSetResult(FutureResource<SerializableResource<Result<(), KvSetError>>>),
     KvGetResult(FutureResource<SerializableResource<KvGetResponse>>),
     KvSubscription(KvSubscriptionResource),

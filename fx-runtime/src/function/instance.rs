@@ -356,6 +356,7 @@ impl FunctionInstanceState {
                 (Resource::SqlBatchResult(FutureResource::Ready(serialized)), serialized_size)
             },
             Resource::UnitFuture(_) => panic!("unit future cannot be serialized"),
+            Resource::ResourceFuture(_) => panic!("resource future cannot be serialized"),
             Resource::BlobGetResult(v) => {
                 let resource = match v {
                     FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
@@ -366,25 +367,18 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::BlobGetResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::FetchResult(v) => {
-                let resource = match v {
-                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
-                    FutureResource::Ready(v) => v,
-                };
-
-                match resource {
-                    FetchResult::Inline(resource) => {
-                        let (parts, body) = resource.into_parts();
-                        let body = self.resource_add(Resource::HttpBody(body));
-                        let serialized = SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).map_to_serialized();
-                        let serialized_size = serialized.serialized_size();
-                        (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(serialized))), serialized_size)
-                    },
-                    FetchResult::BodyResource(resource) => {
-                        let serialized = resource.map_to_serialized();
-                        let serialized_size = serialized.serialized_size();
-                        (Resource::FetchResult(FutureResource::Ready(FetchResult::BodyResource(serialized))), serialized_size)
-                    }
+            Resource::FetchResult(resource) => match resource {
+                FetchResult::Inline(resource) => {
+                    let (parts, body) = resource.into_parts();
+                    let body = self.resource_add(Resource::HttpBody(body));
+                    let serialized = SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).map_to_serialized();
+                    let serialized_size = serialized.serialized_size();
+                    (Resource::FetchResult(FetchResult::BodyResource(serialized)), serialized_size)
+                },
+                FetchResult::BodyResource(resource) => {
+                    let serialized = resource.map_to_serialized();
+                    let serialized_size = serialized.serialized_size();
+                    (Resource::FetchResult(FetchResult::BodyResource(serialized)), serialized_size)
                 }
             },
             Resource::HttpBody(v) => match v.0 {
@@ -478,15 +472,15 @@ impl FunctionInstanceState {
                 let poll_result = v.poll_unpin(&mut cx);
                 (Resource::UnitFuture(v), poll_result)
             },
+            Resource::ResourceFuture(mut v) => match v.poll_unpin(&mut cx) {
+                Poll::Pending => (Resource::ResourceFuture(v), Poll::Pending),
+                Poll::Ready(resource) => (*resource, Poll::Ready(())),
+            },
             Resource::BlobGetResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::BlobGetResult(v), poll_result)
             },
-            Resource::FetchResult(mut v) => {
-                debug!("resource_poll: fetch result");
-                let poll_result = v.poll(&mut cx);
-                (Resource::FetchResult(v), poll_result)
-            },
+            Resource::FetchResult(mut v) => panic!("resource of this type should not be polled"),
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Stream { mut stream, frame: _previous_frame_is_discarded } => {
                     debug!("resource_poll: http_body - stream");
@@ -600,6 +594,7 @@ impl FunctionInstanceState {
             | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_)
+            | Resource::ResourceFuture(_)
             | Resource::KvSetResult(_)
             | Resource::KvGetResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::HttpBody(v) => match v.0 {

@@ -97,7 +97,8 @@ async fn http_body() {
 async fn fetch_json() {
     let client = init_fx_server().await;
     let response = client.get("/test/fetch/json").send().await.unwrap();
-    assert!(response.status().is_success());
+    let status = response.status();
+    assert!(status.is_success(), "expected status code = 200, got: {status:?}");
     let text = response.text().await.unwrap();
     assert!(text.contains(r#""Content-Type": "application/json""#), "httpbin response should show application/json content-type");
     assert!(text.contains(r#""key": "value""#), "httpbin response should contain the json payload");
@@ -350,7 +351,9 @@ async fn fetch() {
     let client = init_fx_server().await;
 
     let result = client.get("/test/fetch").send().await.unwrap();
-    assert!(result.status().is_success());
+    let status = result.status();
+
+    assert!(status.is_success(), "expected status = 200, got: {status:?}");
     assert!(result.text().await.unwrap().contains("httpbin.org/get"));
 }
 
@@ -359,7 +362,9 @@ async fn fetch_post() {
     let client = init_fx_server().await;
 
     let result = client.get("/test/fetch/post").send().await.unwrap();
-    assert!(result.status().is_success());
+    let status = result.status();
+
+    assert!(status.is_success(), "expected status = 200, got: {status:?}");
     let result = result.text().await.unwrap();
     assert!(result.contains("httpbin.org/post"));
     assert!(result.contains("test fx request body"));
@@ -370,7 +375,13 @@ async fn fetch_body_passthrough() {
     let client = init_fx_server().await;
 
     let result = client.post("/test/fetch/body-passthrough").body("fx test: body passthrough").send().await.unwrap();
-    assert!(result.status().is_success());
+    let status = result.status();
+
+    if !status.is_success() {
+        let body = result.text().await.unwrap();
+        panic!("expected status = 200, got: {status:?}, response body: {body:?}");
+    }
+
     let result = result.text().await.unwrap();
     assert!(result.contains("httpbin.org/post"));
     assert!(result.contains("fx test: body passthrough"));

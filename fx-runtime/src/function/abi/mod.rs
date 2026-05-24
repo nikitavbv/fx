@@ -9,6 +9,7 @@ use {
     wasmtime::{AsContext, AsContextMut},
     futures::{FutureExt, StreamExt, TryStreamExt},
     rand::TryRngCore,
+    send_wrapper::SendWrapper,
     fx_types::abi::ResourceMoveFromHostResult,
     crate::{
         function::instance::FunctionInstanceState,
@@ -137,20 +138,18 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Ready(v) => v.into_serialized(),
         },
         Resource::UnitFuture(_) => panic!("unit future cannot be moved to function"),
+        Resource::ResourceFuture(_) => panic!("resource future cannot be moved to function"),
         Resource::BlobGetResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
-        Resource::FetchResult(res) => match res {
-            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(resource) => match resource {
-                FetchResult::Inline(resource) => {
-                    let (parts, body) = resource.into_parts();
-                    let body = caller.data_mut().resource_add(Resource::HttpBody(body));
-                    SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).into_serialized()
-                },
-                FetchResult::BodyResource(resource) => resource.into_serialized(),
+        Resource::FetchResult(resource) => match resource {
+            FetchResult::Inline(resource) => {
+                let (parts, body) = resource.into_parts();
+                let body = caller.data_mut().resource_add(Resource::HttpBody(body));
+                SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).into_serialized()
             },
+            FetchResult::BodyResource(resource) => resource.into_serialized(),
         },
         Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
         Resource::KvGetResult(v) => match v {
@@ -547,10 +546,10 @@ pub(super) fn fx_fetch_handler(
         );
         let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
-        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
+        caller.data_mut().resource_add(Resource::ResourceFuture(SendWrapper::new(async move {
             let response = response_rx.await.unwrap();
             let response = response.move_to_host().await.unwrap();
-            match response.0 {
+            let response = Resource::FetchResult(match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming
                     let body = response.body.replace(None).unwrap();
@@ -566,8 +565,10 @@ pub(super) fn fx_fetch_handler(
                     parts.headers = response.headers;
                     FetchResult::new(parts, body)
                 }
-            }
-        }))).as_u64()
+            });
+
+            Box::new(response)
+        }.boxed_local()))).as_u64()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
@@ -597,6 +598,7 @@ pub(super) fn fx_fetch_handler(
                     | Resource::SqlBatchResult(_)
                     | Resource::SqlMigrationResult(_)
                     | Resource::UnitFuture(_)
+                    | Resource::ResourceFuture(_)
                     | Resource::KvSetResult(_)
                     | Resource::KvGetResult(_)
                     | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
@@ -616,8 +618,8 @@ pub(super) fn fx_fetch_handler(
         }
 
         let client = caller.data().http_client.clone();
-        caller.data_mut().resource_add(Resource::FetchResult(FutureResource::for_future(async move {
-            match client.execute(fetch_request).await {
+        caller.data_mut().resource_add(Resource::ResourceFuture(SendWrapper::new(async move {
+            Box::new(Resource::FetchResult(match client.execute(fetch_request).await {
                 Ok(result) => {
                     let http_response: ::http::Response<reqwest::Body> = result.into();
                     let (parts, body) = http_response.into_parts();
@@ -634,8 +636,8 @@ pub(super) fn fx_fetch_handler(
                     };
                     FetchResult::error(error)
                 }
-            }
-        }))).as_u64()
+            }))
+        }.boxed()))).as_u64()
     };
 
     debug!("fx_fetch_handler - exit");
