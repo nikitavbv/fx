@@ -15,6 +15,11 @@ use {
     },
 };
 
+#[derive(Clone)]
+struct IntrospectionWorkersController {
+    controller: Arc<SendWrapper<WorkersController>>,
+}
+
 pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController, runtime_state: SendWrapper<RuntimeState>, port: u16) {
     let app = Router::new()
         .route("/", get(introspection_home))
@@ -22,7 +27,7 @@ pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, work
         .route("/api/functions/{function_id}", delete(management_api_function_remove))
         .route("/introspection", get(introspection))
         .layer(Extension(metrics))
-        .layer(Extension(Arc::new(workers_controller)))
+        .layer(Extension(IntrospectionWorkersController { controller: Arc::new(SendWrapper::new(workers_controller)) }))
         .layer(Extension(runtime_state));
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
@@ -56,11 +61,12 @@ struct FunctionIdPathArgument {
     function_id: String,
 }
 
+#[axum::debug_handler]
 async fn management_api_function_remove(
-    Extension(workers_controller): Extension<Arc<WorkersController>>,
+    Extension(workers_controller): Extension<IntrospectionWorkersController>,
     extract::Path(function_id): extract::Path<FunctionIdPathArgument>
 ) -> (StatusCode, &'static str) {
-    match workers_controller.function_remove(&FunctionId::new(&function_id.function_id)).await {
+    match workers_controller.controller.function_remove(&FunctionId::new(&function_id.function_id)).await {
         Ok(_) => (StatusCode::OK, "ok.\n"),
         Err(FunctionRemoveError::WorkerShutdown) => (StatusCode::SERVICE_UNAVAILABLE, "fx worker shutdown.\n")
     }

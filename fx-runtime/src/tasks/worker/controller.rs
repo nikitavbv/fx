@@ -1,4 +1,5 @@
 use {
+    std::cell::RefCell,
     tokio::sync::oneshot,
     futures::{stream::FuturesUnordered, StreamExt},
     send_wrapper::SendWrapper,
@@ -15,42 +16,48 @@ use {
 #[derive(Clone)]
 pub(crate) struct WorkersController {
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
-    function_invoke_round_robin_counter: u64,
+    function_invoke_round_robin_counter: RefCell<u64>,
 }
 
 impl WorkersController {
     pub fn new(workers_tx: Vec<flume::Sender<WorkerMessage>>) -> Self {
         Self {
             workers_tx,
-            function_invoke_round_robin_counter: 0,
+            function_invoke_round_robin_counter: RefCell::new(0),
         }
     }
 
-    pub(crate) async fn function_remove(&self, function_id: &FunctionId) -> Result<(), FunctionRemoveError> {
-        let subtasks = FuturesUnordered::new();
+    pub(crate) fn function_remove(&self, function_id: &FunctionId) -> impl Future<Output = Result<(), FunctionRemoveError>> {
+        let workers_tx = self.workers_tx.clone();
+        async move {
+            let subtasks = FuturesUnordered::new();
 
-        for worker in &self.workers_tx {
-            subtasks.push(async {
-                let (on_ready_tx, on_ready_rx) = oneshot::channel();
-                worker.send_async(WorkerMessage::RemoveFunction {
-                    function_id: function_id.clone(),
-                    on_ready: Some(on_ready_tx),
-                }).await.unwrap();
-                on_ready_rx.await
-                    .map_err(|_| FunctionRemoveError::WorkerShutdown)
-            });
-        }
+            for worker in workers_tx {
+                subtasks.push(async move {
+                    let (on_ready_tx, on_ready_rx) = oneshot::channel();
+                    worker.send_async(WorkerMessage::RemoveFunction {
+                        function_id: function_id.clone(),
+                        on_ready: Some(on_ready_tx),
+                    }).await.unwrap();
+                    on_ready_rx.await
+                        .map_err(|_| FunctionRemoveError::WorkerShutdown)
+                });
+            }
 
-        for result in subtasks.collect::<Vec<_>>().await {
-            result?;
+            for result in subtasks.collect::<Vec<_>>().await {
+                result?;
+            }
+            Ok(())
         }
-        Ok(())
     }
 
-    pub(crate) async fn function_invoke(&mut self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
+    pub(crate) async fn function_invoke(&self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.workers_tx.get(self.function_invoke_round_robin_counter as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
-        self.function_invoke_round_robin_counter = (self.function_invoke_round_robin_counter + 1) % (self.workers_tx.len() as u64);
+        self.workers_tx.get(*self.function_invoke_round_robin_counter.borrow() as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
+        {
+            let mut counter = self.function_invoke_round_robin_counter.borrow_mut();
+            *counter = (*counter + 1) % (self.workers_tx.len() as u64);
+        }
         response_rx.await
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?
             .map_err(WorkersControllerFunctionInvokeError::from)

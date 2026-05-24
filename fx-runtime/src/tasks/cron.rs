@@ -1,7 +1,9 @@
 use {
+    std::rc::Rc,
     tracing::{info, error},
     tokio::time::{Duration, Instant},
     chrono::{DateTime, Utc, TimeDelta},
+    futures::{stream::FuturesUnordered, StreamExt},
     crate::{
         triggers::{cron::CronDatabase, http::FetchRequestHeader},
         tasks::worker::WorkersController,
@@ -44,8 +46,8 @@ struct CronTask {
 }
 
 pub(crate) fn run_cron_task(
-    mut database: CronDatabase,
-    mut workers_controller: WorkersController,
+    database: CronDatabase,
+    workers_controller: WorkersController,
     msg_rx: flume::Receiver<CronMessage>,
     cron_events: flume::Sender<CronTaskEvent>,
 ) {
@@ -56,6 +58,9 @@ pub(crate) fn run_cron_task(
     let local_set = tokio::task::LocalSet::new();
 
     tokio_runtime.block_on(local_set.run_until(async {
+        let database = Rc::new(database);
+        let workers_controller = Rc::new(workers_controller);
+
         let mut tasks = Vec::<CronTask>::new();
         let sleep = tokio::time::sleep(Duration::from_millis(0));
         tokio::pin!(sleep);
@@ -63,7 +68,7 @@ pub(crate) fn run_cron_task(
         loop {
             tokio::select! {
                 _ = &mut sleep => {
-                    let next_time = run_tasks(&mut database, &mut workers_controller, &cron_events, &tasks).await;
+                    let next_time = run_tasks(database.clone(), workers_controller.clone(), &cron_events, &tasks).await;
                     let dur = if let Some(next_time) = next_time {
                         Duration::from_millis((next_time - Utc::now()).num_milliseconds().max(0).min(MINIMUM_CRON_FREQUENCY_MS as i64) as u64)
                     } else {
@@ -100,9 +105,9 @@ pub(crate) fn run_cron_task(
     }));
 }
 
-async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut WorkersController, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) -> Option<DateTime<Utc>> {
+async fn run_tasks(database: Rc<CronDatabase>, workers_controller: Rc<WorkersController>, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) -> Option<DateTime<Utc>> {
     let iteration_start_time = Instant::now();
-    let mut next_run: Option<DateTime<Utc>> = None;
+    let mut task_futures = FuturesUnordered::new();
 
     for task in tasks {
         let now = Utc::now();
@@ -117,39 +122,52 @@ async fn run_tasks(database: &mut CronDatabase, workers_controller: &mut Workers
         } else {
             None
         };
-        let task_next_run = task.schedule.after(&now).next().unwrap();
+
+        let database = database.clone();
+        let workers_controller = workers_controller.clone();
+
+        task_futures.push(async move {
+            let task_next_run = task.schedule.after(&now).next().unwrap();
+
+            cron_events.send_async(CronTaskEvent::Start {
+                name: task.name.clone(),
+                function_id: task.function_id.clone(),
+            }).await.unwrap();
+
+            let iteration_delay = Instant::now() - iteration_start_time;
+            let result = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
+                http::Request::builder()
+                    .method(http::Method::GET)
+                    .uri(task.endpoint.as_deref().unwrap_or("/_fx/cron"))
+                    .body(())
+                    .unwrap()
+                    .into_parts()
+                    .0
+            })).await;
+
+            let run_at = Utc::now();
+
+            database.update_run_time(&task.task_id, run_at);
+
+            cron_events.send_async(CronTaskEvent::Run {
+                name: task.name.clone(),
+                function_id: task.function_id.clone(),
+                run_at,
+                delay,
+                iteration_delay,
+            }).await.unwrap();
+
+            if let Err(err) = result {
+                error!("failed to run function when executing cron task: {err:?}");
+            }
+
+            task_next_run
+        });
+    }
+
+    let mut next_run: Option<DateTime<Utc>> = None;
+    while let Some(task_next_run) = task_futures.next().await {
         next_run = Some(next_run.map(|v| v.min(task_next_run)).unwrap_or(task_next_run));
-
-        cron_events.send_async(CronTaskEvent::Start {
-            name: task.name.clone(),
-            function_id: task.function_id.clone(),
-        }).await.unwrap();
-
-        let iteration_delay = Instant::now() - iteration_start_time;
-        let result = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
-            http::Request::builder()
-                .method(http::Method::GET)
-                .uri(task.endpoint.as_deref().unwrap_or("/_fx/cron"))
-                .body(())
-                .unwrap()
-                .into_parts()
-                .0
-        })).await;
-
-        let run_at = Utc::now();
-        database.update_run_time(&task.task_id, run_at);
-
-        cron_events.send_async(CronTaskEvent::Run {
-            name: task.name.clone(),
-            function_id: task.function_id.clone(),
-            run_at,
-            delay,
-            iteration_delay,
-        }).await.unwrap();
-
-        if let Err(err) = result {
-            error!("failed to run function when executing cron task: {err:?}");
-        }
     }
 
     next_run
