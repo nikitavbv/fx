@@ -96,6 +96,7 @@ impl From<u64> for FunctionResourceId {
     }
 }
 
+// TODO: extract into separate resource maps
 pub(crate) enum Resource {
     FetchRequest(SerializableResource<FetchRequestHeader>),
     HttpBody(HttpBody),
