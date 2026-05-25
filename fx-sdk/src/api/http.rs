@@ -1,7 +1,7 @@
 pub use http::{HeaderName, HeaderValue, Uri};
 
 use {
-    std::str::FromStr,
+    std::{str::FromStr, cell::LazyCell},
     http::{Method, HeaderMap},
     serde::Serialize,
     thiserror::Error,
@@ -10,6 +10,7 @@ use {
     fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
     crate::sys::{
         ResourceId,
+        FetchRequestHeaderResourceId,
         DeserializableHostResource,
         DeserializeHostResource,
         OwnedResourceId,
@@ -27,7 +28,7 @@ pub struct HttpRequest(HttpRequestInner);
 
 /// http request can be owned by host or function
 enum HttpRequestInner {
-    Host(DeserializableHostResource<HttpRequestData>),
+    Host(FetchRequestHeaderResource),
     Function(HttpRequestData),
 }
 
@@ -44,20 +45,16 @@ impl HttpRequest {
         Ok(Self::new(Method::POST, url.into().parse().unwrap()))
     }
 
-    pub fn from_host_resource(resource: ResourceId) -> Self {
-        Self(HttpRequestInner::Host(DeserializableHostResource::from(resource)))
-    }
-
     fn request_data(&self) -> &HttpRequestData {
         match &self.0 {
-            HttpRequestInner::Host(v) => v.get_raw(),
+            HttpRequestInner::Host(v) => v.get(),
             HttpRequestInner::Function(v) => v,
         }
     }
 
     fn request_data_mut(&mut self) -> &mut HttpRequestData {
         match &mut self.0 {
-            HttpRequestInner::Host(v) => v.get_raw_mut(),
+            HttpRequestInner::Host(v) => v.get_mut(),
             HttpRequestInner::Function(v) => v,
         }
     }
@@ -136,15 +133,36 @@ impl HttpRequest {
     }
 }
 
+impl From<FetchRequestHeaderResourceId> for HttpRequest {
+    fn from(id: FetchRequestHeaderResourceId) -> Self {
+        Self(HttpRequestInner::Host(FetchRequestHeaderResource::new(id)))
+    }
+}
+
+struct FetchRequestHeaderResource(LazyCell<HttpRequestData>);
+
+impl FetchRequestHeaderResource {
+    fn new(id: FetchRequestHeaderResourceId) -> Self {
+        Self(LazyCell::new(move || {
+            todo!()
+        }))
+    }
+
+    fn get(&self) -> &HttpRequestData {
+        &self.0
+    }
+
+    fn get_mut(&mut self) -> &mut HttpRequestData {
+        &mut self.0
+    }
+}
+
 pub(crate) struct HttpRequestData {
     method: Method,
     url: Uri,
     headers: HeaderMap,
     body: Option<HttpBodyInner>,
 }
-
-#[derive(Debug, Error)]
-pub enum ReadBodyError {}
 
 impl HttpRequestData {
     pub fn new(method: Method, url: Uri) -> Self {
@@ -194,6 +212,9 @@ impl DeserializeHostResource for HttpRequestData {
         }
     }
 }
+
+#[derive(Debug, Error)]
+pub enum ReadBodyError {}
 
 pub struct HttpResponse {
     parts: http::response::Parts,

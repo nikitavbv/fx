@@ -1,5 +1,5 @@
 pub use self::{
-    resource::{ResourceId, FunctionResourceId},
+    resource::{ResourceId, FunctionResourceId, FetchRequestHeaderResourceId},
     future::wrap_function_response_future,
 };
 
@@ -232,6 +232,7 @@ unsafe extern "C" {
     pub(crate) fn fx_kv_subscribe(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64;
     pub(crate) fn fx_kv_publish(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64;
     pub(crate) fn fx_tasks_background_spawn(function_resource_id: u64);
+    pub(crate) fn fx_fetch_request_header_serialize_handler(resource_id: u64) -> u64;
 }
 
 #[derive(Debug)]

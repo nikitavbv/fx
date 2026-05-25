@@ -16,9 +16,10 @@ use {
         resources::{
             Resource,
             ResourceId,
+            FunctionResourceId,
             serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
             future::FutureResource,
-            FunctionResourceId,
+            resource::FetchRequestHeaderResourceKey,
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
@@ -117,14 +118,50 @@ pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSt
     }
 }
 
+pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
+    let resource_set = &mut caller.data_mut().resource_set;
+    let fetch_request_header = resource_set.fetch_request_header_remove(FetchRequestHeaderResourceKey::from(resource_id)).unwrap();
 
+    let mut message = capnp::message::Builder::new_default();
+    let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
+
+    resource.set_uri(fetch_request_header.uri().to_string());
+    resource.set_method(match fetch_request_header.method() {
+        &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
+        &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
+        &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,
+        &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
+        &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
+        &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
+        &hyper::Method::HEAD => abi_http_capnp::HttpMethod::Head,
+        &hyper::Method::CONNECT => abi_http_capnp::HttpMethod::Connect,
+        &hyper::Method::TRACE => abi_http_capnp::HttpMethod::Trace,
+        other => panic!("http method not supported: {other:?}"),
+    });
+
+    let mut request_headers = resource.reborrow().init_headers(fetch_request_header.headers().len() as u32);
+    for (index, (header_name, header_value)) in fetch_request_header.headers().iter().enumerate() {
+        let mut request_header = request_headers.reborrow().get(index as u32);
+        request_header.set_name(header_name.as_str());
+        request_header.set_value(header_value.to_str().unwrap());
+    }
+
+    let mut resource_body = resource.init_body().init_body();
+    match fetch_request_header.body_resource_id {
+        None => resource_body.set_empty(()),
+        Some(resource_id) => resource_body.set_host_resource(resource_id.as_u64()),
+    }
+
+    resource_set.bytes_add(capnp::serialize::write_message_to_words(&message)).as_u64()
+}
+
+// TODO: refactor below
 pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
 }
 
 pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
-        Resource::FetchRequest(req) => req.into_serialized(),
         Resource::SqlQueryResult(req) => match req {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
@@ -598,7 +635,6 @@ pub(super) fn fx_fetch_handler(
                 let resource_id = ResourceId::new(v);
                 match caller.data_mut().resource_remove(&resource_id) {
                     Resource::BlobGetResult(_)
-                    | Resource::FetchRequest(_)
                     | Resource::FetchResult(_)
                     | Resource::SqlQueryResult(_)
                     | Resource::SqlBatchResult(_)

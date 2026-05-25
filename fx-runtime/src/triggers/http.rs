@@ -256,15 +256,15 @@ impl FetchRequestHeader {
         }
     }
 
-    fn uri(&self) -> &::http::Uri {
+    pub(crate) fn uri(&self) -> &::http::Uri {
         &self.inner.uri
     }
 
-    fn method(&self) -> &::http::Method {
+    pub(crate) fn method(&self) -> &::http::Method {
         &self.inner.method
     }
 
-    fn headers(&self) -> &::http::HeaderMap {
+    pub(crate) fn headers(&self) -> &::http::HeaderMap {
         &self.inner.headers
     }
 }
@@ -288,40 +288,4 @@ pub(crate) struct FunctionHttpResponse {
     pub(crate) status: ::http::status::StatusCode,
     pub(crate) headers: ::http::HeaderMap,
     pub(crate) body: Cell<Option<OwnedFunctionResourceId>>,
-}
-
-impl SerializeResource for FetchRequestHeader {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
-
-        resource.set_uri(self.uri().to_string());
-        resource.set_method(match self.method() {
-            &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
-            &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
-            &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,
-            &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
-            &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
-            &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
-            &hyper::Method::HEAD => abi_http_capnp::HttpMethod::Head,
-            &hyper::Method::CONNECT => abi_http_capnp::HttpMethod::Connect,
-            &hyper::Method::TRACE => abi_http_capnp::HttpMethod::Trace,
-            other => panic!("http method not supported: {other:?}"),
-        });
-
-        let mut request_headers = resource.reborrow().init_headers(self.headers().len() as u32);
-        for (index, (header_name, header_value)) in self.headers().iter().enumerate() {
-            let mut request_header = request_headers.reborrow().get(index as u32);
-            request_header.set_name(header_name.as_str());
-            request_header.set_value(header_value.to_str().unwrap());
-        }
-
-        let mut resource_body = resource.init_body().init_body();
-        match self.body_resource_id {
-            None => resource_body.set_empty(()),
-            Some(resource_id) => resource_body.set_host_resource(resource_id.as_u64()),
-        }
-
-        capnp::serialize::write_message_to_words(&message)
-    }
 }

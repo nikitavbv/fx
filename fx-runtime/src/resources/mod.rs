@@ -1,4 +1,4 @@
-pub(crate) use self::resource::{ResourceId, Resource, FunctionResourceId};
+pub(crate) use self::resource::{ResourceId, Resource, FunctionResourceId, FunctionResources};
 
 // TODO:
 // - there should probably be separate submodules for "host" and "function" resources

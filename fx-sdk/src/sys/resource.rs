@@ -28,6 +28,21 @@ impl ResourceId {
     }
 }
 
+pub struct FetchRequestHeaderResourceId {
+    id: u64,
+    is_consumed: bool,
+}
+
+impl From<u64> for FetchRequestHeaderResourceId {
+    fn from(id: u64) -> Self {
+        Self { id, is_consumed: false }
+    }
+}
+
+pub struct FetchRequestHeaderResource {
+
+}
+
 pub struct FunctionResourceId {
     id: u64,
 }

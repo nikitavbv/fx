@@ -22,8 +22,10 @@ use {
             FunctionResourceId,
             ResourceId,
             Resource,
+            FunctionResources,
             future::FutureResource,
             serialize::SerializableResource,
+            resource::FetchRequestHeaderResourceKey,
         },
         triggers::http::{HttpBody, HttpBodyInner},
     },
@@ -231,7 +233,7 @@ impl FunctionInstance {
         self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
 
-    pub(crate) async fn invoke_http_trigger(&self, resource_id: &ResourceId) -> FunctionResourceId {
+    pub(crate) async fn invoke_http_trigger(&self, resource_id: &FetchRequestHeaderResourceKey) -> FunctionResourceId {
         let mut store = self.store.lock().await;
         store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
         FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
@@ -256,6 +258,7 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) function_id: FunctionId,
 
     resources: SlotMap<slotmap::DefaultKey, Resource>,
+    pub(crate) resource_set: FunctionResources,
     pub(crate) tasks_background: Vec<FunctionResourceId>,
 
     pub(crate) env: HashMap<String, String>,
@@ -302,6 +305,7 @@ impl FunctionInstanceState {
             env,
 
             resources: SlotMap::new(),
+            resource_set: FunctionResources::new(),
             tasks_background: Vec::new(),
 
             bindings_sql,
@@ -320,11 +324,6 @@ impl FunctionInstanceState {
     pub fn resource_serialize(&mut self, resource_id: &ResourceId) -> usize {
         let resource = self.resources.detach(resource_id.into()).unwrap();
         let (resource, serialized_size) = match resource {
-            Resource::FetchRequest(req) => {
-                let serialized = req.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (Resource::FetchRequest(serialized), serialized_size)
-            },
             Resource::SqlQueryResult(v) => {
                 let resource = match v {
                     FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
@@ -454,7 +453,6 @@ impl FunctionInstanceState {
 
         let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
         let (resource, poll_result) = match resource {
-            Resource::FetchRequest(v) => (Resource::FetchRequest(v), Poll::Ready(())),
             Resource::SqlQueryResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::SqlQueryResult(v), poll_result)
@@ -588,7 +586,6 @@ impl FunctionInstanceState {
 
         let (resource, serialized_frame) = match resource {
             Resource::BlobGetResult(_)
-            | Resource::FetchRequest(_)
             | Resource::FetchResult(_)
             | Resource::SqlQueryResult(_)
             | Resource::SqlBatchResult(_)

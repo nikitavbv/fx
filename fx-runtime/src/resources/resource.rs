@@ -1,7 +1,7 @@
 use {
     std::{cell::Cell, rc::Rc},
     futures::future::{BoxFuture, LocalBoxFuture},
-    slotmap::Key,
+    slotmap::{Key, SlotMap},
     send_wrapper::SendWrapper,
     crate::{
         function::instance::FunctionInstance,
@@ -98,7 +98,6 @@ impl From<u64> for FunctionResourceId {
 
 // TODO: extract into separate resource maps
 pub(crate) enum Resource {
-    FetchRequest(SerializableResource<FetchRequestHeader>),
     HttpBody(HttpBody),
     SqlMigrationResult(FutureResource<SerializableResource<Result<(), SqlMigrationError>>>),
     SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),
@@ -110,4 +109,74 @@ pub(crate) enum Resource {
     KvSetResult(FutureResource<SerializableResource<Result<(), KvSetError>>>),
     KvGetResult(FutureResource<SerializableResource<KvGetResponse>>),
     KvSubscription(KvSubscriptionResource),
+}
+
+pub(crate) struct FunctionResources {
+    bytes: SlotMap<slotmap::DefaultKey, Vec<u8>>,
+    fetch_request_headers: SlotMap<slotmap::DefaultKey, FetchRequestHeader>,
+}
+
+impl FunctionResources {
+    pub(crate) fn new() -> Self {
+        Self {
+            bytes: SlotMap::new(),
+            fetch_request_headers: SlotMap::new(),
+        }
+    }
+
+    pub(crate) fn bytes_add(&mut self, bytes: Vec<u8>) -> BytesResourceKey {
+        self.bytes.insert(bytes).into()
+    }
+
+    pub(crate) fn fetch_request_header_add(&mut self, header: FetchRequestHeader) -> FetchRequestHeaderResourceKey {
+        self.fetch_request_headers.insert(header).into()
+    }
+
+    pub(crate) fn fetch_request_header_remove(&mut self, key: FetchRequestHeaderResourceKey) -> Option<FetchRequestHeader> {
+        self.fetch_request_headers.remove(key.into())
+    }
+}
+
+pub(crate) struct BytesResourceKey {
+    id: u64,
+}
+
+impl BytesResourceKey {
+    pub(crate) fn as_u64(&self) -> u64 {
+        self.id
+    }
+}
+
+impl From<slotmap::DefaultKey> for BytesResourceKey {
+    fn from(value: slotmap::DefaultKey) -> Self {
+        Self { id: value.data().as_ffi() }
+    }
+}
+
+pub(crate) struct FetchRequestHeaderResourceKey {
+    id: u64,
+}
+
+impl FetchRequestHeaderResourceKey {
+    pub(crate) fn as_u64(&self) -> u64 {
+        self.id
+    }
+}
+
+impl From<slotmap::DefaultKey> for FetchRequestHeaderResourceKey {
+    fn from(value: slotmap::DefaultKey) -> Self {
+        Self { id: value.data().as_ffi() }
+    }
+}
+
+impl From<u64> for FetchRequestHeaderResourceKey {
+    fn from(id: u64) -> Self {
+        Self { id }
+    }
+}
+
+impl Into<slotmap::DefaultKey> for FetchRequestHeaderResourceKey {
+    fn into(self) -> slotmap::DefaultKey {
+        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
+    }
 }

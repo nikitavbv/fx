@@ -80,6 +80,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_kv_subscribe", super::abi::fx_kv_subscribe_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_publish", super::abi::fx_kv_publish_handler).unwrap();
         linker.func_wrap("fx", "fx_tasks_background_spawn", super::abi::fx_tasks_background_spawn_handler).unwrap();
+        linker.func_wrap("fx", "fx_fetch_request_header_serialize_handler", super::abi::fx_fetch_request_header_serialize_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -158,7 +159,7 @@ impl FunctionDeployment {
                 if let Some(body) = body {
                     header.body_resource_id = Some(data.resource_add(Resource::HttpBody(body)));
                 }
-                data.resource_add(Resource::FetchRequest(SerializableResource::Raw(header)))
+                data.resource_set.fetch_request_header_add(header)
             };
 
             let result = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;

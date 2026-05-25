@@ -15,8 +15,8 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
             ::fx_sdk::logging::set_panic_hook();
             ::fx_sdk::logging::init_logger();
 
-            let request_resource = ::fx_sdk::sys::ResourceId::new(request_resource);
-            let request = ::fx_sdk::HttpRequest::from_host_resource(request_resource);
+            let request_resource = ::fx_sdk::sys::FetchRequestHeaderResourceId::from(request_resource);
+            let request = ::fx_sdk::HttpRequest::from(request_resource);
 
             let response_future = #fn_name(request);
 
