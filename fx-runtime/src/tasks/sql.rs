@@ -223,6 +223,9 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         Err(rusqlite::Error::SqliteFailure(_, Some(reason))) => {
                             execution_result = Err(SqlTaskBatchError::StatementFailed { reason });
                         },
+                        Err(rusqlite::Error::SqlInputError { error: _, msg: reason, sql: _, offset: _ }) => {
+                            execution_result = Err(SqlTaskBatchError::StatementFailed { reason });
+                        },
                         Err(err) => panic!("unexpected sqlite error: {err:?}"),
                     }
                 };
