@@ -253,7 +253,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Err(err) => match err {
                         rusqlite_migration::Error::RusqliteError { query: _, err } => match err {
                             rusqlite::Error::SqliteFailure(error, message) => match error.code {
-                                rusqlite::ErrorCode::DatabaseBusy => Err(SqlTaskMigrationError::DatabaseBusy),
+                                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked => Err(SqlTaskMigrationError::DatabaseBusy),
                                 rusqlite::ErrorCode::Unknown => Err(SqlTaskMigrationError::MigrationExecutionError {
                                     message: message.unwrap(),
                                 }),

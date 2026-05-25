@@ -340,7 +340,10 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
 
     caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::for_future(async move {
         SerializableResource::Raw(match send_result {
-            Ok(_) => response_rx.await.unwrap().map_err(SqlMigrationError::from),
+            Ok(_) => match response_rx.await {
+                Ok(v) => v.map_err(SqlMigrationError::from),
+                Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+            },
             Err(_) => Err(SqlMigrationError::RuntimeShutdown),
         })
     }))).as_u64()
