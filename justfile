@@ -22,6 +22,7 @@ app-demo: app-fortunes
     cargo build --target wasm32-unknown-unknown -p fx-fortunes --release
 
     cp target/wasm32-unknown-unknown/release/fx_app_demo.wasm local/functions/demo.wasm
+    mkdir -p local/functions
     cp apps/fx-app-demo/demo.fx.yaml local/functions/demo.fx.yaml
 
     cp target/wasm32-unknown-unknown/release/fx_fortunes.wasm local/functions/fortunes.wasm
