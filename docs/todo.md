@@ -1,5 +1,6 @@
 # todo
 
+- function is not available during redeploy
 - kv atomic incr/decr
 - json deserializer helper in HttpResponse body
 - handle errors everywhere
