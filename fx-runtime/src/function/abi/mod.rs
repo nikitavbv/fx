@@ -301,7 +301,10 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     })).unwrap();
 
     caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::for_future(async move {
-        SerializableResource::Raw(response_rx.await.unwrap().map_err(|v| v.into()))
+        SerializableResource::Raw(match response_rx.await {
+            Ok(v) => v.map_err(|v| v.into()),
+            Err(_) => Err(SqlQueryError::RuntimeShutdown),
+        })
     }))).as_u64()
 }
 

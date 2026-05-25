@@ -48,6 +48,10 @@ pub enum SqlError {
     BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("runtime shutdown")]
+    RuntimeShutdown,
+    #[error("statement error: {0:?}")]
+    StatementError(String),
 }
 
 #[derive(Debug, Error)]
@@ -99,6 +103,8 @@ impl DeserializeHostResource for Result<SqlResult, SqlError> {
             abi_sql_capnp::sql_exec_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
                 abi_sql_capnp::sql_exec_error::error::Which::BindingNotFound(_) => SqlError::BindingNotFound,
                 abi_sql_capnp::sql_exec_error::error::Which::DatabaseBusy(_) => SqlError::DatabaseBusy,
+                abi_sql_capnp::sql_exec_error::error::Which::RuntimeShutdown(_) => SqlError::RuntimeShutdown,
+                abi_sql_capnp::sql_exec_error::error::Which::StatementError(reason) => SqlError::StatementError(reason.unwrap().to_string().unwrap()),
             }),
         }
     }

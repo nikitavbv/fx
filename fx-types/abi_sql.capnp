@@ -17,6 +17,8 @@ struct SqlExecError {
     error :union {
         databaseBusy @0 :Void;
         bindingNotFound @1 :Void;
+        runtimeShutdown @2 :Void;
+        statementError @3 :Text;
     }
 }
 

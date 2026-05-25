@@ -102,6 +102,8 @@ impl SerializeResource for Result<Vec<SqlRow>, SqlQueryError> {
                 match err {
                     SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
                     SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
+                    SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                    SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
                 }
             }
         }
@@ -333,6 +335,10 @@ pub(crate) enum SqlQueryError {
     BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("runtime is being shutdown")]
+    RuntimeShutdown,
+    #[error("sql statement error: {0:?}")]
+    StatementError(String),
 }
 
 /// SqlQueryExecutionError is a subset of SqlQueryError
@@ -340,6 +346,7 @@ impl From<SqlQueryExecutionError> for SqlQueryError {
     fn from(value: SqlQueryExecutionError) -> Self {
         match value {
             SqlQueryExecutionError::DatabaseBusy => Self::DatabaseBusy,
+            SqlQueryExecutionError::StatementError(reason) => Self::StatementError(reason),
         }
     }
 }
@@ -349,4 +356,6 @@ impl From<SqlQueryExecutionError> for SqlQueryError {
 pub(crate) enum SqlQueryExecutionError {
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("sql statement error: {0:?}")]
+    StatementError(String),
 }

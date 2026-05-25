@@ -38,6 +38,12 @@ pub(crate) struct SqlBatchMessage {
 }
 
 #[derive(Debug, Error)]
+pub(crate) enum SqlConnectionInitError {
+    #[error("database is locked")]
+    DatabaseBusy,
+}
+
+#[derive(Debug, Error)]
 pub(crate) enum SqlTaskMigrationError {
     #[error("binding with this name is not found")]
     BindingNotFound,
@@ -101,14 +107,14 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 }
                 if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
                     if is_database_busy_error(&err) {
-                        Err(SqlQueryExecutionError::DatabaseBusy)
+                        Err(SqlConnectionInitError::DatabaseBusy)
                     } else {
                         todo!("unhandled sqlite error: {err:?}")
                     }
                 } else {
                     if let Err(err) = connection.pragma_update(None, "synchronous", "NORMAL") {
                         if is_database_busy_error(&err) {
-                            Err(SqlQueryExecutionError::DatabaseBusy)
+                            Err(SqlConnectionInitError::DatabaseBusy)
                         } else {
                             todo!("unhandled sqlite error: {err:?}")
                         }
@@ -124,7 +130,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
-                        SqlQueryExecutionError::DatabaseBusy => {
+                        SqlConnectionInitError::DatabaseBusy => {
                             msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy)).unwrap();
                             continue;
                         }
@@ -136,6 +142,9 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Err(err) => {
                         if is_database_busy_error(&err) {
                             msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy)).unwrap();
+                            continue;
+                        } else if let Some(statement_error) = is_statement_error(&err) {
+                            msg.response.send(Err(SqlQueryExecutionError::StatementError(statement_error.clone()))).unwrap();
                             continue;
                         } else {
                             todo!("unhandled sqlite error: {err:?}");
@@ -187,11 +196,11 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
-                        SqlQueryExecutionError::DatabaseBusy => {
+                        SqlConnectionInitError::DatabaseBusy => {
                             msg.response.send(Err(SqlTaskBatchError::DatabaseBusy)).unwrap();
                             continue;
                         }
-                    }
+                    },
                 };
 
                 let txn = match connection.transaction() {
@@ -234,7 +243,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
-                        SqlQueryExecutionError::DatabaseBusy => {
+                        SqlConnectionInitError::DatabaseBusy => {
                             msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy)).unwrap();
                             continue;
                         }
@@ -277,4 +286,12 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 fn is_database_busy_error(err: &rusqlite::Error) -> bool {
     let error_code = err.sqlite_error().unwrap().code;
     error_code == rusqlite::ErrorCode::DatabaseBusy || error_code == rusqlite::ErrorCode::DatabaseLocked
+}
+
+// triggered when there is a problem with sql statement, for example more values than columns when inserting
+fn is_statement_error(err: &rusqlite::Error) -> Option<&String> {
+    match err {
+        rusqlite::Error::SqliteFailure(_, err) => err.as_ref(),
+        _ => None,
+    }
 }
