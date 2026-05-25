@@ -135,6 +135,12 @@ pub trait IntoQueryParam {
     fn into_query_param(self) -> SqlValue;
 }
 
+impl IntoQueryParam for SqlValue {
+    fn into_query_param(self) -> SqlValue {
+        self
+    }
+}
+
 impl IntoQueryParam for i64 {
     fn into_query_param(self) -> SqlValue {
         SqlValue::Integer(self)
