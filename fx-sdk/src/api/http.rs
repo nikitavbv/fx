@@ -16,6 +16,7 @@ use {
         OwnedResourceId,
         FutureHostResource,
         FunctionResource,
+        BytesResource,
         add_function_resource,
         fx_fetch,
         fx_future_poll,
@@ -139,13 +140,44 @@ impl From<FetchRequestHeaderResourceId> for HttpRequest {
     }
 }
 
-struct FetchRequestHeaderResource(LazyCell<HttpRequestData>);
+struct FetchRequestHeaderResource(LazyCell<HttpRequestData, Box<dyn FnOnce() -> HttpRequestData + Send>>);
 
 impl FetchRequestHeaderResource {
     fn new(id: FetchRequestHeaderResourceId) -> Self {
-        Self(LazyCell::new(move || {
-            todo!()
-        }))
+        Self(LazyCell::new(Box::new(move || {
+            let bytes = BytesResource::from(unsafe { crate::sys::fx_fetch_request_header_serialize(id.consume_for_ffi()) });
+            let data = bytes.into_vec();
+
+            let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+            let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_request::Reader>().unwrap();
+
+            HttpRequestData {
+                method: match &request.get_method().unwrap() {
+                    abi_http_capnp::HttpMethod::Get => Method::GET,
+                    abi_http_capnp::HttpMethod::Delete => Method::DELETE,
+                    abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
+                    abi_http_capnp::HttpMethod::Patch => Method::PATCH,
+                    abi_http_capnp::HttpMethod::Post => Method::POST,
+                    abi_http_capnp::HttpMethod::Put => Method::PUT,
+                    abi_http_capnp::HttpMethod::Head => Method::HEAD,
+                    abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
+                    abi_http_capnp::HttpMethod::Trace => Method::TRACE,
+                },
+                url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
+                headers: request.get_headers().unwrap().into_iter()
+                    .map(|header| (
+                        HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap(),
+                        HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap()
+                    ))
+                    .collect(),
+                body: match request.get_body().unwrap().get_body().which().unwrap() {
+                    abi_http_capnp::http_body::body::Which::Empty(_) => None,
+                    abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
+                    abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
+                    abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
+                },
+            }
+        })))
     }
 
     fn get(&self) -> &HttpRequestData {
@@ -176,40 +208,6 @@ impl HttpRequestData {
 
     fn read_body(&mut self) -> Option<HttpBodyInner> {
         std::mem::replace(&mut self.body, None)
-    }
-}
-
-impl DeserializeHostResource for HttpRequestData {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_request::Reader>().unwrap();
-
-        HttpRequestData {
-            method: match &request.get_method().unwrap() {
-                abi_http_capnp::HttpMethod::Get => Method::GET,
-                abi_http_capnp::HttpMethod::Delete => Method::DELETE,
-                abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
-                abi_http_capnp::HttpMethod::Patch => Method::PATCH,
-                abi_http_capnp::HttpMethod::Post => Method::POST,
-                abi_http_capnp::HttpMethod::Put => Method::PUT,
-                abi_http_capnp::HttpMethod::Head => Method::HEAD,
-                abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
-                abi_http_capnp::HttpMethod::Trace => Method::TRACE,
-            },
-            url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
-            headers: request.get_headers().unwrap().into_iter()
-                .map(|header| (
-                    HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap(),
-                    HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap()
-                ))
-                .collect(),
-            body: match request.get_body().unwrap().get_body().which().unwrap() {
-                abi_http_capnp::http_body::body::Which::Empty(_) => None,
-                abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
-                abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
-                abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
-            },
-        }
     }
 }
 

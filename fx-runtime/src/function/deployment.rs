@@ -80,7 +80,9 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_kv_subscribe", super::abi::fx_kv_subscribe_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_publish", super::abi::fx_kv_publish_handler).unwrap();
         linker.func_wrap("fx", "fx_tasks_background_spawn", super::abi::fx_tasks_background_spawn_handler).unwrap();
-        linker.func_wrap("fx", "fx_fetch_request_header_serialize_handler", super::abi::fx_fetch_request_header_serialize_handler).unwrap();
+        linker.func_wrap("fx", "fx_fetch_request_header_serialize", super::abi::fx_fetch_request_header_serialize_handler).unwrap();
+        linker.func_wrap("fx", "fx_bytes_len", super::abi::fx_bytes_len_handler).unwrap();
+        linker.func_wrap("fx", "fx_bytes_move", super::abi::fx_bytes_move_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {

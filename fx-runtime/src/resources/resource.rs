@@ -128,6 +128,14 @@ impl FunctionResources {
         self.bytes.insert(bytes).into()
     }
 
+    pub(crate) fn bytes_get(&self, key: BytesResourceKey) -> Option<&Vec<u8>> {
+        self.bytes.get(key.into())
+    }
+
+    pub(crate) fn bytes_remove(&mut self, key: BytesResourceKey) -> Option<Vec<u8>> {
+        self.bytes.remove(key.into())
+    }
+
     pub(crate) fn fetch_request_header_add(&mut self, header: FetchRequestHeader) -> FetchRequestHeaderResourceKey {
         self.fetch_request_headers.insert(header).into()
     }
@@ -150,6 +158,18 @@ impl BytesResourceKey {
 impl From<slotmap::DefaultKey> for BytesResourceKey {
     fn from(value: slotmap::DefaultKey) -> Self {
         Self { id: value.data().as_ffi() }
+    }
+}
+
+impl From<u64> for BytesResourceKey {
+    fn from(id: u64) -> Self {
+        Self { id }
+    }
+}
+
+impl Into<slotmap::DefaultKey> for BytesResourceKey {
+    fn into(self) -> slotmap::DefaultKey {
+        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
     }
 }
 

@@ -5,7 +5,7 @@ use {
     fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner},
-        sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll},
+        sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll, fx_bytes_len, fx_bytes_move},
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
 };
@@ -33,14 +33,38 @@ pub struct FetchRequestHeaderResourceId {
     is_consumed: bool,
 }
 
+impl FetchRequestHeaderResourceId {
+    pub fn consume_for_ffi(mut self) -> u64 {
+        self.is_consumed = true;
+        self.id
+    }
+}
+
 impl From<u64> for FetchRequestHeaderResourceId {
     fn from(id: u64) -> Self {
         Self { id, is_consumed: false }
     }
 }
 
-pub struct FetchRequestHeaderResource {
+pub struct BytesResource {
+    resource_id: u64,
+    is_consumed: bool,
+}
 
+impl BytesResource {
+    pub fn into_vec(mut self) -> Vec<u8> {
+        let length = unsafe { fx_bytes_len(self.resource_id) } as usize;
+        let data: Vec<u8> = vec![0u8; length];
+        unsafe { fx_bytes_move(self.resource_id, data.as_ptr() as u64); }
+        self.is_consumed = true;
+        data
+    }
+}
+
+impl From<u64> for BytesResource {
+    fn from(resource_id: u64) -> Self {
+        Self { resource_id, is_consumed: true }
+    }
 }
 
 pub struct FunctionResourceId {

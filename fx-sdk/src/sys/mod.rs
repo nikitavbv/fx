@@ -13,6 +13,7 @@ pub(crate) use self::{
         OwnedResourceId,
         HostUnitFuture,
         FunctionResource,
+        BytesResource,
         add_function_resource,
         replace_function_resource,
         serialize_function_resource,
@@ -232,7 +233,9 @@ unsafe extern "C" {
     pub(crate) fn fx_kv_subscribe(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64;
     pub(crate) fn fx_kv_publish(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64;
     pub(crate) fn fx_tasks_background_spawn(function_resource_id: u64);
-    pub(crate) fn fx_fetch_request_header_serialize_handler(resource_id: u64) -> u64;
+    pub(crate) fn fx_fetch_request_header_serialize(resource_id: u64) -> u64;
+    pub(crate) fn fx_bytes_len(resource_id: u64) -> u64;
+    pub(crate) fn fx_bytes_move(resource_id: u64, ptr: u64) -> u64;
 }
 
 #[derive(Debug)]

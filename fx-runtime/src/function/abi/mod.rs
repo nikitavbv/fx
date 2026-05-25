@@ -19,7 +19,7 @@ use {
             FunctionResourceId,
             serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
             future::FutureResource,
-            resource::FetchRequestHeaderResourceKey,
+            resource::{FetchRequestHeaderResourceKey, BytesResourceKey},
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
@@ -153,6 +153,31 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
     }
 
     resource_set.bytes_add(capnp::serialize::write_message_to_words(&message)).as_u64()
+}
+
+pub(super) fn fx_bytes_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
+    caller.data_mut().resource_set.bytes_get(resource_id.into()).unwrap().len() as u64
+}
+
+pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
+    let bytes = caller.data_mut().resource_set.bytes_remove(resource_id.into()).unwrap();
+
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(err) => match err {
+            function_memory::FunctionMemoryError::MemoryNotFound
+            | function_memory::FunctionMemoryError::MemoryNotMemory => return ResourceMoveFromHostResult::FailedToAccessMemory as u64,
+        }
+    };
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+
+    (match view.copy_from_slice(ptr, bytes.len() as u64, &bytes) {
+        Ok(_) => ResourceMoveFromHostResult::Ok,
+        Err(err) => match err {
+            function_memory::FunctionMemoryAccessError::OutOfBounds => ResourceMoveFromHostResult::ArgumentOutOfMemoryBounds,
+        }
+    }) as u64
 }
 
 // TODO: refactor below

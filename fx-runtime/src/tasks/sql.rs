@@ -106,8 +106,15 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         todo!("unhandled sqlite error: {err:?}")
                     }
                 } else {
-                    connection.pragma_update(None, "synchronous", "NORMAL").unwrap();
-                    Ok(entry.insert(connection))
+                    if let Err(err) = connection.pragma_update(None, "synchronous", "NORMAL") {
+                        if is_database_busy_error(&err) {
+                            Err(SqlQueryExecutionError::DatabaseBusy)
+                        } else {
+                            todo!("unhandled sqlite error: {err:?}")
+                        }
+                    } else {
+                        Ok(entry.insert(connection))
+                    }
                 }
             }
         };
