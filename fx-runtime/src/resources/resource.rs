@@ -107,13 +107,14 @@ pub(crate) enum Resource {
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FetchResult),
     KvSetResult(FutureResource<SerializableResource<Result<(), KvSetError>>>),
-    KvGetResult(FutureResource<SerializableResource<KvGetResponse>>),
     KvSubscription(KvSubscriptionResource),
 }
 
 pub(crate) struct FunctionResources {
     bytes: SlotMap<slotmap::DefaultKey, Vec<u8>>,
     fetch_request_headers: SlotMap<slotmap::DefaultKey, FetchRequestHeader>,
+    kv_get_response_futures: SlotMap<slotmap::DefaultKey, BoxFuture<'static, KvGetResponse>>,
+    kv_get_responses: SlotMap<slotmap::DefaultKey, KvGetResponse>
 }
 
 impl FunctionResources {
@@ -121,6 +122,8 @@ impl FunctionResources {
         Self {
             bytes: SlotMap::new(),
             fetch_request_headers: SlotMap::new(),
+            kv_get_response_futures: SlotMap::new(),
+            kv_get_responses: SlotMap::new(),
         }
     }
 
@@ -142,6 +145,22 @@ impl FunctionResources {
 
     pub(crate) fn fetch_request_header_remove(&mut self, key: FetchRequestHeaderResourceKey) -> Option<FetchRequestHeader> {
         self.fetch_request_headers.remove(key.into())
+    }
+
+    pub(crate) fn kv_get_response_futures_add(&mut self, future: BoxFuture<'static, KvGetResponse>) -> KvGetResponseFutureResourceKey {
+        self.kv_get_response_futures.insert(future).into()
+    }
+
+    pub(crate) fn kv_get_response_futures_get_mut(&mut self, key: KvGetResponseFutureResourceKey) -> Option<&mut BoxFuture<'static, KvGetResponse>> {
+        self.kv_get_response_futures.get_mut(key.into())
+    }
+
+    pub(crate) fn kv_get_response_futures_remove(&mut self, key: KvGetResponseFutureResourceKey) -> Option<BoxFuture<'static, KvGetResponse>> {
+        self.kv_get_response_futures.remove(key.into())
+    }
+
+    pub(crate) fn kv_get_response_add(&mut self, response: KvGetResponse) -> KvGetResponseKey {
+        self.kv_get_responses.insert(response).into()
     }
 }
 
@@ -198,5 +217,40 @@ impl From<u64> for FetchRequestHeaderResourceKey {
 impl Into<slotmap::DefaultKey> for FetchRequestHeaderResourceKey {
     fn into(self) -> slotmap::DefaultKey {
         slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct KvGetResponseFutureResourceKey(u64);
+
+impl From<slotmap::DefaultKey> for KvGetResponseFutureResourceKey {
+    fn from(value: slotmap::DefaultKey) -> Self {
+        Self(value.data().as_ffi())
+    }
+}
+
+impl Into<u64> for KvGetResponseFutureResourceKey {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+impl From<u64> for KvGetResponseFutureResourceKey {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl Into<slotmap::DefaultKey> for KvGetResponseFutureResourceKey {
+    fn into(self) -> slotmap::DefaultKey {
+        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.0))
+    }
+}
+
+pub(crate) struct KvGetResponseKey(u64);
+
+impl From<slotmap::DefaultKey> for KvGetResponseKey {
+    fn from(value: slotmap::DefaultKey) -> Self {
+        Self(value.data().as_ffi())
     }
 }

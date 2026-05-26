@@ -249,7 +249,7 @@ pub(crate) enum FunctionInstanceInitError {
 pub(crate) struct FunctionInstanceState {
     limits: wasmtime::StoreLimits,
 
-    waker: Option<std::task::Waker>,
+    pub(crate) waker: Option<std::task::Waker>,
     pub(crate) local_worker: LocalWorkerController,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
     pub(crate) sql_tx: flume::Sender<SqlMessage>,
@@ -411,16 +411,6 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::KvSetResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::KvGetResult(v) => {
-                let resource = match v {
-                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
-                    FutureResource::Ready(v) => v,
-                };
-
-                let serialized = resource.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (Resource::KvGetResult(FutureResource::Ready(serialized)), serialized_size)
-            },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_) |
                 KvSubscriptionResource::Stream(_) => panic!("resource is not yet for serialization"),
@@ -538,10 +528,6 @@ impl FunctionInstanceState {
                 let poll_result = v.poll(&mut cx);
                 (Resource::KvSetResult(v), poll_result)
             },
-            Resource::KvGetResult(mut v) => {
-                let poll_result = v.poll(&mut cx);
-                (Resource::KvGetResult(v), poll_result)
-            },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
                     std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Init(v)), Poll::Pending),
@@ -592,8 +578,7 @@ impl FunctionInstanceState {
             | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_)
             | Resource::ResourceFuture(_)
-            | Resource::KvSetResult(_)
-            | Resource::KvGetResult(_) => panic!("resource of this type does not support reading frames"),
+            | Resource::KvSetResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::Stream { stream, frame } => (

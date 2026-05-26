@@ -19,7 +19,7 @@ use {
             FunctionResourceId,
             serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
             future::FutureResource,
-            resource::{FetchRequestHeaderResourceKey, BytesResourceKey},
+            resource::{FetchRequestHeaderResourceKey, KvGetResponseFutureResourceKey},
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
@@ -180,6 +180,27 @@ pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionIns
     }) as u64
 }
 
+pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
+    let key = {
+        let key: KvGetResponseFutureResourceKey = resource_id.into();
+        let function_state = caller.data_mut();
+
+        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
+        let future = function_state.resource_set.kv_get_response_futures_get_mut(key.clone()).unwrap();
+        match future.poll_unpin(&mut cx) {
+            Poll::Pending => return FuturePollResult::Pending as u64,
+            Poll::Ready(response) => {
+                let _ = function_state.resource_set.kv_get_response_futures_remove(key).unwrap();
+                function_state.resource_set.kv_get_response_add(response)
+            }
+        }
+    };
+
+    // TODO: pass key back to guest somehow
+
+    FuturePollResult::Ready as u64
+}
+
 // TODO: refactor below
 pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
@@ -214,10 +235,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FetchResult::BodyResource(resource) => resource.into_serialized(),
         },
         Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
-        Resource::KvGetResult(v) => match v {
-            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => v.into_serialized(),
-        },
         Resource::KvSetResult(v) => match v {
             FutureResource::Future(_) => panic!("cannot move resouce that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
@@ -407,14 +424,11 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
 }
 
 pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
-    debug!("fx_future_poll_handler - enter");
     let resource_id = ResourceId::new(future_resource_id);
-    let result = (match caller.data_mut().resource_poll(&resource_id) {
+    (match caller.data_mut().resource_poll(&resource_id) {
         Poll::Pending => FuturePollResult::Pending,
         Poll::Ready(_) => FuturePollResult::Ready,
-    }) as i64;
-    debug!(result, "fx_future_poll_handler - exit");
-    result
+    }) as i64
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
@@ -673,7 +687,6 @@ pub(super) fn fx_fetch_handler(
                     | Resource::UnitFuture(_)
                     | Resource::ResourceFuture(_)
                     | Resource::KvSetResult(_)
-                    | Resource::KvGetResult(_)
                     | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
                     Resource::HttpBody(body) => {
                         let stream = BodyStream::new(body)
@@ -899,7 +912,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 
     let kv_tx = caller.data_mut().kv_tx.clone();
 
-    caller.data_mut().resource_add(Resource::KvGetResult(FutureResource::for_future(async move {
+    caller.data_mut().resource_set.kv_get_response_futures_add(async move {
         let (result_tx, result_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -907,11 +920,11 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
             operation: KvOperation::Get { key, result: result_tx },
         }).await.unwrap();
 
-        SerializableResource::Raw(match result_rx.await.unwrap() {
+        match result_rx.await.unwrap() {
             None => KvGetResponse::KeyNotFound,
             Some(v) => KvGetResponse::Ok(v),
-        })
-    }.boxed()))).as_u64()
+        }
+    }.boxed()).into()
 }
 
 pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, ifeq_addr: u64, ifeq_len: u64) -> u64 {
