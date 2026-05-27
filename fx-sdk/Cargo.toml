@@ -23,6 +23,7 @@ http = "1.4.0"
 http-body = "1.0.1"
 bytes = "1.11.1"
 serde_urlencoded = "0.7.1"
+zerocopy = "0.8.49"
 
 fx-macro = { path = "../extra/fx-macro" }
 fx-types = { path = "../fx-types" }

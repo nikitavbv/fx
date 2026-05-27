@@ -181,7 +181,7 @@ pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionIns
     }) as u64
 }
 
-pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_key_addr: u64) -> u64 {
+pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let result = {
         let key: KvGetResponseFutureResourceKey = resource_id.into();
         let function_state = caller.data_mut();
@@ -214,7 +214,7 @@ pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Calle
     let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_key_addr, result.len() as u64, result).unwrap();
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
 
     0
 }

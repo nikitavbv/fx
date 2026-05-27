@@ -2,7 +2,7 @@ use {
     std::time::Duration,
     thiserror::Error,
     futures::Stream,
-    fx_types::{abi::FuturePollResult, capnp, abi_kv_capnp},
+    fx_types::{abi::{FuturePollResult, KvGetResponseFuturePollResult}, capnp, abi_kv_capnp},
     crate::sys::{
         DeserializeHostResource,
         FutureHostResource,
@@ -17,6 +17,7 @@ use {
         fx_future_poll,
         fx_stream_frame_read,
         fx_resource_serialize,
+        fx_kv_get_response_future_poll,
     },
 };
 
@@ -72,14 +73,12 @@ impl Kv {
     pub async fn get(&self, key: impl AsKey) -> Option<Vec<u8>> {
         let (key_ptr, key_len) = key.as_key();
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_get(
+        match KvGetResponseFuture::new(unsafe { fx_kv_get(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
-        ) });
-
-        match FutureHostResource::<KvGetResponse>::new(resource_id).await {
+        )}.into()).await {
             KvGetResponse::KeyNotFound => None,
             KvGetResponse::Some(v) => Some(v),
         }
@@ -224,6 +223,45 @@ pub enum KvSetNxPxError {
 }
 
 // abi
+struct KvGetResponseResourceId(u64);
+
+impl From<u64> for KvGetResponseResourceId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl Into<u64> for &KvGetResponseResourceId {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+struct KvGetResponseFuture(KvGetResponseResourceId);
+
+impl KvGetResponseFuture {
+    pub fn new(id: KvGetResponseResourceId) -> Self {
+        Self(id)
+    }
+}
+
+impl Future for KvGetResponseFuture {
+    type Output = KvGetResponse;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<KvGetResponseFuturePollResult>::zeroed();
+        assert!(unsafe { fx_kv_get_response_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            0 => std::task::Poll::Pending,
+            1 => std::task::Poll::Ready(todo!()),
+            other => todo!(),
+        }
+    }
+}
+
 enum KvSetResponse {
     Ok,
     AlreadyExists,
