@@ -1,4 +1,7 @@
-use num_enum::TryFromPrimitive;
+use {
+    num_enum::TryFromPrimitive,
+    zerocopy::{FromBytes, IntoBytes, Immutable, KnownLayout},
+};
 
 #[derive(TryFromPrimitive)]
 #[repr(i64)]
@@ -14,4 +17,12 @@ pub enum ResourceMoveFromHostResult {
     // bad request:
     FailedToAccessMemory = 1,
     ArgumentOutOfMemoryBounds = 2,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct KvGetResponseFuturePollResult {
+    pub tag: u8, // 0 - ready, 1 - pending
+    pub _pad: [u8; 7],
+    pub kv_get_response_resource_id: u64,
 }

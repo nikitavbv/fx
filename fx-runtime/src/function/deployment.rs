@@ -83,6 +83,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_fetch_request_header_serialize", super::abi::fx_fetch_request_header_serialize_handler).unwrap();
         linker.func_wrap("fx", "fx_bytes_len", super::abi::fx_bytes_len_handler).unwrap();
         linker.func_wrap("fx", "fx_bytes_move", super::abi::fx_bytes_move_handler).unwrap();
+        linker.func_wrap("fx", "fx_kv_get_response_future_poll", super::abi::fx_kv_get_response_future_poll_handler).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {

@@ -254,3 +254,9 @@ impl From<slotmap::DefaultKey> for KvGetResponseKey {
         Self(value.data().as_ffi())
     }
 }
+
+impl Into<u64> for KvGetResponseKey {
+    fn into(self) -> u64 {
+        self.0
+    }
+}

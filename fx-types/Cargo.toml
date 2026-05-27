@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 capnp = "0.23.0"
 num_enum = "0.7.5"
+zerocopy = { version = "0.8.49", features = ["derive"] }
 
 [build-dependencies]
 capnpc = "0.23.2"

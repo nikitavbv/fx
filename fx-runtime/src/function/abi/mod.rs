@@ -10,7 +10,8 @@ use {
     futures::{FutureExt, StreamExt, TryStreamExt},
     rand::TryRngCore,
     send_wrapper::SendWrapper,
-    fx_types::abi::ResourceMoveFromHostResult,
+    zerocopy::IntoBytes,
+    fx_types::abi::{ResourceMoveFromHostResult, KvGetResponseFuturePollResult},
     crate::{
         function::instance::FunctionInstanceState,
         resources::{
@@ -180,25 +181,42 @@ pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionIns
     }) as u64
 }
 
-pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
-    let key = {
+pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_key_addr: u64) -> u64 {
+    let result = {
         let key: KvGetResponseFutureResourceKey = resource_id.into();
         let function_state = caller.data_mut();
 
         let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
         let future = function_state.resource_set.kv_get_response_futures_get_mut(key.clone()).unwrap();
         match future.poll_unpin(&mut cx) {
-            Poll::Pending => return FuturePollResult::Pending as u64,
+            Poll::Pending => Poll::Pending,
             Poll::Ready(response) => {
                 let _ = function_state.resource_set.kv_get_response_futures_remove(key).unwrap();
-                function_state.resource_set.kv_get_response_add(response)
+                Poll::Ready(function_state.resource_set.kv_get_response_add(response))
             }
         }
     };
 
-    // TODO: pass key back to guest somehow
+    let result = match result {
+        Poll::Pending => KvGetResponseFuturePollResult {
+            tag: 0,
+            _pad: Default::default(),
+            kv_get_response_resource_id: 0,
+        },
+        Poll::Ready(kv_get_response_resource_id) => KvGetResponseFuturePollResult {
+            tag: 1,
+            _pad: Default::default(),
+            kv_get_response_resource_id: kv_get_response_resource_id.into(),
+        },
+    };
+    let result = result.as_bytes();
 
-    FuturePollResult::Ready as u64
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_key_addr, result.len() as u64, result).unwrap();
+
+    0
 }
 
 // TODO: refactor below
