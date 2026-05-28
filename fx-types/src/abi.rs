@@ -26,3 +26,10 @@ pub struct KvGetResponseFuturePollResult {
     pub _pad: [u8; 7],
     pub kv_get_response_resource_id: u64,
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct KvGetResponseSerializeResult {
+    pub bytes_resource_id: u64,
+    pub bytes_length: u64,
+}

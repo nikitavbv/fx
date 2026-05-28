@@ -162,6 +162,10 @@ impl FunctionResources {
     pub(crate) fn kv_get_response_add(&mut self, response: KvGetResponse) -> KvGetResponseKey {
         self.kv_get_responses.insert(response).into()
     }
+
+    pub(crate) fn kv_get_response_remove(&mut self, key: KvGetResponseKey) -> Option<KvGetResponse> {
+        self.kv_get_responses.remove(key.into())
+    }
 }
 
 pub(crate) struct BytesResourceKey {
@@ -183,6 +187,12 @@ impl From<slotmap::DefaultKey> for BytesResourceKey {
 impl From<u64> for BytesResourceKey {
     fn from(id: u64) -> Self {
         Self { id }
+    }
+}
+
+impl Into<u64> for BytesResourceKey {
+    fn into(self) -> u64 {
+        self.id
     }
 }
 
@@ -258,5 +268,17 @@ impl From<slotmap::DefaultKey> for KvGetResponseKey {
 impl Into<u64> for KvGetResponseKey {
     fn into(self) -> u64 {
         self.0
+    }
+}
+
+impl From<u64> for KvGetResponseKey {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl Into<slotmap::DefaultKey> for KvGetResponseKey {
+    fn into(self) -> slotmap::DefaultKey {
+        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.0))
     }
 }

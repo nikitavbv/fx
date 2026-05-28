@@ -2,7 +2,7 @@ use {
     std::time::Duration,
     thiserror::Error,
     futures::Stream,
-    fx_types::{abi::{FuturePollResult, KvGetResponseFuturePollResult}, capnp, abi_kv_capnp},
+    fx_types::{abi::{FuturePollResult, KvGetResponseFuturePollResult, KvGetResponseSerializeResult}, capnp, abi_kv_capnp},
     crate::sys::{
         DeserializeHostResource,
         FutureHostResource,
@@ -18,6 +18,8 @@ use {
         fx_stream_frame_read,
         fx_resource_serialize,
         fx_kv_get_response_future_poll,
+        fx_kv_get_response_serialize,
+        fx_bytes_move,
     },
 };
 
@@ -256,7 +258,21 @@ impl Future for KvGetResponseFuture {
 
         match result.tag {
             0 => std::task::Poll::Pending,
-            1 => std::task::Poll::Ready(todo!()),
+            1 => std::task::Poll::Ready({
+                let mut serialization_result = std::mem::MaybeUninit::<KvGetResponseSerializeResult>::zeroed();
+                assert!(unsafe { fx_kv_get_response_serialize(result.kv_get_response_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                let result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                let resource = resource_reader.get_root::<abi_kv_capnp::kv_get_response::Reader>().unwrap();
+                match resource.get_response().which().unwrap() {
+                    abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(_) => KvGetResponse::KeyNotFound,
+                    abi_kv_capnp::kv_get_response::response::Which::Value(v) => KvGetResponse::Some(v.unwrap().to_vec()),
+                }
+            }),
             other => todo!(),
         }
     }

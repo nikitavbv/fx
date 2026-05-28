@@ -1,4 +1,13 @@
-pub(crate) use fx_types::{capnp, abi_log_capnp, abi_sql_capnp, abi_http_capnp, abi_metrics_capnp, abi_blob_capnp, abi::FuturePollResult};
+pub(crate) use fx_types::{
+    capnp,
+    abi_log_capnp,
+    abi_sql_capnp,
+    abi_http_capnp,
+    abi_metrics_capnp,
+    abi_blob_capnp,
+    abi_kv_capnp,
+    abi::{FuturePollResult, KvGetResponseSerializeResult},
+};
 
 use {
     std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap},
@@ -208,6 +217,35 @@ pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Calle
             _pad: Default::default(),
             kv_get_response_resource_id: kv_get_response_resource_id.into(),
         },
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
+}
+
+pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let response = caller.data_mut().resource_set.kv_get_response_remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+    let message_response = message.init_root::<abi_kv_capnp::kv_get_response::Builder>();
+    let mut message_response = message_response.init_response();
+
+    match response {
+        KvGetResponse::KeyNotFound => message_response.set_key_not_found(()),
+        KvGetResponse::Ok(v) => message_response.set_value(&v),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes_add(bytes);
+    let result = KvGetResponseSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
     };
     let result = result.as_bytes();
 
