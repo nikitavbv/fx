@@ -1,9 +1,9 @@
 use {
-    std::rc::Rc,
+    std::{rc::Rc, cell::RefCell, collections::HashSet},
     tracing::{info, error},
     tokio::time::{Duration, Instant},
     chrono::{DateTime, Utc, TimeDelta},
-    futures::{stream::FuturesUnordered, StreamExt},
+    futures::{stream::FuturesUnordered, StreamExt, future::LocalBoxFuture, FutureExt},
     crate::{
         triggers::{cron::CronDatabase, http::FetchRequestHeader},
         tasks::worker::WorkersController,
@@ -36,7 +36,7 @@ pub(crate) enum CronMessage {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct CronTask {
     name: String,
     task_id: String,
@@ -65,16 +65,26 @@ pub(crate) fn run_cron_task(
         let sleep = tokio::time::sleep(Duration::from_millis(0));
         tokio::pin!(sleep);
 
+        let running_tasks = Rc::new(RefCell::new(HashSet::new()));
+        let mut task_futures = FuturesUnordered::new();
+
         loop {
             tokio::select! {
                 _ = &mut sleep => {
-                    let next_time = run_tasks(database.clone(), workers_controller.clone(), &cron_events, &tasks).await;
+                    let next_time = run_tasks(database.clone(), workers_controller.clone(), &cron_events, running_tasks.clone(), &mut task_futures, tasks.clone()).await;
                     let dur = if let Some(next_time) = next_time {
                         Duration::from_millis((next_time - Utc::now()).num_milliseconds().max(0).min(MINIMUM_CRON_FREQUENCY_MS as i64) as u64)
                     } else {
                         Duration::from_millis(MINIMUM_CRON_FREQUENCY_MS)
                     };
                     sleep.as_mut().reset(Instant::now() + dur);
+                }
+
+                Some(res) = task_futures.next(), if !task_futures.is_empty() => {
+                    let new_deadline = Instant::now() + Duration::from_millis((res - Utc::now()).num_milliseconds().max(0).try_into().unwrap());
+                    if new_deadline < sleep.deadline() {
+                        sleep.as_mut().reset(new_deadline);
+                    }
                 }
 
                 message = msg_rx.recv_async() => {
@@ -105,16 +115,22 @@ pub(crate) fn run_cron_task(
     }));
 }
 
-async fn run_tasks(database: Rc<CronDatabase>, workers_controller: Rc<WorkersController>, cron_events: &flume::Sender<CronTaskEvent>, tasks: &Vec<CronTask>) -> Option<DateTime<Utc>> {
+async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<WorkersController>, cron_events: &'a flume::Sender<CronTaskEvent>, running_tasks: Rc<RefCell<HashSet<String>>>, task_futures: &mut FuturesUnordered<LocalBoxFuture<'a, DateTime<Utc>>>, tasks: Vec<CronTask>) -> Option<DateTime<Utc>> {
     let iteration_start_time = Instant::now();
-    let mut task_futures = FuturesUnordered::new();
+
+    let mut next_run = None;
 
     for task in tasks {
+        if running_tasks.borrow().contains(&task.task_id) {
+            continue;
+        }
+
         let now = Utc::now();
         let delay = if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
             let next_scheduled_run = task.schedule.after(&prev_run_time).next().unwrap();
 
             if next_scheduled_run > now {
+                next_run = next_run.map(|v| if v < next_scheduled_run { v } else { next_scheduled_run });
                 continue;
             }
 
@@ -123,8 +139,11 @@ async fn run_tasks(database: Rc<CronDatabase>, workers_controller: Rc<WorkersCon
             None
         };
 
+        running_tasks.borrow_mut().insert(task.task_id.clone());
+
         let database = database.clone();
         let workers_controller = workers_controller.clone();
+        let running_tasks = running_tasks.clone();
 
         task_futures.push(async move {
             let task_next_run = task.schedule.after(&now).next().unwrap();
@@ -157,17 +176,14 @@ async fn run_tasks(database: Rc<CronDatabase>, workers_controller: Rc<WorkersCon
                 iteration_delay,
             }).await.unwrap();
 
+            running_tasks.borrow_mut().remove(&task.task_id);
+
             if let Err(err) = result {
                 error!("failed to run function when executing cron task: {err:?}");
             }
 
             task_next_run
-        });
-    }
-
-    let mut next_run: Option<DateTime<Utc>> = None;
-    while let Some(task_next_run) = task_futures.next().await {
-        next_run = Some(next_run.map(|v| v.min(task_next_run)).unwrap_or(task_next_run));
+        }.boxed_local());
     }
 
     next_run
