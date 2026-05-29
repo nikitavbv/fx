@@ -236,7 +236,7 @@ impl FunctionInstance {
     pub(crate) async fn invoke_http_trigger(&self, resource_id: &FetchRequestHeaderResourceKey) -> FunctionResourceId {
         let mut store = self.store.lock().await;
         store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
-        FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64)
+        FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.into()).await.unwrap() as u64)
     }
 }
 
@@ -401,16 +401,6 @@ impl FunctionInstanceState {
                     })), serialized_size)
                 },
             },
-            Resource::KvSetResult(v) => {
-                let resource = match v {
-                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
-                    FutureResource::Ready(v) => v,
-                };
-
-                let serialized = resource.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (Resource::KvSetResult(FutureResource::Ready(serialized)), serialized_size)
-            },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_) |
                 KvSubscriptionResource::Stream(_) => panic!("resource is not yet for serialization"),
@@ -524,10 +514,6 @@ impl FunctionInstanceState {
                     }
                 },
             },
-            Resource::KvSetResult(mut v) => {
-                let poll_result = v.poll(&mut cx);
-                (Resource::KvSetResult(v), poll_result)
-            },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
                     std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Init(v)), Poll::Pending),
@@ -577,8 +563,7 @@ impl FunctionInstanceState {
             | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_)
             | Resource::UnitFuture(_)
-            | Resource::ResourceFuture(_)
-            | Resource::KvSetResult(_) => panic!("resource of this type does not support reading frames"),
+            | Resource::ResourceFuture(_) => panic!("resource of this type does not support reading frames"),
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::Stream { stream, frame } => (

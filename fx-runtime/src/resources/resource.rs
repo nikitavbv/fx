@@ -106,7 +106,6 @@ pub(crate) enum Resource {
     ResourceFuture(SendWrapper<LocalBoxFuture<'static, Box<Resource>>>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FetchResult),
-    KvSetResult(FutureResource<SerializableResource<Result<(), KvSetError>>>),
     KvSubscription(KvSubscriptionResource),
 }
 
@@ -114,7 +113,9 @@ pub(crate) struct FunctionResources {
     bytes: SlotMap<slotmap::DefaultKey, Vec<u8>>,
     fetch_request_headers: SlotMap<slotmap::DefaultKey, FetchRequestHeader>,
     kv_get_response_futures: SlotMap<slotmap::DefaultKey, BoxFuture<'static, KvGetResponse>>,
-    kv_get_responses: SlotMap<slotmap::DefaultKey, KvGetResponse>
+    kv_get_responses: SlotMap<slotmap::DefaultKey, KvGetResponse>,
+    kv_set_response_futures: SlotMap<slotmap::DefaultKey, BoxFuture<'static, Result<(), KvSetError>>>,
+    kv_set_responses: SlotMap<slotmap::DefaultKey, Result<(), KvSetError>>,
 }
 
 impl FunctionResources {
@@ -124,6 +125,8 @@ impl FunctionResources {
             fetch_request_headers: SlotMap::new(),
             kv_get_response_futures: SlotMap::new(),
             kv_get_responses: SlotMap::new(),
+            kv_set_response_futures: SlotMap::new(),
+            kv_set_responses: SlotMap::new(),
         }
     }
 
@@ -166,119 +169,65 @@ impl FunctionResources {
     pub(crate) fn kv_get_response_remove(&mut self, key: KvGetResponseKey) -> Option<KvGetResponse> {
         self.kv_get_responses.remove(key.into())
     }
-}
 
-pub(crate) struct BytesResourceKey {
-    id: u64,
-}
+    pub(crate) fn kv_set_response_futures_add(&mut self, future: BoxFuture<'static, Result<(), KvSetError>>) -> KvSetResponseFutureResourceKey {
+        self.kv_set_response_futures.insert(future).into()
+    }
 
-impl BytesResourceKey {
-    pub(crate) fn as_u64(&self) -> u64 {
-        self.id
+    pub(crate) fn kv_set_response_futures_get_mut(&mut self, key: KvSetResponseFutureResourceKey) -> Option<&mut BoxFuture<'static, Result<(), KvSetError>>> {
+        self.kv_set_response_futures.get_mut(key.into())
+    }
+
+    pub(crate) fn kv_set_response_futures_remove(&mut self, key: KvSetResponseFutureResourceKey) -> Option<BoxFuture<'static, Result<(), KvSetError>>> {
+        self.kv_set_response_futures.remove(key.into())
+    }
+
+    pub(crate) fn kv_set_response_add(&mut self, response: Result<(), KvSetError>) -> KvSetResponseKey {
+        self.kv_set_responses.insert(response).into()
     }
 }
 
-impl From<slotmap::DefaultKey> for BytesResourceKey {
-    fn from(value: slotmap::DefaultKey) -> Self {
-        Self { id: value.data().as_ffi() }
-    }
+macro_rules! key {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        $vis struct $name(u64);
+
+        impl ::core::convert::From<::slotmap::DefaultKey> for $name {
+            fn from(value: ::slotmap::DefaultKey) -> Self {
+                Self(value.data().as_ffi())
+            }
+        }
+
+        impl ::core::convert::From<$name> for u64 {
+            fn from(value: $name) -> u64 {
+                value.0
+            }
+        }
+
+        impl ::core::convert::From<&$name> for u64 {
+            fn from(value: &$name) -> u64 {
+                value.0
+            }
+        }
+
+        impl ::core::convert::From<u64> for $name {
+            fn from(id: u64) -> Self {
+                Self(id)
+            }
+        }
+
+        impl ::core::convert::From<$name> for ::slotmap::DefaultKey {
+            fn from(value: $name) -> ::slotmap::DefaultKey {
+                ::slotmap::DefaultKey::from(::slotmap::KeyData::from_ffi(value.0))
+            }
+        }
+    };
 }
 
-impl From<u64> for BytesResourceKey {
-    fn from(id: u64) -> Self {
-        Self { id }
-    }
-}
-
-impl Into<u64> for BytesResourceKey {
-    fn into(self) -> u64 {
-        self.id
-    }
-}
-
-impl Into<slotmap::DefaultKey> for BytesResourceKey {
-    fn into(self) -> slotmap::DefaultKey {
-        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
-    }
-}
-
-pub(crate) struct FetchRequestHeaderResourceKey {
-    id: u64,
-}
-
-impl FetchRequestHeaderResourceKey {
-    pub(crate) fn as_u64(&self) -> u64 {
-        self.id
-    }
-}
-
-impl From<slotmap::DefaultKey> for FetchRequestHeaderResourceKey {
-    fn from(value: slotmap::DefaultKey) -> Self {
-        Self { id: value.data().as_ffi() }
-    }
-}
-
-impl From<u64> for FetchRequestHeaderResourceKey {
-    fn from(id: u64) -> Self {
-        Self { id }
-    }
-}
-
-impl Into<slotmap::DefaultKey> for FetchRequestHeaderResourceKey {
-    fn into(self) -> slotmap::DefaultKey {
-        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct KvGetResponseFutureResourceKey(u64);
-
-impl From<slotmap::DefaultKey> for KvGetResponseFutureResourceKey {
-    fn from(value: slotmap::DefaultKey) -> Self {
-        Self(value.data().as_ffi())
-    }
-}
-
-impl Into<u64> for KvGetResponseFutureResourceKey {
-    fn into(self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for KvGetResponseFutureResourceKey {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
-}
-
-impl Into<slotmap::DefaultKey> for KvGetResponseFutureResourceKey {
-    fn into(self) -> slotmap::DefaultKey {
-        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.0))
-    }
-}
-
-pub(crate) struct KvGetResponseKey(u64);
-
-impl From<slotmap::DefaultKey> for KvGetResponseKey {
-    fn from(value: slotmap::DefaultKey) -> Self {
-        Self(value.data().as_ffi())
-    }
-}
-
-impl Into<u64> for KvGetResponseKey {
-    fn into(self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for KvGetResponseKey {
-    fn from(id: u64) -> Self {
-        Self(id)
-    }
-}
-
-impl Into<slotmap::DefaultKey> for KvGetResponseKey {
-    fn into(self) -> slotmap::DefaultKey {
-        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.0))
-    }
-}
+key!(pub(crate) struct BytesResourceKey);
+key!(pub(crate) struct KvGetResponseFutureResourceKey);
+key!(pub(crate) struct KvGetResponseKey);
+key!(pub(crate) struct FetchRequestHeaderResourceKey);
+key!(pub(crate) struct KvSetResponseFutureResourceKey);
+key!(pub(crate) struct KvSetResponseKey);
