@@ -8,6 +8,7 @@ use {
 pub enum FuturePollResult {
     Ready = 0,
     Pending = 1,
+    NotFound = 2,
 }
 
 #[derive(TryFromPrimitive)]
@@ -32,4 +33,12 @@ pub struct KvGetResponseFuturePollResult {
 pub struct KvGetResponseSerializeResult {
     pub bytes_resource_id: u64,
     pub bytes_length: u64,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct KvSetResponseFuturePollResult {
+    pub tag: u8, // 0 - ready, 1 - pending
+    pub _pad: [u8; 7],
+    pub kv_set_response_resource_id: u64,
 }

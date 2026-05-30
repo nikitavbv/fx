@@ -157,6 +157,7 @@ impl FunctionInstance {
         let result = Ok(match FuturePollResult::try_from(future_poll_result).unwrap() {
             FuturePollResult::Pending => Poll::Pending,
             FuturePollResult::Ready => Poll::Ready(()),
+            FuturePollResult::NotFound => todo!(),
         });
 
         debug!("host: future_poll - exit, result: {result:?}");
@@ -203,6 +204,7 @@ impl FunctionInstance {
         match FuturePollResult::try_from(frame_poll_result).unwrap() {
             FuturePollResult::Pending => Poll::Pending,
             FuturePollResult::Ready => Poll::Ready(()),
+            FuturePollResult::NotFound => todo!(),
         }
     }
 
@@ -428,8 +430,8 @@ impl FunctionInstanceState {
         serialized_size
     }
 
-    pub fn resource_poll(&mut self, resource_id: &ResourceId) -> Poll<()> {
-        let resource = self.resources.detach(resource_id.into()).unwrap();
+    pub fn resource_poll(&mut self, resource_id: &ResourceId) -> Option<Poll<()>> {
+        let resource = self.resources.detach(resource_id.into())?;
 
         let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
         let (resource, poll_result) = match resource {
@@ -546,7 +548,7 @@ impl FunctionInstanceState {
 
         self.resources.reattach(resource_id.into(), resource);
 
-        poll_result
+        Some(poll_result)
     }
 
     pub fn resource_remove(&mut self, resource_id: &ResourceId) -> Resource {

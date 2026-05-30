@@ -2,7 +2,16 @@ use {
     std::time::Duration,
     thiserror::Error,
     futures::Stream,
-    fx_types::{abi::{FuturePollResult, KvGetResponseFuturePollResult, KvGetResponseSerializeResult}, capnp, abi_kv_capnp},
+    fx_types::{
+        abi::{
+            FuturePollResult,
+            KvGetResponseFuturePollResult,
+            KvGetResponseSerializeResult,
+            KvSetResponseFuturePollResult,
+        },
+        capnp,
+        abi_kv_capnp,
+    },
     crate::sys::{
         DeserializeHostResource,
         FutureHostResource,
@@ -20,6 +29,7 @@ use {
         fx_kv_get_response_future_poll,
         fx_kv_get_response_serialize,
         fx_bytes_move,
+        fx_kv_set_response_future_poll,
     },
 };
 
@@ -39,16 +49,14 @@ impl Kv {
         let (key_ptr, key_len) = key.as_key();
         let (value_ptr, value_len) = value.as_value();
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_set(
+        KvSetResponseFuture::new(unsafe { fx_kv_set(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
             value_ptr,
             value_len,
-        ) });
-
-        HostUnitFuture::new(resource_id).await;
+        )}.into()).await;
     }
 
     pub async fn set_nx_px(&self, key: impl AsKey, value: impl AsValue, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
@@ -257,8 +265,8 @@ impl Future for KvGetResponseFuture {
         let result = unsafe { result.assume_init() };
 
         match result.tag {
-            0 => std::task::Poll::Pending,
-            1 => std::task::Poll::Ready({
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
                 let mut serialization_result = std::mem::MaybeUninit::<KvGetResponseSerializeResult>::zeroed();
                 assert!(unsafe { fx_kv_get_response_serialize(result.kv_get_response_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
 
@@ -272,6 +280,47 @@ impl Future for KvGetResponseFuture {
                     abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(_) => KvGetResponse::KeyNotFound,
                     abi_kv_capnp::kv_get_response::response::Which::Value(v) => KvGetResponse::Some(v.unwrap().to_vec()),
                 }
+            }),
+            other => todo!(),
+        }
+    }
+}
+
+struct KvSetResponseResourceId(u64);
+
+impl From<u64> for KvSetResponseResourceId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl Into<u64> for &KvSetResponseResourceId {
+    fn into(self) -> u64 {
+        self.0
+    }
+}
+
+struct KvSetResponseFuture(KvSetResponseResourceId);
+
+impl KvSetResponseFuture {
+    pub fn new(id: KvSetResponseResourceId) -> Self {
+        Self(id)
+    }
+}
+
+impl Future for KvSetResponseFuture {
+    type Output = KvSetResponse;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<KvSetResponseFuturePollResult>::zeroed();
+        assert!(unsafe { fx_kv_set_response_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
+                todo!()
             }),
             other => todo!(),
         }

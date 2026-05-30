@@ -346,6 +346,7 @@ impl Stream for HttpBody {
                             ),
                         }
                     },
+                    other => todo!(),
                 }
             },
             HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
@@ -397,6 +398,7 @@ impl http_body::Body for HttpBody {
                             ),
                         }
                     },
+                    other => todo!(),
                 }
             },
             HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),

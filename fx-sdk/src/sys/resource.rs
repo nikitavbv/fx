@@ -249,6 +249,7 @@ impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
                 unsafe { fx_resource_move_from_host(resource_id.id, data.as_ptr() as u64); }
                 T::deserialize(&mut data.as_slice())
             }),
+            other => todo!(),
         }
     }
 }
@@ -275,6 +276,7 @@ impl Future for HostUnitFuture {
         match FuturePollResult::try_from(poll_result).unwrap() {
             FuturePollResult::Pending => std::task::Poll::Pending,
             FuturePollResult::Ready => std::task::Poll::Ready(()),
+            other => todo!(),
         }
     }
 }

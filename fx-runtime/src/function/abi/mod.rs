@@ -20,7 +20,7 @@ use {
     rand::TryRngCore,
     send_wrapper::SendWrapper,
     zerocopy::IntoBytes,
-    fx_types::abi::{ResourceMoveFromHostResult, KvGetResponseFuturePollResult},
+    fx_types::abi::{ResourceMoveFromHostResult, KvGetResponseFuturePollResult, KvSetResponseFuturePollResult},
     crate::{
         function::instance::FunctionInstanceState,
         resources::{
@@ -208,12 +208,12 @@ pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Calle
 
     let result = match result {
         Poll::Pending => KvGetResponseFuturePollResult {
-            tag: 0,
+            tag: 1,
             _pad: Default::default(),
             kv_get_response_resource_id: 0,
         },
         Poll::Ready(kv_get_response_resource_id) => KvGetResponseFuturePollResult {
-            tag: 1,
+            tag: 0,
             _pad: Default::default(),
             kv_get_response_resource_id: kv_get_response_resource_id.into(),
         },
@@ -257,7 +257,7 @@ pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<
     0
 }
 
-pub(super) fn fx_get_set_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+pub(super) fn fx_kv_set_response_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let result = {
         let key: KvSetResponseFutureResourceKey = resource_id.into();
         let function_state = caller.data_mut();
@@ -273,7 +273,24 @@ pub(super) fn fx_get_set_response_future_poll_handler(mut caller: wasmtime::Call
         }
     };
 
-    todo!();
+    let result = match result {
+        Poll::Pending => KvSetResponseFuturePollResult {
+            tag: 1,
+            _pad: Default::default(),
+            kv_set_response_resource_id: 0,
+        },
+        Poll::Ready(kv_set_response_resource_id) => KvSetResponseFuturePollResult {
+            tag: 0,
+            _pad: Default::default(),
+            kv_set_response_resource_id: kv_set_response_resource_id.into(),
+        },
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
 
     0
 }
@@ -499,8 +516,9 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
 pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
     let resource_id = ResourceId::new(future_resource_id);
     (match caller.data_mut().resource_poll(&resource_id) {
-        Poll::Pending => FuturePollResult::Pending,
-        Poll::Ready(_) => FuturePollResult::Ready,
+        Some(Poll::Pending) => FuturePollResult::Pending,
+        Some(Poll::Ready(_)) => FuturePollResult::Ready,
+        None => FuturePollResult::NotFound,
     }) as i64
 }
 
