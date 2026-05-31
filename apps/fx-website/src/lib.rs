@@ -2,7 +2,7 @@ use {
     fx_sdk::{HttpRequest, HttpResponse, handler, utils::axum::handle_request},
     axum::{
         Router,
-        routing::get,
+        routing::{get, post},
         response::{Html, IntoResponse},
         extract::Path,
         http::StatusCode,
@@ -21,7 +21,7 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
             .route("/", get(index))
             .route("/docs/runtime", get(docs_runtime_index))
             .route("/docs/runtime/{*path}", get(docs_runtime))
-            .route("/test/post", get(test_endpoints::post)),
+            .route("/test/post", post(test_endpoints::post)),
         req,
     ).await
 }
