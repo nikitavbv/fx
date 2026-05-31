@@ -1406,6 +1406,7 @@ dependencies = [
  "axum",
  "fx-sdk",
  "include_dir",
+ "serde",
 ]
 
 [[package]]

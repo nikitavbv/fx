@@ -10,6 +10,8 @@ use {
     include_dir::{include_dir, Dir},
 };
 
+mod test_endpoints;
+
 static DOCS: Dir = include_dir!("$CARGO_MANIFEST_DIR/docs");
 
 #[handler]
@@ -18,7 +20,8 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
         Router::new()
             .route("/", get(index))
             .route("/docs/runtime", get(docs_runtime_index))
-            .route("/docs/runtime/{*path}", get(docs_runtime)),
+            .route("/docs/runtime/{*path}", get(docs_runtime))
+            .route("/test/post", get(test_endpoints::post)),
         req,
     ).await
 }
