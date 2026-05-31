@@ -109,73 +109,19 @@ pub(crate) enum Resource {
     KvSubscription(KvSubscriptionResource),
 }
 
+#[derive(Default)]
 pub(crate) struct FunctionResources {
     pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
-    fetch_request_headers: SlotMap<slotmap::DefaultKey, FetchRequestHeader>,
-    kv_get_response_futures: SlotMap<slotmap::DefaultKey, BoxFuture<'static, KvGetResponse>>,
-    kv_get_responses: SlotMap<slotmap::DefaultKey, KvGetResponse>,
-    kv_set_response_futures: SlotMap<slotmap::DefaultKey, BoxFuture<'static, Result<(), KvSetError>>>,
-    kv_set_responses: SlotMap<slotmap::DefaultKey, Result<(), KvSetError>>,
+    pub(crate) fetch_request_headers: ResourceTable<FetchRequestHeaderResourceKey, FetchRequestHeader>,
+    pub(crate) kv_get_response_futures: ResourceTable<KvGetResponseFutureResourceKey, BoxFuture<'static, KvGetResponse>>,
+    pub(crate) kv_get_responses: ResourceTable<KvGetResponseKey, KvGetResponse>,
+    pub(crate) kv_set_response_futures: ResourceTable<KvSetResponseFutureResourceKey, BoxFuture<'static, Result<(), KvSetError>>>,
+    pub(crate) kv_set_responses: ResourceTable<KvSetResponseKey, Result<(), KvSetError>>,
 }
 
 impl FunctionResources {
     pub(crate) fn new() -> Self {
-        Self {
-            bytes: ResourceTable::new(),
-            fetch_request_headers: SlotMap::new(),
-            kv_get_response_futures: SlotMap::new(),
-            kv_get_responses: SlotMap::new(),
-            kv_set_response_futures: SlotMap::new(),
-            kv_set_responses: SlotMap::new(),
-        }
-    }
-
-    pub(crate) fn fetch_request_header_add(&mut self, header: FetchRequestHeader) -> FetchRequestHeaderResourceKey {
-        self.fetch_request_headers.insert(header).into()
-    }
-
-    pub(crate) fn fetch_request_header_remove(&mut self, key: FetchRequestHeaderResourceKey) -> Option<FetchRequestHeader> {
-        self.fetch_request_headers.remove(key.into())
-    }
-
-    pub(crate) fn kv_get_response_futures_add(&mut self, future: BoxFuture<'static, KvGetResponse>) -> KvGetResponseFutureResourceKey {
-        self.kv_get_response_futures.insert(future).into()
-    }
-
-    pub(crate) fn kv_get_response_futures_get_mut(&mut self, key: KvGetResponseFutureResourceKey) -> Option<&mut BoxFuture<'static, KvGetResponse>> {
-        self.kv_get_response_futures.get_mut(key.into())
-    }
-
-    pub(crate) fn kv_get_response_futures_remove(&mut self, key: KvGetResponseFutureResourceKey) -> Option<BoxFuture<'static, KvGetResponse>> {
-        self.kv_get_response_futures.remove(key.into())
-    }
-
-    pub(crate) fn kv_get_response_add(&mut self, response: KvGetResponse) -> KvGetResponseKey {
-        self.kv_get_responses.insert(response).into()
-    }
-
-    pub(crate) fn kv_get_response_remove(&mut self, key: KvGetResponseKey) -> Option<KvGetResponse> {
-        self.kv_get_responses.remove(key.into())
-    }
-
-    pub(crate) fn kv_set_response_futures_add(&mut self, future: BoxFuture<'static, Result<(), KvSetError>>) -> KvSetResponseFutureResourceKey {
-        self.kv_set_response_futures.insert(future).into()
-    }
-
-    pub(crate) fn kv_set_response_futures_get_mut(&mut self, key: KvSetResponseFutureResourceKey) -> Option<&mut BoxFuture<'static, Result<(), KvSetError>>> {
-        self.kv_set_response_futures.get_mut(key.into())
-    }
-
-    pub(crate) fn kv_set_response_futures_remove(&mut self, key: KvSetResponseFutureResourceKey) -> Option<BoxFuture<'static, Result<(), KvSetError>>> {
-        self.kv_set_response_futures.remove(key.into())
-    }
-
-    pub(crate) fn kv_set_response_add(&mut self, response: Result<(), KvSetError>) -> KvSetResponseKey {
-        self.kv_set_responses.insert(response).into()
-    }
-
-    pub(crate) fn kv_set_response_remove(&mut self, key: KvSetResponseKey) -> Option<Result<(), KvSetError>> {
-        self.kv_set_responses.remove(key.into())
+        Self::default()
     }
 }
 
@@ -206,6 +152,12 @@ impl<K, V> ResourceTable<K, V> {
 
     pub fn remove(&mut self, key: K) -> Option<V> where K: Into<slotmap::DefaultKey> {
         self.map.remove(key.into())
+    }
+}
+
+impl<K, V> Default for ResourceTable<K, V> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

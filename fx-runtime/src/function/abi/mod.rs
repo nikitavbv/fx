@@ -135,7 +135,7 @@ pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSt
 
 pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     let resource_set = &mut caller.data_mut().resource_set;
-    let fetch_request_header = resource_set.fetch_request_header_remove(FetchRequestHeaderResourceKey::from(resource_id)).unwrap();
+    let fetch_request_header = resource_set.fetch_request_headers.remove(FetchRequestHeaderResourceKey::from(resource_id)).unwrap();
 
     let mut message = capnp::message::Builder::new_default();
     let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
@@ -201,12 +201,12 @@ pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Calle
         let function_state = caller.data_mut();
 
         let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
-        let future = function_state.resource_set.kv_get_response_futures_get_mut(key.clone()).unwrap();
+        let future = function_state.resource_set.kv_get_response_futures.get_mut(key.clone()).unwrap();
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(response) => {
-                let _ = function_state.resource_set.kv_get_response_futures_remove(key).unwrap();
-                Poll::Ready(function_state.resource_set.kv_get_response_add(response))
+                let _ = function_state.resource_set.kv_get_response_futures.remove(key).unwrap();
+                Poll::Ready(function_state.resource_set.kv_get_responses.insert(response))
             }
         }
     };
@@ -234,7 +234,7 @@ pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Calle
 }
 
 pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let response = caller.data_mut().resource_set.kv_get_response_remove(resource_id.into()).unwrap();
+    let response = caller.data_mut().resource_set.kv_get_responses.remove(resource_id.into()).unwrap();
 
     let mut message = capnp::message::Builder::new_default();
     let message_response = message.init_root::<abi_kv_capnp::kv_get_response::Builder>();
@@ -268,12 +268,12 @@ pub(super) fn fx_kv_set_response_future_poll(mut caller: wasmtime::Caller<'_, Fu
         let function_state = caller.data_mut();
 
         let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
-        let future = function_state.resource_set.kv_set_response_futures_get_mut(key.clone()).unwrap();
+        let future = function_state.resource_set.kv_set_response_futures.get_mut(key.clone()).unwrap();
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(response) => {
-                let _ = function_state.resource_set.kv_set_response_futures_remove(key).unwrap();
-                Poll::Ready(function_state.resource_set.kv_set_response_add(response))
+                let _ = function_state.resource_set.kv_set_response_futures.remove(key).unwrap();
+                Poll::Ready(function_state.resource_set.kv_set_responses.insert(response))
             }
         }
     };
@@ -301,7 +301,7 @@ pub(super) fn fx_kv_set_response_future_poll(mut caller: wasmtime::Caller<'_, Fu
 }
 
 pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let kv_set_response = caller.data_mut().resource_set.kv_set_response_remove(resource_id.into()).unwrap();
+    let kv_set_response = caller.data_mut().resource_set.kv_set_responses.remove(resource_id.into()).unwrap();
 
     let mut message = capnp::message::Builder::new_default();
     let response = message.init_root::<abi_kv_capnp::kv_set_response::Builder>();
@@ -960,7 +960,7 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 
     let req = KvSetRequest::new(key, value);
 
-    caller.data_mut().resource_set.kv_set_response_futures_add(async move {
+    caller.data_mut().resource_set.kv_set_response_futures.insert(async move {
         let (on_done, on_done_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -1005,7 +1005,7 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
         .with_nx(nx != 0)
         .with_px(if px > 0  { Some(Duration::from_millis(px as u64)) } else { None });
 
-    caller.data_mut().resource_set.kv_set_response_futures_add(async move {
+    caller.data_mut().resource_set.kv_set_response_futures.insert(async move {
         let (on_done, on_done_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -1038,7 +1038,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 
     let kv_tx = caller.data_mut().kv_tx.clone();
 
-    caller.data_mut().resource_set.kv_get_response_futures_add(async move {
+    caller.data_mut().resource_set.kv_get_response_futures.insert(async move {
         let (result_tx, result_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {

@@ -165,7 +165,7 @@ impl FunctionDeployment {
                 if let Some(body) = body {
                     header.body_resource_id = Some(data.resource_add(Resource::HttpBody(body)));
                 }
-                data.resource_set.fetch_request_header_add(header)
+                data.resource_set.fetch_request_headers.insert(header)
             };
 
             let result = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
