@@ -49,3 +49,9 @@ pub struct KvSetResponseSerializeResult {
     pub bytes_resource_id: u64,
     pub bytes_length: u64,
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct UnitFuturePollResult {
+    pub tag: u8, // 0 - ready, 1 - pending
+}

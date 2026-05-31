@@ -2,10 +2,18 @@ use {
     std::{cell::{RefCell, LazyCell, Cell}, marker::PhantomData},
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
-    fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
+    fx_types::{capnp, abi::{FuturePollResult, UnitFuturePollResult}, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner},
-        sys::{fx_resource_serialize, fx_resource_move_from_host, fx_resource_drop, fx_future_poll, fx_bytes_len, fx_bytes_move},
+        sys::{
+            fx_resource_serialize,
+            fx_resource_move_from_host,
+            fx_resource_drop,
+            fx_future_poll,
+            fx_bytes_len,
+            fx_bytes_move,
+            fx_unit_future_poll,
+        },
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
 };
@@ -266,12 +274,14 @@ impl Future for HostUnitFuture {
     type Output = ();
 
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let poll_result = self.resource_id.with(|resource_id| {
-            unsafe { fx_future_poll(resource_id.id) }
-        });
-        match FuturePollResult::try_from(poll_result).unwrap() {
-            FuturePollResult::Pending => std::task::Poll::Pending,
-            FuturePollResult::Ready => std::task::Poll::Ready(()),
+        let mut result = std::mem::MaybeUninit::<UnitFuturePollResult>::zeroed();
+        assert!(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready(()),
             other => todo!(),
         }
     }

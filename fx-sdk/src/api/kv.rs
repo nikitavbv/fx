@@ -98,16 +98,14 @@ impl Kv {
         let (key_ptr, key_len) = key.as_key();
         let (ifeq_ptr, ifeq_len) = ifeq.as_value();
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_delex_ifeq(
+        HostUnitFuture::new(unsafe { fx_kv_delex_ifeq(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
             ifeq_ptr,
             ifeq_len,
-        ) });
-
-        HostUnitFuture::new(resource_id).await
+        ) }).await
     }
 
     pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
@@ -127,16 +125,14 @@ impl Kv {
         let (channel_ptr, channel_len) = channel.as_key();
         let (data_ptr, data_len) = data.as_value();
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_publish(
+        HostUnitFuture::new(unsafe { fx_kv_publish(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             channel_ptr,
             channel_len,
             data_ptr,
             data_len
-        ) });
-
-        HostUnitFuture::new(resource_id).await
+        ) }).await
     }
 }
 

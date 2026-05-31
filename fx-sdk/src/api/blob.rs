@@ -22,15 +22,14 @@ impl BlobBucket {
     }
 
     pub async fn put(&self, key: String, value: Vec<u8>) {
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_blob_put(
+        HostUnitFuture::new(unsafe { fx_blob_put(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key.as_ptr() as u64,
             key.len() as u64,
             value.as_ptr() as u64,
             value.len() as u64,
-        ) });
-        HostUnitFuture::new(resource_id).await;
+        ) }).await;
     }
 
     pub async fn get(&self, key: String) -> Result<Option<Vec<u8>>, BlobGetError> {
@@ -49,12 +48,12 @@ impl BlobBucket {
     }
 
     pub async fn delete(&self, key: String) {
-        HostUnitFuture::new(OwnedResourceId::from_ffi(unsafe { fx_blob_delete(
+        HostUnitFuture::new(unsafe { fx_blob_delete(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key.as_ptr() as u64,
             key.len() as u64,
-        ) })).await;
+        ) }).await;
     }
 }
 

@@ -146,7 +146,7 @@ impl SqlDatabase {
 }
 
 pub async fn sleep(duration: Duration) {
-    HostUnitFuture::new(OwnedResourceId::from_ffi(unsafe { fx_sleep(duration.as_millis() as u64) })).await
+    HostUnitFuture::new(unsafe { fx_sleep(duration.as_millis() as u64) }).await
 }
 
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {

@@ -25,6 +25,7 @@ use {
         KvGetResponseFuturePollResult,
         KvSetResponseFuturePollResult,
         KvSetResponseSerializeResult,
+        UnitFuturePollResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -34,7 +35,12 @@ use {
             FunctionResourceId,
             serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
             future::FutureResource,
-            resource::{FetchRequestHeaderResourceKey, KvGetResponseFutureResourceKey, KvSetResponseFutureResourceKey},
+            resource::{
+                FetchRequestHeaderResourceKey,
+                KvGetResponseFutureResourceKey,
+                KvSetResponseFutureResourceKey,
+                UnitFutureResourceKey,
+            },
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
@@ -318,6 +324,36 @@ pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, Func
     let result = KvSetResponseSerializeResult {
         bytes_resource_id: bytes_resource_id.into(),
         bytes_length: bytes_length as u64,
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
+}
+
+pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = {
+        let key: UnitFutureResourceKey = resource_id.into();
+        let function_state = caller.data_mut();
+
+        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
+        let future = function_state.resource_set.unit_futures.get_mut(key.clone()).unwrap();
+        match future.poll_unpin(&mut cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(_) => {
+                let _ = function_state.resource_set.unit_futures.remove(key).unwrap();
+                Poll::Ready(())
+            }
+        }
+    };
+
+    let result = match result {
+        Poll::Pending => UnitFuturePollResult { tag: 1 },
+        Poll::Ready(_) => UnitFuturePollResult { tag: 0 },
     };
     let result = result.as_bytes();
 
