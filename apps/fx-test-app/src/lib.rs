@@ -416,12 +416,21 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
     }
 }
 
-async fn test_fetch() -> HttpBody {
-    let response = fetch(
-        HttpRequest::get("https://httpbin.org/get").unwrap()
-    ).await.unwrap();
+async fn test_fetch() -> impl IntoResponse {
+    for _ in 0..3 {
+        match fetch(
+            HttpRequest::get("https://httpbin.org/get").unwrap()
+        ).await {
+            Ok(v) => return v.into_body().into_response(),
+            Err(FetchError::ResponseTimeout) => {
+                sleep(Duration::from_secs(1)).await;
+                continue;
+            },
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
+    }
 
-    response.into_body()
+    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/post failed with serveral retries.").into_response()
 }
 
 async fn test_fetch_post() -> impl IntoResponse {
