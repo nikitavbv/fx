@@ -1038,7 +1038,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 
     let kv_tx = caller.data_mut().kv_tx.clone();
 
-    let result = caller.data_mut().resource_set.kv_get_response_futures_add(async move {
+    caller.data_mut().resource_set.kv_get_response_futures_add(async move {
         let (result_tx, result_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -1050,11 +1050,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
             None => KvGetResponse::KeyNotFound,
             Some(v) => KvGetResponse::Ok(v),
         }
-    }.boxed()).into();
-
-    println!("added future for kv_get: {result:?}");
-
-    result
+    }.boxed()).into()
 }
 
 pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, ifeq_addr: u64, ifeq_len: u64) -> u64 {
