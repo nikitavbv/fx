@@ -167,15 +167,15 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
         Some(resource_id) => resource_body.set_host_resource(resource_id.as_u64()),
     }
 
-    resource_set.bytes_add(capnp::serialize::write_message_to_words(&message)).into()
+    resource_set.bytes.insert(capnp::serialize::write_message_to_words(&message)).into()
 }
 
 pub(super) fn fx_bytes_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
-    caller.data_mut().resource_set.bytes_get(resource_id.into()).unwrap().len() as u64
+    caller.data_mut().resource_set.bytes.get(resource_id.into()).unwrap().len() as u64
 }
 
 pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
-    let bytes = caller.data_mut().resource_set.bytes_remove(resource_id.into()).unwrap();
+    let bytes = caller.data_mut().resource_set.bytes.remove(resource_id.into()).unwrap();
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
@@ -247,7 +247,7 @@ pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<
 
     let bytes = capnp::serialize::write_message_to_words(&message);
     let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes_add(bytes);
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
     let result = KvGetResponseSerializeResult {
         bytes_resource_id: bytes_resource_id.into(),
         bytes_length: bytes_length as u64,
@@ -314,7 +314,7 @@ pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, Func
 
     let bytes = capnp::serialize::write_message_segments_to_words(&message);
     let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes_add(bytes);
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
     let result = KvSetResponseSerializeResult {
         bytes_resource_id: bytes_resource_id.into(),
         bytes_length: bytes_length as u64,

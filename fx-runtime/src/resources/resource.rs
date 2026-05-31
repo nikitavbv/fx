@@ -1,5 +1,5 @@
 use {
-    std::{cell::Cell, rc::Rc},
+    std::{cell::Cell, rc::Rc, marker::PhantomData},
     futures::future::{BoxFuture, LocalBoxFuture},
     slotmap::{Key, SlotMap},
     send_wrapper::SendWrapper,
@@ -110,7 +110,7 @@ pub(crate) enum Resource {
 }
 
 pub(crate) struct FunctionResources {
-    bytes: SlotMap<slotmap::DefaultKey, Vec<u8>>,
+    pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
     fetch_request_headers: SlotMap<slotmap::DefaultKey, FetchRequestHeader>,
     kv_get_response_futures: SlotMap<slotmap::DefaultKey, BoxFuture<'static, KvGetResponse>>,
     kv_get_responses: SlotMap<slotmap::DefaultKey, KvGetResponse>,
@@ -121,25 +121,13 @@ pub(crate) struct FunctionResources {
 impl FunctionResources {
     pub(crate) fn new() -> Self {
         Self {
-            bytes: SlotMap::new(),
+            bytes: ResourceTable::new(),
             fetch_request_headers: SlotMap::new(),
             kv_get_response_futures: SlotMap::new(),
             kv_get_responses: SlotMap::new(),
             kv_set_response_futures: SlotMap::new(),
             kv_set_responses: SlotMap::new(),
         }
-    }
-
-    pub(crate) fn bytes_add(&mut self, bytes: Vec<u8>) -> BytesResourceKey {
-        self.bytes.insert(bytes).into()
-    }
-
-    pub(crate) fn bytes_get(&self, key: BytesResourceKey) -> Option<&Vec<u8>> {
-        self.bytes.get(key.into())
-    }
-
-    pub(crate) fn bytes_remove(&mut self, key: BytesResourceKey) -> Option<Vec<u8>> {
-        self.bytes.remove(key.into())
     }
 
     pub(crate) fn fetch_request_header_add(&mut self, header: FetchRequestHeader) -> FetchRequestHeaderResourceKey {
@@ -188,6 +176,36 @@ impl FunctionResources {
 
     pub(crate) fn kv_set_response_remove(&mut self, key: KvSetResponseKey) -> Option<Result<(), KvSetError>> {
         self.kv_set_responses.remove(key.into())
+    }
+}
+
+pub(crate) struct ResourceTable<K, V> {
+    map: SlotMap<slotmap::DefaultKey, V>,
+    _key: PhantomData<K>,
+}
+
+impl<K, V> ResourceTable<K, V> {
+    pub(crate) fn new() -> Self {
+        Self {
+            map: SlotMap::new(),
+            _key: PhantomData,
+        }
+    }
+
+    pub fn insert(&mut self, value: V) -> K where K: From<slotmap::DefaultKey> {
+        self.map.insert(value).into()
+    }
+
+    pub fn get(&self, key: K) -> Option<&V> where K: Into<slotmap::DefaultKey> {
+        self.map.get(key.into())
+    }
+
+    pub fn get_mut(&mut self, key: K) -> Option<&mut V> where K: Into<slotmap::DefaultKey> {
+        self.map.get_mut(key.into())
+    }
+
+    pub fn remove(&mut self, key: K) -> Option<V> where K: Into<slotmap::DefaultKey> {
+        self.map.remove(key.into())
     }
 }
 
