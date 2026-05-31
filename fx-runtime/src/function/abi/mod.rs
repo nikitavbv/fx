@@ -348,7 +348,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
-        Resource::UnitFuture(_) => panic!("unit future cannot be moved to function"),
         Resource::ResourceFuture(_) => panic!("resource future cannot be moved to function"),
         Resource::BlobGetResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
@@ -557,9 +556,9 @@ pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionIn
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+    caller.data_mut().resource_set.unit_futures.insert(async move {
         tokio::time::sleep(Duration::from_millis(sleep_millis)).await;
-    }.boxed())).as_u64()
+    }.boxed()).into()
 }
 
 pub(super) fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) {
@@ -610,7 +609,7 @@ pub(super) fn fx_blob_put_handler(
 
     let blob_tx = caller.data().blob_tx.clone();
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+    caller.data_mut().resource_set.unit_futures.insert(async move {
         let (result, result_rx) = oneshot::channel();
 
         blob_tx.send_async(BlobMessage::Put {
@@ -621,7 +620,7 @@ pub(super) fn fx_blob_put_handler(
         }).await.unwrap();
 
         result_rx.await.unwrap()
-    }.boxed())).as_u64()
+    }.boxed()).into()
 }
 
 pub(super) fn fx_blob_get_handler(
@@ -704,11 +703,11 @@ pub(super) fn fx_blob_delete_handler(
 
     let blob_tx = caller.data().blob_tx.clone();
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+    caller.data_mut().resource_set.unit_futures.insert(async move {
         let (result, result_rx) = oneshot::channel();
         blob_tx.send_async(BlobMessage::Delete { bucket, key, result }).await.unwrap();
         result_rx.await.unwrap();
-    }.boxed())).as_u64()
+    }.boxed()).into()
 }
 
 pub(super) fn fx_fetch_handler(
@@ -809,7 +808,6 @@ pub(super) fn fx_fetch_handler(
                     | Resource::SqlQueryResult(_)
                     | Resource::SqlBatchResult(_)
                     | Resource::SqlMigrationResult(_)
-                    | Resource::UnitFuture(_)
                     | Resource::ResourceFuture(_)
                     | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
                     Resource::HttpBody(body) => {
@@ -1081,14 +1079,14 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
     let kv_tx = caller.data_mut().kv_tx.clone();
     let (result_tx, result_rx) = oneshot::channel();
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+    caller.data_mut().resource_set.unit_futures.insert(async move {
         kv_tx.send_async(KvMessage {
             namespace,
             operation: KvOperation::Delex(KvDelexRequest { key, ifeq }, result_tx),
         }).await.unwrap();
 
         result_rx.await.unwrap()
-    }.boxed())).as_u64()
+    }.boxed()).into()
 }
 
 pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64 {
@@ -1153,9 +1151,7 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
         }, result_tx),
     }).unwrap();
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
-        result_rx.await.unwrap();
-    }.boxed())).as_u64()
+    caller.data_mut().resource_set.unit_futures.insert(async move { result_rx.await.unwrap(); }.boxed()).into()
 }
 
 pub(crate) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {

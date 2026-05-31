@@ -102,7 +102,6 @@ pub(crate) enum Resource {
     SqlMigrationResult(FutureResource<SerializableResource<Result<(), SqlMigrationError>>>),
     SqlQueryResult(FutureResource<SerializableResource<Result<Vec<SqlRow>, SqlQueryError>>>),
     SqlBatchResult(FutureResource<SerializableResource<Result<(), SqlBatchError>>>),
-    UnitFuture(BoxFuture<'static, ()>),
     ResourceFuture(SendWrapper<LocalBoxFuture<'static, Box<Resource>>>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     FetchResult(FetchResult),
@@ -117,6 +116,7 @@ pub(crate) struct FunctionResources {
     pub(crate) kv_get_responses: ResourceTable<KvGetResponseKey, KvGetResponse>,
     pub(crate) kv_set_response_futures: ResourceTable<KvSetResponseFutureResourceKey, BoxFuture<'static, Result<(), KvSetError>>>,
     pub(crate) kv_set_responses: ResourceTable<KvSetResponseKey, Result<(), KvSetError>>,
+    pub(crate) unit_futures: ResourceTable<UnitFutureResourceKey, BoxFuture<'static, ()>>,
 }
 
 impl FunctionResources {
@@ -205,3 +205,4 @@ key!(pub(crate) struct KvGetResponseKey);
 key!(pub(crate) struct FetchRequestHeaderResourceKey);
 key!(pub(crate) struct KvSetResponseFutureResourceKey);
 key!(pub(crate) struct KvSetResponseKey);
+key!(pub(crate) struct UnitFutureResourceKey);

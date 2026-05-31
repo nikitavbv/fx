@@ -254,15 +254,11 @@ impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
     }
 }
 
-pub(crate) struct HostUnitFuture {
-    resource_id: OwnedResourceId,
-}
+pub(crate) struct HostUnitFuture(u64);
 
 impl HostUnitFuture {
-    pub fn new(resource_id: OwnedResourceId) -> Self {
-        Self {
-            resource_id,
-        }
+    pub fn new(resource_id: u64) -> Self {
+        Self(resource_id)
     }
 }
 
