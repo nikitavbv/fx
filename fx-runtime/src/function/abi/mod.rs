@@ -365,6 +365,10 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
     0
 }
 
+pub(super) fn fx_sql_query_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    todo!()
+}
+
 // TODO: refactor below
 pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
@@ -372,10 +376,6 @@ pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, Fun
 
 pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
     let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
-        Resource::SqlQueryResult(req) => match req {
-            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => v.into_serialized(),
-        },
         Resource::SqlMigrationResult(req) => match req {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
@@ -454,9 +454,7 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     let binding = match caller.data().bindings_sql.get(binding) {
         Some(v) => v,
         None => {
-            return caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::Ready(SerializableResource::Raw(
-                Err(SqlQueryError::BindingNotFound)
-            )))).as_u64();
+            return caller.data_mut().resource_set.sql_query_result_futures.insert(std::future::ready(Err(SqlQueryError::BindingNotFound)).boxed()).into();
         }
     };
 
@@ -476,12 +474,12 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
         response: response_tx,
     })).unwrap();
 
-    caller.data_mut().resource_add(Resource::SqlQueryResult(FutureResource::for_future(async move {
-        SerializableResource::Raw(match response_rx.await {
+    caller.data_mut().resource_set.sql_query_result_futures.insert(async move {
+        match response_rx.await {
             Ok(v) => v.map_err(|v| v.into()),
             Err(_) => Err(SqlQueryError::RuntimeShutdown),
-        })
-    }))).as_u64()
+        }
+    }.boxed()).into()
 }
 
 pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
@@ -841,7 +839,6 @@ pub(super) fn fx_fetch_handler(
                 match caller.data_mut().resource_remove(&resource_id) {
                     Resource::BlobGetResult(_)
                     | Resource::FetchResult(_)
-                    | Resource::SqlQueryResult(_)
                     | Resource::SqlBatchResult(_)
                     | Resource::SqlMigrationResult(_)
                     | Resource::ResourceFuture(_)

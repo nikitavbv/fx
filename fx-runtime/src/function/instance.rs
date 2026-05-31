@@ -326,16 +326,6 @@ impl FunctionInstanceState {
     pub fn resource_serialize(&mut self, resource_id: &ResourceId) -> usize {
         let resource = self.resources.detach(resource_id.into()).unwrap();
         let (resource, serialized_size) = match resource {
-            Resource::SqlQueryResult(v) => {
-                let resource = match v {
-                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
-                    FutureResource::Ready(v) => v,
-                };
-
-                let serialized = resource.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (Resource::SqlQueryResult(FutureResource::Ready(serialized)), serialized_size)
-            },
             Resource::SqlMigrationResult(v) => {
                 let resource = match v {
                     FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
@@ -434,10 +424,6 @@ impl FunctionInstanceState {
 
         let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
         let (resource, poll_result) = match resource {
-            Resource::SqlQueryResult(mut v) => {
-                let poll_result = v.poll(&mut cx);
-                (Resource::SqlQueryResult(v), poll_result)
-            },
             Resource::SqlMigrationResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::SqlMigrationResult(v), poll_result)
@@ -555,7 +541,6 @@ impl FunctionInstanceState {
         let (resource, serialized_frame) = match resource {
             Resource::BlobGetResult(_)
             | Resource::FetchResult(_)
-            | Resource::SqlQueryResult(_)
             | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_)
             | Resource::ResourceFuture(_) => panic!("resource of this type does not support reading frames"),
