@@ -404,7 +404,11 @@ async fn fetch_with_header() {
     let result = client.get("/test/fetch/with-header").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
-    assert!(result.contains("X-Custom-Header"));
+
+    if !result.contains("X-Custom-Header") {
+        panic!("response body does not contain X-Custom-Header. full response body is {result:?}");
+    }
+
     assert!(result.contains("custom-value"));
 }
 

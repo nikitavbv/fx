@@ -239,6 +239,7 @@ unsafe extern "C" {
     pub(crate) fn fx_kv_get_response_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_get_response_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_set_response_future_poll(resource_id: u64, result_addr: u64) -> u64;
+    pub(crate) fn fx_kv_set_response_serialize(resource_id: u64, result_addr: u64) -> u64;
 }
 
 #[derive(Debug)]

@@ -185,6 +185,10 @@ impl FunctionResources {
     pub(crate) fn kv_set_response_add(&mut self, response: Result<(), KvSetError>) -> KvSetResponseKey {
         self.kv_set_responses.insert(response).into()
     }
+
+    pub(crate) fn kv_set_response_remove(&mut self, key: KvSetResponseKey) -> Option<Result<(), KvSetError>> {
+        self.kv_set_responses.remove(key.into())
+    }
 }
 
 macro_rules! key {

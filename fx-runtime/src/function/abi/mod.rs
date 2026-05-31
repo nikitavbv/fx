@@ -20,7 +20,12 @@ use {
     rand::TryRngCore,
     send_wrapper::SendWrapper,
     zerocopy::IntoBytes,
-    fx_types::abi::{ResourceMoveFromHostResult, KvGetResponseFuturePollResult, KvSetResponseFuturePollResult},
+    fx_types::abi::{
+        ResourceMoveFromHostResult,
+        KvGetResponseFuturePollResult,
+        KvSetResponseFuturePollResult,
+        KvSetResponseSerializeResult,
+    },
     crate::{
         function::instance::FunctionInstanceState,
         resources::{
@@ -37,7 +42,7 @@ use {
             blob::BlobGetResponse,
             fetch::{FetchResult, FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest},
+            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -284,6 +289,35 @@ pub(super) fn fx_kv_set_response_future_poll(mut caller: wasmtime::Caller<'_, Fu
             _pad: Default::default(),
             kv_set_response_resource_id: kv_set_response_resource_id.into(),
         },
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
+}
+
+pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let kv_set_response = caller.data_mut().resource_set.kv_set_response_remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+    let response = message.init_root::<abi_kv_capnp::kv_set_response::Builder>();
+    let mut response = response.init_response();
+
+    match kv_set_response {
+        Ok(v) => response.set_ok(v),
+        Err(KvSetError::AlreadyExists) => response.set_already_exists(()),
+    }
+
+    let bytes = capnp::serialize::write_message_segments_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes_add(bytes);
+    let result = KvSetResponseSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
     };
     let result = result.as_bytes();
 
@@ -926,7 +960,7 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 
     let req = KvSetRequest::new(key, value);
 
-    caller.data_mut().resource_add(Resource::UnitFuture(async move {
+    caller.data_mut().resource_set.kv_set_response_futures_add(async move {
         let (on_done, on_done_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -935,7 +969,9 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
         }).await.unwrap();
 
         on_done_rx.await.unwrap().unwrap();
-    }.boxed())).as_u64()
+
+        Ok(())
+    }.boxed()).into()
 }
 
 pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64, nx: u32, px: i64) -> u64 {
@@ -1002,7 +1038,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 
     let kv_tx = caller.data_mut().kv_tx.clone();
 
-    caller.data_mut().resource_set.kv_get_response_futures_add(async move {
+    let result = caller.data_mut().resource_set.kv_get_response_futures_add(async move {
         let (result_tx, result_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -1014,7 +1050,11 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
             None => KvGetResponse::KeyNotFound,
             Some(v) => KvGetResponse::Ok(v),
         }
-    }.boxed()).into()
+    }.boxed()).into();
+
+    println!("added future for kv_get: {result:?}");
+
+    result
 }
 
 pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, ifeq_addr: u64, ifeq_len: u64) -> u64 {

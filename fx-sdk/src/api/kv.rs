@@ -8,6 +8,7 @@ use {
             KvGetResponseFuturePollResult,
             KvGetResponseSerializeResult,
             KvSetResponseFuturePollResult,
+            KvSetResponseSerializeResult,
         },
         capnp,
         abi_kv_capnp,
@@ -30,6 +31,7 @@ use {
         fx_kv_get_response_serialize,
         fx_bytes_move,
         fx_kv_set_response_future_poll,
+        fx_kv_set_response_serialize,
     },
 };
 
@@ -63,7 +65,7 @@ impl Kv {
         let (key_ptr, key_len) = key.as_key();
         let (value_ptr, value_len) = value.as_value();
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_set_nx_px(
+        match KvSetResponseFuture::new(unsafe { fx_kv_set_nx_px(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
@@ -72,9 +74,7 @@ impl Kv {
             value_len,
             if nx { 1 } else { 0 },
             px.map(|v| v.as_millis() as i64).unwrap_or(-1)
-        ) });
-
-        match FutureHostResource::<KvSetResponse>::new(resource_id).await {
+        )}.into()).await {
             KvSetResponse::Ok => Ok(()),
             KvSetResponse::AlreadyExists => Err(KvSetNxPxError::AlreadyExists),
         }
@@ -258,7 +258,7 @@ impl KvGetResponseFuture {
 impl Future for KvGetResponseFuture {
     type Output = KvGetResponse;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<KvGetResponseFuturePollResult>::zeroed();
         assert!(unsafe { fx_kv_get_response_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
 
@@ -320,7 +320,20 @@ impl Future for KvSetResponseFuture {
         match result.tag {
             1 => std::task::Poll::Pending,
             0 => std::task::Poll::Ready({
-                todo!()
+                let mut serialization_result = std::mem::MaybeUninit::<KvSetResponseSerializeResult>::zeroed();
+                assert!(unsafe { fx_kv_set_response_serialize(result.kv_set_response_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                let mut result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+
+                let resource = resource_reader.get_root::<abi_kv_capnp::kv_set_response::Reader>().unwrap();
+                match resource.get_response().which().unwrap() {
+                    abi_kv_capnp::kv_set_response::response::Which::Ok(_) => KvSetResponse::Ok,
+                    abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => KvSetResponse::AlreadyExists,
+                }
             }),
             other => todo!(),
         }
@@ -330,17 +343,6 @@ impl Future for KvSetResponseFuture {
 enum KvSetResponse {
     Ok,
     AlreadyExists,
-}
-
-impl DeserializeHostResource for KvSetResponse {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let resource = resource_reader.get_root::<abi_kv_capnp::kv_set_response::Reader>().unwrap();
-        match resource.get_response().which().unwrap() {
-            abi_kv_capnp::kv_set_response::response::Which::Ok(_) => KvSetResponse::Ok,
-            abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => KvSetResponse::AlreadyExists,
-        }
-    }
 }
 
 enum KvGetResponse {
