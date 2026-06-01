@@ -26,6 +26,8 @@ use {
         KvSetResponseFuturePollResult,
         KvSetResponseSerializeResult,
         UnitFuturePollResult,
+        SqlQueryResultFuturePollResult,
+        SqlQueryResultSerializeResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -40,6 +42,7 @@ use {
                 KvGetResponseFutureResourceKey,
                 KvSetResponseFutureResourceKey,
                 UnitFutureResourceKey,
+                SqlQueryResultFutureResourceKey,
             },
         },
         effects::{
@@ -366,7 +369,93 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
 }
 
 pub(super) fn fx_sql_query_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    todo!()
+    let result = {
+        let key: SqlQueryResultFutureResourceKey = resource_id.into();
+        let function_state = caller.data_mut();
+
+        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
+        let future = function_state.resource_set.sql_query_result_futures.get_mut(key.clone()).unwrap();
+        match future.poll_unpin(&mut cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(result) => {
+                let _ = function_state.resource_set.sql_query_result_futures.remove(key).unwrap();
+                Poll::Ready(function_state.resource_set.sql_query_results.insert(result))
+            }
+        }
+    };
+
+    let result = match result {
+        Poll::Pending => SqlQueryResultFuturePollResult {
+            tag: 1,
+            _pad: Default::default(),
+            sql_query_result_resource_id: 0,
+        },
+        Poll::Ready(sql_query_result_resource_id) =>  SqlQueryResultFuturePollResult {
+            tag: 0,
+            _pad: Default::default(),
+            sql_query_result_resource_id: sql_query_result_resource_id.into(),
+        },
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
+}
+
+pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let sql_query_result = caller.data_mut().resource_set.sql_query_results.remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+    let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
+    let sql_exec_response = sql_exec_response.init_result();
+
+    match sql_query_result {
+        Ok(rows) => {
+            let mut response_rows = sql_exec_response.init_rows(rows.len() as u32);
+            for (index, result_row) in rows.into_iter().enumerate() {
+                let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
+                for (column_index, value) in result_row.columns.into_iter().enumerate() {
+                    let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
+                    match value {
+                        SqlValue::Null => response_value.set_null(()),
+                        SqlValue::Integer(v) => response_value.set_integer(v),
+                        SqlValue::Real(v) => response_value.set_real(v),
+                        SqlValue::Text(v) => response_value.set_text(v),
+                        SqlValue::Blob(v) => response_value.set_blob(&v),
+                    }
+                }
+            }
+        },
+        Err(err) => {
+            let mut response_error = sql_exec_response.init_error().init_error();
+            match err {
+                SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
+                SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
+                SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
+            }
+        }
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+    let result = SqlQueryResultSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
 }
 
 // TODO: refactor below

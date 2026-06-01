@@ -55,3 +55,18 @@ pub struct KvSetResponseSerializeResult {
 pub struct UnitFuturePollResult {
     pub tag: u8, // 0 - ready, 1 - pending
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct SqlQueryResultFuturePollResult {
+    pub tag: u8, // 0 - ready, 1 - pending
+    pub _pad: [u8; 7],
+    pub sql_query_result_resource_id: u64,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct SqlQueryResultSerializeResult {
+    pub bytes_resource_id: u64,
+    pub bytes_length: u64,
+}
