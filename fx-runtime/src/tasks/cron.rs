@@ -154,7 +154,8 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
             }).await.unwrap();
 
             let iteration_delay = Instant::now() - iteration_start_time;
-            let result = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
+
+            let request_future = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
                 http::Request::builder()
                     .method(http::Method::GET)
                     .uri(task.endpoint.as_deref().unwrap_or("/_fx/cron"))
@@ -162,11 +163,28 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
                     .unwrap()
                     .into_parts()
                     .0
-            })).await;
+            }));
+            let timeout_future = tokio::time::sleep(Duration::from_secs(60));
+
+            let is_ok = tokio::select! {
+                result = request_future => match result {
+                    Ok(_) => true,
+                    Err(err) => {
+                        error!("failed to run function when executing cron task: {err:?}");
+                        false
+                    },
+                },
+                _ = timeout_future => {
+                    error!("timeout while executing cron task: {:?}", task.task_id);
+                    false
+                },
+            };
 
             let run_at = Utc::now();
 
-            database.update_run_time(&task.task_id, run_at);
+            if is_ok {
+                database.update_run_time(&task.task_id, run_at);
+            }
 
             cron_events.send_async(CronTaskEvent::Run {
                 name: task.name.clone(),
@@ -178,11 +196,12 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
 
             running_tasks.borrow_mut().remove(&task.task_id);
 
-            if let Err(err) = result {
-                error!("failed to run function when executing cron task: {err:?}");
+            if is_ok {
+                task_next_run
+            } else {
+                // if failed, try to re-run immediately
+                Utc::now()
             }
-
-            task_next_run
         }.boxed_local());
     }
 
