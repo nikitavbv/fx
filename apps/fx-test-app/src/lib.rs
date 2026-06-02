@@ -89,6 +89,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/unknown-import", get(test_unknown_import))
             .route("/test/cron", get(read_cron_status))
             .route("/test/cron/custom-endpoint", get(read_cron_custom_endpoint_status))
+            .route("/test/cron/timeout-read-state", get(read_cron_timeout_status))
             .route("/test/rpc/simple", get(rpc_simple))
             .route("/test/stream/sse", get(test_stream_sse))
             .route("/test/env/simple", get(env_simple))
@@ -104,6 +105,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/_fx/cron", get(handle_cron))
             .route("/_fx/cron/custom-endpoint-for-task", get(handle_cron_custom_endpoint_for_task))
             .route("/_fx/cron/slow", get(handle_cron_slow))
+            .route("/_fx/cron/timeout", get(handle_cron_timeout))
             .route("/", get(home))
             .layer(Extension(Metrics::new())),
         req
@@ -547,6 +549,26 @@ async fn handle_cron_slow() -> &'static str {
     "slow cron done"
 }
 
+async fn handle_cron_timeout() -> &'static str {
+    sleep(Duration::from_secs(2)).await;
+
+    // timeout should stop function execution before sleep is done.
+
+    let database = cron_database().await;
+    database.exec(SqlQuery::new("insert into test_cron_timeout_state (v) values (1)")).await.unwrap();
+
+    "this should never be reached.\n"
+}
+
+async fn read_cron_timeout_status() -> String {
+    let database = cron_database().await;
+    match database.exec(SqlQuery::new("select sum(v) from test_cron_timeout_state")).await.unwrap().into_rows()[0].columns.get(0).unwrap() {
+        SqlValue::Integer(v) => v.to_string(),
+        SqlValue::Null => "0".to_owned(),
+        other => panic!("expected sum to be an integer, got: {other:?}"),
+    }
+}
+
 async fn handle_cron_custom_endpoint_for_task() -> String {
     let database = cron_database().await;
     database.exec(SqlQuery::new("insert into test_cron_custom_endpoint_state (v) values (1)")).await.unwrap();
@@ -583,6 +605,7 @@ async fn cron_database() -> SqlDatabase {
     Migrations::new()
         .with_migration(Migration::new("create table test_cron_state (v integer not null)"))
         .with_migration(Migration::new("create table test_cron_custom_endpoint_state (v integer not null)"))
+        .with_migration(Migration::new("create table test_cron_timeout_state (v integer not null)"))
         .run(&database)
         .await
         .unwrap();

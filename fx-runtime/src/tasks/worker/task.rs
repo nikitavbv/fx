@@ -205,7 +205,7 @@ async fn worker_handle_message(
                 on_ready.send(()).unwrap();
             }
         },
-        WorkerMessage::FunctionInvoke { function_id, header, response_tx } => {
+        WorkerMessage::FunctionInvoke { function_id, header, mut response_tx } => {
             let deployment = match world.functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
                 None => {
@@ -218,13 +218,21 @@ async fn worker_handle_message(
 
             let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
-                response_tx.send(
-                    function_future.await
-                        .map(|_| ())
-                        .map_err(|err| match err {
-                            FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionInvokeError::FunctionPanicked,
-                        })
-                ).unwrap();
+                tokio::select! {
+                    result = function_future => {
+                        // ignore result here because error means that request was cancelled (by timeout or client disconnecting), so we can discard the result
+                        let _result = response_tx.send(
+                            result
+                                .map(|_| ())
+                                .map_err(|err| match err {
+                                    FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionInvokeError::FunctionPanicked,
+                                })
+                        );
+                    },
+                    _ = response_tx.closed() => {
+                        // receiver dropped (timeout or disconnect) - can discard the result and cancel function invocation task
+                    }
+                }
             });
         },
     }

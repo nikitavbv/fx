@@ -43,6 +43,7 @@ struct CronTask {
     function_id: FunctionId,
     schedule: cron::Schedule,
     endpoint: Option<String>,
+    timeout: Option<Duration>,
 }
 
 pub(crate) fn run_cron_task(
@@ -104,6 +105,7 @@ pub(crate) fn run_cron_task(
                                 function_id: function_id.clone(),
                                 schedule: trigger.schedule,
                                 endpoint: trigger.endpoint,
+                                timeout: trigger.timeout,
                             }).chain(tasks.into_iter()).collect();
                         },
                     }
@@ -164,7 +166,7 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
                     .into_parts()
                     .0
             }));
-            let timeout_future = tokio::time::sleep(Duration::from_secs(60));
+            let timeout_future = tokio::time::sleep(task.timeout.unwrap_or(Duration::from_secs(60)));
 
             let is_ok = tokio::select! {
                 result = request_future => match result {

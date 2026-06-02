@@ -297,6 +297,7 @@ impl DefinitionsMonitor {
                 name: v.id.clone(),
                 schedule: cron::Schedule::from_str(&v.schedule).unwrap(),
                 endpoint: v.endpoint.clone(),
+                timeout: v.timeout_ms.map(Duration::from_millis),
             })
             .collect::<Vec<_>>();
 

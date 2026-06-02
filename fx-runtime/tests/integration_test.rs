@@ -699,6 +699,29 @@ async fn cron_custom_endpoint() {
 }
 
 #[tokio::test]
+async fn cron_timeout() {
+    let client = init_fx_server().await;
+
+    // job with timeout should always timeout and never reach state when it increases counter in database
+    for _ in 0..5 {
+        assert_eq!(
+            client.get("/test/cron/timeout-read-state")
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+                .parse::<u64>()
+                .unwrap(),
+            0
+        );
+
+        sleep(Duration::from_secs(1)).await;
+    }
+}
+
+#[tokio::test]
 async fn rpc_simple() {
     let client = init_fx_server().await;
 
@@ -1045,6 +1068,11 @@ async fn init_fx_server() -> TestClient {
                             .with_trigger_http(None)
                             .with_trigger_cron("test-cron-job".to_owned(), "* * * * * *".to_owned())
                             .with_trigger_cron_config(FunctionCronTriggerConfig::new("test-cron-job-custom-endpoint".to_owned(),  "* * * * * *".to_owned()).with_endpoint("/_fx/cron/custom-endpoint-for-task"))
+                            .with_trigger_cron_config(
+                                FunctionCronTriggerConfig::new("test-cron-timeout".to_owned(), "* * * * * *".to_owned())
+                                    .with_endpoint("/_fx/cron/timeout")
+                                    .with_timeout(Duration::from_millis(500))
+                            )
                             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
                             .with_binding_blob("test-blob".to_owned(), "test-blob-bucket".to_owned())
                             .with_binding_sql_config(

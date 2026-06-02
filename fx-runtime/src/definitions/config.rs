@@ -1,5 +1,5 @@
 use {
-    std::{path::PathBuf, sync::Arc},
+    std::{path::PathBuf, sync::Arc, time::Duration},
     serde::Deserialize,
     thiserror::Error,
     tokio::{io, fs},
@@ -307,6 +307,7 @@ pub struct FunctionCronTriggerConfig {
     pub id: String,
     pub schedule: String,
     pub endpoint: Option<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 impl FunctionCronTriggerConfig {
@@ -315,11 +316,17 @@ impl FunctionCronTriggerConfig {
             id,
             schedule,
             endpoint: None,
+            timeout_ms: None,
         }
     }
 
     pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
         self.endpoint = Some(endpoint.into());
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout_ms = Some(timeout.as_millis() as u64);
         self
     }
 }
