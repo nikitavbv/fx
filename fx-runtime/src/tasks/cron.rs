@@ -202,7 +202,7 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
                 task_next_run
             } else {
                 // if failed, try to re-run immediately
-                Utc::now()
+                Utc::now() + Duration::from_secs(1) // add some minimal delay to avoid running panicking function in a loop without stopping
             }
         }.boxed_local());
     }
