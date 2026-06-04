@@ -1,5 +1,6 @@
 use {
     std::{collections::HashMap, path::PathBuf},
+    tracing::debug,
     tokio::sync::oneshot,
     thiserror::Error,
     crate::{
@@ -247,6 +248,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlConnectionInitError::DatabaseBusy => {
+                            debug!("database busy when getting connection to run migration");
                             msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy)).unwrap();
                             continue;
                         }
@@ -265,7 +267,10 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Err(err) => match err {
                         rusqlite_migration::Error::RusqliteError { query: _, err } => match err {
                             rusqlite::Error::SqliteFailure(error, message) => match error.code {
-                                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked => Err(SqlTaskMigrationError::DatabaseBusy),
+                                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked => {
+                                    debug!("database busy when running migration");
+                                    Err(SqlTaskMigrationError::DatabaseBusy)
+                                },
                                 rusqlite::ErrorCode::Unknown => Err(SqlTaskMigrationError::MigrationExecutionError {
                                     message: message.unwrap(),
                                 }),
