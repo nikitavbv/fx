@@ -139,7 +139,6 @@ impl FunctionInstance {
     }
 
     pub(crate) async fn future_poll(&self, future_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, FunctionFuturePollError> {
-        debug!("host: future_poll - enter");
         let mut store = self.store.lock().await;
         store.data_mut().waker = Some(waker);
         let future_poll_result = self.fn_future_poll.call_async(store.as_context_mut(), future_id.as_u64()).await;
@@ -154,15 +153,11 @@ impl FunctionInstance {
             }
         })?;
 
-        let result = Ok(match FuturePollResult::try_from(future_poll_result).unwrap() {
+        Ok(match FuturePollResult::try_from(future_poll_result).unwrap() {
             FuturePollResult::Pending => Poll::Pending,
             FuturePollResult::Ready => Poll::Ready(()),
             FuturePollResult::NotFound => todo!(),
-        });
-
-        debug!("host: future_poll - exit, result: {result:?}");
-
-        result
+        })
     }
 
     async fn resource_serialize(&self, resource_id: &FunctionResourceId) -> u64 {

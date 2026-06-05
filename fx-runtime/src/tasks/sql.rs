@@ -128,6 +128,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 
         match msg {
             SqlMessage::Exec(msg) => {
+                debug!(database=binding.connection_id, "running sql exec");
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
@@ -191,9 +192,11 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     result_rows.push(SqlRow { columns: row_columns });
                 };
 
+                debug!(database=binding.connection_id, "running sql exec - done");
                 msg.response.send(response_message).unwrap();
             },
             SqlMessage::Batch(msg) => {
+                debug!(database=binding.connection_id, "running sql batch");
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
@@ -241,6 +244,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         }
                     }));
 
+                debug!(database=binding.connection_id, "running sql batch - done.");
                 msg.response.send(response).unwrap();
             },
             SqlMessage::Migrate(msg) => {
