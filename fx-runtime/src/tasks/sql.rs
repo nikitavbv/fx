@@ -86,6 +86,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
             SqlMessage::Batch(v) => &v.binding,
             SqlMessage::Migrate(v) => &v.binding,
         };
+        let connection_id = binding.connection_id.clone();
 
         let connection = match connections.entry(binding.connection_id.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
@@ -128,7 +129,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 
         match msg {
             SqlMessage::Exec(msg) => {
-                debug!(database=binding.connection_id, "running sql exec");
+                debug!(database=connection_id, "running sql exec");
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
@@ -192,11 +193,11 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     result_rows.push(SqlRow { columns: row_columns });
                 };
 
-                debug!(database=binding.connection_id, "running sql exec - done");
+                debug!(database=connection_id, "running sql exec - done");
                 msg.response.send(response_message).unwrap();
             },
             SqlMessage::Batch(msg) => {
-                debug!(database=binding.connection_id, "running sql batch");
+                debug!(database=connection_id, "running sql batch");
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
@@ -244,7 +245,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         }
                     }));
 
-                debug!(database=binding.connection_id, "running sql batch - done.");
+                debug!(database=connection_id, "running sql batch - done.");
                 msg.response.send(response).unwrap();
             },
             SqlMessage::Migrate(msg) => {
