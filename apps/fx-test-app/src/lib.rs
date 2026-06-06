@@ -449,7 +449,7 @@ async fn test_fetch_post() -> impl IntoResponse {
         }
     }
 
-    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/post failed with serveral retries.").into_response()
+    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/post failed with several retries.").into_response()
 }
 
 async fn test_fetch_json() -> HttpBody {
@@ -477,12 +477,21 @@ async fn test_fetch_with_header() -> HttpBody {
     ).await.unwrap().into_body()
 }
 
-async fn test_fetch_body_read_all() -> String {
-    let response = fetch(
-        HttpRequest::get("https://httpbin.org/get").unwrap()
-    ).await.unwrap();
+async fn test_fetch_body_read_all() -> impl IntoResponse {
+    for _ in 0..3 {
+        match fetch(
+            HttpRequest::get("https://httpbin.org/get").unwrap()
+        ).await {
+            Ok(v) => return String::from_utf8(v.into_body().read_all().await.unwrap()).unwrap().into_response(),
+            Err(FetchError::ResponseTimeout) => {
+                sleep(Duration::from_secs(1)).await;
+                continue;
+            },
+            Err(other) => panic!("unexpected error: {other:?}"),
+        }
+    }
 
-    String::from_utf8(response.into_body().read_all().await.unwrap()).unwrap()
+    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/get failed with several retries.").into_response()
 }
 
 async fn test_fetch_timeout() -> &'static str {
