@@ -1,6 +1,7 @@
 use {
     std::{fs, sync::{Arc, OnceLock}, time::Instant},
     once_cell::sync::Lazy,
+    tracing_subscriber::FmtSubscriber,
     tokio::{join, time::{sleep, Duration}},
     futures::{StreamExt, stream::FuturesUnordered, FutureExt},
     fx_runtime::{
@@ -1034,6 +1035,10 @@ async fn init_fx_server() -> TestClient {
     static TEST_SERVER: OnceLock<TestServer> = OnceLock::new();
 
     let test_server = TEST_SERVER.get_or_init(|| {
+        FmtSubscriber::builder()
+            .with_env_filter("fx_runtime=debug,info")
+            .init();
+
         let test_port: u16 = 8080;
         let introspection_port: u16 = 9000;
 
