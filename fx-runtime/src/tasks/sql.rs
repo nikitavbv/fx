@@ -95,10 +95,8 @@ pub(crate) fn run_sql_task(worker_index: u64, total_workers: u64, databases_path
                 debug!(database=connection_id, "creating new connection");
                 let connection = match &binding.location {
                     SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
-                        format!("file:{v}"),
+                        format!("file:/{v}?vfs=memdb"), // slash in front is needed to make this database shared between threads!
                         rusqlite::OpenFlags::default()
-                            .union(rusqlite::OpenFlags::SQLITE_OPEN_MEMORY)
-                            .union(rusqlite::OpenFlags::SQLITE_OPEN_SHARED_CACHE)
                     ).unwrap(),
                     SqlBindingConfigLocation::DatabaseId(database_id) => {
                         let mut database_path = databases_path.join(database_id);
