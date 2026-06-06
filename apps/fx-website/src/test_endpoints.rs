@@ -40,6 +40,21 @@ pub(crate) mod post {
     }
 }
 
+pub(crate) mod headers {
+    use super::*;
+
+    #[derive(Serialize)]
+    pub(crate) struct Response {
+        headers: HashMap<String, String>,
+    }
+
+    pub(crate) async fn handler(headers: HeaderMap) -> Json<Response> {
+        Json(Response {
+            headers: headers_into_map(headers),
+        })
+    }
+}
+
 fn headers_into_map(headers: HeaderMap) -> HashMap<String, String> {
     headers.into_iter()
         .filter_map(|(header_name, header_value)| header_name.map(|header_name| {

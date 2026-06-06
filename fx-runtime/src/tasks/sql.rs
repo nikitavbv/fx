@@ -91,6 +91,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
         let connection = match connections.entry(binding.connection_id.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
             std::collections::hash_map::Entry::Vacant(entry) => {
+                debug!(database=connection_id, "creating new connection");
                 let connection = match &binding.location {
                     SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
                         format!("file:{v}"),
@@ -104,10 +105,11 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         rusqlite::Connection::open(database_path).unwrap()
                     },
                 };
+                debug!(database=connection_id, "created connection");
                 if let Some(busy_timeout) = binding.busy_timeout {
                     connection.busy_timeout(busy_timeout).unwrap();
                 }
-                if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
+                let result = if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
                     if is_database_busy_error(&err) {
                         Err(SqlConnectionInitError::DatabaseBusy)
                     } else {
@@ -123,7 +125,9 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     } else {
                         Ok(entry.insert(connection))
                     }
-                }
+                };
+                debug!(database=connection_id, "connection setup finished");
+                result
             }
         };
 
@@ -249,6 +253,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 msg.response.send(response).unwrap();
             },
             SqlMessage::Migrate(msg) => {
+                debug!(database=connection_id, "running migration");
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {
@@ -290,6 +295,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     }
                 };
 
+                debug!(database=connection_id, "running migration - done.");
                 msg.response.send(response).unwrap();
             },
         }

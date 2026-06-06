@@ -419,55 +419,20 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
 }
 
 async fn test_fetch() -> impl IntoResponse {
-    for _ in 0..3 {
-        match fetch(
-            HttpRequest::get("https://httpbin.org/get").unwrap()
-        ).await {
-            Ok(v) => return v.into_body().into_response(),
-            Err(FetchError::ResponseTimeout) => {
-                sleep(Duration::from_secs(1)).await;
-                continue;
-            },
-            Err(other) => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/post failed with serveral retries.").into_response()
+    fetch(HttpRequest::get("https://fxruntime.com/test/get").unwrap()).await.unwrap().into_body().into_response()
 }
 
 async fn test_fetch_post() -> impl IntoResponse {
-    for _ in 0..3 {
-        match fetch(
-            HttpRequest::post("https://httpbin.org/post").unwrap().with_body("test fx request body")
-        ).await {
-            Ok(v) => return v.into_body().into_response(),
-            Err(FetchError::ResponseTimeout) => {
-                sleep(Duration::from_secs(1)).await;
-                continue;
-            },
-            Err(other) => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/post failed with several retries.").into_response()
+    fetch(
+        HttpRequest::post("https://fxruntime.com/test/post").unwrap().with_body("test fx request body")
+    ).await.unwrap().into_body().into_response()
 }
 
 async fn test_fetch_json() -> impl IntoResponse {
-    for _ in 0..3 {
-        match fetch(
-            HttpRequest::post("https://httpbin.org/post").unwrap()
-                .with_json(&serde_json::json!({"key": "value"}))
-        ).await {
-            Ok(v) => return v.into_body().into_response(),
-            Err(FetchError::ResponseTimeout) => {
-                sleep(Duration::from_secs(1)).await;
-                continue;
-            },
-            Err(other) => panic!("unexpected error: {other:?}"),
-        }
-    }
-
-    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/post failed with several retries.").into_response()
+    fetch(
+        HttpRequest::post("https://httpbin.org/post").unwrap()
+            .with_json(&serde_json::json!({"key": "value"}))
+    ).await.unwrap().into_body().into_response()
 }
 
 async fn test_fetch_query() -> HttpBody {
@@ -487,20 +452,11 @@ async fn test_fetch_with_header() -> HttpBody {
 }
 
 async fn test_fetch_body_read_all() -> impl IntoResponse {
-    for _ in 0..3 {
-        match fetch(
-            HttpRequest::get("https://httpbin.org/get").unwrap()
-        ).await {
-            Ok(v) => return String::from_utf8(v.into_body().read_all().await.unwrap()).unwrap().into_response(),
-            Err(FetchError::ResponseTimeout) => {
-                sleep(Duration::from_secs(1)).await;
-                continue;
-            },
-            Err(other) => panic!("unexpected error: {other:?}"),
-        }
-    }
+    let response = fetch(
+        HttpRequest::get("https://fxruntime.com/test/get").unwrap()
+    ).await.unwrap();
 
-    (StatusCode::INTERNAL_SERVER_ERROR, "requests to httpbin.org/get failed with several retries.").into_response()
+    String::from_utf8(response.into_body().read_all().await.unwrap()).unwrap().into_response()
 }
 
 async fn test_fetch_timeout() -> &'static str {
