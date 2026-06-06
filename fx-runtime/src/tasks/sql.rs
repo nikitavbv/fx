@@ -71,7 +71,7 @@ pub(crate) enum SqlTaskBatchError {
     StatementFailed { reason: String },
 }
 
-pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>) {
+pub(crate) fn run_sql_task(worker_index: u64, total_workers: u64, databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>) {
     use rusqlite::types::ValueRef;
 
     let mut connections = HashMap::<String, rusqlite::Connection>::new();
@@ -87,6 +87,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
             SqlMessage::Migrate(v) => &v.binding,
         };
         let connection_id = binding.connection_id.clone();
+        let busy_timeout = binding.busy_timeout.clone();
 
         let connection = match connections.entry(binding.connection_id.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
@@ -253,7 +254,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 msg.response.send(response).unwrap();
             },
             SqlMessage::Migrate(msg) => {
-                debug!(database=connection_id, "running migration");
+                debug!(database=connection_id, "running migration, busy timeout: {busy_timeout:?}");
                 let connection = match connection {
                     Ok(v) => v,
                     Err(err) => match err {

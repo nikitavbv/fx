@@ -355,7 +355,8 @@ async fn fetch() {
     let status = result.status();
 
     assert!(status.is_success(), "expected status = 200, got: {status:?}");
-    assert!(result.text().await.unwrap().contains("httpbin.org/get"));
+    let response = result.text().await.unwrap();
+    assert!(response.contains("fxruntime.com/test/get"), "response does not contain url: {response:?}");
 }
 
 #[tokio::test]
@@ -421,7 +422,7 @@ async fn fetch_body_read_all() {
     let result = client.get("/test/fetch/body-read-all").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
-    assert!(result.contains("\"url\": \"https://httpbin.org/get\""));
+    assert!(result.contains("\"url\": \"https://fxruntime.com/test/get\""));
 }
 
 #[tokio::test]
@@ -1084,7 +1085,7 @@ async fn init_fx_server() -> TestClient {
                                 SqlBindingConfig::new("app".to_owned(), "app".to_owned(), true)
                                     .with_busy_timeout_ms(100) // needed to prevent DATABASE_BUSY in some tests sometimes (without it, if database is used by other request it will fail instantly)
                             )
-                            .with_binding_sql_config(SqlBindingConfig::new("cron-test".to_owned(), "cron-test".to_owned(), true))
+                            .with_binding_sql_config(SqlBindingConfig::new("cron-test".to_owned(), "cron-test".to_owned(), true).with_busy_timeout_ms(100))
                             .with_binding_sql_config(
                                 SqlBindingConfig::new("contention-test".to_owned(), "contention".to_owned(), false)
                                     .with_busy_timeout_ms(10)
