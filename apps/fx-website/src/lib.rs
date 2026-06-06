@@ -21,7 +21,8 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
             .route("/", get(index))
             .route("/docs/runtime", get(docs_runtime_index))
             .route("/docs/runtime/{*path}", get(docs_runtime))
-            .route("/test/post", post(test_endpoints::post)),
+            .route("/test/get", get(test_endpoints::get::handler))
+            .route("/test/post", post(test_endpoints::post::handler)),
         req,
     ).await
 }
