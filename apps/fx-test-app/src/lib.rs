@@ -43,7 +43,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
         req.with_uri("http://localhost:8080/test/http/uri-overwritten".parse().unwrap())
     } else if req.uri().path().starts_with("/test/fetch/body-passthrough") {
         let body = req.body().unwrap();
-        return fetch(req.with_uri("https://httpbin.org/post".parse().unwrap()).with_body(body).without_header(&axum::http::header::HOST)).await.unwrap();
+        return fetch(req.with_uri("https://fxruntime.com/test/post".parse().unwrap()).with_body(body).without_header(&axum::http::header::HOST)).await.unwrap();
     } else {
         req
     };
@@ -437,7 +437,7 @@ async fn test_fetch_json() -> impl IntoResponse {
 
 async fn test_fetch_query() -> HttpBody {
     let response = fetch(
-        HttpRequest::get("https://httpbin.org/get").unwrap()
+        HttpRequest::get("https://fxruntime.com/test/get").unwrap()
             .with_query(&[("param1", "value1"), ("param2", "value2")])
     ).await.unwrap();
 
@@ -446,7 +446,7 @@ async fn test_fetch_query() -> HttpBody {
 
 async fn test_fetch_with_header() -> HttpBody {
     fetch(
-        HttpRequest::get("https://httpbin.org/headers").unwrap()
+        HttpRequest::get("https://fxruntime.com/test/headers").unwrap()
             .with_header("x-custom-header".parse().unwrap(), "custom-value".parse().unwrap())
     ).await.unwrap().into_body()
 }

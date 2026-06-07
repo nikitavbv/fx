@@ -10,5 +10,6 @@ crate-type = ["cdylib", "lib"]
 axum = { version = "0.8.4", default-features = false, features = ["json"] }
 include_dir = "0.7.4"
 serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
 
 fx-sdk = { path = "../../fx-sdk" }

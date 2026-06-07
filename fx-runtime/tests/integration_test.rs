@@ -101,7 +101,7 @@ async fn fetch_json() {
     let status = response.status();
     assert!(status.is_success(), "expected status code = 200, got: {status:?}");
     let text = response.text().await.unwrap();
-    assert!(text.contains(r#""Content-Type": "application/json""#), "httpbin response should show application/json content-type");
+    assert!(text.contains(r#""Content-Type": "application/json""#), "httpbin response should show application/json content-type, response body = {text:?}");
     assert!(text.contains(r#""key": "value""#), "httpbin response should contain the json payload");
 }
 
@@ -368,7 +368,7 @@ async fn fetch_post() {
 
     assert!(status.is_success(), "expected status = 200, got: {status:?}");
     let result = result.text().await.unwrap();
-    assert!(result.contains("httpbin.org/post"));
+    assert!(result.contains("fxruntime.com/test/post"), "expected result to contain url: {result:?}");
     assert!(result.contains("test fx request body"));
 }
 
@@ -385,7 +385,7 @@ async fn fetch_body_passthrough() {
     }
 
     let result = result.text().await.unwrap();
-    assert!(result.contains("httpbin.org/post"));
+    assert!(result.contains("fxruntime.com/test/post"), "expected result to contain url: {result:?}");
     assert!(result.contains("fx test: body passthrough"));
 }
 
@@ -394,9 +394,11 @@ async fn fetch_query() {
     let client = init_fx_server().await;
 
     let result = client.get("/test/fetch/query").send().await.unwrap();
-    assert!(result.status().is_success());
-    let result = result.text().await.unwrap();
-    assert!(result.contains("https://httpbin.org/get?param1=value1&param2=value2"));
+    let status = result.status();
+    let text = result.text().await.unwrap();
+
+    assert!(status.is_success(), "query failed, response: {text:?}");
+    assert!(text.contains("fxruntime.com/test/get?param1=value1&param2=value2"), "expected result to contain url: {text:?}");
 }
 
 #[tokio::test]
@@ -407,7 +409,7 @@ async fn fetch_with_header() {
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
 
-    if !result.contains("X-Custom-Header") {
+    if !result.contains("x-custom-header") {
         panic!("response body does not contain X-Custom-Header. full response body is {result:?}");
     }
 
@@ -422,7 +424,7 @@ async fn fetch_body_read_all() {
     let result = client.get("/test/fetch/body-read-all").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
-    assert!(result.contains("\"url\": \"fxruntime.com/test/get\""));
+    assert!(result.contains("\"url\": \"fxruntime.com/test/get\""), "expected result to contain url: {result:?}");
 }
 
 #[tokio::test]
@@ -1037,7 +1039,7 @@ async fn init_fx_server() -> TestClient {
 
     let test_server = TEST_SERVER.get_or_init(|| {
         FmtSubscriber::builder()
-            .with_env_filter("fx_runtime=debug,info")
+            // .with_env_filter("fx_runtime=debug,info")
             .init();
 
         let test_port: u16 = 8080;

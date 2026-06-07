@@ -1,7 +1,7 @@
 use {
     std::collections::HashMap,
     serde::Serialize,
-    axum::{Json, http::{Uri, HeaderMap}},
+    axum::{http::{Uri, HeaderMap, HeaderValue, header}, response::IntoResponse},
 };
 
 pub(crate) mod get {
@@ -13,11 +13,14 @@ pub(crate) mod get {
         url: String,
     }
 
-    pub(crate) async fn handler(url: Uri, headers: HeaderMap) -> Json<Response> {
-        Json(Response {
-            url: request_url(url, &headers),
-            headers: headers_into_map(headers),
-        })
+    pub(crate) async fn handler(url: Uri, headers: HeaderMap) -> impl IntoResponse {
+        (
+            [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+            serde_json::to_string_pretty(&Response {
+                url: request_url(url, &headers),
+                headers: headers_into_map(headers),
+            }).unwrap(),
+        ).into_response()
     }
 }
 
@@ -31,12 +34,15 @@ pub(crate) mod post {
         url: String,
     }
 
-    pub(crate) async fn handler(url: Uri, headers: HeaderMap, body: String) -> Json<Response> {
-        Json(Response {
-            data: body,
-            url: request_url(url, &headers),
-            headers: headers_into_map(headers),
-        })
+    pub(crate) async fn handler(url: Uri, headers: HeaderMap, body: String) -> impl IntoResponse {
+        (
+            [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+            serde_json::to_string_pretty(&Response {
+                data: body,
+                url: request_url(url, &headers),
+                headers: headers_into_map(headers),
+            }).unwrap(),
+        ).into_response()
     }
 }
 
@@ -48,10 +54,13 @@ pub(crate) mod headers {
         headers: HashMap<String, String>,
     }
 
-    pub(crate) async fn handler(headers: HeaderMap) -> Json<Response> {
-        Json(Response {
-            headers: headers_into_map(headers),
-        })
+    pub(crate) async fn handler(headers: HeaderMap) -> impl IntoResponse {
+        (
+            [(header::CONTENT_TYPE, HeaderValue::from_static("application/json"))],
+            serde_json::to_string_pretty(&Response {
+                headers: headers_into_map(headers),
+            }).unwrap(),
+        ).into_response()
     }
 }
 
