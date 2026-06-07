@@ -15,8 +15,8 @@ pub(crate) mod get {
 
     pub(crate) async fn handler(url: Uri, headers: HeaderMap) -> Json<Response> {
         Json(Response {
+            url: request_url(url, &headers),
             headers: headers_into_map(headers),
-            url: url.to_string(),
         })
     }
 }
@@ -34,8 +34,8 @@ pub(crate) mod post {
     pub(crate) async fn handler(url: Uri, headers: HeaderMap, body: String) -> Json<Response> {
         Json(Response {
             data: body,
+            url: request_url(url, &headers),
             headers: headers_into_map(headers),
-            url: url.to_string(),
         })
     }
 }
@@ -61,4 +61,15 @@ fn headers_into_map(headers: HeaderMap) -> HashMap<String, String> {
             (header_name.to_string(), header_value.to_str().unwrap().to_owned())
         }))
         .collect()
+}
+
+fn request_url(url: Uri, headers: &HeaderMap) -> String {
+    format!(
+        "{}{url}",
+        headers.get("host")
+            .or_else(|| headers.get(":authority"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("localhost")
+            .to_owned()
+    )
 }
