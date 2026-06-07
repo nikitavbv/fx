@@ -101,8 +101,8 @@ async fn fetch_json() {
     let status = response.status();
     assert!(status.is_success(), "expected status code = 200, got: {status:?}");
     let text = response.text().await.unwrap();
-    assert!(text.contains(r#""Content-Type": "application/json""#), "httpbin response should show application/json content-type, response body = {text:?}");
-    assert!(text.contains(r#""key": "value""#), "httpbin response should contain the json payload");
+    assert!(text.contains(r#""content-type": "application/json""#), "httpbin response should show application/json content-type, response body = {text:?}");
+    assert!(text.contains(r#"\"key\":\"value\""#), "httpbin response should contain the json payload, response body = {text:?}");
 }
 
 #[tokio::test]

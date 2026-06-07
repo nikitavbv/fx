@@ -23,7 +23,8 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
             .route("/docs/runtime/{*path}", get(docs_runtime))
             .route("/test/get", get(test_endpoints::get::handler))
             .route("/test/post", post(test_endpoints::post::handler))
-            .route("/test/headers", get(test_endpoints::headers::handler)),
+            .route("/test/headers", get(test_endpoints::headers::handler))
+            .route("/test/delay/{delay}", get(test_endpoints::delay::handler)),
         req,
     ).await
 }

@@ -430,7 +430,7 @@ async fn test_fetch_post() -> impl IntoResponse {
 
 async fn test_fetch_json() -> impl IntoResponse {
     fetch(
-        HttpRequest::post("https://httpbin.org/post").unwrap()
+        HttpRequest::post("https://fxruntime.com/test/post").unwrap()
             .with_json(&serde_json::json!({"key": "value"}))
     ).await.unwrap().into_body().into_response()
 }

@@ -1,7 +1,8 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, time::Duration},
     serde::Serialize,
-    axum::{http::{Uri, HeaderMap, HeaderValue, header}, response::IntoResponse},
+    axum::{http::{Uri, HeaderMap, HeaderValue, header}, response::IntoResponse, extract::Path},
+    fx_sdk::sleep,
 };
 
 pub(crate) mod get {
@@ -61,6 +62,15 @@ pub(crate) mod headers {
                 headers: headers_into_map(headers),
             }).unwrap(),
         ).into_response()
+    }
+}
+
+pub(crate) mod delay {
+    use super::*;
+
+    pub(crate) async fn handler(Path(delay): Path<u64>) -> impl IntoResponse {
+        sleep(Duration::from_secs(delay.min(10))).await;
+        "ok.\n"
     }
 }
 
