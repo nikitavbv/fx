@@ -9,6 +9,10 @@ use {
     },
 };
 
+pub(crate) use self::controller::SqlController;
+
+mod controller;
+
 #[derive(Debug)]
 pub(crate) enum SqlMessage {
     Migrate(SqlMigrateMessage),
@@ -71,7 +75,7 @@ pub(crate) enum SqlTaskBatchError {
     StatementFailed { reason: String },
 }
 
-pub(crate) fn run_sql_task(worker_index: u64, total_workers: u64, databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>) {
+pub(crate) fn run_sql_task(worker_index: u64, total_workers: u64, databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>, sql_thread_rx: flume::Receiver<SqlMessage>) {
     use rusqlite::types::ValueRef;
 
     let mut connections = HashMap::<String, rusqlite::Connection>::new();
@@ -80,7 +84,10 @@ pub(crate) fn run_sql_task(worker_index: u64, total_workers: u64, databases_path
         std::fs::create_dir_all(&databases_path).unwrap();
     }
 
-    while let Ok(msg) = sql_rx.recv() {
+
+    while let Ok(msg) = flume::Selector::new()
+        .recv(&sql_rx, |v| v)
+        .recv(&sql_thread_rx, |v| v).wait() {
         let binding = match &msg {
             SqlMessage::Exec(v) => &v.binding,
             SqlMessage::Batch(v) => &v.binding,

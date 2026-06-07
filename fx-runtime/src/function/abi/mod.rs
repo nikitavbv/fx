@@ -548,7 +548,7 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     };
 
     let (response_tx, response_rx) = oneshot::channel();
-    caller.data().sql_tx.send(SqlMessage::Exec(SqlExecMessage {
+    caller.data().sql_controller.send_message(SqlMessage::Exec(SqlExecMessage {
         binding: binding.clone(),
         statement: message.get_statement().unwrap().to_string().unwrap(),
         params: message.get_params().unwrap().into_iter()
@@ -596,13 +596,13 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     };
 
     let (response_tx, response_rx) = oneshot::channel();
-    let send_result = caller.data().sql_tx.send(SqlMessage::Migrate(SqlMigrateMessage {
+    let send_result = caller.data().sql_controller.send_message_migrate(SqlMigrateMessage {
         binding: binding.clone(),
         migrations: message.get_migrations().unwrap().into_iter()
             .map(|v| v.unwrap().to_string().unwrap())
             .collect(),
         response: response_tx,
-    }));
+    });
 
     caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::for_future(async move {
         SerializableResource::Raw(match send_result {
@@ -655,7 +655,7 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
         .collect();
 
     let (response_tx, response_rx) = oneshot::channel();
-    caller.data().sql_tx.send(SqlMessage::Batch(SqlBatchMessage {
+    caller.data().sql_controller.send_message(SqlMessage::Batch(SqlBatchMessage {
         binding: binding.clone(),
         queries,
         response: response_tx,

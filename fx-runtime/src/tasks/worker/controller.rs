@@ -56,6 +56,7 @@ impl WorkersController {
         self.workers_tx.get(*self.function_invoke_round_robin_counter.borrow() as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
         {
             let mut counter = self.function_invoke_round_robin_counter.borrow_mut();
+            // TODO: maybe counter is not needed and this can be replaced with a single flume channel shared by all threads?
             *counter = (*counter + 1) % (self.workers_tx.len() as u64);
         }
         response_rx.await

@@ -6,7 +6,7 @@ use {
     hyper::server::conn::http1,
     crate::{
         tasks::{
-            sql::SqlMessage,
+            sql::SqlController,
             management::{ManagementMessage, MetricsFlushMessage},
             kv::KvMessage,
             blob::BlobMessage,
@@ -25,7 +25,7 @@ pub(crate) struct WorkerConfig {
     pub(crate) core_id: Option<usize>,
     pub(crate) port: u16,
     pub(crate) messages_rx: flume::Receiver<WorkerMessage>,
-    pub(crate) sql_tx: flume::Sender<SqlMessage>,
+    pub(crate) sql_controller: SqlController,
     pub(crate) kv_tx: flume::Sender<KvMessage>,
     pub(crate) blob_tx: flume::Sender<BlobMessage>,
     pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
@@ -144,7 +144,7 @@ async fn worker_handle_message(
                 limit_memory_bytes,
                 local_controller.clone(),
                 worker.logger_tx.clone(),
-                worker.sql_tx.clone(),
+                worker.sql_controller.clone(),
                 worker.kv_tx.clone(),
                 worker.blob_tx.clone(),
                 function_id.clone(),

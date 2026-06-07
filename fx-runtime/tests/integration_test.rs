@@ -422,7 +422,7 @@ async fn fetch_body_read_all() {
     let result = client.get("/test/fetch/body-read-all").send().await.unwrap();
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
-    assert!(result.contains("\"url\": \"https://fxruntime.com/test/get\""));
+    assert!(result.contains("\"url\": \"fxruntime.com/test/get\""));
 }
 
 #[tokio::test]

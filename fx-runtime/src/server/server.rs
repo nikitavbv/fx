@@ -10,7 +10,7 @@ use {
         },
         tasks::{
             worker::{WorkerMessage, WorkerConfig, run_worker_task, WorkersController},
-            sql::{SqlMessage, run_sql_task},
+            sql::{SqlMessage, run_sql_task, SqlController},
             compiler::CompilerMessage,
             management::{ManagementMessage, run_management_task, DeployFunctionMessage},
             cron::{run_cron_task, CronTaskEvent},
@@ -55,7 +55,13 @@ impl FxServer {
             .map(|_| flume::unbounded::<WorkerMessage>())
             .unzip::<_, _, Vec<_>, Vec<_>>();
         let workers_controller = WorkersController::new(workers_tx.clone());
+
         let (sql_tx, sql_rx) = flume::unbounded::<SqlMessage>();
+        let (sql_thread_tx, sql_thread_rx) = (0..sql_threads)
+            .map(|_| flume::unbounded::<SqlMessage>())
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+        let sql_controller = SqlController::new(sql_tx, sql_thread_tx);
+
         let (compiler_tx, compiler_rx) = flume::unbounded::<CompilerMessage>();
         let (management_tx, management_rx) = flume::unbounded::<ManagementMessage>();
         let (logger_tx, logger_rx) = flume::unbounded::<LogMessageEvent>();
@@ -140,7 +146,7 @@ impl FxServer {
 
         let mut sql_worker_id = 0;
         let mut sql_worker_handles = Vec::new();
-        for sql_worker in sql_cores.into_iter() {
+        for (sql_worker, sql_thread_rx) in sql_cores.into_iter().zip(sql_thread_rx.into_iter()) {
             let sql_rx = sql_rx.clone();
             let config = self.config.sql.as_ref().cloned().unwrap_or_default();
 
@@ -157,7 +163,7 @@ impl FxServer {
 
                 info!(sql_worker_id, "started sql thread");
 
-                run_sql_task(sql_worker_id, sql_threads as u64, config.path, sql_rx);
+                run_sql_task(sql_worker_id, sql_threads as u64, config.path, sql_rx, sql_thread_rx);
             });
             sql_worker_handles.push(handle);
             sql_worker_id += 1;
@@ -189,7 +195,7 @@ impl FxServer {
                 core_id,
                 port: self.config.server.port.value,
                 messages_rx,
-                sql_tx: sql_tx.clone(),
+                sql_controller: sql_controller.clone(),
                 kv_tx: kv_tx.clone(),
                 blob_tx: blob_tx.clone(),
                 logger_tx: logger_tx.clone(),
