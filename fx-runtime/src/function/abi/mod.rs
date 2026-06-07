@@ -29,6 +29,7 @@ use {
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
         FetchResultFuturePollResult,
+        FetchResultSerializeResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -479,7 +480,56 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
 pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let fetch_result = caller.data_mut().resource_set.fetch_results.remove(resource_id.into()).unwrap();
 
-    todo!()
+    let resource = match fetch_result {
+        FetchResult::Inline(inline) => {
+            let (parts, body) = inline.into_parts();
+            let body = caller.data_mut().resource_add(Resource::HttpBody(body));
+            Ok(FetchResultWithBodyResource::new(parts, body))
+        },
+        FetchResult::BodyResource(v) => v,
+    };
+
+    let mut message = capnp::message::Builder::new_default();
+    let response = message.init_root::<abi_http_capnp::fetch_result::Builder>();
+    let response = response.init_result();
+
+    match resource {
+        Ok(ok) => {
+            let mut ok_builder = response.init_ok();
+            ok_builder.set_status(ok.parts.status.as_u16());
+            let mut headers = ok_builder.reborrow().init_headers(ok.parts.headers.len() as u32);
+            for (index, (name, value)) in ok.parts.headers.iter().enumerate() {
+                let mut header = headers.reborrow().get(index as u32);
+                header.set_name(name.as_str());
+                header.set_value(value.to_str().unwrap());
+            }
+            ok_builder.reborrow().set_body_resource_id(ok.body.as_u64());
+        }
+        Err(err) => {
+            let mut error_builder = response.init_error().init_error();
+            match err {
+                FetchResultError::ConnectionFailed => error_builder.set_connection_failed(()),
+                FetchResultError::ConnectionTimeout => error_builder.set_connection_timeout(()),
+                FetchResultError::ResponseTimeout => error_builder.set_response_timeout(()),
+            }
+        }
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+    let result = FetchResultSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
 }
 
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(

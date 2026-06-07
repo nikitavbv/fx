@@ -7,7 +7,7 @@ use {
     thiserror::Error,
     futures::{StreamExt, TryStreamExt, stream::{BoxStream, Stream}},
     bytes::Bytes,
-    fx_types::{capnp, abi_http_capnp, abi::{FuturePollResult, FetchResultFuturePollResult}},
+    fx_types::{capnp, abi_http_capnp, abi::{FuturePollResult, FetchResultFuturePollResult, FetchResultSerializeResult}},
     crate::sys::{
         ResourceId,
         FetchRequestHeaderResourceId,
@@ -23,6 +23,8 @@ use {
         fx_resource_serialize,
         fx_stream_frame_read,
         fx_fetch_result_future_poll,
+        fx_fetch_result_serialize,
+        fx_bytes_move,
     },
 };
 
@@ -502,47 +504,47 @@ impl Future for FetchResultFuture {
         match result.tag {
             1 => std::task::Poll::Pending,
             0 => std::task::Poll::Ready({
+                let mut serialization_result = std::mem::MaybeUninit::<FetchResultSerializeResult>::zeroed();
+                assert!(unsafe { fx_fetch_result_serialize(result.fetch_result_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
 
-                todo!()
+                let result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                let result = resource_reader.get_root::<abi_http_capnp::fetch_result::Reader>().unwrap();
+
+                match result.get_result().which().unwrap() {
+                    abi_http_capnp::fetch_result::result::Which::Ok(response) => {
+                        let response = response.unwrap();
+                        let mut parts = http::response::Builder::new()
+                            .status(http::StatusCode::from_u16(response.get_status()).unwrap())
+                            .body(())
+                            .unwrap()
+                            .into_parts()
+                            .0;
+
+                        for header in response.get_headers().unwrap() {
+                            let name = HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
+                            let value = HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
+                            parts.headers.append(name, value);
+                        }
+
+                        Ok(HttpResponse {
+                            parts,
+                            body: HttpBody::host_resource(OwnedResourceId::from_ffi(response.get_body_resource_id())),
+                        })
+                    }
+                    abi_http_capnp::fetch_result::result::Which::Error(err) => {
+                        Err(match err.unwrap().get_error().which().unwrap() {
+                            abi_http_capnp::fetch_error::error::ConnectionFailed(()) => FetchError::ConnectionFailed,
+                            abi_http_capnp::fetch_error::error::ConnectionTimeout(()) => FetchError::ConnectionTimeout,
+                            abi_http_capnp::fetch_error::error::ResponseTimeout(()) => FetchError::ResponseTimeout,
+                        })
+                    }
+                }
             }),
             other => todo!(),
-        }
-    }
-}
-
-impl DeserializeHostResource for Result<HttpResponse, FetchError> {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let result = resource_reader.get_root::<abi_http_capnp::fetch_result::Reader>().unwrap();
-
-        match result.get_result().which().unwrap() {
-            abi_http_capnp::fetch_result::result::Which::Ok(response) => {
-                let response = response.unwrap();
-                let mut parts = http::response::Builder::new()
-                    .status(http::StatusCode::from_u16(response.get_status()).unwrap())
-                    .body(())
-                    .unwrap()
-                    .into_parts()
-                    .0;
-
-                for header in response.get_headers().unwrap() {
-                    let name = HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
-                    let value = HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
-                    parts.headers.append(name, value);
-                }
-
-                Ok(HttpResponse {
-                    parts,
-                    body: HttpBody::host_resource(OwnedResourceId::from_ffi(response.get_body_resource_id())),
-                })
-            }
-            abi_http_capnp::fetch_result::result::Which::Error(err) => {
-                Err(match err.unwrap().get_error().which().unwrap() {
-                    abi_http_capnp::fetch_error::error::ConnectionFailed(()) => FetchError::ConnectionFailed,
-                    abi_http_capnp::fetch_error::error::ConnectionTimeout(()) => FetchError::ConnectionTimeout,
-                    abi_http_capnp::fetch_error::error::ResponseTimeout(()) => FetchError::ResponseTimeout,
-                })
-            }
         }
     }
 }

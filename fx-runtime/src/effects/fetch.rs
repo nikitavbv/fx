@@ -57,8 +57,8 @@ impl FetchResultInline {
 }
 
 pub(crate) struct FetchResultWithBodyResource {
-    parts: http::response::Parts,
-    body: ResourceId,
+    pub(crate) parts: http::response::Parts,
+    pub(crate) body: ResourceId,
 }
 
 impl FetchResultWithBodyResource {
