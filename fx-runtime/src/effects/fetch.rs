@@ -6,7 +6,7 @@ use {
         resources::{
             serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource},
             ResourceId,
-            resource::{OwnedFunctionResourceId, Resource},
+            resource::{OwnedFunctionResourceId, Resource, HttpBodyResourceKey},
             FunctionResourceId,
         },
         triggers::http::HttpBody,
@@ -58,11 +58,11 @@ impl FetchResultInline {
 
 pub(crate) struct FetchResultWithBodyResource {
     pub(crate) parts: http::response::Parts,
-    pub(crate) body: ResourceId,
+    pub(crate) body: HttpBodyResourceKey,
 }
 
 impl FetchResultWithBodyResource {
-    pub fn new(parts: http::response::Parts, body: ResourceId) -> Self {
+    pub fn new(parts: http::response::Parts, body: HttpBodyResourceKey) -> Self {
         Self { parts, body }
     }
 }
@@ -82,7 +82,7 @@ impl SerializeResource for Result<FetchResultWithBodyResource, FetchResultError>
                     header.set_name(name.as_str());
                     header.set_value(value.to_str().unwrap());
                 }
-                ok_builder.reborrow().set_body_resource_id(ok.body.as_u64());
+                ok_builder.reborrow().set_body_resource_id(ok.body.into());
             }
             Err(err) => {
                 let mut error_builder = fetch_result.init_result().init_error().init_error();
@@ -115,14 +115,7 @@ impl DeserializeFunctionResource for HttpBody {
             abi_http_capnp::http_body::body::Which::Empty(_) => todo!(),
             abi_http_capnp::http_body::body::Which::Bytes(v) => Self::for_bytes(Bytes::copy_from_slice(v.unwrap())),
             abi_http_capnp::http_body::body::Which::FunctionStream(v) => Self::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::new(v))),
-            abi_http_capnp::http_body::body::Which::HostResource(v) => {
-                let resource_id = ResourceId::new(v);
-                let body = instance.store.try_lock().unwrap().data_mut().resource_remove(&resource_id);
-                match body {
-                    Resource::HttpBody(v) => v,
-                    _ => return Err(HttpBodyDeserializeError::HostResourceWrongType),
-                }
-            },
+            abi_http_capnp::http_body::body::Which::HostResource(v) => instance.store.try_lock().unwrap().data_mut().resource_set.http_bodies.remove(v.into()).unwrap(),
         })
     }
 }

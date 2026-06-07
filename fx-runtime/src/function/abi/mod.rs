@@ -177,7 +177,7 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
     let mut resource_body = resource.init_body().init_body();
     match fetch_request_header.body_resource_id {
         None => resource_body.set_empty(()),
-        Some(resource_id) => resource_body.set_host_resource(resource_id.as_u64()),
+        Some(resource_id) => resource_body.set_host_resource(resource_id.into()),
     }
 
     resource_set.bytes.insert(capnp::serialize::write_message_to_words(&message)).into()
@@ -483,7 +483,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
     let resource = match fetch_result {
         FetchResult::Inline(inline) => {
             let (parts, body) = inline.into_parts();
-            let body = caller.data_mut().resource_add(Resource::HttpBody(body));
+            let body = caller.data_mut().resource_set.http_bodies.insert(body);
             Ok(FetchResultWithBodyResource::new(parts, body))
         },
         FetchResult::BodyResource(v) => v,
@@ -503,7 +503,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 header.set_name(name.as_str());
                 header.set_value(value.to_str().unwrap());
             }
-            ok_builder.reborrow().set_body_resource_id(ok.body.as_u64());
+            ok_builder.reborrow().set_body_resource_id(ok.body.into());
         }
         Err(err) => {
             let mut error_builder = response.init_error().init_error();
@@ -530,6 +530,12 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
     view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
 
     0
+}
+
+pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let http_body = caller.data_mut().resource_set.http_bodies.remove(resource_id.into()).unwrap();
+
+    todo!()
 }
 
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(
@@ -575,7 +581,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
-        Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
         Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
     };
 
@@ -1011,23 +1016,15 @@ pub(super) fn fx_fetch_handler(
                 *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
             },
             abi_http_capnp::http_body::body::Which::HostResource(v) => {
-                let resource_id = ResourceId::new(v);
-                match caller.data_mut().resource_remove(&resource_id) {
-                    Resource::BlobGetResult(_)
-                    | Resource::SqlBatchResult(_)
-                    | Resource::SqlMigrationResult(_)
-                    | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
-                    Resource::HttpBody(body) => {
-                        let stream = BodyStream::new(body)
-                            .filter_map(|result| async {
-                                match result {
-                                    Ok(frame) => frame.into_data().ok().map(Ok),
-                                    Err(e) => Some(Err(e)),
-                                }
-                            });
-                        *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
-                    },
-                }
+                let body = caller.data_mut().resource_set.http_bodies.remove(v.into()).unwrap();
+                let stream = BodyStream::new(body)
+                    .filter_map(|result| async {
+                        match result {
+                            Ok(frame) => frame.into_data().ok().map(Ok),
+                            Err(e) => Some(Err(e)),
+                        }
+                    });
+                *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
             },
             abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
         }

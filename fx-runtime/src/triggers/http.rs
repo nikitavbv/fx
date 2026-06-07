@@ -9,7 +9,7 @@ use {
         resources::{
             serialize::{SerializeResource, SerializedFunctionResource, DeserializableResource, SerializableResource},
             ResourceId,
-            resource::OwnedFunctionResourceId,
+            resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
             FunctionResourceId,
         },
         function::{
@@ -245,7 +245,7 @@ impl Stream for FunctionStreamReader {
 
 pub struct FetchRequestHeader {
     inner: ::http::request::Parts,
-    pub(crate) body_resource_id: Option<ResourceId>, // TODO: drop body if FetchRequestHeader is dropped without consumption
+    pub(crate) body_resource_id: Option<HttpBodyResourceKey>, // TODO: drop body if FetchRequestHeader is dropped without consumption
 }
 
 impl FetchRequestHeader {

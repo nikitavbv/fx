@@ -351,27 +351,6 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::BlobGetResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::HttpBody(v) => match v.0 {
-                HttpBodyInner::FunctionStream(_) => todo!(), // note that we are trying to access different function resource here, so copying will be needed
-                HttpBodyInner::Stream { stream, mut frame } => {
-                    let frame = std::mem::take(&mut frame).unwrap().map_to_serialized();
-                    let serialized_size = frame.serialized_size();
-
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::Stream {
-                        stream,
-                        frame: Some(frame),
-                    })), serialized_size)
-                },
-                HttpBodyInner::StreamLocal { stream, mut frame } => {
-                    let frame = std::mem::take(&mut frame).unwrap().map_to_serialized();
-                    let serialized_size = frame.serialized_size();
-
-                    (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal {
-                        stream,
-                        frame: Some(frame),
-                    })), serialized_size)
-                },
-            },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_) |
                 KvSubscriptionResource::Stream(_) => panic!("resource is not yet for serialization"),
@@ -415,61 +394,6 @@ impl FunctionInstanceState {
             Resource::BlobGetResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::BlobGetResult(v), poll_result)
-            },
-            Resource::HttpBody(v) => match v.0 {
-                HttpBodyInner::Stream { mut stream, frame: _previous_frame_is_discarded } => {
-                    debug!("resource_poll: http_body - stream");
-                    let poll_result = stream.poll_next_unpin(&mut cx);
-
-                    match poll_result {
-                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame: None })), Poll::Pending),
-                        Poll::Ready(frame) => (
-                            Resource::HttpBody(HttpBody(HttpBodyInner::Stream {
-                                stream,
-                                frame: Some(SerializableResource::Raw(frame)),
-                            })),
-                            Poll::Ready(()),
-                        ),
-                    }
-                },
-                HttpBodyInner::FunctionStream(stream) => {
-                    debug!("resource_poll: http_body - function stream");
-
-                    let mut stream = stream.replace(None).unwrap()
-                        .map(|v| Result::<_, HttpStreamError>::Ok(hyper::body::Bytes::from(v)))
-                        .boxed_local();
-
-                    let poll_result = stream.poll_next_unpin(&mut cx);
-
-                    let stream = SendWrapper::new(stream);
-
-                    match poll_result {
-                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None })), Poll::Pending),
-                        Poll::Ready(frame) => (
-                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal {
-                                stream,
-                                frame: Some(SerializableResource::Raw(frame)),
-                            })),
-                            Poll::Ready(()),
-                        ),
-                    }
-                },
-                HttpBodyInner::StreamLocal { mut stream, frame: _previous_frame_is_discarded } => {
-                    debug!("resource_poll: http_body - stream local");
-
-                    let poll_result = stream.poll_next_unpin(&mut cx);
-
-                    match poll_result {
-                        Poll::Pending => (Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None })), Poll::Pending),
-                        Poll::Ready(frame) => (
-                            Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal {
-                                stream,
-                                frame: Some(SerializableResource::Raw(frame)),
-                            })),
-                            Poll::Ready(()),
-                        ),
-                    }
-                },
             },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
@@ -517,17 +441,6 @@ impl FunctionInstanceState {
             Resource::BlobGetResult(_)
             | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_) => panic!("resource of this type does not support reading frames"),
-            Resource::HttpBody(v) => match v.0 {
-                HttpBodyInner::FunctionStream(_) => todo!(),
-                HttpBodyInner::Stream { stream, frame } => (
-                    Some(Resource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame: None }))),
-                    frame.unwrap().into_serialized()
-                ),
-                HttpBodyInner::StreamLocal { stream, frame } => (
-                    Some(Resource::HttpBody(HttpBody(HttpBodyInner::StreamLocal { stream, frame: None }))),
-                    frame.unwrap().into_serialized()
-                ),
-            },
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_)
                 | KvSubscriptionResource::Stream(_)

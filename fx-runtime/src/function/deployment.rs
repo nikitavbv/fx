@@ -168,7 +168,7 @@ impl FunctionDeployment {
                 let mut data = instance.store.lock().await;
                 let data = data.data_mut();
                 if let Some(body) = body {
-                    header.body_resource_id = Some(data.resource_add(Resource::HttpBody(body)));
+                    header.body_resource_id = Some(data.resource_set.http_bodies.insert(body));
                 }
                 data.resource_set.fetch_request_headers.insert(header)
             };
