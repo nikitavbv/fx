@@ -189,7 +189,7 @@ async fn sql_contention_busy() {
     let results: Vec<_> = futures.collect().await;
 
     assert!(results.contains(&"ok.\n".to_owned()));
-    assert!(results.contains(&"busy.\n".to_owned()));
+    assert!(results.contains(&"busy.\n".to_owned()), "didn't get any busy results: {results:?}");
 }
 
 #[tokio::test]
