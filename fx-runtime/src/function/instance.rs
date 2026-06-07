@@ -351,20 +351,6 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::BlobGetResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::FetchResult(resource) => match resource {
-                FetchResult::Inline(resource) => {
-                    let (parts, body) = resource.into_parts();
-                    let body = self.resource_add(Resource::HttpBody(body));
-                    let serialized = SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).map_to_serialized();
-                    let serialized_size = serialized.serialized_size();
-                    (Resource::FetchResult(FetchResult::BodyResource(serialized)), serialized_size)
-                },
-                FetchResult::BodyResource(resource) => {
-                    let serialized = resource.map_to_serialized();
-                    let serialized_size = serialized.serialized_size();
-                    (Resource::FetchResult(FetchResult::BodyResource(serialized)), serialized_size)
-                }
-            },
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::FunctionStream(_) => todo!(), // note that we are trying to access different function resource here, so copying will be needed
                 HttpBodyInner::Stream { stream, mut frame } => {
@@ -430,7 +416,6 @@ impl FunctionInstanceState {
                 let poll_result = v.poll(&mut cx);
                 (Resource::BlobGetResult(v), poll_result)
             },
-            Resource::FetchResult(mut v) => panic!("resource of this type should not be polled"),
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::Stream { mut stream, frame: _previous_frame_is_discarded } => {
                     debug!("resource_poll: http_body - stream");
@@ -530,7 +515,6 @@ impl FunctionInstanceState {
 
         let (resource, serialized_frame) = match resource {
             Resource::BlobGetResult(_)
-            | Resource::FetchResult(_)
             | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::HttpBody(v) => match v.0 {

@@ -102,7 +102,6 @@ pub(crate) enum Resource {
     SqlMigrationResult(FutureResource<SerializableResource<Result<(), SqlMigrationError>>>),
     SqlBatchResult(FutureResource<SerializableResource<Result<(), SqlBatchError>>>),
     BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
-    FetchResult(FetchResult),
     KvSubscription(KvSubscriptionResource),
 }
 

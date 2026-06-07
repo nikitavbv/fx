@@ -28,6 +28,7 @@ use {
         UnitFuturePollResult,
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
+        FetchResultFuturePollResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -460,6 +461,24 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
         resource_id
     );
 
+    let result = FetchResultFuturePollResult {
+        tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
+        _pad: Default::default(),
+        fetch_result_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
+}
+
+pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let fetch_result = caller.data_mut().resource_set.fetch_results.remove(resource_id.into()).unwrap();
+
     todo!()
 }
 
@@ -505,14 +524,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
         Resource::BlobGetResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
-        },
-        Resource::FetchResult(resource) => match resource {
-            FetchResult::Inline(resource) => {
-                let (parts, body) = resource.into_parts();
-                let body = caller.data_mut().resource_add(Resource::HttpBody(body));
-                SerializableResource::Raw(Ok(FetchResultWithBodyResource::new(parts, body))).into_serialized()
-            },
-            FetchResult::BodyResource(resource) => resource.into_serialized(),
         },
         Resource::HttpBody(_) => panic!("resource of this type cannot be moved"),
         Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
@@ -953,7 +964,6 @@ pub(super) fn fx_fetch_handler(
                 let resource_id = ResourceId::new(v);
                 match caller.data_mut().resource_remove(&resource_id) {
                     Resource::BlobGetResult(_)
-                    | Resource::FetchResult(_)
                     | Resource::SqlBatchResult(_)
                     | Resource::SqlMigrationResult(_)
                     | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),

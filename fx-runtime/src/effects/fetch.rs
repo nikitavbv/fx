@@ -15,7 +15,7 @@ use {
 
 pub(crate) enum FetchResult {
     Inline(FetchResultInline),
-    BodyResource(SerializableResource<Result<FetchResultWithBodyResource, FetchResultError>>),
+    BodyResource(Result<FetchResultWithBodyResource, FetchResultError>),
 }
 
 impl FetchResult {
@@ -24,7 +24,7 @@ impl FetchResult {
     }
 
     pub fn error(err: FetchResultError) -> Self {
-        Self::BodyResource(SerializableResource::Raw(Err(err)))
+        Self::BodyResource(Err(err))
     }
 }
 

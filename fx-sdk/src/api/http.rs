@@ -7,7 +7,7 @@ use {
     thiserror::Error,
     futures::{StreamExt, TryStreamExt, stream::{BoxStream, Stream}},
     bytes::Bytes,
-    fx_types::{capnp, abi_http_capnp, abi::FuturePollResult},
+    fx_types::{capnp, abi_http_capnp, abi::{FuturePollResult, FetchResultFuturePollResult}},
     crate::sys::{
         ResourceId,
         FetchRequestHeaderResourceId,
@@ -22,6 +22,7 @@ use {
         fx_future_poll,
         fx_resource_serialize,
         fx_stream_frame_read,
+        fx_fetch_result_future_poll,
     },
 };
 
@@ -482,11 +483,31 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
         capnp::serialize::write_message_to_words(&message)
     };
 
-    let response_resource = OwnedResourceId::from_ffi(
+    FetchResultFuture(
         unsafe { fx_fetch(fetch.as_ptr() as u64, fetch.len() as u64) }
-    );
+    ).await
+}
 
-    FutureHostResource::<Result<HttpResponse, FetchError>>::new(response_resource).await
+struct FetchResultFuture(u64);
+
+impl Future for FetchResultFuture {
+    type Output = Result<HttpResponse, FetchError>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<FetchResultFuturePollResult>::zeroed();
+        assert!(unsafe { fx_fetch_result_future_poll(self.0.into(), result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
+
+                todo!()
+            }),
+            other => todo!(),
+        }
+    }
 }
 
 impl DeserializeHostResource for Result<HttpResponse, FetchError> {
