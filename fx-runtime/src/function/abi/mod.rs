@@ -38,6 +38,8 @@ use {
             serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
             future::FutureResource,
             resource::{
+                ResourceTable,
+                FunctionResources,
                 FetchRequestHeaderResourceKey,
                 KvGetResponseFutureResourceKey,
                 KvSetResponseFutureResourceKey,
@@ -369,20 +371,12 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
 }
 
 pub(super) fn fx_sql_query_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = {
-        let key: SqlQueryResultFutureResourceKey = resource_id.into();
-        let function_state = caller.data_mut();
-
-        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
-        let future = function_state.resource_set.sql_query_result_futures.get_mut(key.clone()).unwrap();
-        match future.poll_unpin(&mut cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(result) => {
-                let _ = function_state.resource_set.sql_query_result_futures.remove(key).unwrap();
-                Poll::Ready(function_state.resource_set.sql_query_results.insert(result))
-            }
-        }
-    };
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.sql_query_result_futures,
+        |s| &mut s.sql_query_results,
+        resource_id
+    );
 
     let result = match result {
         Poll::Pending => SqlQueryResultFuturePollResult {
@@ -458,6 +452,41 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
     0
 }
 
+pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.fetch_result_futures,
+        |s| &mut s.fetch_results,
+        resource_id
+    );
+
+    todo!()
+}
+
+fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(
+    caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
+    resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T, F>,
+    result_resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T2, V>,
+    resource_id: impl Into<T>
+) -> Poll<T2> where slotmap::DefaultKey: From<T>, F: Future<Output = V> {
+    let function_state = caller.data_mut();
+
+    let waker = function_state.waker.clone().unwrap();
+    let mut cx = std::task::Context::from_waker(&waker);
+
+    let resource_table = resource_table_getter(&mut function_state.resource_set);
+
+    let resource_id = resource_id.into();
+    let future = resource_table.get_mut(resource_id.clone()).unwrap();
+    match future.poll_unpin(&mut cx) {
+        Poll::Pending => Poll::Pending,
+        Poll::Ready(result) => {
+            let _ = resource_table.remove(resource_id).unwrap();
+            Poll::Ready(result_resource_table_getter(&mut function_state.resource_set).insert(result))
+        }
+    }
+}
+
 // TODO: refactor below
 pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
@@ -473,7 +502,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
-        Resource::ResourceFuture(_) => panic!("resource future cannot be moved to function"),
         Resource::BlobGetResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
@@ -881,10 +909,10 @@ pub(super) fn fx_fetch_handler(
         );
         let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
-        caller.data_mut().resource_add(Resource::ResourceFuture(SendWrapper::new(async move {
+        async move {
             let response = response_rx.await.unwrap();
             let response = response.move_to_host().await.unwrap();
-            let response = Resource::FetchResult(match response.0 {
+            match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
                     // todo: make body lazy, support streaming
                     let body = response.body.replace(None).unwrap();
@@ -900,10 +928,8 @@ pub(super) fn fx_fetch_handler(
                     parts.headers = response.headers;
                     FetchResult::new(parts, body)
                 }
-            });
-
-            Box::new(response)
-        }.boxed_local()))).as_u64()
+            }
+        }.boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
@@ -930,7 +956,6 @@ pub(super) fn fx_fetch_handler(
                     | Resource::FetchResult(_)
                     | Resource::SqlBatchResult(_)
                     | Resource::SqlMigrationResult(_)
-                    | Resource::ResourceFuture(_)
                     | Resource::KvSubscription(_) => panic!("this resource cannot be used as request body"),
                     Resource::HttpBody(body) => {
                         let stream = BodyStream::new(body)
@@ -948,8 +973,8 @@ pub(super) fn fx_fetch_handler(
         }
 
         let client = caller.data().http_client.clone();
-        caller.data_mut().resource_add(Resource::ResourceFuture(SendWrapper::new(async move {
-            Box::new(Resource::FetchResult(match client.execute(fetch_request).await {
+        async move {
+            match client.execute(fetch_request).await {
                 Ok(result) => {
                     let http_response: ::http::Response<reqwest::Body> = result.into();
                     let (parts, body) = http_response.into_parts();
@@ -966,13 +991,14 @@ pub(super) fn fx_fetch_handler(
                     };
                     FetchResult::error(error)
                 }
-            }))
-        }.boxed()))).as_u64()
+            }
+        }.boxed_local()
     };
+    let result = caller.data_mut().resource_set.fetch_result_futures.insert(SendWrapper::new(result));
 
     debug!("fx_fetch_handler - exit");
 
-    result
+    result.into()
 }
 
 pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {

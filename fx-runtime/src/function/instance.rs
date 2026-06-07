@@ -341,7 +341,6 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::SqlBatchResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::ResourceFuture(_) => panic!("resource future cannot be serialized"),
             Resource::BlobGetResult(v) => {
                 let resource = match v {
                     FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
@@ -426,10 +425,6 @@ impl FunctionInstanceState {
             Resource::SqlBatchResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::SqlBatchResult(v), poll_result)
-            },
-            Resource::ResourceFuture(mut v) => match v.poll_unpin(&mut cx) {
-                Poll::Pending => (Resource::ResourceFuture(v), Poll::Pending),
-                Poll::Ready(resource) => (*resource, Poll::Ready(())),
             },
             Resource::BlobGetResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
@@ -537,8 +532,7 @@ impl FunctionInstanceState {
             Resource::BlobGetResult(_)
             | Resource::FetchResult(_)
             | Resource::SqlBatchResult(_)
-            | Resource::SqlMigrationResult(_)
-            | Resource::ResourceFuture(_) => panic!("resource of this type does not support reading frames"),
+            | Resource::SqlMigrationResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::HttpBody(v) => match v.0 {
                 HttpBodyInner::FunctionStream(_) => todo!(),
                 HttpBodyInner::Stream { stream, frame } => (
