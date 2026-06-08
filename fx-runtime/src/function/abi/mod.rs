@@ -30,6 +30,7 @@ use {
         SqlQueryResultSerializeResult,
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
+        HttpBodyPollFrameResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -62,7 +63,7 @@ use {
             kv::{KvMessage, KvOperation},
             blob::BlobMessage,
         },
-        triggers::http::{FetchRequestHeader, FunctionResponseInner, HttpBody},
+        triggers::http::{FetchRequestHeader, FunctionResponseInner, HttpBody, HttpBodyInner},
     },
 };
 
@@ -533,9 +534,32 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
 }
 
 pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let http_body = caller.data_mut().resource_set.http_bodies.remove(resource_id.into()).unwrap();
+    let waker = caller.data_mut().waker.clone().unwrap();
+    let mut cx = std::task::Context::from_waker(&waker);
 
-    todo!()
+    let http_body = caller.data_mut().resource_set.http_bodies.get_mut(resource_id.into()).unwrap();
+
+    let result = match http_body.0 {
+        HttpBodyInner::Stream(ref mut stream) => stream.poll_next_unpin(&mut cx),
+        HttpBodyInner::StreamLocal(ref mut stream) => stream.poll_next_unpin(&mut cx),
+        HttpBodyInner::FunctionStream(ref mut v) =>  v.poll_next_unpin(&mut cx).map(|v| v.map(|v| Ok(hyper::body::Bytes::from(v)))),
+    };
+
+    let result = result.map(|v| caller.data_mut().resource_set.http_frames.insert(v));
+
+    let result = HttpBodyPollFrameResult {
+        tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
+        _pad: Default::default(),
+        http_frame_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
+    };
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
 }
 
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(

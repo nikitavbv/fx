@@ -144,11 +144,11 @@ impl HttpBody {
     }
 
     pub fn for_function_stream(resource: OwnedFunctionResourceId) -> Self {
-        Self(HttpBodyInner::FunctionStream(SendWrapper::new(RefCell::new(Some(FunctionStreamReader::new(resource))))))
+        Self(HttpBodyInner::FunctionStream(SendWrapper::new(FunctionStreamReader::new(resource))))
     }
 
     pub fn for_stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
-        Self(HttpBodyInner::Stream { stream, frame: None })
+        Self(HttpBodyInner::Stream(stream))
     }
 }
 
@@ -162,16 +162,15 @@ impl hyper::body::Body for HttpBody {
     ) -> Poll<Option<Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
         match &mut self.0 {
             HttpBodyInner::FunctionStream(resource) =>
-                resource.borrow_mut().as_mut().unwrap()
-                    .poll_frame(cx)
+                resource.poll_frame(cx)
                     .map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v))))),
-            HttpBodyInner::Stream { stream, frame: _previous_frame_is_discarded } => stream.poll_next_unpin(cx)
+            HttpBodyInner::Stream(stream) => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
                         .map(hyper::body::Frame::data)
                         .map_err(std::io::Error::other)
                 )),
-            HttpBodyInner::StreamLocal { stream, frame: _previous_frame_is_discarded } => stream.poll_next_unpin(cx)
+            HttpBodyInner::StreamLocal(stream) => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
                         .map(hyper::body::Frame::data)
@@ -182,15 +181,9 @@ impl hyper::body::Body for HttpBody {
 }
 
 pub(crate) enum HttpBodyInner {
-    FunctionStream(SendWrapper<RefCell<Option<FunctionStreamReader>>>),
-    Stream {
-        stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame: Option<SerializableResource<Option<Result<Bytes, HttpStreamError>>>>,
-    },
-    StreamLocal {
-        stream: SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>,
-        frame: Option<SerializableResource<Option<Result<Bytes, HttpStreamError>>>>,
-    },
+    FunctionStream(SendWrapper<FunctionStreamReader>),
+    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
+    StreamLocal(SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>),
 }
 
 pub(crate) struct FunctionStreamReader {

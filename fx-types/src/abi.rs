@@ -85,3 +85,11 @@ pub struct FetchResultSerializeResult {
     pub bytes_resource_id: u64,
     pub bytes_length: u64,
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct HttpBodyPollFrameResult {
+    pub tag: u8, // 0 - ready, 1 - pending
+    pub _pad: [u8; 7],
+    pub http_frame_resource_id: u64,
+}

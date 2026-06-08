@@ -7,7 +7,7 @@ use {
     thiserror::Error,
     futures::{StreamExt, TryStreamExt, stream::{BoxStream, Stream}},
     bytes::Bytes,
-    fx_types::{capnp, abi_http_capnp, abi::{FuturePollResult, FetchResultFuturePollResult, FetchResultSerializeResult}},
+    fx_types::{capnp, abi_http_capnp, abi::{FuturePollResult, FetchResultFuturePollResult, FetchResultSerializeResult, HttpBodyPollFrameResult}},
     crate::sys::{
         ResourceId,
         FetchRequestHeaderResourceId,
@@ -25,6 +25,7 @@ use {
         fx_fetch_result_future_poll,
         fx_fetch_result_serialize,
         fx_bytes_move,
+        fx_http_body_poll_frame,
     },
 };
 
@@ -176,7 +177,7 @@ impl FetchRequestHeaderResource {
                 body: match request.get_body().unwrap().get_body().which().unwrap() {
                     abi_http_capnp::http_body::body::Which::Empty(_) => None,
                     abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
-                    abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(OwnedResourceId::from_ffi(v))),
+                    abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(v)),
                     abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
                 },
             }
@@ -296,7 +297,7 @@ impl HttpBody {
     }
 
     pub fn host_resource(resource_id: OwnedResourceId) -> Self {
-        Self(HttpBodyInner::HostResource(resource_id))
+        Self(HttpBodyInner::HostResource(resource_id.consume().as_ffi()))
     }
 
     pub async fn read_all(self) -> Option<Vec<u8>> {
@@ -329,7 +330,8 @@ impl Stream for HttpBody {
                 (HttpBodyInner::Stream { stream, frame_serialized: None }, poll_result)
             },
             HttpBodyInner::HostResource(resource_id) => {
-                let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
+                todo!() // implementation can be shared with http_body::Body?
+                /*let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
                 let poll_result = FuturePollResult::try_from(poll_result).unwrap();
                 match poll_result {
                     FuturePollResult::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
@@ -350,7 +352,7 @@ impl Stream for HttpBody {
                         }
                     },
                     other => todo!(),
-                }
+                }*/
             },
             HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
         };
@@ -381,12 +383,22 @@ impl http_body::Body for HttpBody {
                 (HttpBodyInner::Stream { stream, frame_serialized: None }, poll_result)
             },
             HttpBodyInner::HostResource(resource_id) => {
-                let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
-                let poll_result = FuturePollResult::try_from(poll_result).unwrap();
-                match poll_result {
-                    FuturePollResult::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
-                    FuturePollResult::Ready => {
-                        let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
+                let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
+                assert!(unsafe { fx_http_body_poll_frame(resource_id, result.as_mut_ptr() as u64) } == 0);
+                let result = unsafe { result.assume_init() };
+
+                let result = match result.tag {
+                    1 => std::task::Poll::Pending,
+                    0 => std::task::Poll::Ready(()),
+                    other => todo!(),
+                };
+
+                // TODO: refactor
+                match result {
+                    std::task::Poll::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
+                    std::task::Poll::Ready(_) => {
+                        todo!()
+                        /*let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
                         let data: Vec<u8> = vec![0u8; resource_length as usize];
                         resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
 
@@ -399,7 +411,7 @@ impl http_body::Body for HttpBody {
                                 HttpBodyInner::HostResource(resource_id),
                                 std::task::Poll::Ready(Some(Ok(http_body::Frame::data(Bytes::from(v.unwrap().to_vec())))))
                             ),
-                        }
+                        }*/
                     },
                     other => todo!(),
                 }
@@ -429,7 +441,7 @@ pub(crate) enum HttpBodyInner {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
         frame_serialized: Option<Vec<u8>>,
     },
-    HostResource(OwnedResourceId),
+    HostResource(u64),
     Serialized(Vec<u8>),
 }
 
@@ -476,7 +488,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
                 HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
                     request_body.set_function_stream(add_function_resource(FunctionResource::HttpBody(HttpBody::stream(stream))).as_u64())
                 },
-                HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id.consume().as_ffi()),
+                HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id),
                 HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),
