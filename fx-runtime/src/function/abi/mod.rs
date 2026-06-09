@@ -31,6 +31,7 @@ use {
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
         HttpBodyPollFrameResult,
+        HttpFrameSerializeResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -547,17 +548,43 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
 
     let result = result.map(|v| caller.data_mut().resource_set.http_frames.insert(v));
 
-    let result = HttpBodyPollFrameResult {
-        tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
-        _pad: Default::default(),
-        http_frame_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
-    };
-    let result = result.as_bytes();
+    write_result(
+        &mut caller,
+        result_addr,
+        HttpBodyPollFrameResult {
+            tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
+            _pad: Default::default(),
+            http_frame_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
+        },
+    );
 
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+    0
+}
+
+pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let http_frame = caller.data_mut().resource_set.http_frames.remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+    let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
+    let mut serialized_frame = serialized_frame.init_frame();
+
+    match http_frame {
+        Some(v) => serialized_frame.set_bytes(&v.unwrap().to_vec()),
+        None => serialized_frame.set_stream_end(()),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(
+        &mut caller,
+        result_addr,
+        HttpFrameSerializeResult {
+            bytes_resource_id: bytes_resource_id.into(),
+            bytes_length: bytes_length as u64,
+        }
+    );
 
     0
 }
@@ -584,6 +611,20 @@ fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(
             Poll::Ready(result_resource_table_getter(&mut function_state.resource_set).insert(result))
         }
     }
+}
+
+fn write_result(
+    caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
+    result_addr: u64,
+    result: impl zerocopy::IntoBytes + zerocopy::Immutable,
+) {
+    let result = result.as_bytes();
+
+    let memory = function_memory::FunctionMemory::from_caller(caller).unwrap();
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+
+    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
 }
 
 // TODO: refactor below
