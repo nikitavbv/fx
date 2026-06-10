@@ -26,6 +26,7 @@ use {
         fx_fetch_result_serialize,
         fx_bytes_move,
         fx_http_body_poll_frame,
+        fx_http_frame_serialize,
     },
 };
 
@@ -368,60 +369,11 @@ impl http_body::Body for HttpBody {
     type Error = ReadBodyError;
 
     fn poll_frame(
-        mut self: std::pin::Pin<&mut Self>,
+        self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        let inner = std::mem::replace(&mut self.0, HttpBodyInner::Empty);
-
-        let (inner, poll_result) = match inner {
-            HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
-            HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::Stream { mut stream, frame_serialized: _frame_discard } => {
-                let poll_result = stream.poll_next_unpin(cx)
-                    .map(|v| v.map(|v| v.map(|v| http_body::Frame::data(v))))
-                    .map_err(|_| todo!());
-                (HttpBodyInner::Stream { stream, frame_serialized: None }, poll_result)
-            },
-            HttpBodyInner::HostResource(resource_id) => {
-                let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
-                assert!(unsafe { fx_http_body_poll_frame(resource_id, result.as_mut_ptr() as u64) } == 0);
-                let result = unsafe { result.assume_init() };
-
-                let result = match result.tag {
-                    1 => std::task::Poll::Pending,
-                    0 => std::task::Poll::Ready(()),
-                    other => todo!(),
-                };
-
-                // TODO: refactor
-                match result {
-                    std::task::Poll::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
-                    std::task::Poll::Ready(_) => {
-                        todo!()
-                        /*let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
-                        let data: Vec<u8> = vec![0u8; resource_length as usize];
-                        resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
-
-                        let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                        let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
-
-                        match frame.get_frame().which().unwrap() {
-                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
-                            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
-                                HttpBodyInner::HostResource(resource_id),
-                                std::task::Poll::Ready(Some(Ok(http_body::Frame::data(Bytes::from(v.unwrap().to_vec())))))
-                            ),
-                        }*/
-                    },
-                    other => todo!(),
-                }
-            },
-            HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
-        };
-
-        self.0 = inner;
-
-        poll_result
+        self.poll_next(cx)
+            .map(|v| v.map(|v| v.map(|v| http_body::Frame::data(v)).map_err(|_| todo!())))
     }
 }
 
