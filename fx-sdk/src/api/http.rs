@@ -7,7 +7,17 @@ use {
     thiserror::Error,
     futures::{StreamExt, TryStreamExt, stream::{BoxStream, Stream}},
     bytes::Bytes,
-    fx_types::{capnp, abi_http_capnp, abi::{FuturePollResult, FetchResultFuturePollResult, FetchResultSerializeResult, HttpBodyPollFrameResult}},
+    fx_types::{
+        capnp,
+        abi_http_capnp,
+        abi::{
+            FuturePollResult,
+            FetchResultFuturePollResult,
+            FetchResultSerializeResult,
+            HttpBodyPollFrameResult,
+            HttpFrameSerializeResult,
+        },
+    },
     crate::sys::{
         ResourceId,
         FetchRequestHeaderResourceId,
@@ -331,29 +341,23 @@ impl Stream for HttpBody {
                 (HttpBodyInner::Stream { stream, frame_serialized: None }, poll_result)
             },
             HttpBodyInner::HostResource(resource_id) => {
-                todo!() // implementation can be shared with http_body::Body?
-                /*let poll_result = resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
-                let poll_result = FuturePollResult::try_from(poll_result).unwrap();
-                match poll_result {
-                    FuturePollResult::Pending => (HttpBodyInner::HostResource(resource_id), std::task::Poll::Pending),
-                    FuturePollResult::Ready => {
-                        let resource_length = resource_id.with(|resource_id| unsafe { fx_resource_serialize(resource_id.as_ffi()) });
-                        let data: Vec<u8> = vec![0u8; resource_length as usize];
-                        resource_id.with(|resource_id| unsafe { fx_stream_frame_read(resource_id.as_ffi(), data.as_ptr() as u64); });
+                let mut result = std::mem::MaybeUninit::<HttpFrameSerializeResult>::zeroed();
+                assert!(unsafe { fx_http_frame_serialize(resource_id, result.as_mut_ptr() as u64) } == 0);
 
-                        let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                        let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+                let result = unsafe { result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
 
-                        match frame.get_frame().which().unwrap() {
-                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
-                            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
-                                HttpBodyInner::HostResource(resource_id),
-                                std::task::Poll::Ready(Some(Ok(Bytes::from(v.unwrap().to_vec()))))
-                            ),
-                        }
-                    },
-                    other => todo!(),
-                }*/
+                let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+
+                match frame.get_frame().which().unwrap() {
+                    abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
+                    abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
+                        HttpBodyInner::HostResource(resource_id),
+                        std::task::Poll::Ready(Some(Ok(Bytes::from(v.unwrap().to_vec()))))
+                    ),
+                }
             },
             HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
         };

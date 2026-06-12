@@ -319,7 +319,7 @@ impl Future for KvSetResponseFuture {
                 let mut serialization_result = std::mem::MaybeUninit::<KvSetResponseSerializeResult>::zeroed();
                 assert!(unsafe { fx_kv_set_response_serialize(result.kv_set_response_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
 
-                let mut result = unsafe { serialization_result.assume_init() };
+                let result = unsafe { serialization_result.assume_init() };
                 let mut result_vec = vec![0; result.bytes_length as usize];
                 unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
 
