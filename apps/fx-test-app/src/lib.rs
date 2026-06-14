@@ -213,7 +213,7 @@ async fn test_sql_contention_busy() -> &'static str {
         }
     }
 
-    let result = database.exec(SqlQuery::new("with recursive cnt(x) AS (select 1 union all select x + 1 from cnt where x < 2000) insert into contention_busy (v) select randomblob(10000) from cnt")).await;
+    let result = database.exec(SqlQuery::new("with recursive cnt(x) AS (select 1 union all select x + 1 from cnt where x < 4000) insert into contention_busy (v) select randomblob(10000) from cnt")).await;
     if let Err(err) = result {
         match err {
             SqlError::DatabaseBusy => return "busy.\n",
