@@ -18,7 +18,7 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_sql_capnp},
     crate::{
-        api::sql::SqlQueryResultFuture,
+        api::sql::{SqlQueryResultFuture, SqlBatchResultFuture},
         sys::{
             OwnedResourceId,
             FutureHostResource,
@@ -136,10 +136,7 @@ impl SqlDatabase {
             capnp::serialize::write_message_segments_to_words(&message)
         };
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_sql_batch(message.as_ptr() as u64, message.len() as u64) });
-        let resource: FutureHostResource<StdResult<(), SqlBatchError>> = FutureHostResource::new(resource_id);
-
-        resource.await
+        SqlBatchResultFuture::new(unsafe { fx_sql_batch(message.as_ptr() as u64, message.len() as u64) }).await
     }
 }
 

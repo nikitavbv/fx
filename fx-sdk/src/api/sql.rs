@@ -1,12 +1,12 @@
 use {
     fx_types::{
-        abi::{SqlQueryResultFuturePollResult, SqlQueryResultSerializeResult, SqlBatchResultFuturePollResult},
+        abi::{SqlQueryResultFuturePollResult, SqlQueryResultSerializeResult, SqlBatchResultFuturePollResult, SqlBatchResultSerializeResult},
         capnp,
         abi_sql_capnp,
     },
     crate::{
         sql::{SqlResult, SqlError, SqlBatchError},
-        sys::{fx_sql_query_result_future_poll, fx_sql_query_result_serialize, fx_bytes_move, fx_sql_batch_result_future_poll},
+        sys::{fx_sql_query_result_future_poll, fx_sql_query_result_serialize, fx_bytes_move, fx_sql_batch_result_future_poll, fx_sql_batch_result_serialize},
     },
 };
 
@@ -69,6 +69,32 @@ impl Future for SqlBatchResultFuture {
         let mut result = std::mem::MaybeUninit::<SqlBatchResultFuturePollResult>::zeroed();
         assert!(unsafe { fx_sql_batch_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
 
-        todo!()
+        let result = unsafe { result.assume_init() };
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
+                let mut serialization_result = std::mem::MaybeUninit::<SqlBatchResultSerializeResult>::zeroed();
+                assert!(unsafe { fx_sql_batch_result_serialize(result.sql_batch_result_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                let result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_batch_result::Reader>().unwrap();
+
+                match request.get_result().which().unwrap() {
+                    abi_sql_capnp::sql_batch_result::result::Which::Ok(_) => Ok(()),
+                    abi_sql_capnp::sql_batch_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                        abi_sql_capnp::sql_batch_error::error::Which::BindingNotFound(_) => SqlBatchError::BindingNotFound,
+                        abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
+                        abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
+                        abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
+                    }),
+                }
+            }),
+            other => todo!(),
+        }
     }
 }
