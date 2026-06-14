@@ -90,6 +90,8 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_unit_future_poll", super::abi::fx_unit_future_poll).unwrap();
         linker.func_wrap("fx", "fx_sql_query_result_future_poll", super::abi::fx_sql_query_result_future_poll).unwrap();
         linker.func_wrap("fx", "fx_sql_query_result_serialize", super::abi::fx_sql_query_result_serialize).unwrap();
+        linker.func_wrap("fx", "fx_sql_batch_result_future_poll", super::abi::fx_sql_batch_result_future_poll).unwrap();
+        linker.func_wrap("fx", "fx_sql_batch_result_serialize", super::abi::fx_sql_batch_result_serialize).unwrap();
         linker.func_wrap("fx", "fx_fetch_result_future_poll", super::abi::fx_fetch_result_future_poll).unwrap();
         linker.func_wrap("fx", "fx_fetch_result_serialize", super::abi::fx_fetch_result_serialize).unwrap();
         linker.func_wrap("fx", "fx_http_body_poll_frame", super::abi::fx_http_body_poll_frame).unwrap();

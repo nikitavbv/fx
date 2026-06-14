@@ -29,6 +29,7 @@ use {
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
         SqlBatchResultFuturePollResult,
+        SqlBatchResultSerializeResult,
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
         HttpBodyPollFrameResult,
@@ -471,6 +472,41 @@ pub(super) fn fx_sql_batch_result_future_poll(mut caller: wasmtime::Caller<'_, F
             _pad: Default::default(),
             sql_batch_result_resource_id: sql_batch_result_resource_id.into(),
         },
+    });
+
+    0
+}
+
+pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let resource = caller.data_mut().resource_set.sql_batch_results.remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+
+    let sql_batch_result = message.init_root::<abi_sql_capnp::sql_batch_result::Builder>();
+    let mut sql_batch_result = sql_batch_result.init_result();
+
+    match resource {
+        Ok(_) => {
+            sql_batch_result.set_ok(());
+        },
+        Err(err) => {
+            let mut response_error = sql_batch_result.init_error().init_error();
+            match err {
+                SqlBatchError::DatabaseBusy => response_error.set_database_busy(()),
+                SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
+                SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
+                SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+            }
+        }
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(&mut caller, result_addr, SqlBatchResultSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
     });
 
     0

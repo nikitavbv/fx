@@ -243,6 +243,8 @@ unsafe extern "C" {
     pub(crate) fn fx_unit_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_sql_query_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_sql_query_result_serialize(resource_id: u64, result_addr: u64) -> u64;
+    pub(crate) fn fx_sql_batch_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
+    pub(crate) fn fx_sql_batch_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_http_body_poll_frame(resource_id: u64, result_addr: u64) -> u64;

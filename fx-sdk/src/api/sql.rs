@@ -1,12 +1,12 @@
 use {
     fx_types::{
-        abi::{SqlQueryResultFuturePollResult, SqlQueryResultSerializeResult},
+        abi::{SqlQueryResultFuturePollResult, SqlQueryResultSerializeResult, SqlBatchResultFuturePollResult},
         capnp,
         abi_sql_capnp,
     },
     crate::{
-        sql::{SqlResult, SqlError},
-        sys::{fx_sql_query_result_future_poll, fx_sql_query_result_serialize, fx_bytes_move},
+        sql::{SqlResult, SqlError, SqlBatchError},
+        sys::{fx_sql_query_result_future_poll, fx_sql_query_result_serialize, fx_bytes_move, fx_sql_batch_result_future_poll},
     },
 };
 
@@ -51,5 +51,24 @@ impl Future for SqlQueryResultFuture {
             }),
             other => todo!(),
         }
+    }
+}
+
+pub(crate) struct SqlBatchResultFuture(u64);
+
+impl SqlBatchResultFuture {
+    pub fn new(resource_id: u64) -> Self {
+        Self(resource_id)
+    }
+}
+
+impl Future for SqlBatchResultFuture {
+    type Output = Result<(), SqlBatchError>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<SqlBatchResultFuturePollResult>::zeroed();
+        assert!(unsafe { fx_sql_batch_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+        todo!()
     }
 }
