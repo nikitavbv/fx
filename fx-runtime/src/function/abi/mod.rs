@@ -52,6 +52,7 @@ use {
                 KvSetResponseFutureResourceKey,
                 UnitFutureResourceKey,
                 SqlQueryResultFutureResourceKey,
+                BlobGetResponseFutureResourceKey,
             },
         },
         effects::{
@@ -697,10 +698,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
-        Resource::BlobGetResult(res) => match res {
-            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => v.into_serialized(),
-        },
         Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
     };
 
@@ -963,51 +960,49 @@ pub(super) fn fx_blob_get_handler(
     key_ptr: u64,
     key_len: u64,
 ) -> u64 {
-    fn handle_ready_resource(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>, resource: BlobGetResponse) -> u64 {
-        caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::Ready(SerializableResource::Raw(resource)))).as_u64()
+    fn handle_ready_resource(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>, resource: BlobGetResponse) -> BlobGetResponseFutureResourceKey {
+        caller.data_mut().resource_set.blob_get_response_futures.insert(std::future::ready(resource).boxed())
     }
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)),
+        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)).into(),
     };
     let context = caller.as_context();
     let memory = memory.view(&context);
 
     let binding = match memory.str_ref(binding_ptr, binding_len) {
         Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)),
+        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)).into(),
     };
     let bucket = caller.data().bindings_blob.get(binding).map(|v| v.bucket.clone());
 
     let key = match memory.vec_clone(key_ptr, key_len) {
         Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)),
+        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)).into(),
     };
 
     let blob_tx = caller.data().blob_tx.clone();
 
-    caller.data_mut().resource_add(Resource::BlobGetResult(FutureResource::for_future(async move {
-        SerializableResource::Raw({
-            match bucket {
-                Some(bucket) => {
-                    let (result, result_rx) = oneshot::channel();
+    caller.data_mut().resource_set.blob_get_response_futures.insert(async move {
+        match bucket {
+            Some(bucket) => {
+                let (result, result_rx) = oneshot::channel();
 
-                    blob_tx.send(BlobMessage::Get {
-                        bucket,
-                        key,
-                        result
-                    }).unwrap();
+                blob_tx.send(BlobMessage::Get {
+                    bucket,
+                    key,
+                    result
+                }).unwrap();
 
-                    match result_rx.await.unwrap() {
-                        Some(v) => BlobGetResponse::Ok(v),
-                        None => BlobGetResponse::NotFound,
-                    }
-                },
-                None => BlobGetResponse::BindingNotExists
-            }
-        })
-    }))).as_u64()
+                match result_rx.await.unwrap() {
+                    Some(v) => BlobGetResponse::Ok(v),
+                    None => BlobGetResponse::NotFound,
+                }
+            },
+            None => BlobGetResponse::BindingNotExists
+        }
+    }.boxed()).into()
 }
 
 pub(super) fn fx_blob_delete_handler(

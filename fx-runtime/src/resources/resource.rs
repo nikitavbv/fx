@@ -100,7 +100,6 @@ impl From<u64> for FunctionResourceId {
 // TODO: extract into separate resource maps
 pub(crate) enum Resource {
     SqlMigrationResult(FutureResource<SerializableResource<Result<(), SqlMigrationError>>>),
-    BlobGetResult(FutureResource<SerializableResource<BlobGetResponse>>),
     KvSubscription(KvSubscriptionResource),
 }
 
@@ -121,6 +120,8 @@ pub(crate) struct FunctionResources {
     pub(crate) fetch_results: ResourceTable<FetchResultResourceKey, FetchResult>,
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
     pub(crate) http_frames: ResourceTable<HttpFrameResourceKey, Option<Result<Bytes, HttpStreamError>>>,
+    pub(crate) blob_get_response_futures: ResourceTable<BlobGetResponseFutureResourceKey, BoxFuture<'static, BlobGetResponse>>,
+    pub(crate) blob_get_responses: ResourceTable<BlobGetResponseResourceKey, BlobGetResponse>,
 }
 
 impl FunctionResources {
@@ -212,9 +213,11 @@ key!(pub(crate) struct KvSetResponseKey);
 key!(pub(crate) struct UnitFutureResourceKey);
 key!(pub(crate) struct SqlQueryResultFutureResourceKey);
 key!(pub(crate) struct SqlQueryResultResourceKey);
+key!(pub(crate) struct SqlBatchResultFutureResourceKey);
+key!(pub(crate) struct SqlBatchResultResourceKey);
 key!(pub(crate) struct FetchResultFutureResourceKey);
 key!(pub(crate) struct FetchResultResourceKey);
 key!(pub(crate) struct HttpBodyResourceKey);
 key!(pub(crate) struct HttpFrameResourceKey);
-key!(pub(crate) struct SqlBatchResultFutureResourceKey);
-key!(pub(crate) struct SqlBatchResultResourceKey);
+key!(pub(crate) struct BlobGetResponseFutureResourceKey);
+key!(pub(crate) struct BlobGetResponseResourceKey);
