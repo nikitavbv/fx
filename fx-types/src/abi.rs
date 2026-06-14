@@ -73,6 +73,14 @@ pub struct SqlQueryResultSerializeResult {
 
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct SqlBatchResultFuturePollResult {
+    pub tag: u8, // 0 - ready, 1 - pending,
+    pub _pad: [u8; 7],
+    pub sql_batch_result_resource_id: u64,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct FetchResultFuturePollResult {
     pub tag: u8, // 0 - ready, 1 - pending
     pub _pad: [u8; 7],

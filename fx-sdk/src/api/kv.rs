@@ -15,7 +15,6 @@ use {
     },
     crate::sys::{
         DeserializeHostResource,
-        FutureHostResource,
         HostUnitFuture,
         OwnedResourceId,
         fx_kv_set,

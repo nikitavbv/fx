@@ -28,6 +28,7 @@ use {
         UnitFuturePollResult,
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
+        SqlBatchResultFuturePollResult,
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
         HttpBodyPollFrameResult,
@@ -383,24 +384,18 @@ pub(super) fn fx_sql_query_result_future_poll(mut caller: wasmtime::Caller<'_, F
         resource_id
     );
 
-    let result = match result {
+    write_result(&mut caller, result_addr, match result {
         Poll::Pending => SqlQueryResultFuturePollResult {
             tag: 1,
             _pad: Default::default(),
             sql_query_result_resource_id: 0,
         },
-        Poll::Ready(sql_query_result_resource_id) =>  SqlQueryResultFuturePollResult {
+        Poll::Ready(sql_query_result_resource_id) => SqlQueryResultFuturePollResult {
             tag: 0,
             _pad: Default::default(),
             sql_query_result_resource_id: sql_query_result_resource_id.into(),
         },
-    };
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+    });
 
     0
 }
@@ -453,6 +448,30 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
     view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+
+    0
+}
+
+pub(super) fn fx_sql_batch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.sql_batch_result_futures,
+        |s| &mut s.sql_batch_results,
+        resource_id
+    );
+
+    write_result(&mut caller, result_addr, match result {
+        Poll::Pending => SqlBatchResultFuturePollResult {
+            tag: 1,
+            _pad: Default::default(),
+            sql_batch_result_resource_id: 0,
+        },
+        Poll::Ready(sql_batch_result_resource_id) => SqlBatchResultFuturePollResult {
+            tag: 0,
+            _pad: Default::default(),
+            sql_batch_result_resource_id: sql_batch_result_resource_id.into(),
+        },
+    });
 
     0
 }
@@ -642,10 +661,6 @@ pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
         },
-        Resource::SqlBatchResult(req) => match req {
-            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => v.into_serialized(),
-        },
         Resource::BlobGetResult(res) => match res {
             FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
             FutureResource::Ready(v) => v.into_serialized(),
@@ -794,11 +809,7 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
     let binding = message.get_binding().unwrap().to_str().unwrap();
     let binding = match caller.data().bindings_sql.get(binding) {
         Some(v) => v,
-        None => {
-            return caller.data_mut().resource_add(Resource::SqlBatchResult(FutureResource::Ready(SerializableResource::Raw(
-                Err(SqlBatchError::BindingNotFound)
-            )))).as_u64();
-        }
+        None => return caller.data_mut().resource_set.sql_batch_result_futures.insert(std::future::ready(Err(SqlBatchError::BindingNotFound)).boxed()).into(),
     };
 
     let queries: Vec<(String, Vec<SqlValue>)> = message.get_queries().unwrap().into_iter()
@@ -824,12 +835,12 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
         response: response_tx,
     })).unwrap();
 
-    caller.data_mut().resource_add(Resource::SqlBatchResult(FutureResource::for_future(async move {
-        SerializableResource::Raw(match response_rx.await {
+    caller.data_mut().resource_set.sql_batch_result_futures.insert(async move {
+        match response_rx.await {
             Ok(v) => v.map_err(SqlBatchError::from),
             Err(_) => Err(SqlBatchError::RuntimeShutdown),
-        })
-    }))).as_u64()
+        }
+    }.boxed()).into()
 }
 
 pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {

@@ -331,16 +331,6 @@ impl FunctionInstanceState {
                 let serialized_size = serialized.serialized_size();
                 (Resource::SqlMigrationResult(FutureResource::Ready(serialized)), serialized_size)
             },
-            Resource::SqlBatchResult(v) => {
-                let resource = match v {
-                    FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
-                    FutureResource::Ready(v) => v,
-                };
-
-                let serialized = resource.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (Resource::SqlBatchResult(FutureResource::Ready(serialized)), serialized_size)
-            },
             Resource::BlobGetResult(v) => {
                 let resource = match v {
                     FutureResource::Future(_) => panic!("resource is not yet ready for serialization"),
@@ -386,10 +376,6 @@ impl FunctionInstanceState {
             Resource::SqlMigrationResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
                 (Resource::SqlMigrationResult(v), poll_result)
-            },
-            Resource::SqlBatchResult(mut v) => {
-                let poll_result = v.poll(&mut cx);
-                (Resource::SqlBatchResult(v), poll_result)
             },
             Resource::BlobGetResult(mut v) => {
                 let poll_result = v.poll(&mut cx);
@@ -439,7 +425,6 @@ impl FunctionInstanceState {
 
         let (resource, serialized_frame) = match resource {
             Resource::BlobGetResult(_)
-            | Resource::SqlBatchResult(_)
             | Resource::SqlMigrationResult(_) => panic!("resource of this type does not support reading frames"),
             Resource::KvSubscription(v) => match v {
                 KvSubscriptionResource::Init(_)

@@ -24,7 +24,6 @@ use {
         DeserializableHostResource,
         DeserializeHostResource,
         OwnedResourceId,
-        FutureHostResource,
         FunctionResource,
         BytesResource,
         add_function_resource,
