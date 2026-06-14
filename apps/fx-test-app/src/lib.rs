@@ -468,11 +468,11 @@ async fn test_fetch_timeout() -> &'static str {
     }
 }
 
-async fn test_fetch_response_timeout() -> &'static str {
-    match fetch(HttpRequest::get("http://httpbin.org/delay/10").unwrap()).await {
-        Ok(_) => "unexpected success",
-        Err(FetchError::ResponseTimeout) => "response timeout",
-        Err(_) => "unexpected other error",
+async fn test_fetch_response_timeout() -> impl IntoResponse {
+    match fetch(HttpRequest::get("https://fxruntime.com/test/delay/10").unwrap()).await {
+        Ok(res) => format!("unexpected success, status: {:?}, body: {:?}", res.status().clone(), res.text().await).into_response(),
+        Err(FetchError::ResponseTimeout) => "response timeout".into_response(),
+        Err(err) => format!("unexpected other error: {err:?}").into_response(),
     }
 }
 

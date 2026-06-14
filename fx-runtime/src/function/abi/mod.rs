@@ -32,6 +32,7 @@ use {
         FetchResultSerializeResult,
         HttpBodyPollFrameResult,
         HttpFrameSerializeResult,
+        HttpFrameSerializeResultCode,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -562,7 +563,10 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
 }
 
 pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let http_frame = caller.data_mut().resource_set.http_frames.remove(resource_id.into()).unwrap();
+    let http_frame = match caller.data_mut().resource_set.http_frames.remove(resource_id.into()) {
+        Some(v) => v,
+        None => return HttpFrameSerializeResultCode::NotFound as u64,
+    };
 
     let mut message = capnp::message::Builder::new_default();
     let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();

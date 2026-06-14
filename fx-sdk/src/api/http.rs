@@ -329,42 +329,41 @@ impl Stream for HttpBody {
     type Item = Result<Bytes, HttpBodyStreamError>;
 
     fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        let inner = std::mem::replace(&mut self.0, HttpBodyInner::Empty);
-
-        let (inner, poll_result) = match inner {
-            HttpBodyInner::Empty => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
+        match &mut self.0 {
+            HttpBodyInner::Empty => std::task::Poll::Ready(None),
             HttpBodyInner::Bytes(_) => todo!(),
-            HttpBodyInner::Stream { mut stream, frame_serialized: _discarded } => {
-                let poll_result = stream.poll_next_unpin(cx)
-                    .map_err(|_| todo!());
-
-                (HttpBodyInner::Stream { stream, frame_serialized: None }, poll_result)
-            },
+            HttpBodyInner::Stream { stream, frame_serialized: _discarded } => stream.poll_next_unpin(cx)
+                .map_err(|_| todo!()),
             HttpBodyInner::HostResource(resource_id) => {
-                let mut result = std::mem::MaybeUninit::<HttpFrameSerializeResult>::zeroed();
-                assert!(unsafe { fx_http_frame_serialize(resource_id, result.as_mut_ptr() as u64) } == 0);
+                let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
+                assert!(unsafe { fx_http_body_poll_frame(*resource_id, result.as_mut_ptr() as u64) } == 0);
 
                 let result = unsafe { result.assume_init() };
-                let mut result_vec = vec![0; result.bytes_length as usize];
-                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
 
-                let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+                match result.tag {
+                    0 => std::task::Poll::Ready({
+                        let resource_id = result.http_frame_resource_id;
+                        let mut result = std::mem::MaybeUninit::<HttpFrameSerializeResult>::zeroed();
+                        assert!(unsafe { fx_http_frame_serialize(resource_id, result.as_mut_ptr() as u64) } == 0);
 
-                match frame.get_frame().which().unwrap() {
-                    abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => (HttpBodyInner::Empty, std::task::Poll::Ready(None)),
-                    abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => (
-                        HttpBodyInner::HostResource(resource_id),
-                        std::task::Poll::Ready(Some(Ok(Bytes::from(v.unwrap().to_vec()))))
-                    ),
+                        let result = unsafe { result.assume_init() };
+                        let mut result_vec = vec![0; result.bytes_length as usize];
+                        unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                        let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                        let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+
+                        match frame.get_frame().which().unwrap() {
+                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
+                            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(Ok(Bytes::from(v.unwrap().to_vec()))),
+                        }
+                    }),
+                    1 => std::task::Poll::Pending,
+                    other => todo!(),
                 }
             },
             HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
-        };
-
-        self.0 = inner;
-
-        poll_result
+        }
     }
 }
 
