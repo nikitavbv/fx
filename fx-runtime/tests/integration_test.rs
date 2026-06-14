@@ -438,7 +438,6 @@ async fn fetch_timeout() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn fetch_read_timeout() {
     let client = init_fx_server().await;
 
