@@ -35,6 +35,8 @@ use {
         HttpBodyPollFrameResult,
         HttpFrameSerializeResult,
         HttpFrameSerializeResultCode,
+        AsyncResourcePollResult,
+        BlobGetResultSerializeResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -644,6 +646,62 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
             bytes_resource_id: bytes_resource_id.into(),
             bytes_length: bytes_length as u64,
         }
+    );
+
+    0
+}
+
+pub(super) fn fx_blob_get_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.blob_get_response_futures,
+        |s| &mut s.blob_get_responses,
+        resource_id
+    );
+
+    write_result(&mut caller, result_addr, match result {
+        Poll::Pending => AsyncResourcePollResult {
+            tag: 0,
+            _pad: Default::default(),
+            resolved_resource_id: 0,
+        },
+        Poll::Ready(v) => AsyncResourcePollResult {
+            tag: 1,
+            _pad: Default::default(),
+            resolved_resource_id: v.into(),
+        },
+    });
+
+    0
+}
+
+pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let blob_get_result = caller.data_mut().resource_set.blob_get_responses.remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+    let blob_get_response = message.init_root::<abi_blob_capnp::blob_get_response::Builder>();
+    let mut response = blob_get_response.init_response();
+
+    match blob_get_result {
+        BlobGetResponse::NotFound => response.set_not_found(()),
+        BlobGetResponse::Ok(v) => response.set_value(&v),
+        BlobGetResponse::BadRequestFailedToAccessMemory => response.set_bad_request_failed_to_access_memory(()),
+        BlobGetResponse::BadRequestArgumentOutOfBounds => response.set_bad_request_argument_out_of_bounds(()),
+        BlobGetResponse::BadRequestArgumentFailedToDecode => response.set_bad_request_argument_failed_to_decode(()),
+        BlobGetResponse::BindingNotExists => response.set_binding_not_exists(()),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(
+        &mut caller,
+        result_addr,
+        BlobGetResultSerializeResult {
+            bytes_resource_id: bytes_resource_id.into(),
+            bytes_length: bytes_length as u64,
+        },
     );
 
     0
