@@ -1,10 +1,11 @@
 use {
-    fx_types::{capnp, abi_blob_capnp},
+    fx_types::{capnp, abi_blob_capnp, abi::AsyncResourcePollResult},
     thiserror::Error,
     crate::sys::{
         fx_blob_put,
         fx_blob_get,
         fx_blob_delete,
+        fx_blob_get_result_poll,
         FutureHostResource,
         HostUnitFuture,
         OwnedResourceId,
@@ -59,6 +60,21 @@ impl BlobBucket {
 
 pub fn blob(binding: impl Into<String>) -> BlobBucket {
     BlobBucket::new(binding)
+}
+
+struct BlobGetResponseFuture(u64);
+
+impl Future for BlobGetResponseFuture {
+    type Output = BlobGetResponse;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
+        assert!(unsafe { fx_blob_get_result_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        todo!()
+    }
 }
 
 enum BlobGetResponse {
