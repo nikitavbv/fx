@@ -37,6 +37,7 @@ use {
         HttpFrameSerializeResultCode,
         AsyncResourcePollResult,
         BlobGetResultSerializeResult,
+        BlobGetResultSerializeResultCode,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -676,7 +677,10 @@ pub(super) fn fx_blob_get_result_poll(mut caller: wasmtime::Caller<'_, FunctionI
 }
 
 pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let blob_get_result = caller.data_mut().resource_set.blob_get_responses.remove(resource_id.into()).unwrap();
+    let blob_get_result = match caller.data_mut().resource_set.blob_get_responses.remove(resource_id.into()) {
+        Some(v) => v,
+        None => return BlobGetResultSerializeResultCode::NotFound as u64,
+    };
 
     let mut message = capnp::message::Builder::new_default();
     let blob_get_response = message.init_root::<abi_blob_capnp::blob_get_response::Builder>();
@@ -704,7 +708,7 @@ pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, Func
         },
     );
 
-    0
+    BlobGetResultSerializeResultCode::Ok as u64
 }
 
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(
