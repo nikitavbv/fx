@@ -662,12 +662,12 @@ pub(super) fn fx_blob_get_result_poll(mut caller: wasmtime::Caller<'_, FunctionI
 
     write_result(&mut caller, result_addr, match result {
         Poll::Pending => AsyncResourcePollResult {
-            tag: 0,
+            tag: 1,
             _pad: Default::default(),
             resolved_resource_id: 0,
         },
         Poll::Ready(v) => AsyncResourcePollResult {
-            tag: 1,
+            tag: 0,
             _pad: Default::default(),
             resolved_resource_id: v.into(),
         },
