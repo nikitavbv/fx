@@ -38,7 +38,7 @@ impl FxServer {
                 .epoch_interruption(true)
         ).unwrap();
 
-        let cpu_info = match gdt_cpus::cpu_info() {
+        let cpu_info = match gdt_cpus::CpuInfo::detect() {
             Ok(v) => Some(v),
             Err(err) => {
                 error!("failed to get cpu info: {err:?}");
@@ -48,8 +48,8 @@ impl FxServer {
 
         let target_workers = self.config.workers.unwrap_or(4);
 
-        let worker_threads = target_workers.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
-        let sql_threads = target_workers.min(cpu_info.map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+        let worker_threads = target_workers.min(cpu_info.as_ref().map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
+        let sql_threads = target_workers.min(cpu_info.as_ref().map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
 
         let (workers_tx, workers_rx) = (0..worker_threads)
             .map(|_| flume::unbounded::<WorkerMessage>())
