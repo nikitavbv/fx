@@ -7,7 +7,6 @@ use {
         handler_fn::{FunctionResponse, FunctionResponseInner},
         sys::{
             fx_resource_serialize,
-            fx_resource_move_from_host,
             fx_resource_drop,
             fx_future_poll,
             fx_bytes_len,
@@ -160,19 +159,6 @@ impl SerializeResource for FunctionResponse {
 /// if dropped before being moved, cleans up resource on host side.
 pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T + Send>>);
 
-impl<T: DeserializeHostResource> From<ResourceId> for DeserializableHostResource<T> {
-    fn from(resource_id: ResourceId) -> Self {
-        let resource_id = OwnedResourceId::new(resource_id);
-        Self(LazyCell::new(Box::new(move || {
-            let resource_id = resource_id.consume();
-            let resource_length = unsafe { fx_resource_serialize(resource_id.id) } as usize;
-            let data: Vec<u8> = vec![0u8; resource_length];
-            unsafe { fx_resource_move_from_host(resource_id.id, data.as_ptr() as u64); }
-            T::deserialize(&mut data.as_slice())
-        })))
-    }
-}
-
 /// Resource handle that is owned by function.
 /// Cleans up host memory if dropped before being consmumed
 pub struct OwnedResourceId(Cell<Option<ResourceId>>);
@@ -236,28 +222,6 @@ impl<T: DeserializeHostResource> FutureHostResource<T> {
         Self {
             resource_id: RefCell::new(Some(resource_id)),
             _t: PhantomData,
-        }
-    }
-}
-
-impl<T: DeserializeHostResource> Future for FutureHostResource<T> {
-    type Output = T;
-
-    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let poll_result = self.resource_id.borrow().as_ref().unwrap().with(|resource_id| {
-            unsafe { fx_future_poll(resource_id.id) }
-        });
-        let poll_result = FuturePollResult::try_from(poll_result).unwrap();
-        match poll_result {
-            FuturePollResult::Pending => std::task::Poll::Pending,
-            FuturePollResult::Ready => std::task::Poll::Ready({
-                let resource_id = self.resource_id.replace(None).unwrap().consume();
-                let resource_length = unsafe { fx_resource_serialize(resource_id.id) } as usize;
-                let data: Vec<u8> = vec![0u8; resource_length];
-                unsafe { fx_resource_move_from_host(resource_id.id, data.as_ptr() as u64); }
-                T::deserialize(&mut data.as_slice())
-            }),
-            other => todo!(),
         }
     }
 }

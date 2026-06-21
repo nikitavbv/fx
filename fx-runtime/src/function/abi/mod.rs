@@ -30,6 +30,7 @@ use {
         SqlQueryResultSerializeResult,
         SqlBatchResultFuturePollResult,
         SqlBatchResultSerializeResult,
+        SqlMigrationResultSerializeResult,
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
         HttpBodyPollFrameResult,
@@ -516,6 +517,53 @@ pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, Fun
     0
 }
 
+pub(super) fn fx_migration_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let poll_result = resource_poll(
+        &mut caller,
+        |s| &mut s.sql_migration_result_futures,
+        |s| &mut s.sql_migration_results,
+        resource_id,
+    );
+    write_result(&mut caller, result_addr, Into::<AsyncResourcePollResult>::into(poll_result));
+    0
+}
+
+pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let resource = caller.data_mut().resource_set.sql_migration_results.remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+
+    let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
+    let mut sql_migrate_result = sql_migrate_result.init_result();
+
+    match resource {
+        Ok(_) => {
+            sql_migrate_result.set_ok(());
+        },
+        Err(err) => {
+            let mut response_error = sql_migrate_result.init_error().init_error();
+            match err {
+                SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
+                SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
+                SqlMigrationError::MigrationExecutionError { message } => response_error.set_execution_error(message),
+                SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
+                SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+            }
+        }
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(&mut caller, result_addr, SqlMigrationResultSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
+    });
+
+    0
+}
+
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let result = resource_poll(
         &mut caller,
@@ -754,33 +802,6 @@ pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, Fun
     caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
 }
 
-pub(super) fn fx_resource_move_from_host_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
-    let resource = match caller.data_mut().resource_remove(&ResourceId::from(resource_id)) {
-        Resource::SqlMigrationResult(req) => match req {
-            FutureResource::Future(_) => panic!("cannot move resource that is not ready yet"),
-            FutureResource::Ready(v) => v.into_serialized(),
-        },
-        Resource::KvSubscription(_) => panic!("resource of this type cannot be moved"),
-    };
-
-    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
-        Ok(v) => v,
-        Err(err) => match err {
-            function_memory::FunctionMemoryError::MemoryNotFound
-            | function_memory::FunctionMemoryError::MemoryNotMemory => return ResourceMoveFromHostResult::FailedToAccessMemory as u64,
-        }
-    };
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-
-    (match view.copy_from_slice(ptr, resource.len() as u64, &resource) {
-        Ok(_) => ResourceMoveFromHostResult::Ok,
-        Err(err) => match err {
-            function_memory::FunctionMemoryAccessError::OutOfBounds => ResourceMoveFromHostResult::ArgumentOutOfMemoryBounds,
-        }
-    }) as u64
-}
-
 pub(super) fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
     let _ = caller.data_mut().resource_remove(&ResourceId::from(resource_id));
 }
@@ -861,11 +882,7 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     let binding = message.get_binding().unwrap().to_str().unwrap();
     let binding = match caller.data().bindings_sql.get(binding) {
         Some(v) => v,
-        None => {
-            return caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::Ready(SerializableResource::Raw(
-                Err(SqlMigrationError::BindingNotFound)
-            )))).as_u64();
-        }
+        None => return caller.data_mut().resource_set.sql_migration_result_futures.insert(std::future::ready(Err(SqlMigrationError::BindingNotFound)).boxed()).into(),
     };
 
     let (response_tx, response_rx) = oneshot::channel();
@@ -877,15 +894,15 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
         response: response_tx,
     });
 
-    caller.data_mut().resource_add(Resource::SqlMigrationResult(FutureResource::for_future(async move {
-        SerializableResource::Raw(match send_result {
+    caller.data_mut().resource_set.sql_migration_result_futures.insert(async move {
+        match send_result {
             Ok(_) => match response_rx.await {
                 Ok(v) => v.map_err(SqlMigrationError::from),
                 Err(_) => Err(SqlMigrationError::RuntimeShutdown),
             },
             Err(_) => Err(SqlMigrationError::RuntimeShutdown),
-        })
-    }))).as_u64()
+        }
+    }.boxed()).into()
 }
 
 pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {

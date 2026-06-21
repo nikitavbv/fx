@@ -55,7 +55,6 @@ impl FunctionDeployment {
 
         linker.func_wrap("fx", "fx_log", super::abi::fx_log_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_serialize", super::abi::fx_resource_serialize_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_move_from_host", super::abi::fx_resource_move_from_host_handler).unwrap();
         linker.func_wrap("fx", "fx_resource_drop", super::abi::fx_resource_drop_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_exec", super::abi::fx_sql_exec_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_batch", super::abi::fx_sql_batch_handler).unwrap();
@@ -92,6 +91,8 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_sql_query_result_serialize", super::abi::fx_sql_query_result_serialize).unwrap();
         linker.func_wrap("fx", "fx_sql_batch_result_future_poll", super::abi::fx_sql_batch_result_future_poll).unwrap();
         linker.func_wrap("fx", "fx_sql_batch_result_serialize", super::abi::fx_sql_batch_result_serialize).unwrap();
+        linker.func_wrap("fx", "fx_migration_result_future_poll", super::abi::fx_migration_result_future_poll).unwrap();
+        linker.func_wrap("fx", "fx_migration_result_serialize", super::abi::fx_migration_result_serialize).unwrap();
         linker.func_wrap("fx", "fx_fetch_result_future_poll", super::abi::fx_fetch_result_future_poll).unwrap();
         linker.func_wrap("fx", "fx_fetch_result_serialize", super::abi::fx_fetch_result_serialize).unwrap();
         linker.func_wrap("fx", "fx_http_body_poll_frame", super::abi::fx_http_body_poll_frame).unwrap();

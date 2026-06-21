@@ -1,7 +1,11 @@
 use {
     thiserror::Error,
     fx_types::{capnp, abi_sql_capnp},
-    crate::{SqlDatabase, sys::{fx_sql_migrate, FutureHostResource, OwnedResourceId, DeserializeHostResource}},
+    crate::{
+        SqlDatabase,
+        sys::{fx_sql_migrate, FutureHostResource, OwnedResourceId, DeserializeHostResource},
+        api::sql::SqlMigrateResultFuture,
+    },
 };
 
 pub struct Migrations {
@@ -34,10 +38,7 @@ impl Migrations {
             capnp::serialize::write_message_to_words(&message)
         };
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_sql_migrate(request.as_ptr() as u64, request.len() as u64) });
-        let result: FutureHostResource<Result<(), SqlMigrationError>> = FutureHostResource::new(resource_id);
-
-        result.await
+        SqlMigrateResultFuture::new(unsafe { fx_sql_migrate(request.as_ptr() as u64, request.len() as u64) }).await
     }
 }
 

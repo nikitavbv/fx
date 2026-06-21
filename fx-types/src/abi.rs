@@ -1,4 +1,5 @@
 use {
+    std::task::Poll,
     num_enum::TryFromPrimitive,
     zerocopy::{FromBytes, IntoBytes, Immutable, KnownLayout},
 };
@@ -88,6 +89,13 @@ pub struct SqlBatchResultSerializeResult {
 
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct SqlMigrationResultSerializeResult {
+    pub bytes_resource_id: u64,
+    pub bytes_length: u64,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct FetchResultFuturePollResult {
     pub tag: u8, // 0 - ready, 1 - pending
     pub _pad: [u8; 7],
@@ -129,6 +137,23 @@ pub struct AsyncResourcePollResult {
     pub tag: u8, // 0 - ready, 1 - pending
     pub _pad: [u8; 7],
     pub resolved_resource_id: u64,
+}
+
+impl<T: Into<u64>> From<Poll<T>> for AsyncResourcePollResult {
+    fn from(value: Poll<T>) -> Self {
+        match value {
+            Poll::Pending => Self {
+                tag: 1,
+                _pad: Default::default(),
+                resolved_resource_id: 0,
+            },
+            Poll::Ready(v) => Self {
+                tag: 0,
+                _pad: Default::default(),
+                resolved_resource_id: v.into(),
+            }
+        }
+    }
 }
 
 #[repr(C)]
