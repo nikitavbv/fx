@@ -1,7 +1,7 @@
 use {
     std::{net::SocketAddr, rc::Rc, collections::HashMap, cell::RefCell},
     tokio::time::Duration,
-    tracing::{info, warn, error},
+    tracing::{debug, info, warn, error},
     hyper_util::rt::{TokioIo, TokioTimer},
     hyper::server::conn::http1,
     crate::{
@@ -206,6 +206,7 @@ async fn worker_handle_message(
             }
         },
         WorkerMessage::FunctionInvoke { function_id, header, mut response_tx } => {
+            debug!("function invoke: {function_id:?}");
             let deployment = match world.functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
                 None => {
@@ -228,9 +229,11 @@ async fn worker_handle_message(
                                     FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionInvokeError::FunctionPanicked,
                                 })
                         );
+                        debug!("function invoke done");
                     },
                     _ = response_tx.closed() => {
                         // receiver dropped (timeout or disconnect) - can discard the result and cancel function invocation task
+                        debug!("function invoke dropped");
                     }
                 }
             });
