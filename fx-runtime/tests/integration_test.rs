@@ -985,6 +985,17 @@ async fn preemption() {
 }
 
 #[tokio::test]
+async fn introspection_metrics_function_invoked() {
+    let client = init_fx_server().await;
+
+    let metrics = client.introspection_get("/metrics").send().await.unwrap().text().await.unwrap();
+    let line = metrics.lines().find(|l| l.starts_with("function_invoked ")).unwrap();
+
+    let value: u64 = line.strip_prefix("function_invoked ").unwrap().parse().unwrap();
+    assert!(value >= 1, "function_invoked counter should be at least 1, but is {value}");
+}
+
+#[tokio::test]
 async fn introspection_functions_table() {
     let _client = init_fx_server().await;
 

@@ -82,6 +82,7 @@ impl FunctionMetricsState {
 }
 
 pub(crate) struct MetricsRegistry {
+    runtime_counters: RwLock<HashMap<MetricKey, u64>>,
     runtime_counters_float: RwLock<HashMap<MetricKey, f64>>,
     function_metrics: RwLock<HashMap<FunctionId, FunctionMetricsDelta>>,
 }
@@ -89,6 +90,7 @@ pub(crate) struct MetricsRegistry {
 impl MetricsRegistry {
     pub fn new() -> Self {
         Self {
+            runtime_counters: RwLock::new(HashMap::new()),
             runtime_counters_float: RwLock::new(HashMap::new()),
             function_metrics: RwLock::new(HashMap::new()),
         }
@@ -104,6 +106,10 @@ impl MetricsRegistry {
         }
     }
 
+    pub fn counter_increment(&self, metric_key: MetricKey, delta: u64) {
+        *self.runtime_counters.write().unwrap().entry(metric_key).or_insert(0) += delta;
+    }
+
     pub fn counter_float_increment(&self, metric_key: MetricKey, delta: f64) {
         *self.runtime_counters_float.write().unwrap().entry(metric_key).or_insert(0.0) += delta;
     }
@@ -112,6 +118,20 @@ impl MetricsRegistry {
         let mut result = String::new();
 
         // runtime counters:
+        for (metric_key, counter_value) in self.runtime_counters.read().unwrap().iter() {
+            let metric_name = sanitize_metric_name(&metric_key.name);
+
+            result.push_str("# TYPE ");
+            result.push_str(metric_name.as_str());
+            result.push_str(" counter\n");
+            result.push_str(metric_name.as_str());
+
+            append_metric_labels(&mut result, &metric_key.labels);
+            result.push(' ');
+            result.push_str(counter_value.to_string().as_str());
+            result.push('\n');
+        }
+
         for (metric_key, counter_value) in self.runtime_counters_float.read().unwrap().iter() {
             let metric_name = sanitize_metric_name(&metric_key.name);
 

@@ -20,12 +20,14 @@ use {
             instance::{FunctionInstance, FunctionFramePollFuture},
         },
         effects::fetch::HttpStreamError,
+        tasks::management::ManagementMessage,
     },
 };
 
 const HTTP_PATH_NAMESPACE_INTERNAL: &'static str = "/_fx/";
 
 pub(crate) struct HttpHandler {
+    management_tx: flume::Sender<ManagementMessage>,
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
@@ -34,12 +36,14 @@ pub(crate) struct HttpHandler {
 
 impl HttpHandler {
     pub fn new(
+        management_tx: flume::Sender<ManagementMessage>,
         http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
         http_default: Rc<RefCell<Option<FunctionId>>>,
         functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
         function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
     ) -> Self {
         Self {
+            management_tx,
             http_hosts,
             http_default,
             functions,
@@ -74,6 +78,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             .or_else(|| self.http_default.borrow().clone());
         let target_function_deployment_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
         let target_function_deployment = target_function_deployment_id.and_then(|instance_id| self.function_deployments.borrow().get(&instance_id).cloned());
+
+        let management_tx = self.management_tx.clone();
 
         Box::pin(async move {
             let target_function_deployment = match target_function_deployment {
@@ -130,6 +136,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     }
                 }
             }
+
+            management_tx.send_async(ManagementMessage::FunctionInvoked(())).await;
 
             Ok(response)
         })

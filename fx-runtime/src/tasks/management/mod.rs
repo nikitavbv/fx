@@ -22,6 +22,7 @@ pub(crate) mod runtime_state;
 pub(crate) enum ManagementMessage {
     DeployFunction(Box<DeployFunctionMessage>),
     WorkerMetrics(MetricsFlushMessage),
+    FunctionInvoked(()),
 }
 
 pub(crate) struct DeployFunctionMessage {
@@ -85,6 +86,9 @@ pub(crate) fn run_management_task(
                                 },
                                 ManagementMessage::WorkerMetrics(msg) => {
                                     metrics.update(msg.function_metrics);
+                                },
+                                ManagementMessage::FunctionInvoked(_msg) => {
+                                    metrics.counter_increment(MetricKey::new("function_invoked"), 1);
                                 },
                             }
                         }

@@ -104,6 +104,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                 connection = listener.accept() => {
                     worker_handle_http_connection(
                         &graceful,
+                        &worker,
                         world.function_deployments.clone(),
                         world.functions.clone(),
                         world.http_hosts.clone(),
@@ -260,6 +261,7 @@ async fn worker_handle_local_message(
 
 async fn worker_handle_http_connection(
     graceful: &hyper_util::server::graceful::GracefulShutdown,
+    worker: &WorkerConfig,
     function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
@@ -278,6 +280,7 @@ async fn worker_handle_http_connection(
     let conn = http1::Builder::new()
         .timer(TokioTimer::new())
         .serve_connection(io, HttpHandler::new(
+            worker.management_tx.clone(),
             http_hosts.clone(),
             http_default.clone(),
             functions.clone(),
