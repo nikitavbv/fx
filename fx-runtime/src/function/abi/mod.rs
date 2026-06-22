@@ -43,7 +43,6 @@ use {
     crate::{
         function::instance::FunctionInstanceState,
         resources::{
-            Resource,
             ResourceId,
             FunctionResourceId,
             serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
@@ -798,28 +797,6 @@ fn write_result(
 }
 
 // TODO: refactor below
-pub(super) fn fx_resource_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
-    caller.data_mut().resource_serialize(&ResourceId::from(resource_id)) as u64
-}
-
-pub(super) fn fx_resource_drop_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
-    let _ = caller.data_mut().resource_remove(&ResourceId::from(resource_id));
-}
-
-pub(super) fn fx_stream_frame_read_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) {
-    debug!("fx_stream_frame_read_handler - enter");
-
-    let serialized_frame = caller.data_mut().stream_read_frame(&ResourceId::from(resource_id));
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-
-    view.copy_from_slice(ptr, serialized_frame.len() as u64, &serialized_frame).unwrap();
-
-    debug!("fx_stream_frame_read_handler - exit");
-}
-
 pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
@@ -953,15 +930,6 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
             Err(_) => Err(SqlBatchError::RuntimeShutdown),
         }
     }.boxed()).into()
-}
-
-pub(super) fn fx_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, future_resource_id: u64) -> i64 {
-    let resource_id = ResourceId::new(future_resource_id);
-    (match caller.data_mut().resource_poll(&resource_id) {
-        Some(Poll::Pending) => FuturePollResult::Pending,
-        Some(Poll::Ready(_)) => FuturePollResult::Ready,
-        None => FuturePollResult::NotFound,
-    }) as i64
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
@@ -1509,7 +1477,7 @@ pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionI
         operation: KvOperation::Subscribe { channel, result: result_tx },
     }).unwrap();
 
-    caller.data_mut().resource_add(Resource::KvSubscription(KvSubscriptionResource::Init(result_rx))).as_u64()
+    caller.data_mut().resource_set.kv_subscriptions.insert(KvSubscriptionResource::Init(result_rx)).into()
 }
 
 pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64 {

@@ -8,7 +8,6 @@ use {
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, HttpBody},
         resources::{
-            Resource,
             serialize::{SerializedFunctionResource, SerializableResource},
             future::{FunctionFuture, FunctionUnitFuture},
         },
@@ -54,12 +53,9 @@ impl FunctionDeployment {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(&wasmtime);
 
         linker.func_wrap("fx", "fx_log", super::abi::fx_log_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_serialize", super::abi::fx_resource_serialize_handler).unwrap();
-        linker.func_wrap("fx", "fx_resource_drop", super::abi::fx_resource_drop_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_exec", super::abi::fx_sql_exec_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_batch", super::abi::fx_sql_batch_handler).unwrap();
         linker.func_wrap("fx", "fx_sql_migrate", super::abi::fx_sql_migrate_handler).unwrap();
-        linker.func_wrap("fx", "fx_future_poll", super::abi::fx_future_poll_handler).unwrap();
         linker.func_wrap("fx", "fx_sleep", super::abi::fx_sleep_handler).unwrap();
         linker.func_wrap("fx", "fx_random", super::abi::fx_random_handler).unwrap();
         linker.func_wrap("fx", "fx_time", super::abi::fx_time_handler).unwrap();
@@ -69,7 +65,6 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_fetch", super::abi::fx_fetch_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_register", super::abi::fx_metrics_counter_register_handler).unwrap();
         linker.func_wrap("fx", "fx_metrics_counter_increment", super::abi::fx_metrics_counter_increment_handler).unwrap();
-        linker.func_wrap("fx", "fx_stream_frame_read", super::abi::fx_stream_frame_read_handler).unwrap();
         linker.func_wrap("fx", "fx_env_len", super::abi::fx_env_len_handler).unwrap();
         linker.func_wrap("fx", "fx_env_get", super::abi::fx_env_get_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_set", super::abi::fx_kv_set_handler).unwrap();

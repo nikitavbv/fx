@@ -21,7 +21,6 @@ use {
         resources::{
             FunctionResourceId,
             ResourceId,
-            Resource,
             FunctionResources,
             future::FutureResource,
             serialize::SerializableResource,
@@ -254,7 +253,6 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) blob_tx: flume::Sender<BlobMessage>,
     pub(crate) function_id: FunctionId,
 
-    resources: SlotMap<slotmap::DefaultKey, Resource>,
     pub(crate) resource_set: FunctionResources,
     pub(crate) tasks_background: Vec<FunctionResourceId>,
 
@@ -301,7 +299,6 @@ impl FunctionInstanceState {
             function_id,
             env,
 
-            resources: SlotMap::new(),
             resource_set: FunctionResources::new(),
             tasks_background: Vec::new(),
 
@@ -312,108 +309,6 @@ impl FunctionInstanceState {
             http_client: reqwest::Client::new(),
             metrics: FunctionMetricsState::new(),
         }
-    }
-
-    pub fn resource_add(&mut self, resource: Resource) -> ResourceId {
-        ResourceId::from(self.resources.insert(resource))
-    }
-
-    pub fn resource_serialize(&mut self, resource_id: &ResourceId) -> usize {
-        let resource = self.resources.detach(resource_id.into()).unwrap();
-        let (resource, serialized_size) = match resource {
-            Resource::KvSubscription(v) => match v {
-                KvSubscriptionResource::Init(_) |
-                KvSubscriptionResource::Stream(_) => panic!("resource is not yet for serialization"),
-                KvSubscriptionResource::NextReady { stream, frame } => {
-                    let frame_serialized = {
-                        let mut message = capnp::message::Builder::new_default();
-                        let serialized_frame = message.init_root::<abi_kv_capnp::kv_subscription_frame::Builder>();
-                        let mut serialized_frame = serialized_frame.init_frame();
-
-                        serialized_frame.set_bytes(&frame);
-
-                        capnp::serialize::write_message_to_words(&message)
-                    };
-                    let serialized_size = frame_serialized.len();
-
-                    (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), serialized_size)
-                },
-                KvSubscriptionResource::NextSerialized { stream, frame_serialized } => {
-                    let serialized_size = frame_serialized.len();
-                    (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), serialized_size)
-                }
-            },
-        };
-        self.resources.reattach(resource_id.into(), resource);
-        serialized_size
-    }
-
-    pub fn resource_poll(&mut self, resource_id: &ResourceId) -> Option<Poll<()>> {
-        let resource = self.resources.detach(resource_id.into())?;
-
-        let mut cx = std::task::Context::from_waker(self.waker.as_ref().unwrap());
-        let (resource, poll_result) = match resource {
-            Resource::KvSubscription(v) => match v {
-                KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
-                    std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Init(v)), Poll::Pending),
-                    std::task::Poll::Ready(Ok(v)) => {
-                        let mut stream = v.into_stream().boxed();
-
-                        match stream.poll_next_unpin(&mut cx) {
-                            std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Stream(stream)), std::task::Poll::Pending),
-                            std::task::Poll::Ready(None) => todo!(),
-                            std::task::Poll::Ready(Some(frame)) => (Resource::KvSubscription(KvSubscriptionResource::NextReady {
-                                stream,
-                                frame,
-                            }), std::task::Poll::Ready(())),
-                        }
-                    },
-                    std::task::Poll::Ready(Err(err)) => todo!("handle error: {err:?}"),
-                },
-                KvSubscriptionResource::Stream(mut stream) => match stream.poll_next_unpin(&mut cx) {
-                    std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Stream(stream)), std::task::Poll::Pending),
-                    std::task::Poll::Ready(None) => todo!(),
-                    std::task::Poll::Ready(Some(frame)) => (
-                        Resource::KvSubscription(KvSubscriptionResource::NextReady { stream, frame }),
-                        std::task::Poll::Ready(()),
-                    ),
-                },
-                KvSubscriptionResource::NextReady { stream, frame } => (Resource::KvSubscription(KvSubscriptionResource::NextReady { stream, frame }), std::task::Poll::Ready(())),
-                KvSubscriptionResource::NextSerialized { stream, frame_serialized } => (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), std::task::Poll::Ready(())),
-            },
-        };
-
-        self.resources.reattach(resource_id.into(), resource);
-
-        Some(poll_result)
-    }
-
-    pub fn resource_remove(&mut self, resource_id: &ResourceId) -> Resource {
-        self.resources.remove(resource_id.into()).unwrap()
-    }
-
-    pub(crate) fn stream_read_frame(&mut self, resource_id: &ResourceId) -> Vec<u8> {
-        let resource = self.resources.detach(resource_id.into()).unwrap();
-
-        let (resource, serialized_frame) = match resource {
-            Resource::KvSubscription(v) => match v {
-                KvSubscriptionResource::Init(_)
-                | KvSubscriptionResource::Stream(_)
-                | KvSubscriptionResource::NextReady { .. } => panic!("KvSubscription has to be serialized first"),
-                KvSubscriptionResource::NextSerialized { stream, frame_serialized } => (
-                    Some(Resource::KvSubscription(KvSubscriptionResource::Stream(stream))),
-                    frame_serialized,
-                ),
-            },
-        };
-
-        if let Some(resource) = resource {
-            self.resources.reattach(resource_id.into(), resource);
-        } else {
-            self.resources.remove(resource_id.into());
-        }
-
-        serialized_frame
     }
 }
 

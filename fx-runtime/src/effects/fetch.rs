@@ -6,7 +6,7 @@ use {
         resources::{
             serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource},
             ResourceId,
-            resource::{OwnedFunctionResourceId, Resource, HttpBodyResourceKey},
+            resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
             FunctionResourceId,
         },
         triggers::http::HttpBody,

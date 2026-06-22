@@ -97,11 +97,6 @@ impl From<u64> for FunctionResourceId {
     }
 }
 
-// TODO: extract into separate resource maps
-pub(crate) enum Resource {
-    KvSubscription(KvSubscriptionResource),
-}
-
 #[derive(Default)]
 pub(crate) struct FunctionResources {
     pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
@@ -110,6 +105,7 @@ pub(crate) struct FunctionResources {
     pub(crate) kv_get_responses: ResourceTable<KvGetResponseKey, KvGetResponse>,
     pub(crate) kv_set_response_futures: ResourceTable<KvSetResponseFutureResourceKey, BoxFuture<'static, Result<(), KvSetError>>>,
     pub(crate) kv_set_responses: ResourceTable<KvSetResponseKey, Result<(), KvSetError>>,
+    pub(crate) kv_subscriptions: ResourceTable<KvSubscriptionResourceKey, KvSubscriptionResource>,
     pub(crate) unit_futures: ResourceTable<UnitFutureResourceKey, BoxFuture<'static, ()>>,
     pub(crate) sql_query_result_futures: ResourceTable<SqlQueryResultFutureResourceKey, BoxFuture<'static, Result<Vec<SqlRow>, SqlQueryError>>>,
     pub(crate) sql_query_results: ResourceTable<SqlQueryResultResourceKey, Result<Vec<SqlRow>, SqlQueryError>>,
@@ -224,3 +220,4 @@ key!(pub(crate) struct HttpBodyResourceKey);
 key!(pub(crate) struct HttpFrameResourceKey);
 key!(pub(crate) struct BlobGetResponseFutureResourceKey);
 key!(pub(crate) struct BlobGetResponseResourceKey);
+key!(pub(crate) struct KvSubscriptionResourceKey);
