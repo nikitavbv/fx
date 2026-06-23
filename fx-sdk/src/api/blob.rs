@@ -8,9 +8,7 @@ use {
         fx_blob_get_result_poll,
         fx_blob_get_result_serialize,
         fx_bytes_move,
-        FutureHostResource,
         HostUnitFuture,
-        OwnedResourceId,
         DeserializeHostResource,
     },
 };

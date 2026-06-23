@@ -16,16 +16,12 @@ use {
     crate::sys::{
         DeserializeHostResource,
         HostUnitFuture,
-        OwnedResourceId,
         fx_kv_set,
         fx_kv_set_nx_px,
         fx_kv_get,
         fx_kv_delex_ifeq,
         fx_kv_subscribe,
         fx_kv_publish,
-        fx_future_poll,
-        fx_stream_frame_read,
-        fx_resource_serialize,
         fx_kv_get_response_future_poll,
         fx_kv_get_response_serialize,
         fx_bytes_move,
@@ -110,14 +106,12 @@ impl Kv {
     pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
         let (channel_ptr, channel_len) = channel.as_key();
 
-        let resource_id = OwnedResourceId::from_ffi(unsafe { fx_kv_subscribe(
+        KvSubscriptionStream::new(unsafe { fx_kv_subscribe(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             channel_ptr,
             channel_len,
-        ) });
-
-        KvSubscriptionStream::new(resource_id)
+        ) })
     }
 
     pub async fn publish(&self, channel: impl AsKey, data: impl AsValue) {
@@ -136,11 +130,11 @@ impl Kv {
 }
 
 pub struct KvSubscriptionStream {
-    resource_id: OwnedResourceId,
+    resource_id: u64,
 }
 
 impl KvSubscriptionStream {
-    pub fn new(resource_id: OwnedResourceId) -> Self {
+    pub fn new(resource_id: u64) -> Self {
         Self {
             resource_id,
         }
@@ -151,7 +145,8 @@ impl Stream for KvSubscriptionStream {
     type Item = Vec<u8>;
 
     fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        let poll_result = self.resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
+        todo!()
+        /*let poll_result = self.resource_id.with(|resource_id| unsafe { fx_future_poll(resource_id.as_ffi()) });
         let poll_result = FuturePollResult::try_from(poll_result).unwrap();
         if let FuturePollResult::Pending = poll_result {
             return std::task::Poll::Pending;
@@ -166,7 +161,7 @@ impl Stream for KvSubscriptionStream {
         std::task::Poll::Ready(match frame.get_frame().which().unwrap() {
             abi_kv_capnp::kv_subscription_frame::frame::Which::StreamEnd(_) => None,
             abi_kv_capnp::kv_subscription_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
-        })
+        })*/
     }
 }
 

@@ -3,7 +3,7 @@ use {
     fx_types::{capnp, abi_sql_capnp},
     crate::{
         SqlDatabase,
-        sys::{fx_sql_migrate, FutureHostResource, OwnedResourceId, DeserializeHostResource},
+        sys::{fx_sql_migrate, DeserializeHostResource},
         api::sql::SqlMigrateResultFuture,
     },
 };

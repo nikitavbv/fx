@@ -1,5 +1,6 @@
 use {
     std::{rc::Rc, collections::HashMap, pin::Pin, cell::RefCell},
+    tracing::debug,
     thiserror::Error,
     serde::{Serialize, Deserialize},
     crate::{
@@ -164,7 +165,9 @@ impl FunctionDeployment {
             instance.borrow().clone()
         };
 
+        debug!("function handling request");
         Box::pin(async move {
+            debug!("inside request handling");
             let mut header = header;
             let resource = {
                 let mut data = instance.store.lock().await;
@@ -175,6 +178,7 @@ impl FunctionDeployment {
                 data.resource_set.fetch_request_headers.insert(header)
             };
 
+            debug!("resource obtained");
             let result = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
 
             {
@@ -185,6 +189,7 @@ impl FunctionDeployment {
                 }
             }
 
+            debug!("function future created");
             result
                 .map(|response_resource| SerializedFunctionResource::new(instance, response_resource))
                 .map_err(|err| match err {

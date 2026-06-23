@@ -23,14 +23,10 @@ use {
         FetchRequestHeaderResourceId,
         DeserializableHostResource,
         DeserializeHostResource,
-        OwnedResourceId,
         FunctionResource,
         BytesResource,
         add_function_resource,
         fx_fetch,
-        fx_future_poll,
-        fx_resource_serialize,
-        fx_stream_frame_read,
         fx_fetch_result_future_poll,
         fx_fetch_result_serialize,
         fx_bytes_move,
@@ -306,8 +302,8 @@ impl HttpBody {
         Self(HttpBodyInner::Stream { stream, frame_serialized: None })
     }
 
-    pub fn host_resource(resource_id: OwnedResourceId) -> Self {
-        Self(HttpBodyInner::HostResource(resource_id.consume().as_ffi()))
+    pub fn host_resource(resource_id: u64) -> Self {
+        Self(HttpBodyInner::HostResource(resource_id))
     }
 
     pub async fn read_all(self) -> Option<Vec<u8>> {
@@ -498,7 +494,7 @@ impl Future for FetchResultFuture {
 
                         Ok(HttpResponse {
                             parts,
-                            body: HttpBody::host_resource(OwnedResourceId::from_ffi(response.get_body_resource_id())),
+                            body: HttpBody::host_resource(response.get_body_resource_id()),
                         })
                     }
                     abi_http_capnp::fetch_result::result::Which::Error(err) => {
@@ -535,7 +531,7 @@ impl DeserializeHostResource for HttpResponse {
 
         HttpResponse {
             parts,
-            body: HttpBody::host_resource(OwnedResourceId::from_ffi(request.get_body_resource_id())),
+            body: HttpBody::host_resource(request.get_body_resource_id()),
         }
     }
 }

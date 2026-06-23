@@ -9,8 +9,6 @@ pub(crate) use self::{
         SerializableResource,
         DeserializableHostResource,
         DeserializeHostResource,
-        FutureHostResource,
-        OwnedResourceId,
         HostUnitFuture,
         FunctionResource,
         BytesResource,
@@ -207,12 +205,9 @@ pub extern "C" fn _fx_stream_advance(resource_id: u64) {
 #[link(wasm_import_module = "fx")]
 unsafe extern "C" {
     pub(crate) fn fx_log(req_addr: i64, req_len: i64);
-    pub(crate) fn fx_resource_serialize(resource_id: u64) -> u64;
-    pub(crate) fn fx_resource_drop(resource_id: u64);
     pub(crate) fn fx_sql_exec(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_sql_batch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_sql_migrate(req_addr: u64, req_len: u64) -> u64;
-    pub(crate) fn fx_future_poll(future_resource_id: u64) -> i64;
     pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
     pub(crate) fn fx_random(ptr: u64, len: u64);
     pub(crate) fn fx_time() -> u64;
@@ -222,7 +217,6 @@ unsafe extern "C" {
     pub(crate) fn fx_fetch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_metrics_counter_register(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_metrics_counter_increment(metric_id: u64, delta: u64);
-    pub(crate) fn fx_stream_frame_read(resource_id: u64, ptr: u64);
     pub(crate) fn fx_env_len(key_ptr: u64, key_len: u64) -> i64;
     pub(crate) fn fx_env_get(key_ptr: u64, key_len: u64, value_ptr: u64);
     pub(crate) fn fx_kv_set(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64;

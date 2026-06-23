@@ -6,9 +6,6 @@ use {
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner},
         sys::{
-            fx_resource_serialize,
-            fx_resource_drop,
-            fx_future_poll,
             fx_bytes_len,
             fx_bytes_move,
             fx_unit_future_poll,
@@ -159,39 +156,6 @@ impl SerializeResource for FunctionResponse {
 /// if dropped before being moved, cleans up resource on host side.
 pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T + Send>>);
 
-/// Resource handle that is owned by function.
-/// Cleans up host memory if dropped before being consmumed
-pub struct OwnedResourceId(Cell<Option<ResourceId>>);
-
-impl OwnedResourceId {
-    pub fn new(resource_id: ResourceId) -> Self {
-        Self(Cell::new(Some(resource_id)))
-    }
-
-    pub fn from_ffi(id: u64) -> Self {
-        Self::new(ResourceId::new(id))
-    }
-
-    pub fn with<T, F: FnOnce(&ResourceId) -> T>(&self, mapper: F) -> T {
-        let resource_id = self.0.replace(None).unwrap();
-        let result = mapper(&resource_id);
-        self.0.replace(Some(resource_id));
-        result
-    }
-
-    pub fn consume(self) -> ResourceId {
-        self.0.replace(None).unwrap()
-    }
-}
-
-impl Drop for OwnedResourceId {
-    fn drop(&mut self) {
-        if let Some(resource) = self.0.replace(None) {
-            unsafe { fx_resource_drop(resource.id) }
-        }
-    }
-}
-
 impl<T: DeserializeHostResource> DeserializableHostResource<T> {
     pub(crate) fn get_raw(&self) -> &T {
         &*self.0
@@ -209,20 +173,6 @@ pub trait DeserializeHostResource {
 impl DeserializeHostResource for Vec<u8> {
     fn deserialize(data: &mut &[u8]) -> Self {
         data.to_vec()
-    }
-}
-
-pub(crate) struct FutureHostResource<T: DeserializeHostResource> {
-    resource_id: RefCell<Option<OwnedResourceId>>,
-    _t: PhantomData<T>,
-}
-
-impl<T: DeserializeHostResource> FutureHostResource<T> {
-    pub fn new(resource_id: OwnedResourceId) -> Self {
-        Self {
-            resource_id: RefCell::new(Some(resource_id)),
-            _t: PhantomData,
-        }
     }
 }
 

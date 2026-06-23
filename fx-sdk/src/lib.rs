@@ -20,8 +20,6 @@ use {
     crate::{
         api::sql::{SqlQueryResultFuture, SqlBatchResultFuture},
         sys::{
-            OwnedResourceId,
-            FutureHostResource,
             fx_sql_exec,
             fx_sql_batch,
             fx_sleep,
