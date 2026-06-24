@@ -382,7 +382,24 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
 }
 
 pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let subscription_stream = caller.data_mut().resource_set.kv_subscriptions.get_mut(resource_id.into()).unwrap();
+    let data = caller.data_mut();
+    let subscription_stream = data.resource_set.kv_subscriptions.get_mut(resource_id.into()).unwrap();
+
+    let waker = data.waker.clone().unwrap();
+    let mut cx = std::task::Context::from_waker(&waker);
+
+    match subscription_stream {
+        KvSubscriptionResource::Init(v) => match v.poll_unpin(&mut cx) {
+            Poll::Pending => Poll::<()>::Pending,
+            Poll::Ready(Ok(v)) => {
+                let mut stream = v.into_stream().boxed();
+
+                todo!("complete implementation")
+            },
+            Poll::Ready(Err(err)) => todo!("handle error: {err:?}"),
+        },
+        other => todo!(),
+    };
 
     /*
      * KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
