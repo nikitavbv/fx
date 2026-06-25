@@ -82,6 +82,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_kv_get_response_serialize", super::abi::fx_kv_get_response_serialize_handler).unwrap();
         linker.func_wrap("fx", "fx_kv_set_response_future_poll", super::abi::fx_kv_set_response_future_poll).unwrap();
         linker.func_wrap("fx", "fx_kv_set_response_serialize", super::abi::fx_kv_set_response_serialize).unwrap();
+        linker.func_wrap("fx", "fx_kv_subscription_stream_poll_next", super::abi::fx_kv_subscription_stream_poll_next).unwrap();
         linker.func_wrap("fx", "fx_unit_future_poll", super::abi::fx_unit_future_poll).unwrap();
         linker.func_wrap("fx", "fx_sql_query_result_future_poll", super::abi::fx_sql_query_result_future_poll).unwrap();
         linker.func_wrap("fx", "fx_sql_query_result_serialize", super::abi::fx_sql_query_result_serialize).unwrap();

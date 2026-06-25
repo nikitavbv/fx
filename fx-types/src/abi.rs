@@ -169,3 +169,33 @@ pub enum BlobGetResultSerializeResultCode {
     Ok = 0,
     NotFound = 1,
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct AsyncStreamResourcePollResult {
+    pub tag: u8, // 0 - stream finished, 1 - next item ready, 2 - pending
+    pub _pad: [u8; 7],
+    pub resolved_resource_id: u64,
+}
+
+impl<T: Into<u64>> From<Poll<Option<T>>> for AsyncStreamResourcePollResult {
+    fn from(value: Poll<Option<T>>) -> Self {
+        match value {
+            Poll::Pending => Self {
+                tag: 2,
+                _pad: Default::default(),
+                resolved_resource_id: 0,
+            },
+            Poll::Ready(Some(v)) => Self {
+                tag: 1,
+                _pad: Default::default(),
+                resolved_resource_id: v.into(),
+            },
+            Poll::Ready(None) => Self {
+                tag: 0,
+                _pad: Default::default(),
+                resolved_resource_id: 0,
+            }
+        }
+    }
+}

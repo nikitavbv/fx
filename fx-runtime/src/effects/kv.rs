@@ -1,7 +1,7 @@
 use {
     std::time::Duration,
     thiserror::Error,
-    futures::stream::BoxStream,
+    futures::{stream::{BoxStream, Stream}, FutureExt, StreamExt},
     fx_types::{capnp, abi_kv_capnp},
     crate::resources::serialize::SerializeResource,
 };
@@ -89,12 +89,31 @@ pub(crate) struct KvPublishRequest {
 pub(crate) enum KvSubscriptionResource {
     Init(tokio::sync::oneshot::Receiver<flume::Receiver<Vec<u8>>>),
     Stream(BoxStream<'static, Vec<u8>>),
-    NextReady {
+    /*NextReady {
         stream: BoxStream<'static, Vec<u8>>,
         frame: Vec<u8>,
     },
     NextSerialized {
         stream: BoxStream<'static, Vec<u8>>,
         frame_serialized: Vec<u8>,
-    },
+    },*/
+}
+
+impl Stream for KvSubscriptionResource {
+    type Item = Vec<u8>;
+
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
+        let subscription = self.get_mut();
+        match subscription {
+            Self::Init(v) => match v.poll_unpin(cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(v) => {
+                    let v = v.unwrap().into_stream();
+                    *subscription = KvSubscriptionResource::Stream(v.boxed());
+                    subscription.poll_next_unpin(cx)
+                }
+            },
+            Self::Stream(v) => v.poll_next_unpin(cx)
+        }
+    }
 }

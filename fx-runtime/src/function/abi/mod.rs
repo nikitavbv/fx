@@ -39,6 +39,7 @@ use {
         AsyncResourcePollResult,
         BlobGetResultSerializeResult,
         BlobGetResultSerializeResultCode,
+        AsyncStreamResourcePollResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -388,49 +389,17 @@ pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'
     let waker = data.waker.clone().unwrap();
     let mut cx = std::task::Context::from_waker(&waker);
 
-    match subscription_stream {
-        KvSubscriptionResource::Init(v) => match v.poll_unpin(&mut cx) {
-            Poll::Pending => Poll::<()>::Pending,
-            Poll::Ready(Ok(v)) => {
-                let mut stream = v.into_stream().boxed();
+    let result = subscription_stream.poll_next_unpin(&mut cx);
 
-                todo!("complete implementation")
-            },
-            Poll::Ready(Err(err)) => todo!("handle error: {err:?}"),
-        },
-        other => todo!(),
+    let result = match result {
+        Poll::Ready(Some(v)) => Poll::Ready(Some(data.resource_set.bytes.insert(v))),
+        Poll::Ready(None) => Poll::Ready(None),
+        Poll::Pending => Poll::Pending,
     };
 
-    /*
-     * KvSubscriptionResource::Init(mut v) => match v.poll_unpin(&mut cx) {
-                         std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Init(v)), Poll::Pending),
-                         std::task::Poll::Ready(Ok(v)) => {
-                             let mut stream = v.into_stream().boxed();
+    write_result(&mut caller, result_addr, Into::<AsyncStreamResourcePollResult>::into(result));
 
-                             match stream.poll_next_unpin(&mut cx) {
-                                 std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Stream(stream)), std::task::Poll::Pending),
-                                 std::task::Poll::Ready(None) => todo!(),
-                                 std::task::Poll::Ready(Some(frame)) => (Resource::KvSubscription(KvSubscriptionResource::NextReady {
-                                     stream,
-                                     frame,
-                                 }), std::task::Poll::Ready(())),
-                             }
-                         },
-                         std::task::Poll::Ready(Err(err)) => todo!("handle error: {err:?}"),
-                     },
-                     KvSubscriptionResource::Stream(mut stream) => match stream.poll_next_unpin(&mut cx) {
-                         std::task::Poll::Pending => (Resource::KvSubscription(KvSubscriptionResource::Stream(stream)), std::task::Poll::Pending),
-                         std::task::Poll::Ready(None) => todo!(),
-                         std::task::Poll::Ready(Some(frame)) => (
-                             Resource::KvSubscription(KvSubscriptionResource::NextReady { stream, frame }),
-                             std::task::Poll::Ready(()),
-                         ),
-                     },
-                     KvSubscriptionResource::NextReady { stream, frame } => (Resource::KvSubscription(KvSubscriptionResource::NextReady { stream, frame }), std::task::Poll::Ready(())),
-                     KvSubscriptionResource::NextSerialized { stream, frame_serialized } => (Resource::KvSubscription(KvSubscriptionResource::NextSerialized { stream, frame_serialized }), std::task::Poll::Ready(())),
-     */
-
-    todo!()
+    0
 }
 
 pub(super) fn fx_sql_query_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
