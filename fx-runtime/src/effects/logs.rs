@@ -183,8 +183,16 @@ impl Logger for HttpLogger {
                     ))
                     .collect()
             }).unwrap())
-            .send()
-            .unwrap();
+            .send();
+
+        let response = match response {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to make request to logs endpoint: {:?}", err);
+                return;
+            }
+        };
+
         if !response.status().is_success() {
             error!(status_code=response.status().as_u16(), "failed to send logs over http");
         }
