@@ -7,7 +7,7 @@ use {
     send_wrapper::SendWrapper,
     crate::{
         resources::{
-            serialize::{SerializeResource, SerializedFunctionResource, DeserializableResource, SerializableResource},
+            serialize::{SerializedFunctionResource, DeserializableResource},
             ResourceId,
             resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
             FunctionResourceId,

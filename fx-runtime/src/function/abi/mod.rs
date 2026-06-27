@@ -44,10 +44,8 @@ use {
     crate::{
         function::instance::FunctionInstanceState,
         resources::{
-            ResourceId,
             FunctionResourceId,
-            serialize::{SerializableResource, DeserializableResource, SerializedFunctionResource},
-            future::FutureResource,
+            serialize::{DeserializableResource, SerializedFunctionResource},
             resource::{
                 ResourceTable,
                 FunctionResources,
@@ -55,7 +53,6 @@ use {
                 KvGetResponseFutureResourceKey,
                 KvSetResponseFutureResourceKey,
                 UnitFutureResourceKey,
-                SqlQueryResultFutureResourceKey,
                 BlobGetResponseFutureResourceKey,
             },
         },

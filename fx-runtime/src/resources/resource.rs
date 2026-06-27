@@ -14,10 +14,7 @@ use {
             kv::{KvGetResponse, KvSetError, KvSubscriptionResource},
         },
     },
-    super::{
-        future::FutureResource,
-        serialize::SerializableResource,
-    },
+    super::future::FutureResource,
 };
 
 /// Function resource handle that is owned by host.

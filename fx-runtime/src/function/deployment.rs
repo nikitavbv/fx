@@ -9,7 +9,7 @@ use {
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, HttpBody},
         resources::{
-            serialize::{SerializedFunctionResource, SerializableResource},
+            serialize::SerializedFunctionResource,
             future::{FunctionFuture, FunctionUnitFuture},
         },
     },

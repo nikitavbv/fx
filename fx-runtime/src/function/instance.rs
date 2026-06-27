@@ -23,7 +23,6 @@ use {
             ResourceId,
             FunctionResources,
             future::FutureResource,
-            serialize::SerializableResource,
             resource::FetchRequestHeaderResourceKey,
         },
         triggers::http::{HttpBody, HttpBodyInner},

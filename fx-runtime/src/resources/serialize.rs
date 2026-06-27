@@ -11,44 +11,6 @@ use {
     },
 };
 
-pub(crate) trait SerializeResource {
-    fn serialize(self) -> Vec<u8>;
-}
-
-pub(crate) enum SerializableResource<T: SerializeResource> {
-    Raw(T),
-    Serialized(Vec<u8>),
-}
-
-impl<T: SerializeResource> SerializableResource<T> {
-    pub(crate) fn map_to_serialized(self) -> Self {
-        match self {
-            Self::Raw(t) => Self::Serialized(t.serialize()),
-            Self::Serialized(v) => Self::Serialized(v),
-        }
-    }
-
-    pub(crate) fn serialized_size(&self) -> usize {
-        match self {
-            Self::Raw(_) => panic!("cannot compute serialized size for resource that is not serialized yet"),
-            Self::Serialized(v) => v.len(),
-        }
-    }
-
-    pub(crate) fn into_serialized(self) -> Vec<u8> {
-        match self {
-            Self::Raw(t) => t.serialize(),
-            Self::Serialized(v) => v,
-        }
-    }
-}
-
-impl SerializeResource for Vec<u8> {
-    fn serialize(self) -> Vec<u8> {
-        self
-    }
-}
-
 /// Resource that origins from function side and is not owned by host.
 /// moved lazily from function to host memory.
 /// if dropped before being moved, cleans up resource on function side.

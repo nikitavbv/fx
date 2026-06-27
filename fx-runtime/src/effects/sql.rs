@@ -3,7 +3,6 @@ use {
     rusqlite::{Connection, params_from_iter, types::{ValueRef, ToSqlOutput}, ToSql},
     crate::{
         function::abi::{capnp, abi_sql_capnp},
-        resources::serialize::SerializeResource,
         tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError},
     },
 };
@@ -71,95 +70,6 @@ impl From<SqlTaskBatchError> for SqlBatchError {
             SqlTaskBatchError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskBatchError::StatementFailed { reason } => Self::StatementFailed { reason },
         }
-    }
-}
-
-impl SerializeResource for Result<Vec<SqlRow>, SqlQueryError> {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
-        let sql_exec_response = sql_exec_response.init_result();
-
-        match self {
-            Self::Ok(rows) => {
-                let mut response_rows = sql_exec_response.init_rows(rows.len() as u32);
-                for (index, result_row) in rows.into_iter().enumerate() {
-                    let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
-                    for (column_index, value) in result_row.columns.into_iter().enumerate() {
-                        let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
-                        match value {
-                            SqlValue::Null => response_value.set_null(()),
-                            SqlValue::Integer(v) => response_value.set_integer(v),
-                            SqlValue::Real(v) => response_value.set_real(v),
-                            SqlValue::Text(v) => response_value.set_text(v),
-                            SqlValue::Blob(v) => response_value.set_blob(&v),
-                        }
-                    }
-                }
-            },
-            Self::Err(err) => {
-                let mut response_error = sql_exec_response.init_error().init_error();
-                match err {
-                    SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
-                    SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
-                    SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                    SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
-                }
-            }
-        }
-
-        capnp::serialize::write_message_to_words(&message)
-    }
-}
-
-impl SerializeResource for Result<(), SqlMigrationError> {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
-        let mut sql_migrate_result = sql_migrate_result.init_result();
-
-        match self {
-            Ok(_) => {
-                sql_migrate_result.set_ok(());
-            },
-            Err(err) => {
-                let mut response_error = sql_migrate_result.init_error().init_error();
-                match err {
-                    SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
-                    SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
-                    SqlMigrationError::MigrationExecutionError { message } => response_error.set_execution_error(message),
-                    SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
-                    SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                }
-            }
-        }
-
-        capnp::serialize::write_message_to_words(&message)
-    }
-}
-
-impl SerializeResource for Result<(), SqlBatchError> {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let sql_batch_result = message.init_root::<abi_sql_capnp::sql_batch_result::Builder>();
-        let mut sql_batch_result = sql_batch_result.init_result();
-
-        match self {
-            Self::Ok(_) => {
-                sql_batch_result.set_ok(());
-            },
-            Self::Err(err) => {
-                let mut response_error = sql_batch_result.init_error().init_error();
-                match err {
-                    SqlBatchError::DatabaseBusy => response_error.set_database_busy(()),
-                    SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
-                    SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
-                    SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                }
-            }
-        }
-
-        capnp::serialize::write_message_to_words(&message)
     }
 }
 

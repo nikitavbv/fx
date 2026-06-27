@@ -4,8 +4,7 @@ use {
     crate::{
         function::abi::{capnp, abi_http_capnp},
         resources::{
-            serialize::{SerializeResource, SerializableResource, DeserializeFunctionResource},
-            ResourceId,
+            serialize::DeserializeFunctionResource,
             resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
             FunctionResourceId,
         },
@@ -67,37 +66,6 @@ impl FetchResultWithBodyResource {
     }
 }
 
-impl SerializeResource for Result<FetchResultWithBodyResource, FetchResultError> {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let fetch_result = message.init_root::<abi_http_capnp::fetch_result::Builder>();
-
-        match self {
-            Ok(ok) => {
-                let mut ok_builder = fetch_result.init_result().init_ok();
-                ok_builder.set_status(ok.parts.status.as_u16());
-                let mut headers = ok_builder.reborrow().init_headers(ok.parts.headers.len() as u32);
-                for (index, (name, value)) in ok.parts.headers.iter().enumerate() {
-                    let mut header = headers.reborrow().get(index as u32);
-                    header.set_name(name.as_str());
-                    header.set_value(value.to_str().unwrap());
-                }
-                ok_builder.reborrow().set_body_resource_id(ok.body.into());
-            }
-            Err(err) => {
-                let mut error_builder = fetch_result.init_result().init_error().init_error();
-                match err {
-                    FetchResultError::ConnectionFailed => error_builder.set_connection_failed(()),
-                    FetchResultError::ConnectionTimeout => error_builder.set_connection_timeout(()),
-                    FetchResultError::ResponseTimeout => error_builder.set_response_timeout(()),
-                }
-            }
-        }
-
-        capnp::serialize::write_message_to_words(&message)
-    }
-}
-
 #[derive(Error, Debug)]
 pub enum HttpStreamError {
     #[error("failed to read fetch response stream")]
@@ -122,21 +90,4 @@ impl DeserializeFunctionResource for HttpBody {
 
 #[derive(Debug, Error)]
 pub(crate) enum HttpBodyDeserializeError {
-    #[error("referenced host resource is of wrong type (expected HttpBody)")]
-    HostResourceWrongType,
-}
-
-impl SerializeResource for Option<Result<hyper::body::Bytes, HttpStreamError>> {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
-        let mut serialized_frame = serialized_frame.init_frame();
-
-        match self {
-            Some(v) => serialized_frame.set_bytes(&v.unwrap().to_vec()),
-            None => serialized_frame.set_stream_end(()),
-        }
-
-        capnp::serialize::write_message_to_words(&message)
-    }
 }
