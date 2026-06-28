@@ -1,4 +1,4 @@
-use crate::function::abi::{capnp, abi_blob_capnp, function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}};
+use crate::function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}};
 
 pub(crate) enum BlobGetResponse {
     NotFound,

@@ -14,7 +14,6 @@ use {
             kv::{KvGetResponse, KvSetError, KvSubscriptionResource},
         },
     },
-    super::future::FutureResource,
 };
 
 /// Function resource handle that is owned by host.
@@ -48,10 +47,6 @@ pub(crate) struct ResourceId {
 impl ResourceId {
     pub fn new(id: u64) -> Self {
         Self { id }
-    }
-
-    pub fn as_u64(&self) -> u64 {
-        self.id
     }
 }
 

@@ -5,7 +5,7 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         effects::logs::LogMessageEvent,
-        tasks::{sql::{SqlMessage, SqlController}, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
+        tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, FunctionResponse, HttpBody},
         resources::{

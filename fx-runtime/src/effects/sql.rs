@@ -1,10 +1,7 @@
 use {
     thiserror::Error,
     rusqlite::{Connection, params_from_iter, types::{ValueRef, ToSqlOutput}, ToSql},
-    crate::{
-        function::abi::{capnp, abi_sql_capnp},
-        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError},
-    },
+    crate::tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError},
 };
 
 #[derive(Debug)]

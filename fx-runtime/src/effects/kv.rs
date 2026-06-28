@@ -2,7 +2,6 @@ use {
     std::time::Duration,
     thiserror::Error,
     futures::{stream::{BoxStream, Stream}, FutureExt, StreamExt},
-    fx_types::{capnp, abi_kv_capnp},
 };
 
 pub(crate) struct KvSetRequest {
