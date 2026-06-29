@@ -8,7 +8,6 @@ use {
     crate::{
         resources::{
             serialize::{SerializedFunctionResource, DeserializableResource},
-            ResourceId,
             resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
             FunctionResourceId,
         },
@@ -16,7 +15,6 @@ use {
             FunctionId,
             FunctionDeploymentId,
             deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
-            abi::{capnp, abi_http_capnp},
             instance::{FunctionInstance, FunctionFramePollFuture},
         },
         effects::fetch::HttpStreamError,

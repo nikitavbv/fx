@@ -40,7 +40,6 @@ pub(crate) enum SqlMigrationError {
 impl From<SqlTaskMigrationError> for SqlMigrationError {
     fn from(err: SqlTaskMigrationError) -> Self {
         match err {
-            SqlTaskMigrationError::BindingNotFound => Self::BindingNotFound,
             SqlTaskMigrationError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskMigrationError::MigrationExecutionError { message } => Self::MigrationExecutionError { message },
             SqlTaskMigrationError::SqlError { message } => Self::SqlError { message },
@@ -63,7 +62,6 @@ pub(crate) enum SqlBatchError {
 impl From<SqlTaskBatchError> for SqlBatchError {
     fn from(err: SqlTaskBatchError) -> Self {
         match err {
-            SqlTaskBatchError::BindingNotFound => Self::BindingNotFound,
             SqlTaskBatchError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskBatchError::StatementFailed { reason } => Self::StatementFailed { reason },
         }

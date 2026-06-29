@@ -163,7 +163,7 @@ impl FxServer {
 
                 info!(sql_worker_id, "started sql thread");
 
-                run_sql_task(sql_worker_id, sql_threads as u64, config.path, sql_rx, sql_thread_rx);
+                run_sql_task(config.path, sql_rx, sql_thread_rx);
             });
             sql_worker_handles.push(handle);
             sql_worker_id += 1;

@@ -50,8 +50,6 @@ pub(crate) enum SqlConnectionInitError {
 
 #[derive(Debug, Error)]
 pub(crate) enum SqlTaskMigrationError {
-    #[error("binding with this name is not found")]
-    BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
     #[error("migration execution error: {message:?}")]
@@ -67,15 +65,13 @@ pub(crate) enum SqlTaskMigrationError {
 
 #[derive(Debug, Error)]
 pub(crate) enum SqlTaskBatchError {
-    #[error("binding with this name is not found")]
-    BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
     #[error("statement failed: {reason:?}")]
     StatementFailed { reason: String },
 }
 
-pub(crate) fn run_sql_task(worker_index: u64, total_workers: u64, databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>, sql_thread_rx: flume::Receiver<SqlMessage>) {
+pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>, sql_thread_rx: flume::Receiver<SqlMessage>) {
     use rusqlite::types::ValueRef;
 
     let mut connections = HashMap::<String, rusqlite::Connection>::new();
