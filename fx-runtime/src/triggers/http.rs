@@ -1,5 +1,6 @@
 use {
     std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
+    tracing::warn,
     futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::{BoxStream, LocalBoxStream}, Stream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
@@ -135,7 +136,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             }
 
-            management_tx.send_async(ManagementMessage::FunctionInvoked(())).await;
+            if let Err(_) = management_tx.send_async(ManagementMessage::FunctionInvoked(())).await {
+                warn!("failed to send function invoked event to management thread.");
+            }
 
             Ok(response)
         })
