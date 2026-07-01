@@ -1,7 +1,7 @@
 use {
     std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
     tracing::warn,
-    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::{BoxStream, LocalBoxStream}, Stream},
+    futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
     http_body_util::BodyExt,
@@ -179,12 +179,6 @@ impl hyper::body::Body for HttpBody {
                         .map(hyper::body::Frame::data)
                         .map_err(std::io::Error::other)
                 )),
-            HttpBodyInner::StreamLocal(stream) => stream.poll_next_unpin(cx)
-                .map(|v| v.map(|v|
-                    v
-                        .map(hyper::body::Frame::data)
-                        .map_err(std::io::Error::other)
-                )),
         }
     }
 }
@@ -192,7 +186,6 @@ impl hyper::body::Body for HttpBody {
 pub(crate) enum HttpBodyInner {
     FunctionStream(SendWrapper<FunctionStreamReader>),
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
-    StreamLocal(SendWrapper<LocalBoxStream<'static, Result<Bytes, HttpStreamError>>>),
 }
 
 pub(crate) struct FunctionStreamReader {
