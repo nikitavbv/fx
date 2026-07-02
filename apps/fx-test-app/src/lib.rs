@@ -54,6 +54,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/http/uri-overwritten", get(test_uri_overwritten))
             .route("/test/http/response-header", get(test_response_header))
             .route("/test/http/body", post(test_http_body))
+            .route("/test/http/pending-forever", get(test_pending_forever))
             .route("/test/sql/simple", get(test_sql_simple))
             .route("/test/sql/migrate", get(test_sql_migrate))
             .route("/test/sql/contention/setup", get(test_sql_contention_setup))
@@ -135,6 +136,11 @@ async fn test_response_header() -> (axum::http::StatusCode, axum::http::HeaderMa
 
 async fn test_http_body(body_text: String) -> String {
     body_text.chars().rev().collect()
+}
+
+async fn test_pending_forever() -> (StatusCode, &'static str) {
+    std::future::pending::<()>().await;
+    (StatusCode::INTERNAL_SERVER_ERROR, "this request is not expected to complete")
 }
 
 async fn test_sql_simple() -> String {
