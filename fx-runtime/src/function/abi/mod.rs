@@ -775,12 +775,12 @@ pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, Func
     BlobGetResultSerializeResultCode::Ok as u64
 }
 
-fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F: Unpin, V>(
+fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
     caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
     resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T, F>,
     result_resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T2, V>,
     resource_id: impl Into<T>
-) -> Poll<T2> where slotmap::DefaultKey: From<T>, F: Future<Output = V> {
+) -> Poll<T2> where slotmap::DefaultKey: From<T>, F: Future<Output = V> + Unpin {
     let function_state = caller.data_mut();
 
     let waker = function_state.waker.clone().unwrap();

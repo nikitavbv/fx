@@ -17,16 +17,16 @@ impl SqlController {
         }
     }
 
-    pub fn send_message(&self, message: SqlMessage) -> Result<(), flume::SendError<SqlMessage>> {
-        self.sql_tx.send(message)
+    pub fn send_message(&self, message: SqlMessage) -> Result<(), ()> {
+        self.sql_tx.send(message).map_err(|_| ())
     }
 
-    pub fn send_message_migrate(&self, message: SqlMigrateMessage) -> Result<(), flume::SendError<SqlMessage>> {
+    pub fn send_message_migrate(&self, message: SqlMigrateMessage) -> Result<(), ()> {
         let shard_id = {
             let mut hasher = DefaultHasher::new();
             message.binding.connection_id.hash(&mut hasher);
             hasher.finish()
         } % self.sql_thread_tx.len() as u64;
-        self.sql_thread_tx[shard_id as usize].send(SqlMessage::Migrate(message))
+        self.sql_thread_tx[shard_id as usize].send(SqlMessage::Migrate(message)).map_err(|_| ())
     }
 }

@@ -90,7 +90,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
             SqlMessage::Migrate(v) => &v.binding,
         };
         let connection_id = binding.connection_id.clone();
-        let busy_timeout = binding.busy_timeout.clone();
+        let busy_timeout = binding.busy_timeout;
 
         let connection = match connections.entry(binding.connection_id.clone()) {
             std::collections::hash_map::Entry::Occupied(entry) => Ok(entry.into_mut()),
@@ -162,7 +162,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 };
                 let result_columns = stmt.column_count();
 
-                let mut rows = stmt.query(rusqlite::params_from_iter(msg.params.into_iter())).unwrap();
+                let mut rows = stmt.query(rusqlite::params_from_iter(msg.params)).unwrap();
 
                 let mut result_rows = Vec::new();
                 let response_message = loop {
@@ -229,7 +229,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 
                 let mut execution_result = Ok(());
                 for (statement, params) in msg.queries {
-                    match txn.execute(&statement, rusqlite::params_from_iter(params.into_iter())) {
+                    match txn.execute(&statement, rusqlite::params_from_iter(params)) {
                         Ok(_) => {},
                         Err(rusqlite::Error::SqliteFailure(_, Some(reason))) => {
                             execution_result = Err(SqlTaskBatchError::StatementFailed { reason });

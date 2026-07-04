@@ -191,7 +191,7 @@ impl FxServer {
             .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
 
         let workers = worker_cores.into_iter()
-            .zip(workers_rx.into_iter())
+            .zip(workers_rx)
             .map(|(core_id, messages_rx)| WorkerConfig {
                 core_id,
                 port: self.config.server.port.value,

@@ -23,7 +23,7 @@ use {
     },
 };
 
-const HTTP_PATH_NAMESPACE_INTERNAL: &'static str = "/_fx/";
+const HTTP_PATH_NAMESPACE_INTERNAL: &str = "/_fx/";
 
 pub(crate) struct HttpHandler {
     management_tx: flume::Sender<ManagementMessage>,
