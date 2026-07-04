@@ -1,3 +1,8 @@
+// you don't want your application runtime to randomly crash
+#![warn(clippy::unwrap_used)]
+#![warn(clippy::expect_used)]
+#![warn(clippy::panic)]
+
 // target code structure:
 // function/ - functions, deployments, function state
 // function/abi.rs - handlers for wasm exports/imports
