@@ -121,6 +121,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let body = match &function_response {
                 Ok(response) => match &response.as_ref().unwrap().0 {
                     FunctionResponseInner::HttpResponse(v) => {
+                        // TODO: refactor function resources
                         let (instance, body_resource_id) = v.body.replace(None).unwrap().consume();
                         DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body_resource_id))
                     }

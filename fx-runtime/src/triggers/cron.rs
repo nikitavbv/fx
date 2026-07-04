@@ -11,20 +11,26 @@ pub(crate) struct CronDatabase {
 }
 
 impl CronDatabase {
-    pub(crate) fn new(database: SqlDatabase) -> Self {
+    pub(crate) fn new(database: SqlDatabase) -> Result<Self, ()> {
         database.exec(Query::new("create table if not exists cron_tasks (task_id text primary key, last_run_at datetime)".to_owned()))
-            .unwrap();
+            .map_err(|err| {
+                error!("failed to create cron_tasks table when creating cron database: {err:?}");
+                ()
+            })?;
 
-        Self {
+        Ok(Self {
             database,
-        }
+        })
     }
 
     pub(crate) fn get_prev_run_time(&self, task_id: &str) -> Result<Option<DateTime<Utc>>, ()> {
         let result = self.database.exec(
             Query::new("select last_run_at from cron_tasks where task_id = ?".to_owned())
                 .with_param(SqlValue::Text(task_id.to_owned()))
-        ).unwrap();
+        ).map_err(|err| {
+            error!("get_prev_run_time: sql query failed: {err:?}");
+            ()
+        })?;
 
         let result_row = match result.rows.first() {
             Some(v) => v,

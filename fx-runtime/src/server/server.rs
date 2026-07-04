@@ -136,6 +136,14 @@ impl FxServer {
             let cron_database = CronDatabase::new(cron_database);
 
             std::thread::spawn(move || {
+                let cron_database = match cron_database {
+                    Ok(v) => v,
+                    Err(_) => {
+                        error!("skipping cron thread from starting: failed to create cron database.");
+                        return;
+                    }
+                };
+
                 info!("started cron thread");
                 run_cron_task(cron_database, workers_controller, cron_rx, cron_event_tx);
             })
