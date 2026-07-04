@@ -128,7 +128,16 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
         }
 
         let now = Utc::now();
-        let delay = if let Some(prev_run_time) = database.get_prev_run_time(&task.task_id) {
+
+        let prev_run_time = match database.get_prev_run_time(&task.task_id) {
+            Ok(v) => v,
+            Err(_) => {
+                error!("failed to get previous run time for task. Skipping");
+                continue;
+            }
+        };
+
+        let delay = if let Some(prev_run_time) = prev_run_time {
             let next_scheduled_run = task.schedule.after(&prev_run_time).next().unwrap();
 
             if next_scheduled_run > now {
@@ -185,7 +194,9 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
             let run_at = Utc::now();
 
             if is_ok {
-                database.update_run_time(&task.task_id, run_at);
+                if database.update_run_time(&task.task_id, run_at).is_err() {
+                    error!("failed to update run time in cron database for task. Task will run again.");
+                }
             }
 
             cron_events.send_async(CronTaskEvent::Run {

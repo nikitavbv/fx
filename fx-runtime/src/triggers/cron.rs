@@ -1,4 +1,5 @@
 use {
+    tracing::error,
     chrono::{DateTime, Utc, NaiveDateTime},
     crate::effects::sql::{SqlDatabase, Query, SqlValue},
 };
@@ -19,31 +20,51 @@ impl CronDatabase {
         }
     }
 
-    pub(crate) fn get_prev_run_time(&self, task_id: &str) -> Option<DateTime<Utc>> {
+    pub(crate) fn get_prev_run_time(&self, task_id: &str) -> Result<Option<DateTime<Utc>>, ()> {
         let result = self.database.exec(
             Query::new("select last_run_at from cron_tasks where task_id = ?".to_owned())
                 .with_param(SqlValue::Text(task_id.to_owned()))
         ).unwrap();
 
-        let datetime = match result.rows.first()?.columns.first().unwrap() {
+        let result_row = match result.rows.first() {
+            Some(v) => v,
+            None => return Ok(None),
+        };
+
+        let result_column = match result_row.columns.first() {
+            Some(v) => v,
+            None => {
+                error!("get_prev_run_time: expected at least one column to be present in results.");
+                return Err(());
+            }
+        };
+
+        let datetime = match result_column {
             SqlValue::Text(text) => text,
-            other => panic!("unexpected type for last_run_at: {other:?}"),
+            other => {
+                error!("get_prev_run_time: unexpected type for last_run_at: {other:?}");
+                return Err(());
+            }
         };
         let datetime = match NaiveDateTime::parse_from_str(datetime, DATE_TIME_FORMAT) {
             Ok(v) => v,
             Err(err) => {
-                panic!("failed to parse {datetime:?}: {err:?}");
+                error!("get_prev_run_time failed, failed to parse {datetime:?}: {err:?}");
+                return Err(());
             }
         };
 
-        Some(datetime.and_utc())
+        Ok(Some(datetime.and_utc()))
     }
 
-    pub(crate) fn update_run_time(&self, task_id: &str, run_at: DateTime<Utc>) {
+    pub(crate) fn update_run_time(&self, task_id: &str, run_at: DateTime<Utc>) -> Result<(), ()> {
         self.database.exec(
             Query::new("insert or replace into cron_tasks (task_id, last_run_at) values (?, ?)".to_owned())
                 .with_param(SqlValue::Text(task_id.to_owned()))
                 .with_param(SqlValue::Text(run_at.format(DATE_TIME_FORMAT).to_string()))
-        ).unwrap();
+        ).map(|_| ()).map_err(|err| {
+            error!("failed to update run time: {err:?}");
+            ()
+        })
     }
 }
