@@ -1,5 +1,5 @@
 pub use self::{
-    resource::{ResourceId, FunctionResourceId, FetchRequestHeaderResourceId},
+    resource::{FunctionResourceId, FetchRequestHeaderResourceId},
     future::wrap_function_response_future,
 };
 
@@ -7,8 +7,6 @@ pub(crate) use self::{
     logs::log,
     resource::{
         SerializableResource,
-        DeserializableHostResource,
-        DeserializeHostResource,
         HostUnitFuture,
         FunctionResource,
         BytesResource,

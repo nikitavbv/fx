@@ -9,7 +9,6 @@ use {
         fx_blob_get_result_serialize,
         fx_bytes_move,
         HostUnitFuture,
-        DeserializeHostResource,
     },
 };
 
@@ -30,7 +29,7 @@ impl BlobBucket {
             key.len() as u64,
             value.as_ptr() as u64,
             value.len() as u64,
-        ) }).await;
+        ) }).await.unwrap();
     }
 
     pub async fn get(&self, key: String) -> Result<Option<Vec<u8>>, BlobGetError> {
@@ -53,7 +52,7 @@ impl BlobBucket {
             self.binding.len() as u64,
             key.as_ptr() as u64,
             key.len() as u64,
-        ) }).await;
+        ) }).await.unwrap();
     }
 }
 
@@ -103,21 +102,6 @@ enum BlobGetResponse {
     Ok(Vec<u8>),
     BindingNotExists,
     InternalSdkError,
-}
-
-impl DeserializeHostResource for BlobGetResponse {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<abi_blob_capnp::blob_get_response::Reader>().unwrap();
-        match request.get_response().which().unwrap() {
-            abi_blob_capnp::blob_get_response::response::Which::NotFound(_) => BlobGetResponse::NotFound,
-            abi_blob_capnp::blob_get_response::response::Which::Value(v) => BlobGetResponse::Ok(v.unwrap().to_vec()),
-            abi_blob_capnp::blob_get_response::response::Which::BindingNotExists(_) => BlobGetResponse::BindingNotExists,
-            abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentOutOfBounds(_)
-            | abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentFailedToDecode(_)
-            | abi_blob_capnp::blob_get_response::response::Which::BadRequestFailedToAccessMemory(_) => BlobGetResponse::InternalSdkError,
-        }
-    }
 }
 
 #[derive(Debug, Error)]

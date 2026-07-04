@@ -19,7 +19,6 @@ use {
     },
     crate::sys::{
         FetchRequestHeaderResourceId,
-        DeserializeHostResource,
         FunctionResource,
         BytesResource,
         add_function_resource,
@@ -507,31 +506,6 @@ impl Future for FetchResultFuture {
                 }
             }),
             _other => Poll::Ready(Err(FetchError::InternalSdkError)),
-        }
-    }
-}
-
-impl DeserializeHostResource for HttpResponse {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_response::Reader>().unwrap();
-
-        let mut parts = http::response::Builder::new()
-            .status(http::StatusCode::from_u16(request.get_status()).unwrap())
-            .body(())
-            .unwrap()
-            .into_parts()
-            .0;
-
-        for header in request.get_headers().unwrap() {
-            let name = HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
-            let value = HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
-            parts.headers.append(name, value);
-        }
-
-        HttpResponse {
-            parts,
-            body: HttpBody::host_resource(request.get_body_resource_id()),
         }
     }
 }

@@ -27,7 +27,7 @@ use {
             fx_random,
             fx_time,
         },
-        sql::{SqlResult, SqlBatchError},
+        sql::SqlBatchError,
     },
 };
 
@@ -139,7 +139,7 @@ impl SqlDatabase {
 }
 
 pub async fn sleep(duration: Duration) {
-    HostUnitFuture::new(unsafe { fx_sleep(duration.as_millis() as u64) }).await
+    HostUnitFuture::new(unsafe { fx_sleep(duration.as_millis() as u64) }).await.unwrap()
 }
 
 pub fn to_vec<T: serde::ser::Serialize>(v: T) -> Vec<u8> {

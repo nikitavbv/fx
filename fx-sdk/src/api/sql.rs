@@ -65,7 +65,7 @@ impl Future for SqlQueryResultFuture {
                     }),
                 }
             }),
-            other => todo!(),
+            _other => std::task::Poll::Ready(Err(SqlError::InternalSdkError)),
         }
     }
 }
@@ -81,7 +81,7 @@ impl SqlBatchResultFuture {
 impl Future for SqlBatchResultFuture {
     type Output = Result<(), SqlBatchError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<SqlBatchResultFuturePollResult>::zeroed();
         assert!(unsafe { fx_sql_batch_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
 
@@ -109,7 +109,7 @@ impl Future for SqlBatchResultFuture {
                     }),
                 }
             }),
-            other => todo!(),
+            _other => std::task::Poll::Ready(Err(SqlBatchError::InternalSdkError)),
         }
     }
 }
@@ -125,7 +125,7 @@ impl SqlMigrateResultFuture {
 impl Future for SqlMigrateResultFuture {
     type Output = Result<(), SqlMigrationError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
         assert!(unsafe { fx_migration_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
 
@@ -158,7 +158,7 @@ impl Future for SqlMigrateResultFuture {
                     }),
                 }
             }),
-            other => todo!(),
+            _other => std::task::Poll::Ready(Err(SqlMigrationError::InternalSdkError)),
         }
     }
 }

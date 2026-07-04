@@ -3,7 +3,7 @@ use {
     fx_types::{capnp, abi_sql_capnp},
     crate::{
         SqlDatabase,
-        sys::{fx_sql_migrate, DeserializeHostResource},
+        sys::fx_sql_migrate,
         api::sql::SqlMigrateResultFuture,
     },
 };
@@ -76,26 +76,7 @@ pub enum SqlMigrationError {
 
     #[error("runtime is being shut down")]
     RuntimeShutdown,
-}
 
-impl DeserializeHostResource for Result<(), SqlMigrationError> {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let result_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let result = result_reader.get_root::<abi_sql_capnp::sql_migrate_result::Reader>().unwrap();
-
-        match result.get_result().which().unwrap() {
-            abi_sql_capnp::sql_migrate_result::result::Which::Ok(_) => Ok(()),
-            abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
-                abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
-                abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
-                abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(message) => SqlMigrationError::MigrationExecutionError {
-                    message: message.unwrap().to_string().unwrap(),
-                },
-                abi_sql_capnp::sql_migrate_error::error::Which::SqlError(message) => SqlMigrationError::SqlError {
-                    message: message.unwrap().to_string().unwrap(),
-                },
-                abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
-            }),
-        }
-    }
+    #[error("internal sdk error")]
+    InternalSdkError,
 }

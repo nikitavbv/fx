@@ -628,7 +628,7 @@ async fn env_missing_file() -> (StatusCode, String) {
 async fn kv_simple() -> &'static str {
     let kv = kv::Kv::new("test-namespace");
 
-    kv.set("some-key", "hello kv!").await;
+    kv.set("some-key", "hello kv!").await.unwrap();
 
     let result = kv.get("some-key").await.unwrap().unwrap();
     let result = String::from_utf8(result).unwrap();
@@ -683,7 +683,7 @@ async fn kv_pubsub_publish(Json(req): Json<KvPubsubPublishRequest>) -> &'static 
 async fn kv_tasks_background_start() -> &'static str {
     tasks::run_in_background(async {
         sleep(Duration::from_secs(1)).await;
-        kv::Kv::new("test-namespace").set("background_task_status", "done").await;
+        kv::Kv::new("test-namespace").set("background_task_status", "done").await.unwrap();
     });
 
     "ok.\n"

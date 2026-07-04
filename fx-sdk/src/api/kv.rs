@@ -14,7 +14,6 @@ use {
         abi_kv_capnp,
     },
     crate::sys::{
-        DeserializeHostResource,
         HostUnitFuture,
         fx_bytes_len,
         fx_bytes_move,
@@ -102,7 +101,7 @@ impl Kv {
             key_len,
             ifeq_ptr,
             ifeq_len,
-        ) }).await
+        ) }).await.unwrap()
     }
 
     pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
@@ -127,7 +126,7 @@ impl Kv {
             channel_len,
             data_ptr,
             data_len
-        ) }).await
+        ) }).await.unwrap()
     }
 }
 
@@ -368,15 +367,4 @@ enum KvSetResponse {
 enum KvGetResponse {
     KeyNotFound,
     Some(Vec<u8>),
-}
-
-impl DeserializeHostResource for KvGetResponse {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let resource = resource_reader.get_root::<abi_kv_capnp::kv_get_response::Reader>().unwrap();
-        match resource.get_response().which().unwrap() {
-            abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(_) => KvGetResponse::KeyNotFound,
-            abi_kv_capnp::kv_get_response::response::Which::Value(v) => KvGetResponse::Some(v.unwrap().to_vec()),
-        }
-    }
 }

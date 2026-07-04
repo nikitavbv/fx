@@ -1,8 +1,9 @@
 use {
-    std::{cell::{RefCell, LazyCell, Cell}, marker::PhantomData},
+    std::cell::RefCell,
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
-    fx_types::{capnp, abi::{FuturePollResult, UnitFuturePollResult}, abi_http_capnp},
+    thiserror::Error,
+    fx_types::{capnp, abi::{UnitFuturePollResult}, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner},
         sys::{
@@ -16,20 +17,6 @@ use {
 
 thread_local! {
     static FUNCTION_RESOURCES: RefCell<SlotMap<DefaultKey, FunctionResource>> = RefCell::new(SlotMap::new());
-}
-
-pub struct ResourceId {
-    id: u64,
-}
-
-impl ResourceId {
-    pub fn new(id: u64) -> Self {
-        Self { id }
-    }
-
-    pub(crate) fn as_ffi(&self) -> u64 {
-        self.id
-    }
 }
 
 pub struct FetchRequestHeaderResourceId {
@@ -151,55 +138,41 @@ impl SerializeResource for FunctionResponse {
     }
 }
 
-/// Resource that origins from host side and is now owned by function.
-/// moved lazily from host to function memory.
-/// if dropped before being moved, cleans up resource on host side.
-pub struct DeserializableHostResource<T: DeserializeHostResource>(LazyCell<T, Box<dyn FnOnce() -> T + Send>>);
+mod host_unit_future {
+    use super::*;
 
-impl<T: DeserializeHostResource> DeserializableHostResource<T> {
-    pub(crate) fn get_raw(&self) -> &T {
-        &*self.0
-    }
+    pub(crate) struct HostUnitFuture(u64);
 
-    pub(crate) fn get_raw_mut(&mut self) -> &mut T {
-        &mut *self.0
-    }
-}
-
-pub trait DeserializeHostResource {
-    fn deserialize(data: &mut &[u8]) -> Self;
-}
-
-impl DeserializeHostResource for Vec<u8> {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        data.to_vec()
-    }
-}
-
-pub(crate) struct HostUnitFuture(u64);
-
-impl HostUnitFuture {
-    pub fn new(resource_id: u64) -> Self {
-        Self(resource_id)
-    }
-}
-
-impl Future for HostUnitFuture {
-    type Output = ();
-
-    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let mut result = std::mem::MaybeUninit::<UnitFuturePollResult>::zeroed();
-        assert!(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
-
-        let result = unsafe { result.assume_init() };
-
-        match result.tag {
-            1 => std::task::Poll::Pending,
-            0 => std::task::Poll::Ready(()),
-            other => todo!(),
+    impl HostUnitFuture {
+        pub fn new(resource_id: u64) -> Self {
+            Self(resource_id)
         }
     }
+
+    impl Future for HostUnitFuture {
+        type Output = Result<(), PollError>;
+
+        fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+            let mut result = std::mem::MaybeUninit::<UnitFuturePollResult>::zeroed();
+            assert!(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+            let result = unsafe { result.assume_init() };
+
+            match result.tag {
+                1 => std::task::Poll::Pending,
+                0 => std::task::Poll::Ready(Ok(())),
+                _other => std::task::Poll::Ready(Err(PollError::InternalSdkError)),
+            }
+        }
+    }
+
+    #[derive(Debug, Error)]
+    pub(crate) enum PollError {
+        #[error("internal sdk error")]
+        InternalSdkError,
+    }
 }
+pub(crate) use host_unit_future::HostUnitFuture;
 
 pub(crate) fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
     FUNCTION_RESOURCES.with_borrow_mut(|v| FunctionResourceId::new(v.insert(resource).data().as_ffi()))

@@ -1,8 +1,6 @@
 use {
     std::iter::Iterator,
     thiserror::Error,
-    fx_types::{capnp, abi_sql_capnp},
-    crate::sys::DeserializeHostResource,
 };
 
 #[derive(Clone, Debug)]
@@ -52,6 +50,8 @@ pub enum SqlError {
     RuntimeShutdown,
     #[error("statement error: {0:?}")]
     StatementError(String),
+    #[error("internal sdk error")]
+    InternalSdkError,
 }
 
 #[derive(Debug, Error)]
@@ -64,6 +64,8 @@ pub enum SqlBatchError {
     StatementFailed { reason: String },
     #[error("runtime is being shut down")]
     RuntimeShutdown,
+    #[error("internal sdk error")]
+    InternalSdkError,
 }
 
 impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {
@@ -89,40 +91,6 @@ impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_
 
         Self {
             rows,
-        }
-    }
-}
-
-impl DeserializeHostResource for Result<SqlResult, SqlError> {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_exec_result::Reader>().unwrap();
-
-        match request.get_result().which().unwrap() {
-            abi_sql_capnp::sql_exec_result::result::Which::Rows(v) => Ok(SqlResult::from(v.unwrap())),
-            abi_sql_capnp::sql_exec_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
-                abi_sql_capnp::sql_exec_error::error::Which::BindingNotFound(_) => SqlError::BindingNotFound,
-                abi_sql_capnp::sql_exec_error::error::Which::DatabaseBusy(_) => SqlError::DatabaseBusy,
-                abi_sql_capnp::sql_exec_error::error::Which::RuntimeShutdown(_) => SqlError::RuntimeShutdown,
-                abi_sql_capnp::sql_exec_error::error::Which::StatementError(reason) => SqlError::StatementError(reason.unwrap().to_string().unwrap()),
-            }),
-        }
-    }
-}
-
-impl DeserializeHostResource for Result<(), SqlBatchError> {
-    fn deserialize(data: &mut &[u8]) -> Self {
-        let resource_reader = capnp::serialize::read_message_from_flat_slice(data, capnp::message::ReaderOptions::default()).unwrap();
-        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_batch_result::Reader>().unwrap();
-
-        match request.get_result().which().unwrap() {
-            abi_sql_capnp::sql_batch_result::result::Which::Ok(_) => Ok(()),
-            abi_sql_capnp::sql_batch_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
-                abi_sql_capnp::sql_batch_error::error::Which::BindingNotFound(_) => SqlBatchError::BindingNotFound,
-                abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
-                abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
-                abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
-            }),
         }
     }
 }
