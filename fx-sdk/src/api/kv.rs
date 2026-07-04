@@ -4,7 +4,6 @@ use {
     futures::Stream,
     fx_types::{
         abi::{
-            FuturePollResult,
             KvGetResponseFuturePollResult,
             KvGetResponseSerializeResult,
             KvSetResponseFuturePollResult,
@@ -45,7 +44,7 @@ impl Kv {
         }
     }
 
-    pub async fn set(&self, key: impl AsKey, value: impl AsValue) {
+    pub async fn set(&self, key: impl AsKey, value: impl AsValue) -> Result<(), KvSetError> {
         let (key_ptr, key_len) = key.as_key();
         let (value_ptr, value_len) = value.as_value();
 
@@ -56,14 +55,14 @@ impl Kv {
             key_len,
             value_ptr,
             value_len,
-        )}.into()).await;
+        )}.into()).await.map(|_| ())
     }
 
     pub async fn set_nx_px(&self, key: impl AsKey, value: impl AsValue, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
         let (key_ptr, key_len) = key.as_key();
         let (value_ptr, value_len) = value.as_value();
 
-        match KvSetResponseFuture::new(unsafe { fx_kv_set_nx_px(
+        KvSetResponseFuture::new(unsafe { fx_kv_set_nx_px(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
@@ -72,24 +71,24 @@ impl Kv {
             value_len,
             if nx { 1 } else { 0 },
             px.map(|v| v.as_millis() as i64).unwrap_or(-1)
-        )}.into()).await {
+        )}.into()).await.map(|v| match v {
             KvSetResponse::Ok => Ok(()),
             KvSetResponse::AlreadyExists => Err(KvSetNxPxError::AlreadyExists),
-        }
+        })?.map_err(KvSetNxPxError::from)
     }
 
-    pub async fn get(&self, key: impl AsKey) -> Option<Vec<u8>> {
-        let (key_ptr, key_len) = key.as_key();
+    pub async fn get(&self, key: impl AsKey) -> Result<Option<Vec<u8>>, KvGetError> {
+    let (key_ptr, key_len) = key.as_key();
 
-        match KvGetResponseFuture::new(unsafe { fx_kv_get(
+        KvGetResponseFuture::new(unsafe { fx_kv_get(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
-        )}.into()).await {
+        )}.into()).await.map(|v| match v {
             KvGetResponse::KeyNotFound => None,
-            KvGetResponse::Some(v) => Some(v),
-        }
+            KvGetResponse::Some(v) => Some(v)
+        })
     }
 
     pub async fn delex_ifeq(&self, key: impl AsKey, ifeq: impl AsValue) {
@@ -145,7 +144,7 @@ impl KvSubscriptionStream {
 }
 
 impl Stream for KvSubscriptionStream {
-    type Item = Vec<u8>;
+    type Item = Result<Vec<u8>, KvSubscriptionStreamError>;
 
     fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         let mut result = std::mem::MaybeUninit::<AsyncStreamResourcePollResult>::zeroed();
@@ -160,12 +159,18 @@ impl Stream for KvSubscriptionStream {
 
                 let mut result_vec = vec![0; bytes_len as usize];
                 unsafe { fx_bytes_move(result.resolved_resource_id, result_vec.as_mut_ptr() as u64) };
-                result_vec
+                Ok(result_vec)
             })),
             0 => std::task::Poll::Ready(None),
-            other => todo!(),
+            _other => std::task::Poll::Ready(Some(Err(KvSubscriptionStreamError::InternalSdkError))),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum KvSubscriptionStreamError {
+    #[error("internal sdk error")]
+    InternalSdkError,
 }
 
 // public api
@@ -223,6 +228,16 @@ impl AsValue for &[u8] {
 pub enum KvSetNxPxError {
     #[error("nx condition violated: key already exists")]
     AlreadyExists,
+    #[error("internal sdk error")]
+    InternalSdkError,
+}
+
+impl From<KvSetError> for KvSetNxPxError {
+    fn from(err: KvSetError) -> Self {
+        match err {
+            KvSetError::InternalSdkError => Self::InternalSdkError,
+        }
+    }
 }
 
 // abi
@@ -249,7 +264,7 @@ impl KvGetResponseFuture {
 }
 
 impl Future for KvGetResponseFuture {
-    type Output = KvGetResponse;
+    type Output = Result<KvGetResponse, KvGetError>;
 
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<KvGetResponseFuturePollResult>::zeroed();
@@ -269,14 +284,20 @@ impl Future for KvGetResponseFuture {
 
                 let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
                 let resource = resource_reader.get_root::<abi_kv_capnp::kv_get_response::Reader>().unwrap();
-                match resource.get_response().which().unwrap() {
+                Ok(match resource.get_response().which().unwrap() {
                     abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(_) => KvGetResponse::KeyNotFound,
                     abi_kv_capnp::kv_get_response::response::Which::Value(v) => KvGetResponse::Some(v.unwrap().to_vec()),
-                }
+                })
             }),
-            other => todo!(),
+            _other => std::task::Poll::Ready(Err(KvGetError::InternalSdkError)),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum KvGetError {
+    #[error("internal sdk error")]
+    InternalSdkError,
 }
 
 struct KvSetResponseResourceId(u64);
@@ -302,9 +323,9 @@ impl KvSetResponseFuture {
 }
 
 impl Future for KvSetResponseFuture {
-    type Output = KvSetResponse;
+    type Output = Result<KvSetResponse, KvSetError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<KvSetResponseFuturePollResult>::zeroed();
         assert!(unsafe { fx_kv_set_response_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
 
@@ -323,14 +344,20 @@ impl Future for KvSetResponseFuture {
                 let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
 
                 let resource = resource_reader.get_root::<abi_kv_capnp::kv_set_response::Reader>().unwrap();
-                match resource.get_response().which().unwrap() {
+                Ok(match resource.get_response().which().unwrap() {
                     abi_kv_capnp::kv_set_response::response::Which::Ok(_) => KvSetResponse::Ok,
                     abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => KvSetResponse::AlreadyExists,
-                }
+                })
             }),
-            other => todo!(),
+            _other => std::task::Poll::Ready(Err(KvSetError::InternalSdkError)),
         }
     }
+}
+
+#[derive(Debug, Error)]
+pub enum KvSetError {
+    #[error("internal sdk error")]
+    InternalSdkError,
 }
 
 enum KvSetResponse {

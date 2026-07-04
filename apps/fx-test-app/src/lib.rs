@@ -471,6 +471,7 @@ async fn test_fetch_timeout() -> &'static str {
         Err(FetchError::ConnectionFailed) => "connection failed",
         Err(FetchError::ConnectionTimeout) => "connection timeout",
         Err(FetchError::ResponseTimeout) => "response timeout",
+        Err(FetchError::InternalSdkError) => "internal sdk error",
     }
 }
 
@@ -629,7 +630,7 @@ async fn kv_simple() -> &'static str {
 
     kv.set("some-key", "hello kv!").await;
 
-    let result = kv.get("some-key").await.unwrap();
+    let result = kv.get("some-key").await.unwrap().unwrap();
     let result = String::from_utf8(result).unwrap();
 
     assert_eq!(result, "hello kv!");
@@ -644,6 +645,7 @@ async fn kv_distributed_lock() -> &'static str {
     match kv.set_nx_px("test-distributed-lock", &lock_value, true, Some(Duration::from_secs(10))).await {
         Ok(_) => {},
         Err(KvSetNxPxError::AlreadyExists) => return "already locked.\n",
+        Err(_) => return "unexpected error.\n",
     };
 
     sleep(Duration::from_secs(3)).await;
@@ -658,7 +660,7 @@ async fn kv_pubsub_subscribe() -> String {
 
     let sum = kv.subscribe("test-channel").await
         .take(3)
-        .map(|v| String::from_utf8(v).unwrap().parse::<u64>().unwrap())
+        .map(|v| String::from_utf8(v.unwrap()).unwrap().parse::<u64>().unwrap())
         .reduce(|a, b| async move { a + b}).await
         .unwrap();
 
@@ -688,7 +690,7 @@ async fn kv_tasks_background_start() -> &'static str {
 }
 
 async fn kv_tasks_background_status() -> (StatusCode, &'static str) {
-    match kv::Kv::new("test-namespace").get("background_task_status").await {
+    match kv::Kv::new("test-namespace").get("background_task_status").await.unwrap() {
         Some(_) => (StatusCode::OK, "done."),
         None => (StatusCode::NOT_FOUND, "not done yet.")
     }

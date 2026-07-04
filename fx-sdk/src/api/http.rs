@@ -1,7 +1,7 @@
 pub use http::{HeaderName, HeaderValue, Uri};
 
 use {
-    std::{str::FromStr, cell::LazyCell},
+    std::{str::FromStr, cell::LazyCell, task::Poll},
     http::{Method, HeaderMap},
     serde::Serialize,
     thiserror::Error,
@@ -11,7 +11,6 @@ use {
         capnp,
         abi_http_capnp,
         abi::{
-            FuturePollResult,
             FetchResultFuturePollResult,
             FetchResultSerializeResult,
             HttpBodyPollFrameResult,
@@ -19,9 +18,7 @@ use {
         },
     },
     crate::sys::{
-        ResourceId,
         FetchRequestHeaderResourceId,
-        DeserializableHostResource,
         DeserializeHostResource,
         FunctionResource,
         BytesResource,
@@ -354,7 +351,7 @@ impl Stream for HttpBody {
                         }
                     }),
                     1 => std::task::Poll::Pending,
-                    other => todo!(),
+                    _other => std::task::Poll::Ready(Some(Err(HttpBodyStreamError::AbiAssertionError))),
                 }
             },
             HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
@@ -376,7 +373,10 @@ impl http_body::Body for HttpBody {
 }
 
 #[derive(Debug, Error)]
-pub enum HttpBodyStreamError {}
+pub enum HttpBodyStreamError {
+    #[error("assertion failed during abi call")]
+    AbiAssertionError,
+}
 
 impl axum::response::IntoResponse for HttpBody {
     fn into_response(self) -> axum::response::Response {
@@ -457,7 +457,7 @@ struct FetchResultFuture(u64);
 impl Future for FetchResultFuture {
     type Output = Result<HttpResponse, FetchError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<FetchResultFuturePollResult>::zeroed();
         assert!(unsafe { fx_fetch_result_future_poll(self.0.into(), result.as_mut_ptr() as u64) } == 0);
 
@@ -506,7 +506,7 @@ impl Future for FetchResultFuture {
                     }
                 }
             }),
-            other => todo!(),
+            _other => Poll::Ready(Err(FetchError::InternalSdkError)),
         }
     }
 }
@@ -544,6 +544,8 @@ pub enum FetchError {
     ConnectionTimeout,
     #[error("response timeout")]
     ResponseTimeout,
+    #[error("internal sdk error")]
+    InternalSdkError,
 }
 
 pub trait IntoHttpBody {

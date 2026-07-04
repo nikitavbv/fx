@@ -93,7 +93,7 @@ impl Future for BlobGetResponseFuture {
                     | abi_blob_capnp::blob_get_response::response::Which::BadRequestFailedToAccessMemory(_) => BlobGetResponse::InternalSdkError,
                 }
             }),
-            other => todo!(),
+            _ => std::task::Poll::Ready(BlobGetResponse::InternalSdkError),
         }
     }
 }
