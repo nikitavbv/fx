@@ -43,7 +43,17 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
         req.with_uri("http://localhost:8080/test/http/uri-overwritten".parse().unwrap())
     } else if req.uri().path().starts_with("/test/fetch/body-passthrough") {
         let body = req.body().unwrap();
-        return fetch(req.with_uri("https://fxruntime.com/test/post".parse().unwrap()).with_body(body).without_header(&axum::http::header::HOST)).await.unwrap();
+        return match fetch(
+            req
+                .with_uri("https://fxruntime.com/test/post".parse().unwrap())
+                .without_header(&axum::http::header::HOST)
+                .with_header("x-fx-test".parse().unwrap(), "/test/fetch/body-passthrough".parse().unwrap())
+                .with_body(body)
+        ).await {
+            Ok(v) => v,
+            Err(FetchError::ResponseTimeout) => HttpResponse::new().with_status(StatusCode::INTERNAL_SERVER_ERROR).with_body("upstream test endpoint response timeout.\n"),
+            Err(other) => panic!("fetch request failed: {other:?}"),
+        };
     } else {
         req
     };
