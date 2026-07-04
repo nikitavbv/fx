@@ -543,7 +543,7 @@ async fn handle_cron_timeout() -> &'static str {
 
 async fn read_cron_timeout_status() -> String {
     let database = cron_database().await;
-    match database.exec(SqlQuery::new("select sum(v) from test_cron_timeout_state")).await.unwrap().into_rows()[0].columns.get(0).unwrap() {
+    match database.exec(SqlQuery::new("select sum(v) from test_cron_timeout_state")).await.unwrap().into_rows()[0].columns.first().unwrap() {
         SqlValue::Integer(v) => v.to_string(),
         SqlValue::Null => "0".to_owned(),
         other => panic!("expected sum to be an integer, got: {other:?}"),

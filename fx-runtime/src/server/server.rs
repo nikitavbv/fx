@@ -51,10 +51,11 @@ impl FxServer {
         let worker_threads = target_workers.min(cpu_info.as_ref().map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
         let sql_threads = target_workers.min(cpu_info.as_ref().map(|v| v.num_logical_cores()).unwrap_or(usize::MAX));
 
+        let (any_worker_tx, any_worker_rx) = flume::unbounded::<WorkerMessage>();
         let (workers_tx, workers_rx) = (0..worker_threads)
             .map(|_| flume::unbounded::<WorkerMessage>())
             .unzip::<_, _, Vec<_>, Vec<_>>();
-        let workers_controller = WorkersController::new(workers_tx.clone());
+        let workers_controller = WorkersController::new(any_worker_tx.clone(), workers_tx.clone());
 
         let (sql_tx, sql_rx) = flume::unbounded::<SqlMessage>();
         let (sql_thread_tx, sql_thread_rx) = (0..sql_threads)
@@ -93,7 +94,7 @@ impl FxServer {
             std::thread::spawn(move || {
                 info!("started management thread");
 
-                run_management_task(config, workers_tx, compiler_tx, cron_tx, cron_event_rx, management_rx);
+                run_management_task(config, any_worker_tx, workers_tx, compiler_tx, cron_tx, cron_event_rx, management_rx);
             })
         };
 
@@ -195,6 +196,7 @@ impl FxServer {
                 core_id,
                 port: self.config.server.port.value,
                 messages_rx,
+                messages_shared_rx: any_worker_rx.clone(),
                 sql_controller: sql_controller.clone(),
                 kv_tx: kv_tx.clone(),
                 blob_tx: blob_tx.clone(),

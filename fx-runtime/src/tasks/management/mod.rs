@@ -38,6 +38,7 @@ pub(crate) struct MetricsFlushMessage {
 
 pub(crate) fn run_management_task(
     config: ServerConfig,
+    any_worker_tx: flume::Sender<WorkerMessage>,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
     compiler_tx: flume::Sender<CompilerMessage>,
     cron_tx: flume::Sender<CronMessage>,
@@ -119,7 +120,7 @@ pub(crate) fn run_management_task(
             },
             async {
                 if introspection_enabled {
-                    run_introspection_server(metrics.clone(), WorkersController::new(workers_tx), SendWrapper::new(runtime_state.clone()), introspection_port).await;
+                    run_introspection_server(metrics.clone(), WorkersController::new(any_worker_tx, workers_tx), SendWrapper::new(runtime_state.clone()), introspection_port).await;
                 }
             },
         )

@@ -1,5 +1,4 @@
 use {
-    std::cell::RefCell,
     tokio::sync::oneshot,
     futures::{stream::FuturesUnordered, StreamExt},
     send_wrapper::SendWrapper,
@@ -15,15 +14,15 @@ use {
 
 #[derive(Clone)]
 pub(crate) struct WorkersController {
+    any_worker_tx: flume::Sender<WorkerMessage>,
     workers_tx: Vec<flume::Sender<WorkerMessage>>,
-    function_invoke_round_robin_counter: RefCell<u64>,
 }
 
 impl WorkersController {
-    pub fn new(workers_tx: Vec<flume::Sender<WorkerMessage>>) -> Self {
+    pub fn new(any_worker_tx: flume::Sender<WorkerMessage>, workers_tx: Vec<flume::Sender<WorkerMessage>>) -> Self {
         Self {
+            any_worker_tx,
             workers_tx,
-            function_invoke_round_robin_counter: RefCell::new(0),
         }
     }
 
@@ -53,12 +52,7 @@ impl WorkersController {
 
     pub(crate) async fn function_invoke(&self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.workers_tx.get(*self.function_invoke_round_robin_counter.borrow() as usize).unwrap().send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
-        {
-            let mut counter = self.function_invoke_round_robin_counter.borrow_mut();
-            // TODO: maybe counter is not needed and this can be replaced with a single flume channel shared by all threads?
-            *counter = (*counter + 1) % (self.workers_tx.len() as u64);
-        }
+        self.any_worker_tx.send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
         response_rx.await
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?
             .map_err(WorkersControllerFunctionInvokeError::from)

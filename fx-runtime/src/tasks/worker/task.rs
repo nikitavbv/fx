@@ -25,6 +25,7 @@ pub(crate) struct WorkerConfig {
     pub(crate) core_id: Option<usize>,
     pub(crate) port: u16,
     pub(crate) messages_rx: flume::Receiver<WorkerMessage>,
+    pub(crate) messages_shared_rx: flume::Receiver<WorkerMessage>,
     pub(crate) sql_controller: SqlController,
     pub(crate) kv_tx: flume::Sender<KvMessage>,
     pub(crate) blob_tx: flume::Sender<BlobMessage>,
@@ -111,6 +112,19 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                         world.http_default.clone(),
                         connection,
                     ).await;
+                },
+
+                message = worker.messages_shared_rx.recv_async() => match message {
+                    Ok(message) => worker_handle_message(
+                        &world,
+                        &worker,
+                        local_controller.clone(),
+                        message,
+                    ).await,
+                    Err(_) => {
+                        info!("stopping worker thread because worker controller was dropped.");
+                        return;
+                    }
                 },
 
                 _ = metrics_flush_interval.tick() => {

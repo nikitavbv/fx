@@ -145,7 +145,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             }
 
-            if let Err(_) = management_tx.send_async(ManagementMessage::FunctionInvoked(())).await {
+            if management_tx.send_async(ManagementMessage::FunctionInvoked(())).await.is_err() {
                 warn!("failed to send function invoked event to management thread.");
             }
 
