@@ -94,13 +94,13 @@ async fn http_body() {
     assert_eq!("!xf olleh", response.text().await.unwrap());
 }
 
-/*#[tokio::test]
+#[tokio::test]
 async fn http_pending_forever() {
     let client = init_fx_server().await;
     let response = client.get("/test/http/pending-forever").send().await.unwrap();
-    assert!(response.status().is_server_error());
-    assert_eq!("fx function timed out", response.text().await.unwrap());
-}*/
+    assert_eq!(504, response.status().as_u16());
+    assert_eq!("function timed out while handling request.\n", response.text().await.unwrap());
+}
 
 #[tokio::test]
 async fn fetch_json() {

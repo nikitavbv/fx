@@ -103,7 +103,16 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     FetchRequestHeader::from(header),
                     Some(HttpBody::for_stream(body.into_data_stream().map(|v| v.map_err(|_| todo!())).boxed()))
                 ).await;
-            let response = function_future.await;
+            let timeout_future = tokio::time::sleep(std::time::Duration::from_secs(20));
+
+            let response = tokio::select! {
+                result = function_future => result,
+                _ = timeout_future => {
+                    let mut response = Response::new(HttpBody::for_bytes(Bytes::from("function timed out while handling request.\n")));
+                    *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
+                    return Ok(response);
+                }
+            };
             let function_response = match response {
                 Ok(v) => Ok(v.move_to_host().await),
                 Err(err) => Err(err),
