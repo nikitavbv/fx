@@ -17,7 +17,7 @@ use {
 
 #[derive(Clone)]
 struct IntrospectionWorkersController {
-    controller: Arc<SendWrapper<WorkersController>>,
+    controller: Arc<WorkersController>,
 }
 
 pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, workers_controller: WorkersController, runtime_state: SendWrapper<RuntimeState>, port: u16) {
@@ -27,7 +27,7 @@ pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, work
         .route("/api/functions/{function_id}", delete(management_api_function_remove))
         .route("/introspection", get(introspection))
         .layer(Extension(metrics))
-        .layer(Extension(IntrospectionWorkersController { controller: Arc::new(SendWrapper::new(workers_controller)) }))
+        .layer(Extension(IntrospectionWorkersController { controller: Arc::new(workers_controller) }))
         .layer(Extension(runtime_state));
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
