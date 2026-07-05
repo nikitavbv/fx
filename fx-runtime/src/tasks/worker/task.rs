@@ -242,6 +242,7 @@ async fn worker_handle_message(
                                 .map(|_| ())
                                 .map_err(|err| match err {
                                     FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionInvokeError::FunctionPanicked,
+                                    FunctionDeploymentHandleRequestError::FunctionBusy => FunctionInvokeError::FunctionBusy,
                                 })
                         );
                         debug!("function invoke done");

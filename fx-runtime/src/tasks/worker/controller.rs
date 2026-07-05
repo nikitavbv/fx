@@ -75,6 +75,9 @@ pub(crate) enum WorkersControllerFunctionInvokeError {
 
     #[error("function panicked")]
     FunctionPanicked,
+
+    #[error("function is busy handling other requests and cannot accept a new one")]
+    FunctionBusy,
 }
 
 impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
@@ -82,6 +85,7 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
         match error {
             FunctionInvokeError::NotFound => Self::NotFound,
             FunctionInvokeError::FunctionPanicked => Self::FunctionPanicked,
+            FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
         }
     }
 }

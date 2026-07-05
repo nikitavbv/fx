@@ -166,7 +166,6 @@ impl FunctionDeployment {
             instance.borrow().clone()
         };
 
-        debug!("function handling request");
         Box::pin(async move {
             debug!("inside request handling");
             let mut header = header;
@@ -180,14 +179,20 @@ impl FunctionDeployment {
             };
 
             debug!("resource obtained");
-            let result = FunctionFuture::new(instance.clone(), instance.invoke_http_trigger(&resource).await).await;
+            let result = FunctionFuture::new(
+                instance.clone(),
+                instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from)?
+            ).await;
 
+            debug!("invoke_http_trigger called");
             {
                 let mut function_state = instance.store.lock().await;
                 let function_state = function_state.data_mut();
+                debug!("draining background tasks");
                 for background_task in function_state.tasks_background.drain(..) {
                     tokio::task::spawn_local(FunctionUnitFuture::new(instance.clone(), background_task));
                 }
+                debug!("drained background tasks");
             }
 
             debug!("function future created");
@@ -223,6 +228,18 @@ pub enum FunctionDeploymentHandleRequestError {
     /// Function panicked while handling request
     #[error("function panicked")]
     FunctionPanicked,
+    /// Function is busy handling other requests and cannot accept a new one
+    #[error("function busy handling other requests and cannot accept a new one")]
+    FunctionBusy,
+}
+
+impl From<crate::function::instance::invoke_http_trigger::InvokeError> for FunctionDeploymentHandleRequestError {
+    fn from(err: crate::function::instance::invoke_http_trigger::InvokeError) -> Self {
+        use crate::function::instance::invoke_http_trigger::InvokeError;
+        match err {
+            InvokeError::FunctionBusy => Self::FunctionBusy,
+        }
+    }
 }
 
 #[derive(Hash, Eq, PartialEq, Clone, Serialize, Deserialize, Debug)]

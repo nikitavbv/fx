@@ -55,4 +55,7 @@ pub(crate) enum FunctionInvokeError {
 
     #[error("function panicked during execution")]
     FunctionPanicked,
+
+    #[error("function is busy handling other requests and cannot accept new requests")]
+    FunctionBusy,
 }

@@ -1,5 +1,6 @@
 use {
-    std::{collections::HashMap, task::Poll, cell::RefCell, rc::Rc},
+    std::{collections::HashMap, task::Poll, cell::RefCell, rc::Rc, time::Duration},
+    tracing::error,
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,
     futures::{FutureExt, future::LocalBoxFuture},
@@ -219,11 +220,29 @@ impl FunctionInstance {
         let mut store = self.store.lock().await;
         self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
+}
 
-    pub(crate) async fn invoke_http_trigger(&self, resource_id: &FetchRequestHeaderResourceKey) -> FunctionResourceId {
-        let mut store = self.store.lock().await;
-        store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
-        FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.into()).await.unwrap() as u64)
+pub(crate) mod invoke_http_trigger {
+    use super::*;
+
+    #[derive(Debug, Error)]
+    pub(crate) enum InvokeError {
+        #[error("function is busy handling other requests and cannot accept new request")]
+        FunctionBusy,
+    }
+
+    impl FunctionInstance {
+        pub(crate) async fn invoke_http_trigger(&self, resource_id: &FetchRequestHeaderResourceKey) -> Result<FunctionResourceId, InvokeError> {
+            let mut store = tokio::select! {
+                store = self.store.lock() => store,
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    error!("invoke_http_trigger: timeout when acquiring store lock");
+                    return Err(InvokeError::FunctionBusy);
+                },
+            };
+            store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
+            Ok(FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.into()).await.unwrap() as u64))
+        }
     }
 }
 

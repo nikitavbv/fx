@@ -127,7 +127,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     }
                 },
                 Err(err) => match err {
-                    FunctionDeploymentHandleRequestError::FunctionPanicked => DeserializableResource::Raw(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")))
+                    FunctionDeploymentHandleRequestError::FunctionPanicked => DeserializableResource::Raw(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n"))),
+                    FunctionDeploymentHandleRequestError::FunctionBusy => DeserializableResource::Raw(HttpBody::for_bytes(Bytes::from("function is busy handling other requests and cannot accept a new one.\n"))),
                 }
             };
 
@@ -142,7 +143,10 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 Err(err) => match err {
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
                         *response.status_mut() = StatusCode::BAD_GATEWAY;
-                    }
+                    },
+                    FunctionDeploymentHandleRequestError::FunctionBusy => {
+                        *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
+                    },
                 }
             }
 
