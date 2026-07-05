@@ -6,6 +6,7 @@ use {
     http::StatusCode,
     http_body_util::BodyExt,
     send_wrapper::SendWrapper,
+    thiserror::Error,
     crate::{
         resources::{
             resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
@@ -171,7 +172,10 @@ impl hyper::body::Body for HttpBody {
         match &mut self.0 {
             HttpBodyInner::FunctionStream(resource) =>
                 resource.poll_frame(cx)
-                    .map(|v| v.map(|v| Ok(hyper::body::Frame::data(Bytes::from(v))))),
+                    .map(|v| v.map(|v| v.map(|v| hyper::body::Frame::data(Bytes::from(v))))
+                        .map_err(std::io::Error::other)
+                        .transpose()
+                    ),
             HttpBodyInner::Stream(stream) => stream.poll_next_unpin(cx)
                 .map(|v| v.map(|v|
                     v
@@ -187,55 +191,77 @@ pub(crate) enum HttpBodyInner {
     Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
 }
 
-pub(crate) struct FunctionStreamReader {
-    function: Rc<FunctionInstance>,
-    resource_id: FunctionResourceId,
-    poll_future: Option<LocalBoxFuture<'static, Option<Vec<u8>>>>,
-}
+mod function_stream_reader {
+    use {
+        crate::function::instance::stream_frame_read_v2::StreamFrameReadError,
+        super::*,
+    };
 
-impl FunctionStreamReader {
-    fn new(resource: OwnedFunctionResourceId) -> Self {
-        let (function, resource_id) = resource.consume();
+    pub(crate) struct FunctionStreamReader {
+        function: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+        poll_future: Option<LocalBoxFuture<'static, Result<Option<Vec<u8>>, PollFrameError>>>,
+    }
 
-        Self {
-            function,
-            resource_id,
-            poll_future: None,
+    impl FunctionStreamReader {
+        pub(crate) fn new(resource: OwnedFunctionResourceId) -> Self {
+            let (function, resource_id) = resource.consume();
+
+            Self {
+                function,
+                resource_id,
+                poll_future: None,
+            }
         }
     }
 
-    fn poll_frame(&mut self, context: &mut std::task::Context<'_>) -> Poll<Option<Vec<u8>>> {
-        let mut poll_future = match self.poll_future.take() {
-            Some(v) => v,
-            None => {
-                let function = self.function.clone();
-                let resource_id = self.resource_id.clone();
+    #[derive(Debug, Error)]
+    pub(crate) enum PollFrameError {
+        #[error("function panicked while polling next frame")]
+        FunctionPanicked,
+    }
 
-                async move {
-                    FunctionFramePollFuture::new(function.clone(), resource_id.clone()).await;
-                    let result = function.stream_frame_read_v2(&resource_id).await;
-                    function.stream_advance(&resource_id).await;
-                    result
-                }.boxed_local()
-            },
-        };
+    impl FunctionStreamReader {
+        pub(crate) fn poll_frame(&mut self, context: &mut std::task::Context<'_>) -> Poll<Result<Option<Vec<u8>>, PollFrameError>> {
+            let mut poll_future: LocalBoxFuture<'_, Result<Option<Vec<u8>>, PollFrameError>> = match self.poll_future.take() {
+                Some(v) => v,
+                None => {
+                    let function = self.function.clone();
+                    let resource_id = self.resource_id.clone();
 
-        let result = poll_future.poll_unpin(context);
-        if result.is_pending() {
-            self.poll_future = Some(poll_future);
+                    async move {
+                        FunctionFramePollFuture::new(function.clone(), resource_id.clone()).await;
+                        let result = match function.stream_frame_read_v2(&resource_id).await {
+                            Ok(v) => v,
+                            Err(StreamFrameReadError::FunctionPanicked) => {
+                                *function.has_panicked.borrow_mut() = true;
+                                return Err(PollFrameError::FunctionPanicked);
+                            },
+                        };
+                        function.stream_advance(&resource_id).await;
+                        Ok(result)
+                    }.boxed_local()
+                },
+            };
+
+            let result = poll_future.poll_unpin(context);
+            if result.is_pending() {
+                self.poll_future = Some(poll_future);
+            }
+
+            result
         }
+    }
 
-        result
+    impl Stream for FunctionStreamReader {
+        type Item = Result<Vec<u8>, PollFrameError>;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+            self.poll_frame(cx).map(|v| v.transpose())
+        }
     }
 }
-
-impl Stream for FunctionStreamReader {
-    type Item = Vec<u8>;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
-        self.poll_frame(cx)
-    }
-}
+pub(crate) use function_stream_reader::FunctionStreamReader;
 
 pub struct FetchRequestHeader {
     inner: ::http::request::Parts,

@@ -666,7 +666,7 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
 
     let result = match http_body.0 {
         HttpBodyInner::Stream(ref mut stream) => stream.poll_next_unpin(&mut cx),
-        HttpBodyInner::FunctionStream(ref mut v) =>  v.poll_next_unpin(&mut cx).map(|v| v.map(|v| Ok(hyper::body::Bytes::from(v)))),
+        HttpBodyInner::FunctionStream(ref mut v) =>  v.poll_next_unpin(&mut cx).map(|v| v.map(|v| Ok(hyper::body::Bytes::from(v.unwrap())))),
     };
 
     let result = result.map(|v| caller.data_mut().resource_set.http_frames.insert(v));

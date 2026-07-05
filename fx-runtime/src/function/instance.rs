@@ -194,31 +194,51 @@ impl FunctionInstance {
         }
     }
 
-    pub(crate) async fn stream_frame_read_v2(&self, resource_id: &FunctionResourceId) -> Option<Vec<u8>> {
-        let len = {
-            let mut store = self.store.lock().await;
-            self.fn_stream_frame_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize
-        };
-        let ptr = self.resource_serialized_ptr(resource_id).await as usize;
-
-        let frame_data = {
-            let store = self.store.lock().await;
-            let view = self.memory.data(store.as_context());
-            view[ptr..ptr+len].to_owned()
-        };
-
-        let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-        let response = reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
-
-        match response.get_frame().which().unwrap() {
-            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
-            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
-        }
-    }
-
     pub(crate) async fn stream_advance(&self, resource_id: &FunctionResourceId) {
         let mut store = self.store.lock().await;
         self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
+    }
+}
+
+pub(crate) mod stream_frame_read_v2 {
+    use super::*;
+
+    #[derive(Debug, Error)]
+    pub(crate) enum StreamFrameReadError {
+        #[error("function panicked while reading next frame")]
+        FunctionPanicked,
+    }
+
+    impl FunctionInstance {
+        pub(crate) async fn stream_frame_read_v2(&self, resource_id: &FunctionResourceId) -> Result<Option<Vec<u8>>, StreamFrameReadError> {
+            let len = {
+                let mut store = self.store.lock().await;
+                self.fn_stream_frame_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await
+                    .map_err(|err| {
+                        // TODO: forward backtraces to management thread (or logger thread)
+                        let trap = err.downcast::<wasmtime::Trap>().unwrap();
+                        match trap {
+                            wasmtime::Trap::UnreachableCodeReached => StreamFrameReadError::FunctionPanicked,
+                            other => panic!("unexpected trap: {other:?}"),
+                        }
+                    })? as usize
+            };
+            let ptr = self.resource_serialized_ptr(resource_id).await as usize;
+
+            let frame_data = {
+                let store = self.store.lock().await;
+                let view = self.memory.data(store.as_context());
+                view[ptr..ptr+len].to_owned()
+            };
+
+            let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+            let response = reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
+
+            Ok(match response.get_frame().which().unwrap() {
+                abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
+                abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
+            })
+        }
     }
 }
 
