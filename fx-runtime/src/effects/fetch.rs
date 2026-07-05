@@ -12,22 +12,6 @@ use {
     },
 };
 
-// TODO: is BodyResource needed? FetchResult can probably be a struct (FetchResultInline)
-pub(crate) enum FetchResult {
-    Inline(FetchResultInline),
-    BodyResource(Result<FetchResultWithBodyResource, FetchResultError>),
-}
-
-impl FetchResult {
-    pub fn new(parts: http::response::Parts, body: HttpBody) -> Self {
-        Self::Inline(FetchResultInline::new(parts, body))
-    }
-
-    pub fn error(err: FetchResultError) -> Self {
-        Self::BodyResource(Err(err))
-    }
-}
-
 #[derive(Error, Debug)]
 pub(crate) enum FetchResultError {
     #[error("connection failed")]
@@ -36,24 +20,6 @@ pub(crate) enum FetchResultError {
     ConnectionTimeout,
     #[error("response timeout")]
     ResponseTimeout,
-}
-
-pub(crate) struct FetchResultInline {
-    parts: http::response::Parts,
-    body: HttpBody,
-}
-
-impl FetchResultInline {
-    pub fn new(parts: http::response::Parts, body: HttpBody) -> Self {
-        Self {
-            parts,
-            body,
-        }
-    }
-
-    pub fn into_parts(self) -> (http::response::Parts, HttpBody) {
-        (self.parts, self.body)
-    }
 }
 
 pub(crate) struct FetchResultWithBodyResource {

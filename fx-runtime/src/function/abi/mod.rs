@@ -59,7 +59,7 @@ use {
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
             blob::BlobGetResponse,
-            fetch::{FetchResult, FetchResultWithBodyResource, FetchResultError, HttpStreamError},
+            fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError},
         },
@@ -607,12 +607,12 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
     let fetch_result = caller.data_mut().resource_set.fetch_results.remove(resource_id.into()).unwrap();
 
     let resource = match fetch_result {
-        FetchResult::Inline(inline) => {
-            let (parts, body) = inline.into_parts();
+        Ok(response) => {
+            let (parts, body) = response.into_parts();
             let body = caller.data_mut().resource_set.http_bodies.insert(body);
             Ok(FetchResultWithBodyResource::new(parts, body))
         },
-        FetchResult::BodyResource(v) => v,
+        Err(err) => Err(err),
     };
 
     let mut message = capnp::message::Builder::new_default();
@@ -1159,8 +1159,7 @@ pub(super) fn fx_fetch_handler(
                         .body(HttpBody::for_function_stream(response.body.replace(None).unwrap()))
                         .unwrap();
                     *http_response.headers_mut() = response.headers;
-                    let (parts, body) = http_response.into_parts();
-                    FetchResult::new(parts, body)
+                    Ok(http_response)
                 }
             }
         }.boxed_local()
@@ -1204,7 +1203,7 @@ pub(super) fn fx_fetch_handler(
                     let http_response: ::http::Response<reqwest::Body> = result.into();
                     let (parts, body) = http_response.into_parts();
                     let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| HttpStreamError::FetchResponseStreamError(err)).boxed());
-                    FetchResult::new(parts, body)
+                    Ok(::http::Response::from_parts(parts, body))
                 }
                 Err(err) => {
                     let error = if err.is_timeout() && err.is_connect() {
@@ -1214,7 +1213,7 @@ pub(super) fn fx_fetch_handler(
                     } else {
                         FetchResultError::ConnectionFailed
                     };
-                    FetchResult::error(error)
+                    Err(error)
                 }
             }
         }.boxed_local()
