@@ -45,7 +45,6 @@ use {
         function::instance::FunctionInstanceState,
         resources::{
             FunctionResourceId,
-            serialize::{DeserializableResource, SerializedFunctionResource},
             resource::{
                 ResourceTable,
                 FunctionResources,
@@ -1155,18 +1154,12 @@ pub(super) fn fx_fetch_handler(
             let response = response.move_to_host().await.unwrap();
             match response.0 {
                 FunctionResponseInner::HttpResponse(response) => {
-                    // todo: make body lazy, support streaming
-                    let body = response.body.replace(None).unwrap();
-                    let (instance, body) = body.consume();
-                    let body = DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body));
-                    let body = body.copy_to_host().await.unwrap();
-
-                    let http_response = ::http::Response::builder()
+                    let mut http_response = ::http::Response::builder()
                         .status(response.status)
-                        .body(())
+                        .body(HttpBody::for_function_stream(response.body.replace(None).unwrap()))
                         .unwrap();
-                    let (mut parts, _) = http_response.into_parts();
-                    parts.headers = response.headers;
+                    *http_response.headers_mut() = response.headers;
+                    let (parts, body) = http_response.into_parts();
                     FetchResult::new(parts, body)
                 }
             }

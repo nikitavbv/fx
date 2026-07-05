@@ -12,6 +12,7 @@ use {
     },
 };
 
+// TODO: is BodyResource needed? FetchResult can probably be a struct (FetchResultInline)
 pub(crate) enum FetchResult {
     Inline(FetchResultInline),
     BodyResource(Result<FetchResultWithBodyResource, FetchResultError>),
