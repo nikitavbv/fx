@@ -4,6 +4,7 @@ use {
     tracing::{debug, info, warn, error},
     hyper_util::rt::{TokioIo, TokioTimer},
     hyper::server::conn::http1,
+    thiserror::Error,
     crate::{
         tasks::{
             sql::SqlController,
@@ -19,6 +20,7 @@ use {
         triggers::http::HttpHandler,
     },
     super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::FunctionInvokeError},
+    self::worker_handle_metrics_flush::worker_handle_metrics_flush,
 };
 
 pub(crate) struct WorkerConfig {
@@ -128,7 +130,10 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                 },
 
                 _ = metrics_flush_interval.tick() => {
-                    worker_handle_metrics_flush(&worker, world.function_deployments.clone());
+                    if let Err(worker_handle_metrics_flush::MetricsFlushError::ManagementChannelClosed) = worker_handle_metrics_flush(&worker, world.function_deployments.clone()) {
+                        info!("stopping worker thread because management thread handle was dropped.");
+                        return;
+                    }
                 }
             }
         }
@@ -316,41 +321,52 @@ async fn worker_handle_http_connection(
     });
 }
 
-fn worker_handle_metrics_flush(
-    worker: &WorkerConfig,
-    function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
-) {
-    // copying references to instances to avoid holding references to instances across store lock await point
-    let instances = function_deployments
-        .borrow()
-        .values()
-        .map(|deployment| (deployment.function_id.clone(), deployment.instance.clone()))
-        .collect::<Vec<_>>();
+mod worker_handle_metrics_flush {
+    use super::*;
 
-    let mut function_metrics = HashMap::<FunctionId, FunctionMetricsDelta, _>::new();
-
-    for (function_id, instance) in instances {
-        let instance = instance.borrow();
-        let mut store = match instance.store.try_lock() {
-            Some(v) => v,
-            None => continue,
-        };
-        let state = store.data_mut();
-
-        let metrics_delta = state.metrics.flush_delta();
-        if metrics_delta.is_empty() {
-            continue;
-        }
-
-        if let Some(metrics) = function_metrics.get_mut(&function_id) {
-            metrics.append(metrics_delta);
-        } else {
-            function_metrics.insert(function_id, metrics_delta);
-        }
+    #[derive(Debug, Error)]
+    pub(super) enum MetricsFlushError {
+        #[error("management channel closed")]
+        ManagementChannelClosed,
     }
 
-    if !function_metrics.is_empty() {
-        // TODO: handle this
-        worker.management_tx.send(ManagementMessage::WorkerMetrics(MetricsFlushMessage { function_metrics })).unwrap();
+    pub(super) fn worker_handle_metrics_flush(
+        worker: &WorkerConfig,
+        function_deployments: Rc<RefCell<HashMap<FunctionDeploymentId, Rc<FunctionDeployment>>>>,
+    ) -> Result<(), MetricsFlushError> {
+        // copying references to instances to avoid holding references to instances across store lock await point
+        let instances = function_deployments
+            .borrow()
+            .values()
+            .map(|deployment| (deployment.function_id.clone(), deployment.instance.clone()))
+            .collect::<Vec<_>>();
+
+        let mut function_metrics = HashMap::<FunctionId, FunctionMetricsDelta, _>::new();
+
+        for (function_id, instance) in instances {
+            let instance = instance.borrow();
+            let mut store = match instance.store.try_lock() {
+                Some(v) => v,
+                None => continue,
+            };
+            let state = store.data_mut();
+
+            let metrics_delta = state.metrics.flush_delta();
+            if metrics_delta.is_empty() {
+                continue;
+            }
+
+            if let Some(metrics) = function_metrics.get_mut(&function_id) {
+                metrics.append(metrics_delta);
+            } else {
+                function_metrics.insert(function_id, metrics_delta);
+            }
+        }
+
+        if !function_metrics.is_empty() {
+            worker.management_tx.send(ManagementMessage::WorkerMetrics(MetricsFlushMessage { function_metrics })).map_err(|_| MetricsFlushError::ManagementChannelClosed)?;
+        }
+
+        Ok(())
     }
 }

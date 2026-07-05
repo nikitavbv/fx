@@ -122,16 +122,14 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 Ok(function_response) => function_response.unwrap(),
                 Err(err) => match err {
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
-                        http::Response::builder()
-                            .status(StatusCode::BAD_GATEWAY)
-                            .body(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")))
-                            .unwrap()
+                        let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")));
+                        *response.status_mut() = StatusCode::BAD_GATEWAY;
+                        response
                     },
                     FunctionDeploymentHandleRequestError::FunctionBusy => {
-                        http::Response::builder()
-                            .status(StatusCode::GATEWAY_TIMEOUT)
-                            .body(HttpBody::for_bytes(Bytes::from("function is busy handling other requests and cannot accept a new one.\n")))
-                            .unwrap()
+                        let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function is busy handling other requests and cannot accept a new one.\n")));
+                        *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
+                        response
                     },
                 }
             };
