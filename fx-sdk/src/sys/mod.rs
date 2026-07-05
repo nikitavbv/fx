@@ -128,8 +128,8 @@ pub extern "C" fn _fx_stream_frame_poll(resource_id: u64) -> i64 {
                             Poll::Ready(())
                         ),
                     },
-                HttpBodyInner::Empty => todo!(),
-                HttpBodyInner::Bytes(_) => todo!(),
+                HttpBodyInner::Empty => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
+                HttpBodyInner::Bytes(v) => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Bytes(v))), Poll::Ready(())),
                 HttpBodyInner::HostResource { resource_id, frame_resource_id } => {
                     // TODO: polling host resource is inefficient. Instead of passing through here, host should poll directly
                     let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
@@ -183,7 +183,7 @@ pub extern "C" fn _fx_stream_frame_serialize(resource_id: u64) -> u64 {
                     let serialized_size = frame_serialized.as_ref().unwrap().len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame_serialized })), serialized_size)
                 },
-                HttpBodyInner::HostResource { .. } => panic!("stream_frame_serialized cannot be invoked on HttpBody of this type"),
+                HttpBodyInner::HostResource { .. } => panic!("stream_frame_serialized cannot be invoked on HttpBody of this type, resource_id: {resource_id:?}"),
                 HttpBodyInner::Serialized(v) => {
                     let serialized_len = v.len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))), serialized_len)

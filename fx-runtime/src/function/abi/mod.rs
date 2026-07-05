@@ -629,7 +629,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 header.set_name(name.as_str());
                 header.set_value(value.to_str().unwrap());
             }
-            ok_builder.reborrow().set_body_resource_id(ok.body.into());
+            ok_builder.reborrow().init_body().set_host_resource_id(ok.body.into());
         }
         Err(err) => {
             let mut error_builder = response.init_error().init_error();

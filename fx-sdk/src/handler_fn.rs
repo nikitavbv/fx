@@ -1,6 +1,9 @@
 use {
     std::{pin::Pin, future::Future},
-    crate::{sys::{FunctionResourceId, FunctionResource, add_function_resource}, api::http::HttpResponse},
+    crate::{
+        sys::{FunctionResourceId, FunctionResource, add_function_resource},
+        api::http::{HttpResponse, HttpBody, HttpBodyInner},
+    },
 };
 
 pub type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
@@ -29,7 +32,12 @@ pub(crate) struct FunctionHttpResponse {
     // TODO: have http parts here too?
     pub(crate) status: http::status::StatusCode,
     pub(crate) headers: http::HeaderMap,
-    pub(crate) body: FunctionResourceId,
+    pub(crate) body: FunctionHttpResponseBody,
+}
+
+pub(crate) enum FunctionHttpResponseBody {
+    FunctionResource(FunctionResourceId),
+    HostResource(u64),
 }
 
 pub trait IntoFunctionResponse {
@@ -49,7 +57,10 @@ impl IntoFunctionResponse for HttpResponse {
         FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: parts.status,
             headers: parts.headers,
-            body: add_function_resource(FunctionResource::HttpBody(body)),
+            body: match body.0 {
+                HttpBodyInner::HostResource { resource_id, frame_resource_id: _ } => FunctionHttpResponseBody::HostResource(resource_id),
+                other => FunctionHttpResponseBody::FunctionResource(add_function_resource(FunctionResource::HttpBody(HttpBody(other)))),
+            },
         }))
     }
 }

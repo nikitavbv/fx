@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     fx_types::{capnp, abi::{UnitFuturePollResult}, abi_http_capnp},
     crate::{
-        handler_fn::{FunctionResponse, FunctionResponseInner},
+        handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponseBody},
         sys::{
             fx_bytes_len,
             fx_bytes_move,
@@ -131,7 +131,11 @@ impl SerializeResource for FunctionResponse {
                     header.set_value(value.to_str().unwrap());
                 }
 
-                resource.set_body_resource_id(http.body.as_u64());
+                let mut body = resource.init_body();
+                match http.body {
+                    FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.as_u64()),
+                    FunctionHttpResponseBody::HostResource(v) => body.set_host_resource_id(v),
+                }
             }
         }
         capnp::serialize::write_message_to_words(&message)

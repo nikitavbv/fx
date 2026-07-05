@@ -7,7 +7,7 @@ use {
             instance::FunctionInstance,
         },
         triggers::http::HttpBody,
-        resources::{resource::OwnedFunctionResourceId, FunctionResourceId},
+        resources::{resource::OwnedFunctionResourceId, FunctionResourceId, FunctionResources},
     },
 };
 
@@ -29,7 +29,8 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
 
     pub(crate) async fn move_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
         let (instance, resource) = self.resource.consume();
-        T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
+        let serialized_resource = instance.move_serializable_resource_to_host(&resource).await;
+        T::deserialize(&mut instance.clone().store.lock().await.data_mut().resource_set, &mut serialized_resource.as_slice(), instance)
     }
 }
 
@@ -38,7 +39,7 @@ pub(crate) trait DeserializeFunctionResource {
     // deserializing or errors while resolving dependencies)
     type Error;
 
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> where Self: Sized;
+    fn deserialize(resource_set: &mut FunctionResources, resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> where Self: Sized;
 }
 
 #[derive(Debug, Error)]
@@ -48,7 +49,7 @@ pub(crate) enum DeserializationError {
 impl DeserializeFunctionResource for http::Response<HttpBody> {
     type Error = DeserializationError;
 
-    fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
+    fn deserialize(resource_set: &mut FunctionResources, resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
         let response = message_reader.get_root::<abi_http_capnp::http_response::Reader>().unwrap();
 
@@ -61,18 +62,19 @@ impl DeserializeFunctionResource for http::Response<HttpBody> {
             http_response = http_response.header(name, value);
         }
 
-
-        Ok(
-            http_response.body(crate::triggers::http::HttpBody::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(response.get_body_resource_id()))))
-                .unwrap()
-        )
+        match response.get_body().which().unwrap() {
+            abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => Ok(http_response.body(
+                HttpBody::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(resource_id)))
+            ).unwrap()),
+            abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => Ok(http_response.body(resource_set.http_bodies.remove(resource_id.into()).unwrap()).unwrap()),
+        }
     }
 }
 
 impl DeserializeFunctionResource for Vec<u8> {
     type Error = ();
 
-    fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
+    fn deserialize(resource_set: &mut FunctionResources, resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         Ok(resource.to_vec())
     }
 }

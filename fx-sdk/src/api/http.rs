@@ -502,7 +502,10 @@ impl Future for FetchResultFuture {
 
                         Ok(HttpResponse {
                             parts,
-                            body: HttpBody::host_resource(response.get_body_resource_id()),
+                            body: match response.get_body().which().unwrap() {
+                                abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => HttpBody::host_resource(resource_id),
+                                abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => todo!(),
+                            },
                         })
                     }
                     abi_http_capnp::fetch_result::result::Which::Error(err) => {

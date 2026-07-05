@@ -43,7 +43,10 @@ struct HttpBodyFrame {
 struct HttpResponse {
     status @0 :UInt16;
     headers @2 :List(HttpHeader);
-    bodyResourceId @1 :UInt64;
+    body :union {
+        functionResourceId @1 :UInt64;
+        hostResourceId @3 :UInt64;
+    }
 }
 
 struct FetchResult {
