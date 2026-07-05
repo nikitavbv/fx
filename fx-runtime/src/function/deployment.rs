@@ -7,7 +7,7 @@ use {
         effects::logs::LogMessageEvent,
         tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
-        triggers::http::{FetchRequestHeader, FunctionResponse, HttpBody},
+        triggers::http::{FetchRequestHeader, HttpBody},
         resources::{
             serialize::SerializedFunctionResource,
             future::{FunctionFuture, FunctionUnitFuture},
@@ -154,7 +154,7 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<FunctionResponse>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         let instance = if *instance.borrow().has_panicked.borrow() {

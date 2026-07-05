@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     crate::{
         function::FunctionId,
-        triggers::http::{FetchRequestHeader, FunctionResponse},
+        triggers::http::{FetchRequestHeader, HttpBody},
         resources::serialize::SerializedFunctionResource,
         tasks::worker::messages::FunctionInvokeError,
     },
@@ -102,7 +102,7 @@ impl LocalWorkerController {
         }
     }
 
-    pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> async_unsync::oneshot::Receiver<SerializedFunctionResource<FunctionResponse>> {
+    pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> async_unsync::oneshot::Receiver<SerializedFunctionResource<http::Response<HttpBody>>> {
         let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
         self.self_tx.send(WorkerLocalMessage::FunctionInvoke {

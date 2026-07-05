@@ -1,12 +1,12 @@
 use {
-    std::{marker::PhantomData, rc::Rc, cell::Cell},
+    std::{marker::PhantomData, rc::Rc},
     thiserror::Error,
     crate::{
         function::{
             abi::{capnp, abi_http_capnp},
             instance::FunctionInstance,
         },
-        triggers::http::{FunctionResponse, FunctionResponseInner, FunctionHttpResponse},
+        triggers::http::HttpBody,
         resources::{resource::OwnedFunctionResourceId, FunctionResourceId},
     },
 };
@@ -27,11 +27,6 @@ impl<T: DeserializeFunctionResource> SerializedFunctionResource<T> {
         }
     }
 
-    pub(crate) async fn copy_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
-        let (instance, resource) = self.resource.consume();
-        T::deserialize(&mut instance.copy_serializable_resource_to_host(&resource).await.as_slice(), instance)
-    }
-
     pub(crate) async fn move_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
         let (instance, resource) = self.resource.consume();
         T::deserialize(&mut instance.move_serializable_resource_to_host(&resource).await.as_slice(), instance)
@@ -50,25 +45,27 @@ pub(crate) trait DeserializeFunctionResource {
 pub(crate) enum DeserializationError {
 }
 
-impl DeserializeFunctionResource for FunctionResponse {
+impl DeserializeFunctionResource for http::Response<HttpBody> {
     type Error = DeserializationError;
 
     fn deserialize(resource: &mut &[u8], instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
         let response = message_reader.get_root::<abi_http_capnp::http_response::Reader>().unwrap();
 
-        let mut headers = ::http::HeaderMap::new();
+        let mut http_response = http::Response::builder()
+            .status(::http::StatusCode::from_u16(response.get_status()).unwrap());
+
         for header in response.get_headers().unwrap() {
             let name = ::http::HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
             let value = ::http::HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
-            headers.insert(name, value);
+            http_response = http_response.header(name, value);
         }
 
-        Ok(Self(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
-            status: ::http::StatusCode::from_u16(response.get_status()).unwrap(),
-            headers,
-            body: Cell::new(Some(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(response.get_body_resource_id())))),
-        })))
+
+        Ok(
+            http_response.body(crate::triggers::http::HttpBody::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(response.get_body_resource_id()))))
+                .unwrap()
+        )
     }
 }
 
@@ -77,23 +74,5 @@ impl DeserializeFunctionResource for Vec<u8> {
 
     fn deserialize(resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         Ok(resource.to_vec())
-    }
-}
-
-pub(crate) enum DeserializableResource<T: DeserializeFunctionResource> {
-    Raw(T),
-    Serialized(SerializedFunctionResource<T>),
-}
-
-impl<T: DeserializeFunctionResource> DeserializableResource<T> {
-    pub fn from_serialized(value: SerializedFunctionResource<T>) -> Self {
-        Self::Serialized(value)
-    }
-
-    pub async fn copy_to_host(self) -> Result<T, <T as DeserializeFunctionResource>::Error> {
-        match self {
-            Self::Raw(v) => Ok(v),
-            Self::Serialized(v) => v.copy_to_host().await,
-        }
     }
 }

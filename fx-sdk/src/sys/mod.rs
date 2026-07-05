@@ -23,7 +23,7 @@ pub(crate) use self::{
 use {
     std::task::Poll,
     futures::{FutureExt, StreamExt},
-    fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
+    fx_types::{capnp, abi::{FuturePollResult, HttpBodyPollFrameResult}, abi_http_capnp},
     crate::{
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
@@ -82,7 +82,7 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
             },
             FunctionResource::HttpBody(body) => match body.0 {
                 HttpBodyInner::Bytes(_) => panic!("resource has to be serialized first"),
-                HttpBodyInner::HostResource(_) => panic!("resource of this type should not be serialized: instead host should read it directly from host resource table"),
+                HttpBodyInner::HostResource { .. } => panic!("resource of this type should not be serialized: instead host should read it directly from host resource table"),
                 HttpBodyInner::Empty => panic!("empty body: nothing to serailize"),
                 HttpBodyInner::Stream { stream: _, ref frame_serialized } => frame_serialized.as_ref().unwrap().as_ptr(),
                 HttpBodyInner::Serialized(ref v) => v.as_ptr(),
@@ -130,7 +130,21 @@ pub extern "C" fn _fx_stream_frame_poll(resource_id: u64) -> i64 {
                     },
                 HttpBodyInner::Empty => todo!(),
                 HttpBodyInner::Bytes(_) => todo!(),
-                HttpBodyInner::HostResource(_) => todo!(),
+                HttpBodyInner::HostResource { resource_id, frame_resource_id } => {
+                    // TODO: polling host resource is inefficient. Instead of passing through here, host should poll directly
+                    let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
+                    assert!(unsafe { fx_http_body_poll_frame(resource_id, result.as_mut_ptr() as u64) } == 0);
+
+                    let result = unsafe { result.assume_init() };
+                    match result.tag {
+                        0 => (
+                            FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource { resource_id, frame_resource_id: Some(result.http_frame_resource_id) })),
+                            Poll::Ready(())
+                        ),
+                        1 => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource { resource_id, frame_resource_id: None})), Poll::Pending),
+                        _other => todo!(),
+                    }
+                },
                 HttpBodyInner::Serialized(_) => panic!("stream poll called for non-stream body!"),
             },
             _other => panic!("not a stream"),
@@ -169,7 +183,7 @@ pub extern "C" fn _fx_stream_frame_serialize(resource_id: u64) -> u64 {
                     let serialized_size = frame_serialized.as_ref().unwrap().len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame_serialized })), serialized_size)
                 },
-                HttpBodyInner::HostResource(_) => panic!("stream_frame_serialized cannot be invoked on HttpBody of this type"),
+                HttpBodyInner::HostResource { .. } => panic!("stream_frame_serialized cannot be invoked on HttpBody of this type"),
                 HttpBodyInner::Serialized(v) => {
                     let serialized_len = v.len();
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))), serialized_len)
@@ -188,7 +202,7 @@ pub extern "C" fn _fx_stream_advance(resource_id: u64) {
         FunctionResource::BackgroundTask(_) => panic!("not a stream"),
         FunctionResource::HttpBody(v) => match v.0 {
             HttpBodyInner::Empty
-            | HttpBodyInner::HostResource(_) => todo!(),
+            | HttpBodyInner::HostResource { .. } => todo!(),
             HttpBodyInner::Bytes(_) => todo!(),
             HttpBodyInner::Stream { stream, frame_serialized } => FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream {
                 stream,

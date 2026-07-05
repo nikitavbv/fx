@@ -179,7 +179,10 @@ impl FetchRequestHeaderResource {
                 body: match request.get_body().unwrap().get_body().which().unwrap() {
                     abi_http_capnp::http_body::body::Which::Empty(_) => None,
                     abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
-                    abi_http_capnp::http_body::body::Which::HostResource(v) => Some(HttpBodyInner::HostResource(v)),
+                    abi_http_capnp::http_body::body::Which::HostResource(resource_id) => Some(HttpBodyInner::HostResource {
+                        resource_id,
+                        frame_resource_id: None,
+                    }),
                     abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
                 },
             }
@@ -299,7 +302,10 @@ impl HttpBody {
     }
 
     pub fn host_resource(resource_id: u64) -> Self {
-        Self(HttpBodyInner::HostResource(resource_id))
+        Self(HttpBodyInner::HostResource {
+            resource_id: resource_id,
+            frame_resource_id: None,
+        })
     }
 
     pub async fn read_all(self) -> Option<Vec<u8>> {
@@ -325,7 +331,7 @@ impl Stream for HttpBody {
             HttpBodyInner::Bytes(_) => todo!(),
             HttpBodyInner::Stream { stream, frame_serialized: _discarded } => stream.poll_next_unpin(cx)
                 .map_err(|_| todo!()),
-            HttpBodyInner::HostResource(resource_id) => {
+            HttpBodyInner::HostResource { resource_id, frame_resource_id } => {
                 let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
                 assert!(unsafe { fx_http_body_poll_frame(*resource_id, result.as_mut_ptr() as u64) } == 0);
 
@@ -390,7 +396,10 @@ pub(crate) enum HttpBodyInner {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
         frame_serialized: Option<Vec<u8>>,
     },
-    HostResource(u64),
+    HostResource {
+        resource_id: u64,
+        frame_resource_id: Option<u64>,
+    },
     Serialized(Vec<u8>),
 }
 
@@ -437,7 +446,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
                 HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
                     request_body.set_function_stream(add_function_resource(FunctionResource::HttpBody(HttpBody::stream(stream))).as_u64())
                 },
-                HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id),
+                HttpBodyInner::HostResource { resource_id, frame_resource_id } => request_body.set_host_resource(resource_id),
                 HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),

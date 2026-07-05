@@ -1,5 +1,5 @@
 use {
-    std::{rc::Rc, cell::{RefCell, Cell}, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
+    std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
     tracing::warn,
     futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
     hyper::{Response, body::Bytes},
@@ -8,7 +8,6 @@ use {
     send_wrapper::SendWrapper,
     crate::{
         resources::{
-            serialize::{SerializedFunctionResource, DeserializableResource},
             resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
             FunctionResourceId,
         },
@@ -118,37 +117,23 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 Err(err) => Err(err),
             };
 
-            let body = match &function_response {
-                Ok(response) => match &response.as_ref().unwrap().0 {
-                    FunctionResponseInner::HttpResponse(v) => {
-                        // TODO: refactor function resources
-                        let (instance, body_resource_id) = v.body.replace(None).unwrap().consume();
-                        DeserializableResource::from_serialized(SerializedFunctionResource::<HttpBody>::new(instance, body_resource_id))
-                    }
-                },
-                Err(err) => match err {
-                    FunctionDeploymentHandleRequestError::FunctionPanicked => DeserializableResource::Raw(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n"))),
-                    FunctionDeploymentHandleRequestError::FunctionBusy => DeserializableResource::Raw(HttpBody::for_bytes(Bytes::from("function is busy handling other requests and cannot accept a new one.\n"))),
-                }
-            };
-
-            let mut response = Response::new(body.copy_to_host().await.unwrap());
-            match function_response {
-                Ok(function_response) => match function_response.unwrap().0 {
-                    FunctionResponseInner::HttpResponse(v) => {
-                        *response.status_mut() = v.status;
-                        *response.headers_mut() = v.headers;
-                    }
-                },
+            let response = match function_response {
+                Ok(function_response) => function_response.unwrap(),
                 Err(err) => match err {
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
-                        *response.status_mut() = StatusCode::BAD_GATEWAY;
+                        http::Response::builder()
+                            .status(StatusCode::BAD_GATEWAY)
+                            .body(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")))
+                            .unwrap()
                     },
                     FunctionDeploymentHandleRequestError::FunctionBusy => {
-                        *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
+                        http::Response::builder()
+                            .status(StatusCode::GATEWAY_TIMEOUT)
+                            .body(HttpBody::for_bytes(Bytes::from("function is busy handling other requests and cannot accept a new one.\n")))
+                            .unwrap()
                     },
                 }
-            }
+            };
 
             if management_tx.send_async(ManagementMessage::FunctionInvoked(())).await.is_err() {
                 warn!("failed to send function invoked event to management thread.");
@@ -285,16 +270,4 @@ impl From<::http::request::Parts> for FetchRequestHeader {
             body_resource_id: None,
         }
     }
-}
-
-pub(crate) struct FunctionResponse(pub(crate) FunctionResponseInner);
-
-pub(crate) enum FunctionResponseInner {
-    HttpResponse(FunctionHttpResponse),
-}
-
-pub(crate) struct FunctionHttpResponse {
-    pub(crate) status: ::http::status::StatusCode,
-    pub(crate) headers: ::http::HeaderMap,
-    pub(crate) body: Cell<Option<OwnedFunctionResourceId>>,
 }

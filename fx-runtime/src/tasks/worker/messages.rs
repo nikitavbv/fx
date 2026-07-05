@@ -8,7 +8,7 @@ use {
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
         },
-        triggers::http::{FetchRequestHeader, FunctionResponse},
+        triggers::http::{FetchRequestHeader, HttpBody},
         resources::serialize::SerializedFunctionResource,
     },
 };
@@ -44,7 +44,7 @@ pub(crate) enum WorkerLocalMessage {
     FunctionInvoke {
         function_id: FunctionId,
         header: FetchRequestHeader,
-        response_tx: async_unsync::oneshot::Sender<SerializedFunctionResource<FunctionResponse>>,
+        response_tx: async_unsync::oneshot::Sender<SerializedFunctionResource<http::Response<HttpBody>>>,
     }
 }
 

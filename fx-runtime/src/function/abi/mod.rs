@@ -68,7 +68,7 @@ use {
             kv::{KvMessage, KvOperation},
             blob::BlobMessage,
         },
-        triggers::http::{FetchRequestHeader, FunctionResponseInner, HttpBody, HttpBodyInner},
+        triggers::http::{FetchRequestHeader, HttpBody, HttpBodyInner},
     },
 };
 
@@ -1149,20 +1149,7 @@ pub(super) fn fx_fetch_handler(
         );
         let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
-        async move {
-            let response = response_rx.await.unwrap();
-            let response = response.move_to_host().await.unwrap();
-            match response.0 {
-                FunctionResponseInner::HttpResponse(response) => {
-                    let mut http_response = ::http::Response::builder()
-                        .status(response.status)
-                        .body(HttpBody::for_function_stream(response.body.replace(None).unwrap()))
-                        .unwrap();
-                    *http_response.headers_mut() = response.headers;
-                    Ok(http_response)
-                }
-            }
-        }.boxed_local()
+        async move { Ok(response_rx.await.unwrap().move_to_host().await.unwrap()) }.boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
