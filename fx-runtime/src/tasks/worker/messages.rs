@@ -3,7 +3,7 @@ use {
     tokio::sync::oneshot,
     thiserror::Error,
     crate::{
-        function::{FunctionId, FunctionDeploymentId},
+        function::{FunctionId, FunctionDeploymentId, deployment::FunctionDeploymentHandleRequestError},
         definitions::{
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
@@ -44,7 +44,7 @@ pub(crate) enum WorkerLocalMessage {
     FunctionInvoke {
         function_id: FunctionId,
         header: FetchRequestHeader,
-        response_tx: async_unsync::oneshot::Sender<SerializedFunctionResource<http::Response<HttpBody>>>,
+        response_tx: async_unsync::oneshot::Sender<Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>>,
     }
 }
 
@@ -58,4 +58,13 @@ pub(crate) enum FunctionInvokeError {
 
     #[error("function is busy handling other requests and cannot accept new requests")]
     FunctionBusy,
+}
+
+impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
+    fn from(err: FunctionDeploymentHandleRequestError) -> Self {
+        match err {
+            FunctionDeploymentHandleRequestError::FunctionBusy => Self::FunctionBusy,
+            FunctionDeploymentHandleRequestError::FunctionPanicked => Self::FunctionPanicked,
+        }
+    }
 }

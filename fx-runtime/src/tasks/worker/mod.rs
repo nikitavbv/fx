@@ -1,5 +1,5 @@
 pub(crate) use self::{
-    messages::{WorkerMessage, WorkerLocalMessage},
+    messages::{WorkerMessage, WorkerLocalMessage, FunctionInvokeError},
     controller::{WorkersController, LocalWorkerController, FunctionRemoveError},
     task::{WorkerConfig, run_worker_task},
 };

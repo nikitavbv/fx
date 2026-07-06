@@ -245,10 +245,7 @@ async fn worker_handle_message(
                         let _result = response_tx.send(
                             result
                                 .map(|_| ())
-                                .map_err(|err| match err {
-                                    FunctionDeploymentHandleRequestError::FunctionPanicked => FunctionInvokeError::FunctionPanicked,
-                                    FunctionDeploymentHandleRequestError::FunctionBusy => FunctionInvokeError::FunctionBusy,
-                                })
+                                .map_err(FunctionInvokeError::from)
                         );
                         debug!("function invoke done");
                     },
@@ -268,12 +265,19 @@ async fn worker_handle_local_message(
     message: WorkerLocalMessage
 ) {
     match message {
-        WorkerLocalMessage::FunctionInvoke { function_id, header, response_tx } => {
+        WorkerLocalMessage::FunctionInvoke { function_id, header, mut response_tx } => {
             let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
             let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
-                let response = function_future.await.unwrap();
-                response_tx.send(response).unwrap();
+                tokio::select! {
+                    response = function_future => {
+                        // ignore result here because error means that request was cancelled (by timeout or client disconnecting), so we can discard the result
+                        let _result = response_tx.send(response.map_err(FunctionInvokeError::from));
+                    },
+                    _ = response_tx.closed() => {
+                        // receiver dropped (timeout or disconnect) - can discard the result and cancel function invocation task
+                    }
+                }
             });
         }
     }

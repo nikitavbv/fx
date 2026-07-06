@@ -513,6 +513,9 @@ impl Future for FetchResultFuture {
                             abi_http_capnp::fetch_error::error::ConnectionFailed(()) => FetchError::ConnectionFailed,
                             abi_http_capnp::fetch_error::error::ConnectionTimeout(()) => FetchError::ConnectionTimeout,
                             abi_http_capnp::fetch_error::error::ResponseTimeout(()) => FetchError::ResponseTimeout,
+                            abi_http_capnp::fetch_error::error::Which::FunctionNotFound(()) => FetchError::FunctionNotFound,
+                            abi_http_capnp::fetch_error::error::Which::FunctionPanicked(()) => FetchError::FunctionPanicked,
+                            abi_http_capnp::fetch_error::error::Which::FunctionBusy(()) => FetchError::FunctionBusy,
                         })
                     }
                 }
@@ -532,6 +535,13 @@ pub enum FetchError {
     ResponseTimeout,
     #[error("internal sdk error")]
     InternalSdkError,
+
+    #[error("target rpc function not found")]
+    FunctionNotFound,
+    #[error("target rpc function panicked")]
+    FunctionPanicked,
+    #[error("target rpc function was busy handling other request and could not accept a new one")]
+    FunctionBusy,
 }
 
 pub trait IntoHttpBody {

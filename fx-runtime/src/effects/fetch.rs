@@ -9,6 +9,7 @@ use {
             FunctionResourceId,
         },
         triggers::http::HttpBody,
+        tasks::worker::FunctionInvokeError,
     },
 };
 
@@ -20,6 +21,23 @@ pub(crate) enum FetchResultError {
     ConnectionTimeout,
     #[error("response timeout")]
     ResponseTimeout,
+
+    #[error("rpc target function not found")]
+    FunctionNotFound,
+    #[error("rpc target function panicked")]
+    FunctionPanicked,
+    #[error("rpc target function is busy handling other requests and cannot accept a new one")]
+    FunctionBusy,
+}
+
+impl From<FunctionInvokeError> for FetchResultError {
+    fn from(err: FunctionInvokeError) -> Self {
+        match err {
+            FunctionInvokeError::NotFound => Self::FunctionNotFound,
+            FunctionInvokeError::FunctionPanicked => Self::FunctionPanicked,
+            FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
+        }
+    }
 }
 
 pub(crate) struct FetchResultWithBodyResource {

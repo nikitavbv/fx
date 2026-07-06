@@ -61,5 +61,8 @@ struct FetchError {
         connectionFailed @0 :Void;
         connectionTimeout @1 :Void;
         responseTimeout @2 :Void;
+        functionNotFound @3 :Void;
+        functionPanicked @4 :Void;
+        functionBusy @5 :Void;
     }
 }

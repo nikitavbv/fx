@@ -102,7 +102,7 @@ impl LocalWorkerController {
         }
     }
 
-    pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> async_unsync::oneshot::Receiver<SerializedFunctionResource<http::Response<HttpBody>>> {
+    pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> async_unsync::oneshot::Receiver<Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>> {
         let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
         self.self_tx.send(WorkerLocalMessage::FunctionInvoke {

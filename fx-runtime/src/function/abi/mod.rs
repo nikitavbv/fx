@@ -637,6 +637,9 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 FetchResultError::ConnectionFailed => error_builder.set_connection_failed(()),
                 FetchResultError::ConnectionTimeout => error_builder.set_connection_timeout(()),
                 FetchResultError::ResponseTimeout => error_builder.set_response_timeout(()),
+                FetchResultError::FunctionNotFound => error_builder.set_function_not_found(()),
+                FetchResultError::FunctionPanicked => error_builder.set_function_panicked(()),
+                FetchResultError::FunctionBusy => error_builder.set_function_busy(()),
             }
         }
     }
@@ -1149,7 +1152,12 @@ pub(super) fn fx_fetch_handler(
         );
         let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
 
-        async move { Ok(response_rx.await.unwrap().move_to_host().await.unwrap()) }.boxed_local()
+        async move {
+            match response_rx.await.unwrap() {
+                Ok(v) => Ok(v.move_to_host().await.unwrap()),
+                Err(err) => Err(FetchResultError::from(err)),
+            }
+        }.boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
