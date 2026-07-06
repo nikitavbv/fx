@@ -73,7 +73,13 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
 
     // run worker:
     tokio_runtime.block_on(local_set.run_until(async {
-        let listener = tokio::net::TcpListener::from_std(socket.into()).unwrap();
+        let listener = match tokio::net::TcpListener::from_std(socket.into()) {
+            Ok(v) => v,
+            Err(err) => {
+                error!("failed to create tcp listener for worker task: {err:?}. Stopping worker");
+                return;
+            }
+        };
         let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
         let mut metrics_flush_interval = tokio::time::interval(Duration::from_secs(2));
@@ -96,13 +102,17 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                     }
                 },
 
-                message = local_message_queue_rx.recv() => {
-                    worker_handle_local_message(
+                message = local_message_queue_rx.recv() => match message {
+                    Some(message) => worker_handle_local_message(
                         world.function_deployments.clone(),
                         world.functions.clone(),
-                        message.unwrap(),
-                    ).await;
-                }
+                        message,
+                    ).await,
+                    None => {
+                        info!("stopping worker thread because local worker message queue was dropped.");
+                        return;
+                    }
+                },
 
                 connection = listener.accept() => {
                     worker_handle_http_connection(
@@ -209,7 +219,7 @@ async fn worker_handle_message(
             world.http_hosts.borrow_mut().retain(|_k, v| v != &function_id);
             {
                 let mut http_default = world.http_default.borrow_mut();
-                if http_default.is_some() && http_default.as_ref().unwrap() == &function_id {
+                if http_default.as_ref() == Some(&function_id) {
                     *http_default = None;
                 }
             }
@@ -222,7 +232,8 @@ async fn worker_handle_message(
             }
 
             if let Some(on_ready) = on_ready {
-                on_ready.send(()).unwrap();
+                // ignore result because error means that request was cancelled
+                let _ = on_ready.send(());
             }
         },
         WorkerMessage::FunctionInvoke { function_id, header, mut response_tx } => {
@@ -230,12 +241,20 @@ async fn worker_handle_message(
             let deployment = match world.functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
                 None => {
-                    response_tx.send(Err(FunctionInvokeError::NotFound)).unwrap();
+                    // ignore result because error means that request was cancelled
+                    let _ = response_tx.send(Err(FunctionInvokeError::NotFound));
                     return;
                 }
             };
 
-            let deployment = world.function_deployments.borrow().get(&deployment).unwrap().clone();
+            let deployment = match world.function_deployments.borrow().get(&deployment) {
+                Some(v) => v.clone(),
+                None => {
+                    // ignore result becaue error means that request was cancelled
+                    let _ = response_tx.send(Err(FunctionInvokeError::NotFound));
+                    return;
+                }
+            };
 
             let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
@@ -266,7 +285,23 @@ async fn worker_handle_local_message(
 ) {
     match message {
         WorkerLocalMessage::FunctionInvoke { function_id, header, mut response_tx } => {
-            let deployment = function_deployments.borrow().get(functions.borrow().get(&function_id).unwrap()).unwrap().clone();
+            let deployment = match functions.borrow().get(&function_id) {
+                Some(v) => v.clone(),
+                None => {
+                    // ignore result because error means that request was cancelled
+                    let _ = response_tx.send(Err(FunctionInvokeError::NotFound));
+                    return;
+                },
+            };
+
+            let deployment = match function_deployments.borrow().get(&deployment) {
+                Some(v) => v.clone(),
+                None => {
+                    // ignore result because error means that request was cancelled
+                    let _ = response_tx.send(Err(FunctionInvokeError::NotFound));
+                    return;
+                },
+            };
             let function_future = deployment.handle_request(header, None).await;
             tokio::task::spawn_local(async move {
                 tokio::select! {
