@@ -1,6 +1,6 @@
 use {
     tokio::sync::oneshot,
-    futures::{stream::FuturesUnordered, StreamExt},
+    futures::{stream::FuturesUnordered, future::LocalBoxFuture, StreamExt, FutureExt},
     send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{
@@ -11,6 +11,8 @@ use {
     },
     super::messages::{WorkerMessage, WorkerLocalMessage},
 };
+
+pub(crate) use self::local_worker_controller::LocalWorkerController;
 
 #[derive(Clone)]
 pub(crate) struct WorkersController {
@@ -90,27 +92,68 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct LocalWorkerController {
-    self_tx: SendWrapper<async_unsync::unbounded::UnboundedSender<WorkerLocalMessage>>,
-}
+pub(crate) mod local_worker_controller {
+    use super::*;
 
-impl LocalWorkerController {
-    pub(crate) fn new(self_tx: async_unsync::unbounded::UnboundedSender<WorkerLocalMessage>) -> Self {
-        Self {
-            self_tx: SendWrapper::new(self_tx),
+    #[derive(Clone)]
+    pub(crate) struct LocalWorkerController {
+        self_tx: SendWrapper<async_unsync::unbounded::UnboundedSender<WorkerLocalMessage>>,
+    }
+
+    impl LocalWorkerController {
+        pub(crate) fn new(self_tx: async_unsync::unbounded::UnboundedSender<WorkerLocalMessage>) -> Self {
+            Self {
+                self_tx: SendWrapper::new(self_tx),
+            }
         }
     }
 
-    pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> async_unsync::oneshot::Receiver<Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>> {
-        let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
+    pub(crate) mod invoke_function {
+        use super::*;
 
-        self.self_tx.send(WorkerLocalMessage::FunctionInvoke {
-            function_id,
-            header,
-            response_tx,
-        }).unwrap();
+        #[derive(Debug, Error)]
+        pub(crate) enum FunctionInvokeError {
+            #[error("function with this id is not found")]
+            NotFound,
 
-        response_rx
+            #[error("function panicked during execution")]
+            FunctionPanicked,
+
+            #[error("function is busy handling other requests and cannot accept new requests")]
+            FunctionBusy,
+
+            #[error("runtime is being shut down. New requests are rejected")]
+            RuntimeShutdown,
+        }
+
+        impl From<crate::tasks::worker::messages::FunctionInvokeError> for FunctionInvokeError {
+            fn from(err: crate::tasks::worker::messages::FunctionInvokeError) -> Self {
+                use crate::tasks::worker::messages::FunctionInvokeError as SourceError;
+
+                match err {
+                    SourceError::NotFound => Self::NotFound,
+                    SourceError::FunctionPanicked => Self::FunctionPanicked,
+                    SourceError::FunctionBusy => Self::FunctionBusy,
+                }
+            }
+        }
+
+        impl LocalWorkerController {
+            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> LocalBoxFuture<'static, Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>> {
+                let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
+
+                self.self_tx.send(WorkerLocalMessage::FunctionInvoke {
+                    function_id,
+                    header,
+                    response_tx,
+                }).unwrap();
+
+                async move {
+                    response_rx.await
+                        .map_err(|_| FunctionInvokeError::RuntimeShutdown)?
+                        .map_err(FunctionInvokeError::from)
+                }.boxed_local()
+            }
+        }
     }
 }

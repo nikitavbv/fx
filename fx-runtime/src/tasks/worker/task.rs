@@ -48,19 +48,46 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
     // setup async runtime:
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .unwrap();
+        .build();
+    let tokio_runtime = match tokio_runtime {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to create tokio runtime: {err:?}. Stopping worker");
+            return;
+        }
+    };
     let local_set = tokio::task::LocalSet::new();
 
     // setup socket:
-    let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, Some(socket2::Protocol::TCP)).unwrap();
-    socket.set_reuse_port(true).unwrap();
-    socket.set_reuse_address(true).unwrap();
-    socket.set_nonblocking(true).unwrap();
+    let socket = match socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, Some(socket2::Protocol::TCP)) {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to create socket: {err:?}. Stopping worker");
+            return;
+        }
+    };
+    if let Err(err) = socket.set_reuse_port(true) {
+        error!("failed to set_reuse_port for socket: {err:?}. Stopping worker");
+        return;
+    }
+    if let Err(err) = socket.set_reuse_address(true) {
+        error!("failed to set_reuse_address for socket: {err:?}. Stopping worker");
+        return;
+    }
+    if let Err(err) = socket.set_nonblocking(true) {
+        error!("failed to set socket into non-blocking mode: {err:?}. Stopping worker");
+        return;
+    }
 
     let addr: SocketAddr = ([0, 0, 0, 0], worker.port).into();
-    socket.bind(&addr.into()).unwrap();
-    socket.listen(1024).unwrap();
+    if let Err(err) = socket.bind(&addr.into()) {
+        error!("socket.bind failed: {err:?}. Stopping worker");
+        return;
+    }
+    if let Err(err) = socket.listen(1024) {
+        error!("socket.listen failed: {err:?}. Stopping worker");
+        return;
+    }
 
     // setup wasm runtime:
     let world = WorkerWorld {

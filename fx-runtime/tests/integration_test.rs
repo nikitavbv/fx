@@ -323,7 +323,7 @@ async fn test_time() {
     let millis: u64 = client.get("/test/time").send().await.unwrap()
         .text().await.unwrap()
         .parse().unwrap();
-    assert!((950..=1050).contains(&millis));
+    assert!((950..=1050).contains(&millis), "got unexpected response from /test/time: {millis:?}");
 }
 
 #[tokio::test]

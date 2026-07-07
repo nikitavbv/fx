@@ -64,5 +64,6 @@ struct FetchError {
         functionNotFound @3 :Void;
         functionPanicked @4 :Void;
         functionBusy @5 :Void;
+        runtimeShutdown @6 :Void;
     }
 }

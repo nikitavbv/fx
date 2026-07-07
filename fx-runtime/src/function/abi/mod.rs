@@ -640,6 +640,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 FetchResultError::FunctionNotFound => error_builder.set_function_not_found(()),
                 FetchResultError::FunctionPanicked => error_builder.set_function_panicked(()),
                 FetchResultError::FunctionBusy => error_builder.set_function_busy(()),
+                FetchResultError::RuntimeShutdown => error_builder.set_runtime_shutdown(()),
             }
         }
     }
@@ -1150,10 +1151,10 @@ pub(super) fn fx_fetch_handler(
         let header = FetchRequestHeader::from_http_parts(
             http_builder.body(()).unwrap().into_parts().0
         );
-        let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header);
+        let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header).boxed_local();
 
         async move {
-            match response_rx.await.unwrap() {
+            match response_rx.await {
                 Ok(v) => Ok(v.move_to_host().await.unwrap()),
                 Err(err) => Err(FetchResultError::from(err)),
             }

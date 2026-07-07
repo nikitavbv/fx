@@ -516,6 +516,7 @@ impl Future for FetchResultFuture {
                             abi_http_capnp::fetch_error::error::Which::FunctionNotFound(()) => FetchError::FunctionNotFound,
                             abi_http_capnp::fetch_error::error::Which::FunctionPanicked(()) => FetchError::FunctionPanicked,
                             abi_http_capnp::fetch_error::error::Which::FunctionBusy(()) => FetchError::FunctionBusy,
+                            abi_http_capnp::fetch_error::error::Which::RuntimeShutdown(()) => FetchError::RuntimeShutdown,
                         })
                     }
                 }
@@ -542,6 +543,8 @@ pub enum FetchError {
     FunctionPanicked,
     #[error("target rpc function was busy handling other request and could not accept a new one")]
     FunctionBusy,
+    #[error("runtime is being shutdown, new requests are not accepted")]
+    RuntimeShutdown,
 }
 
 pub trait IntoHttpBody {

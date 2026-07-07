@@ -483,6 +483,7 @@ async fn test_fetch_timeout() -> &'static str {
         Err(FetchError::ResponseTimeout) => "response timeout",
         Err(FetchError::InternalSdkError) => "internal sdk error",
         Err(FetchError::FunctionNotFound) | Err(FetchError::FunctionPanicked) | Err(FetchError::FunctionBusy) => "rpc call error",
+        Err(FetchError::RuntimeShutdown) => "runtime shutdown",
     }
 }
 
