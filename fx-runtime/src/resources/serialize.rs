@@ -74,7 +74,7 @@ impl DeserializeFunctionResource for http::Response<HttpBody> {
 impl DeserializeFunctionResource for Vec<u8> {
     type Error = ();
 
-    fn deserialize(resource_set: &mut FunctionResources, resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
+    fn deserialize(_resource_set: &mut FunctionResources, resource: &mut &[u8], _instance: Rc<FunctionInstance>) -> Result<Self, Self::Error> {
         Ok(resource.to_vec())
     }
 }

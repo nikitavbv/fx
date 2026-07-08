@@ -148,8 +148,15 @@ impl Future for SqlMigrateResultFuture {
                     abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
                         abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
                         abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
-                        abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(message) => SqlMigrationError::MigrationExecutionError {
-                            message: message.unwrap().to_string().unwrap(),
+                        abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(error) => SqlMigrationError::MigrationExecutionError {
+                            message: {
+                                let error = error.unwrap();
+                                if error.has_message() {
+                                    Some(error.get_message().unwrap().to_string().unwrap())
+                                } else {
+                                    None
+                                }
+                            }
                         },
                         abi_sql_capnp::sql_migrate_error::error::Which::SqlError(message) => SqlMigrationError::SqlError {
                             message: message.unwrap().to_string().unwrap(),

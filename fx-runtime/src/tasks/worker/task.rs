@@ -16,7 +16,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsDelta,
         },
-        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError, FunctionDeploymentHandleRequestError}},
+        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
         triggers::http::HttpHandler,
     },
     super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::FunctionInvokeError},

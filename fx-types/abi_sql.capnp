@@ -35,10 +35,14 @@ struct SqlMigrateResult {
 }
 
 struct SqlMigrateError {
+    struct ExecutionError {
+        message @0 :Text;
+    }
+
     error :union {
         databaseBusy @0 :Void;
         bindingNotFound @1 :Void;
-        executionError @2 :Text;
+        executionError @2 :ExecutionError;
         sqlError @3 :Text;
         runtimeShutdown @4 :Void;
         runtimeError @5 :Void;

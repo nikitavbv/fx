@@ -561,7 +561,12 @@ pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, Fun
             match err {
                 SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
                 SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
-                SqlMigrationError::MigrationExecutionError { message } => response_error.set_execution_error(message),
+                SqlMigrationError::MigrationExecutionError { message } => {
+                    let mut execution_error = response_error.init_execution_error();
+                    if let Some(message) = message {
+                        execution_error.set_message(message);
+                    }
+                },
                 SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
                 SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 SqlMigrationError::RuntimeSqlTaskError => response_error.set_runtime_error(()),

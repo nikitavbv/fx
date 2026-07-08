@@ -74,7 +74,7 @@ pub enum HttpStreamError {
 impl DeserializeFunctionResource for HttpBody {
     type Error = HttpBodyDeserializeError;
 
-    fn deserialize(function_resources: &mut FunctionResources, resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Result<Self, Self::Error> {
+    fn deserialize(_function_resources: &mut FunctionResources, resource: &mut &[u8], instance: std::rc::Rc<crate::function::instance::FunctionInstance>) -> Result<Self, Self::Error> {
         let message_reader = capnp::serialize::read_message_from_flat_slice(resource, capnp::message::ReaderOptions::default()).unwrap();
         let http_body = message_reader.get_root::<abi_http_capnp::http_body::Reader>().unwrap();
 

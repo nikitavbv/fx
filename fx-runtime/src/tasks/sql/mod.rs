@@ -54,7 +54,7 @@ pub(crate) enum SqlTaskMigrationError {
     DatabaseBusy,
     #[error("migration execution error: {message:?}")]
     MigrationExecutionError {
-        message: String,
+        message: Option<String>,
     },
     /// SqlError is very similar to MigrationExecutionError, but with more information available
     #[error("sql error: {message:?}")]
@@ -263,7 +263,8 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Err(err) => match err {
                         SqlConnectionInitError::DatabaseBusy => {
                             debug!("database busy when getting connection to run migration");
-                            msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy)).unwrap();
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy));
                             continue;
                         }
                     }
@@ -286,7 +287,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                                     Err(SqlTaskMigrationError::DatabaseBusy)
                                 },
                                 rusqlite::ErrorCode::Unknown => Err(SqlTaskMigrationError::MigrationExecutionError {
-                                    message: message.unwrap(),
+                                    message: message,
                                 }),
                                 other => {
                                     error!("unexpected rusqlite error code: {other:?}");

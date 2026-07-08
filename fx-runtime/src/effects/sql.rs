@@ -26,7 +26,7 @@ pub(crate) enum SqlMigrationError {
     DatabaseBusy,
     #[error("migration execution error: {message:?}")]
     MigrationExecutionError {
-        message: String,
+        message: Option<String>,
     },
     /// SqlError is very similar to MigrationExecutionError, but with more information available
     #[error("sql error: {message:?}")]

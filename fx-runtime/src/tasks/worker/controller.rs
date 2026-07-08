@@ -1,6 +1,6 @@
 use {
     tokio::sync::oneshot,
-    futures::{stream::FuturesUnordered, future::LocalBoxFuture, StreamExt, FutureExt},
+    futures::{stream::FuturesUnordered, StreamExt, FutureExt},
     send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{

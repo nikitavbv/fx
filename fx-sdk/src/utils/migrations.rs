@@ -69,7 +69,7 @@ pub enum SqlMigrationError {
     DatabaseBusy,
 
     #[error("failed to execute sql migration: {message:?}")]
-    MigrationExecutionError { message: String },
+    MigrationExecutionError { message: Option<String> },
 
     #[error("sql error: {message:?}")]
     SqlError { message: String },
