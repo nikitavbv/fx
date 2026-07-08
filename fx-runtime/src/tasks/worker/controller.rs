@@ -39,7 +39,7 @@ impl WorkersController {
                     worker.send_async(WorkerMessage::RemoveFunction {
                         function_id: function_id.clone(),
                         on_ready: Some(on_ready_tx),
-                    }).await.unwrap();
+                    }).await.map_err(|_| FunctionRemoveError::WorkerShutdown)?;
                     on_ready_rx.await
                         .map_err(|_| FunctionRemoveError::WorkerShutdown)
                 });
@@ -54,7 +54,8 @@ impl WorkersController {
 
     pub(crate) async fn function_invoke(&self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.any_worker_tx.send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await.unwrap();
+        self.any_worker_tx.send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await
+            .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?;
         response_rx.await
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?
             .map_err(WorkersControllerFunctionInvokeError::from)
@@ -139,16 +140,18 @@ pub(crate) mod local_worker_controller {
         }
 
         impl LocalWorkerController {
-            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> LocalBoxFuture<'static, Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>> {
+            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> impl Future<Output = Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>> + 'static {
                 let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
-                self.self_tx.send(WorkerLocalMessage::FunctionInvoke {
+                let send_message_result = self.self_tx.send(WorkerLocalMessage::FunctionInvoke {
                     function_id,
                     header,
                     response_tx,
-                }).unwrap();
+                });
 
                 async move {
+                    send_message_result.map_err(|_| FunctionInvokeError::RuntimeShutdown)?;
+
                     response_rx.await
                         .map_err(|_| FunctionInvokeError::RuntimeShutdown)?
                         .map_err(FunctionInvokeError::from)

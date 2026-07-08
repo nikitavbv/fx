@@ -155,6 +155,7 @@ impl Future for SqlMigrateResultFuture {
                             message: message.unwrap().to_string().unwrap(),
                         },
                         abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
+                        abi_sql_capnp::sql_migrate_error::error::Which::RuntimeError(_) => SqlMigrationError::RuntimeError,
                     }),
                 }
             }),

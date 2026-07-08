@@ -564,6 +564,7 @@ pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlMigrationError::MigrationExecutionError { message } => response_error.set_execution_error(message),
                 SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
                 SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                SqlMigrationError::RuntimeSqlTaskError => response_error.set_runtime_error(()),
             }
         }
     }

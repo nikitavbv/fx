@@ -77,6 +77,9 @@ pub enum SqlMigrationError {
     #[error("runtime is being shut down")]
     RuntimeShutdown,
 
+    #[error("internal runtime error")]
+    RuntimeError,
+
     #[error("internal sdk error")]
     InternalSdkError,
 }

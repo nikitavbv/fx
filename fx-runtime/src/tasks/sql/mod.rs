@@ -1,6 +1,6 @@
 use {
     std::{collections::HashMap, path::PathBuf},
-    tracing::debug,
+    tracing::{debug, error},
     tokio::sync::oneshot,
     thiserror::Error,
     crate::{
@@ -61,6 +61,8 @@ pub(crate) enum SqlTaskMigrationError {
     SqlError {
         message: String,
     },
+    #[error("unexpected error in runtime implementation of sql task")]
+    RuntimeSqlTaskError,
 }
 
 #[derive(Debug, Error)]
@@ -286,26 +288,40 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                                 rusqlite::ErrorCode::Unknown => Err(SqlTaskMigrationError::MigrationExecutionError {
                                     message: message.unwrap(),
                                 }),
-                                other => panic!("unexpected sqlite error: {other:?}"),
+                                other => {
+                                    error!("unexpected rusqlite error code: {other:?}");
+                                    Err(SqlTaskMigrationError::RuntimeSqlTaskError)
+                                },
                             },
                             rusqlite::Error::SqlInputError { error: _, msg, sql: _, offset: _ } => Err(SqlTaskMigrationError::SqlError {
                                 message: msg,
                             }),
-                            other => panic!("unexpected sqlite error: {other:?}"),
+                            other => {
+                                error!("unexpected rusqlite error: {other:?}");
+                                Err(SqlTaskMigrationError::RuntimeSqlTaskError)
+                            },
                         },
-                        other => panic!("unexpected sqlite error: {other:?}"),
+                        other => {
+                            error!("unexpected sqlite error: {other:?}");
+                            Err(SqlTaskMigrationError::RuntimeSqlTaskError)
+                        },
                     }
                 };
 
                 debug!(database=connection_id, "running migration - done.");
-                msg.response.send(response).unwrap();
+
+                // error here means that request was cancelled and can be ignored
+                let _ = msg.response.send(response);
             },
         }
     }
 }
 
 fn is_database_busy_error(err: &rusqlite::Error) -> bool {
-    let error_code = err.sqlite_error().unwrap().code;
+    let error_code = match err.sqlite_error() {
+        Some(v) => v.code,
+        None => return false,
+    };
     error_code == rusqlite::ErrorCode::DatabaseBusy || error_code == rusqlite::ErrorCode::DatabaseLocked
 }
 

@@ -41,6 +41,7 @@ struct SqlMigrateError {
         executionError @2 :Text;
         sqlError @3 :Text;
         runtimeShutdown @4 :Void;
+        runtimeError @5 :Void;
     }
 }
 

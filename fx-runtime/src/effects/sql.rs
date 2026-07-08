@@ -35,6 +35,8 @@ pub(crate) enum SqlMigrationError {
     },
     #[error("runtime is being shut down")]
     RuntimeShutdown,
+    #[error("unexpected error in runtime implementation of sql task")]
+    RuntimeSqlTaskError,
 }
 
 impl From<SqlTaskMigrationError> for SqlMigrationError {
@@ -43,6 +45,7 @@ impl From<SqlTaskMigrationError> for SqlMigrationError {
             SqlTaskMigrationError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskMigrationError::MigrationExecutionError { message } => Self::MigrationExecutionError { message },
             SqlTaskMigrationError::SqlError { message } => Self::SqlError { message },
+            SqlTaskMigrationError::RuntimeSqlTaskError => Self::RuntimeSqlTaskError,
         }
     }
 }
