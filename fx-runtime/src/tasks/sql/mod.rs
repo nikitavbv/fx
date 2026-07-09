@@ -254,7 +254,8 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     }));
 
                 debug!(database=connection_id, "running sql batch - done.");
-                msg.response.send(response).unwrap();
+                // error can be ignored here because it means that request was cancelled
+                let _ = msg.response.send(response);
             },
             SqlMessage::Migrate(msg) => {
                 debug!(database=connection_id, "running migration, busy timeout: {busy_timeout:?}");

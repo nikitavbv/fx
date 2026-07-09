@@ -50,8 +50,14 @@ struct HttpResponse {
 }
 
 struct FetchResult {
+    struct FetchResponse {
+        status @0 :UInt16;
+        headers @1 :List(HttpHeader);
+        bodyResourceId @2 :UInt64;
+    }
+
     result :union {
-        ok @0 :HttpResponse;
+        ok @0 :FetchResponse;
         error @1 :FetchError;
     }
 }

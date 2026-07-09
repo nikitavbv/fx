@@ -331,7 +331,7 @@ impl Stream for HttpBody {
             HttpBodyInner::Bytes(_) => todo!(),
             HttpBodyInner::Stream { stream, frame_serialized: _discarded } => stream.poll_next_unpin(cx)
                 .map_err(|_| todo!()),
-            HttpBodyInner::HostResource { resource_id, frame_resource_id } => {
+            HttpBodyInner::HostResource { resource_id, frame_resource_id: _discard_previous_frame } => {
                 let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
                 assert!(unsafe { fx_http_body_poll_frame(*resource_id, result.as_mut_ptr() as u64) } == 0);
 
@@ -446,7 +446,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
                 HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
                     request_body.set_function_stream(add_function_resource(FunctionResource::HttpBody(HttpBody::stream(stream))).as_u64())
                 },
-                HttpBodyInner::HostResource { resource_id, frame_resource_id } => request_body.set_host_resource(resource_id),
+                HttpBodyInner::HostResource { resource_id, frame_resource_id: _ } => request_body.set_host_resource(resource_id),
                 HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),
@@ -502,10 +502,7 @@ impl Future for FetchResultFuture {
 
                         Ok(HttpResponse {
                             parts,
-                            body: match response.get_body().which().unwrap() {
-                                abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => HttpBody::host_resource(resource_id),
-                                abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => todo!(),
-                            },
+                            body: HttpBody::host_resource(response.get_body_resource_id()),
                         })
                     }
                     abi_http_capnp::fetch_result::result::Which::Error(err) => {
