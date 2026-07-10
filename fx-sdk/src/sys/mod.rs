@@ -23,7 +23,7 @@ pub(crate) use self::{
 use {
     std::task::Poll,
     futures::{FutureExt, StreamExt},
-    fx_types::{capnp, abi::{FuturePollResult, HttpBodyPollFrameResult}, abi_http_capnp},
+    fx_types::{capnp, abi::FuturePollResult, abi_http_capnp},
     crate::{
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
     },
@@ -130,21 +130,7 @@ pub extern "C" fn _fx_stream_frame_poll(resource_id: u64) -> i64 {
                     },
                 HttpBodyInner::Empty => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Empty)), Poll::Ready(())),
                 HttpBodyInner::Bytes(v) => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Bytes(v))), Poll::Ready(())),
-                HttpBodyInner::HostResource { resource_id, frame_resource_id } => {
-                    // TODO: polling host resource is inefficient. Instead of passing through here, host should poll directly
-                    let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
-                    assert!(unsafe { fx_http_body_poll_frame(resource_id, result.as_mut_ptr() as u64) } == 0);
-
-                    let result = unsafe { result.assume_init() };
-                    match result.tag {
-                        0 => (
-                            FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource { resource_id, frame_resource_id: Some(result.http_frame_resource_id) })),
-                            Poll::Ready(())
-                        ),
-                        1 => (FunctionResource::HttpBody(HttpBody(HttpBodyInner::HostResource { resource_id, frame_resource_id: None})), Poll::Pending),
-                        _other => todo!(),
-                    }
-                },
+                HttpBodyInner::HostResource { .. } => panic!("stream poll should not be called for host resources"),
                 HttpBodyInner::Serialized(_) => panic!("stream poll called for non-stream body!"),
             },
             _other => panic!("not a stream"),

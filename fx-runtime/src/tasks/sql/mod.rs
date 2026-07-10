@@ -71,6 +71,8 @@ pub(crate) enum SqlTaskBatchError {
     DatabaseBusy,
     #[error("statement failed: {reason:?}")]
     StatementFailed { reason: String },
+    #[error("unexpected error in runtime implementation of sql task")]
+    RuntimeSqlTaskError,
 }
 
 pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>, sql_thread_rx: flume::Receiver<SqlMessage>) {
@@ -245,11 +247,12 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 
                 let response = execution_result
                     .and_then(|_| txn.commit().map_err(|err| {
-                        let error_code = err.sqlite_error().unwrap().code;
-                        if error_code == rusqlite::ErrorCode::DatabaseBusy {
+                        let error_code = err.sqlite_error().map(|v| v.code);
+                        if error_code == Some(rusqlite::ErrorCode::DatabaseBusy) {
                             SqlTaskBatchError::DatabaseBusy
                         } else {
-                            panic!("unexpected sqlite error: {err:?}");
+                            error!("unexpected sqlite error when committing transaction: {err:?}");
+                            SqlTaskBatchError::RuntimeSqlTaskError
                         }
                     }));
 

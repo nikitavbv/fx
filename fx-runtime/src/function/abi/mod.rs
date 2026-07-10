@@ -517,6 +517,7 @@ pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
                 SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
                 SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                SqlBatchError::RuntimeSqlTaskError => response_error.set_runtime_error(()),
             }
         }
     }

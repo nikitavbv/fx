@@ -72,6 +72,7 @@ struct SqlBatchError {
         bindingNotFound @1 :Void;
         statementFailed @2 :Text;
         runtimeShutdown @3 :Void;
+        runtimeError @4 :Void;
     }
 }
 

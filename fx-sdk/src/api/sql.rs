@@ -106,6 +106,7 @@ impl Future for SqlBatchResultFuture {
                         abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
                         abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
                         abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
+                        abi_sql_capnp::sql_batch_error::error::Which::RuntimeError(_) => SqlBatchError::RuntimeError,
                     }),
                 }
             }),

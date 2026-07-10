@@ -58,7 +58,7 @@ impl IntoFunctionResponse for HttpResponse {
             status: parts.status,
             headers: parts.headers,
             body: match body.0 {
-                HttpBodyInner::HostResource { resource_id, frame_resource_id: _ } => FunctionHttpResponseBody::HostResource(resource_id),
+                HttpBodyInner::HostResource(resource_id) => FunctionHttpResponseBody::HostResource(resource_id),
                 other => FunctionHttpResponseBody::FunctionResource(add_function_resource(FunctionResource::HttpBody(HttpBody(other)))),
             },
         }))

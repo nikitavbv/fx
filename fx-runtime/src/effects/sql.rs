@@ -60,6 +60,8 @@ pub(crate) enum SqlBatchError {
     StatementFailed { reason: String },
     #[error("runtime is being shut down")]
     RuntimeShutdown,
+    #[error("unexpected error in runtime implementation of sql task")]
+    RuntimeSqlTaskError,
 }
 
 impl From<SqlTaskBatchError> for SqlBatchError {
@@ -67,6 +69,7 @@ impl From<SqlTaskBatchError> for SqlBatchError {
         match err {
             SqlTaskBatchError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskBatchError::StatementFailed { reason } => Self::StatementFailed { reason },
+            SqlTaskBatchError::RuntimeSqlTaskError => Self::RuntimeSqlTaskError,
         }
     }
 }

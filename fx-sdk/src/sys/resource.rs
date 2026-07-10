@@ -270,7 +270,7 @@ pub(crate) fn serialize_function_resource(resource_id: &FunctionResourceId) -> u
 
                     (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_body))), serialized_len)
                 },
-                HttpBodyInner::HostResource { resource_id, frame_resource_id } => {
+                HttpBodyInner::HostResource(resource_id) => {
                     let mut message = capnp::message::Builder::new_default();
                     let http_body = message.init_root::<abi_http_capnp::http_body::Builder>();
                     let mut http_body = http_body.init_body();
