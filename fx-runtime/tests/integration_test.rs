@@ -659,9 +659,14 @@ async fn cron_simple() {
         .unwrap()
         .text()
         .await
-        .unwrap()
-        .parse::<u64>()
         .unwrap();
+
+    let result1 = match result1.parse::<u64>() {
+        Ok(v) => v,
+        Err(err) => {
+            panic!("failed to parse cron endpoint response: {err:?}, response: {result1:?}");
+        }
+    };
 
     sleep(Duration::from_secs(4)).await;
 
