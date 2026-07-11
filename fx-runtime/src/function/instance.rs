@@ -249,6 +249,8 @@ pub(crate) mod invoke_http_trigger {
     pub(crate) enum InvokeError {
         #[error("function is busy handling other requests and cannot accept new request")]
         FunctionBusy,
+        #[error("function panicked when invoked")]
+        FunctionPanicked,
     }
 
     impl FunctionInstance {
@@ -261,7 +263,17 @@ pub(crate) mod invoke_http_trigger {
                 },
             };
             store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
-            Ok(FunctionResourceId::new(self.fn_handler.call_async(store.as_context_mut(), resource_id.into()).await.unwrap() as u64))
+            Ok(FunctionResourceId::new(
+                self.fn_handler.call_async(store.as_context_mut(), resource_id.into()).await
+                    .map_err(|err| {
+                        // TODO: forward backtraces to management thread (or logger thread)
+                        let trap = err.downcast::<wasmtime::Trap>().unwrap();
+                        match trap {
+                            wasmtime::Trap::UnreachableCodeReached => InvokeError::FunctionPanicked,
+                            other => panic!("unexpected trap: {other:?}"),
+                        }
+                    })? as u64)
+            )
         }
     }
 }

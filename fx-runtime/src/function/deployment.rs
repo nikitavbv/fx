@@ -181,7 +181,14 @@ impl FunctionDeployment {
             debug!("resource obtained");
             let result = FunctionFuture::new(
                 instance.clone(),
-                instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from)?
+                match instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from) {
+                    Ok(v) => v,
+                    Err(FunctionDeploymentHandleRequestError::FunctionPanicked) => {
+                        *instance.has_panicked.borrow_mut() = true;
+                        return Err(FunctionDeploymentHandleRequestError::FunctionPanicked);
+                    },
+                    Err(err) => return Err(err),
+                },
             ).await;
 
             debug!("invoke_http_trigger called");
@@ -238,6 +245,7 @@ impl From<crate::function::instance::invoke_http_trigger::InvokeError> for Funct
         use crate::function::instance::invoke_http_trigger::InvokeError;
         match err {
             InvokeError::FunctionBusy => Self::FunctionBusy,
+            InvokeError::FunctionPanicked => Self::FunctionPanicked,
         }
     }
 }
