@@ -169,7 +169,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 let mut rows = stmt.query(rusqlite::params_from_iter(msg.params)).unwrap();
 
                 let mut result_rows = Vec::new();
-                let response_message = loop {
+                let response_message = 'rows_loop: loop {
                     let row = rows.next();
                     let row = match row {
                         Ok(v) => v,
@@ -195,7 +195,12 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                             ValueRef::Integer(v) => SqlValue::Integer(v),
                             ValueRef::Real(v) => SqlValue::Real(v),
                             ValueRef::Text(v) => SqlValue::Text(
-                                String::from_utf8(v.to_owned()).unwrap()
+                                match String::from_utf8(v.to_owned()) {
+                                    Ok(v) => v,
+                                    Err(_) => {
+                                        break 'rows_loop Err(SqlQueryExecutionError::TextValueDecodeError);
+                                    }
+                                },
                             ),
                             ValueRef::Blob(v) => SqlValue::Blob(v.to_owned()),
                         });
@@ -204,7 +209,8 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 };
 
                 debug!(database=connection_id, "running sql exec - done");
-                msg.response.send(response_message).unwrap();
+                // error can be ignored here because that means that request has been cancelled
+                let _ = msg.response.send(response_message);
             },
             SqlMessage::Batch(msg) => {
                 debug!(database=connection_id, "running sql batch");
@@ -212,7 +218,8 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlConnectionInitError::DatabaseBusy => {
-                            msg.response.send(Err(SqlTaskBatchError::DatabaseBusy)).unwrap();
+                            // error can be ignored here because that means that request has been cancelled
+                            let _ = msg.response.send(Err(SqlTaskBatchError::DatabaseBusy));
                             continue;
                         }
                     },
@@ -222,11 +229,14 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => {
                         if is_database_busy_error(&err) {
-                            msg.response.send(Err(SqlTaskBatchError::DatabaseBusy)).unwrap();
-                            continue;
+                            // error can be ignored here because that means that request has been cancelled
+                            let _ = msg.response.send(Err(SqlTaskBatchError::DatabaseBusy));
                         } else {
-                            panic!("unexpected sqlite error: {err:?}");
-                        }
+                            error!("unexpected sqlite error when initializing transaction: {err:?}");
+                            // error can be ignored here because that means that request has been cancelled
+                            let _ = msg.response.send(Err(SqlTaskBatchError::RuntimeSqlTaskError));
+                        };
+                        continue;
                     }
                 };
 
@@ -237,11 +247,17 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         Ok(_) => {},
                         Err(rusqlite::Error::SqliteFailure(_, Some(reason))) => {
                             execution_result = Err(SqlTaskBatchError::StatementFailed { reason });
+                            break;
                         },
                         Err(rusqlite::Error::SqlInputError { error: _, msg: reason, sql: _, offset: _ }) => {
                             execution_result = Err(SqlTaskBatchError::StatementFailed { reason });
+                            break;
                         },
-                        Err(err) => panic!("unexpected sqlite error: {err:?}"),
+                        Err(err) => {
+                            error!("unexpected sqlite error when executing transaction statement: {err:?}");
+                            execution_result = Err(SqlTaskBatchError::RuntimeSqlTaskError);
+                            break;
+                        },
                     }
                 };
 

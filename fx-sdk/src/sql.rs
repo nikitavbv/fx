@@ -52,6 +52,8 @@ pub enum SqlError {
     StatementError(String),
     #[error("internal sdk error")]
     InternalSdkError,
+    #[error("failed to decode database text value as utf8")]
+    TextValueDecodeError,
 }
 
 #[derive(Debug, Error)]

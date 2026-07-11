@@ -250,6 +250,8 @@ pub(crate) enum SqlQueryError {
     RuntimeShutdown,
     #[error("sql statement error: {0:?}")]
     StatementError(String),
+    #[error("failed to convert database text value to utf8 string")]
+    TextValueDecodeError,
 }
 
 /// SqlQueryExecutionError is a subset of SqlQueryError
@@ -258,6 +260,7 @@ impl From<SqlQueryExecutionError> for SqlQueryError {
         match value {
             SqlQueryExecutionError::DatabaseBusy => Self::DatabaseBusy,
             SqlQueryExecutionError::StatementError(reason) => Self::StatementError(reason),
+            SqlQueryExecutionError::TextValueDecodeError => Self::TextValueDecodeError,
         }
     }
 }
@@ -269,4 +272,6 @@ pub(crate) enum SqlQueryExecutionError {
     DatabaseBusy,
     #[error("sql statement error: {0:?}")]
     StatementError(String),
+    #[error("failed to convert database text value to utf8 string")]
+    TextValueDecodeError,
 }

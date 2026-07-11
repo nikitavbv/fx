@@ -453,6 +453,7 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
                 SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
+                SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
             }
         }
     }

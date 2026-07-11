@@ -19,6 +19,7 @@ struct SqlExecError {
         bindingNotFound @1 :Void;
         runtimeShutdown @2 :Void;
         statementError @3 :Text;
+        textValueDecodeError @4 :Void;
     }
 }
 
