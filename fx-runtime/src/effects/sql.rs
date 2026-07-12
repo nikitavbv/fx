@@ -65,6 +65,8 @@ pub(crate) enum SqlBatchError {
     RuntimeShutdown,
     #[error("unknown error in sql task")]
     UnknownError,
+    #[error("error in sql task runtime implementation")]
+    RuntimeError,
 }
 
 impl From<SqlTaskBatchError> for SqlBatchError {
@@ -73,6 +75,7 @@ impl From<SqlTaskBatchError> for SqlBatchError {
             SqlTaskBatchError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskBatchError::StatementFailed { reason } => Self::StatementFailed { reason },
             SqlTaskBatchError::UnknownError => Self::UnknownError,
+            SqlTaskBatchError::RuntimeError => Self::RuntimeError,
         }
     }
 }

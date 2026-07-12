@@ -72,8 +72,10 @@ pub enum SqlBatchError {
     RuntimeShutdown,
     #[error("internal sdk error")]
     InternalSdkError,
-    #[error("internal runtime error")]
+    #[error("unknown error")]
     UnknownError,
+    #[error("internal runtime error in sql task")]
+    RuntimeError,
 }
 
 impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {

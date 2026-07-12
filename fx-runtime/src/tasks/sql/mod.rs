@@ -79,6 +79,8 @@ pub(crate) enum SqlTaskBatchError {
     StatementFailed { reason: String },
     #[error("unknown error in sql task")]
     UnknownError,
+    #[error("error in sql task implementation")]
+    RuntimeError,
 }
 
 pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>, sql_thread_rx: flume::Receiver<SqlMessage>) {
@@ -276,7 +278,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                             },
                             SqlConnectionInitError::RuntimeError => {
                                 // error can be ignored here because it means that request was cancelled
-                                let _ = msg.response.send(Err(SqlTaskBatchError::UnknownError));
+                                let _ = msg.response.send(Err(SqlTaskBatchError::RuntimeError));
                             }
                         };
                         continue;
@@ -350,7 +352,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                                 let _ = msg.response.send(Err(SqlTaskMigrationError::UnknownError));
                             },
                             SqlConnectionInitError::RuntimeError => {
-                                // error can be ignoredhere because it means that request was cancelled
+                                // error can be ignored here because it means that request was cancelled
                                 let _ = msg.response.send(Err(SqlTaskMigrationError::RuntimeError));
                             }
                         }

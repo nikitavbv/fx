@@ -521,6 +521,7 @@ pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
                 SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 SqlBatchError::UnknownError => response_error.set_unknown_error(()),
+                SqlBatchError::RuntimeError => response_error.set_runtime_error(()),
             }
         }
     }
