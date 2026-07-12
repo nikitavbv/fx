@@ -46,6 +46,8 @@ pub(crate) struct SqlBatchMessage {
 pub(crate) enum SqlConnectionInitError {
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("failed to init sql connection for unknown reasons")]
+    UnknownError,
 }
 
 #[derive(Debug, Error)]
@@ -61,8 +63,8 @@ pub(crate) enum SqlTaskMigrationError {
     SqlError {
         message: String,
     },
-    #[error("unexpected error in runtime implementation of sql task")]
-    RuntimeSqlTaskError,
+    #[error("unknown error in sql task")]
+    UnknownError,
 }
 
 #[derive(Debug, Error)]
@@ -71,8 +73,8 @@ pub(crate) enum SqlTaskBatchError {
     DatabaseBusy,
     #[error("statement failed: {reason:?}")]
     StatementFailed { reason: String },
-    #[error("unexpected error in runtime implementation of sql task")]
-    RuntimeSqlTaskError,
+    #[error("unknown error in sql task")]
+    UnknownError,
 }
 
 pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlMessage>, sql_thread_rx: flume::Receiver<SqlMessage>) {
@@ -126,7 +128,8 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         if is_database_busy_error(&err) {
                             Err(SqlConnectionInitError::DatabaseBusy)
                         } else {
-                            todo!("unhandled sqlite error: {err:?}")
+                            error!("unknown sqlite error when updating pragma for \"synchronous\": {err:?}");
+                            Err(SqlConnectionInitError::UnknownError)
                         }
                     } else {
                         Ok(entry.insert(connection))
@@ -144,9 +147,15 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => match err {
                         SqlConnectionInitError::DatabaseBusy => {
-                            msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy)).unwrap();
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy));
                             continue;
-                        }
+                        },
+                        SqlConnectionInitError::UnknownError => {
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlQueryExecutionError::UnknownError));
+                            continue;
+                        },
                     }
                 };
 
@@ -154,19 +163,30 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     Ok(v) => v,
                     Err(err) => {
                         if is_database_busy_error(&err) {
-                            msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy)).unwrap();
-                            continue;
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy));
                         } else if let Some(statement_error) = is_statement_error(&err) {
-                            msg.response.send(Err(SqlQueryExecutionError::StatementError(statement_error.clone()))).unwrap();
-                            continue;
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlQueryExecutionError::StatementError(statement_error.clone())));
                         } else {
-                            todo!("unhandled sqlite error: {err:?}");
+                            error!("unknown sqlite error when preparing connection: {err:?}");
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlQueryExecutionError::UnknownError));
                         }
+                        continue;
                     }
                 };
                 let result_columns = stmt.column_count();
 
-                let mut rows = stmt.query(rusqlite::params_from_iter(msg.params)).unwrap();
+                let mut rows = match stmt.query(rusqlite::params_from_iter(msg.params)) {
+                    Ok(v) => v,
+                    Err(err) => {
+                        error!("failed to create sql query: {err:?}");
+                        // error can be ignored here because it means that request has been cancelled
+                        let _ = msg.response.send(Err(SqlQueryExecutionError::UnknownError));
+                        continue;
+                    }
+                };
 
                 let mut result_rows = Vec::new();
                 let response_message = 'rows_loop: loop {
@@ -174,11 +194,12 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     let row = match row {
                         Ok(v) => v,
                         Err(err) => {
-                            if is_database_busy_error(&err) {
-                                break Err(SqlQueryExecutionError::DatabaseBusy);
+                            break Err(if is_database_busy_error(&err) {
+                                SqlQueryExecutionError::DatabaseBusy
                             } else {
-                                panic!("unexpected sqlite error: {err:?}")
-                            }
+                                error!("unexpected error when reading rows from query response: {err:?}");
+                                SqlQueryExecutionError::UnknownError
+                            });
                         }
                     };
                     let row = match row {
@@ -188,7 +209,13 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 
                     let mut row_columns = Vec::new();
                     for column in 0..result_columns {
-                        let column = row.get_ref(column).unwrap();
+                        let column = match row.get_ref(column) {
+                            Ok(v) => v,
+                            Err(err) => {
+                                error!("unexpected error when getting column value: {err:?}");
+                                break 'rows_loop Err(SqlQueryExecutionError::UnknownError);
+                            },
+                        };
 
                         row_columns.push(match column {
                             ValueRef::Null => SqlValue::Null,
@@ -221,6 +248,11 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                             // error can be ignored here because that means that request has been cancelled
                             let _ = msg.response.send(Err(SqlTaskBatchError::DatabaseBusy));
                             continue;
+                        },
+                        SqlConnectionInitError::UnknownError => {
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlTaskBatchError::UnknownError));
+                            continue;
                         }
                     },
                 };
@@ -234,7 +266,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         } else {
                             error!("unexpected sqlite error when initializing transaction: {err:?}");
                             // error can be ignored here because that means that request has been cancelled
-                            let _ = msg.response.send(Err(SqlTaskBatchError::RuntimeSqlTaskError));
+                            let _ = msg.response.send(Err(SqlTaskBatchError::UnknownError));
                         };
                         continue;
                     }
@@ -255,7 +287,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                         },
                         Err(err) => {
                             error!("unexpected sqlite error when executing transaction statement: {err:?}");
-                            execution_result = Err(SqlTaskBatchError::RuntimeSqlTaskError);
+                            execution_result = Err(SqlTaskBatchError::UnknownError);
                             break;
                         },
                     }
@@ -268,7 +300,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                             SqlTaskBatchError::DatabaseBusy
                         } else {
                             error!("unexpected sqlite error when committing transaction: {err:?}");
-                            SqlTaskBatchError::RuntimeSqlTaskError
+                            SqlTaskBatchError::UnknownError
                         }
                     }));
 
@@ -285,6 +317,11 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                             debug!("database busy when getting connection to run migration");
                             // error can be ignored here because it means that request was cancelled
                             let _ = msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy));
+                            continue;
+                        },
+                        SqlConnectionInitError::UnknownError => {
+                            // error can be ignored here because it means that request was cancelled
+                            let _ = msg.response.send(Err(SqlTaskMigrationError::UnknownError));
                             continue;
                         }
                     }
@@ -311,7 +348,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                                 }),
                                 other => {
                                     error!("unexpected rusqlite error code: {other:?}");
-                                    Err(SqlTaskMigrationError::RuntimeSqlTaskError)
+                                    Err(SqlTaskMigrationError::UnknownError)
                                 },
                             },
                             rusqlite::Error::SqlInputError { error: _, msg, sql: _, offset: _ } => Err(SqlTaskMigrationError::SqlError {
@@ -319,12 +356,12 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                             }),
                             other => {
                                 error!("unexpected rusqlite error: {other:?}");
-                                Err(SqlTaskMigrationError::RuntimeSqlTaskError)
+                                Err(SqlTaskMigrationError::UnknownError)
                             },
                         },
                         other => {
                             error!("unexpected sqlite error: {other:?}");
-                            Err(SqlTaskMigrationError::RuntimeSqlTaskError)
+                            Err(SqlTaskMigrationError::UnknownError)
                         },
                     }
                 };

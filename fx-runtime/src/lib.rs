@@ -2,6 +2,7 @@
 #![warn(clippy::unwrap_used)]
 #![warn(clippy::expect_used)]
 #![warn(clippy::panic)]
+#![warn(clippy::todo)]
 
 // target code structure:
 // function/ - functions, deployments, function state

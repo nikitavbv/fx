@@ -54,6 +54,8 @@ pub enum SqlError {
     InternalSdkError,
     #[error("failed to decode database text value as utf8")]
     TextValueDecodeError,
+    #[error("internal runtime error")]
+    UnknownError,
 }
 
 #[derive(Debug, Error)]
@@ -69,7 +71,7 @@ pub enum SqlBatchError {
     #[error("internal sdk error")]
     InternalSdkError,
     #[error("internal runtime error")]
-    RuntimeError,
+    UnknownError,
 }
 
 impl From<fx_types::capnp::struct_list::Reader<'_, fx_types::abi_sql_capnp::sql_result_row::Owned>> for SqlResult {

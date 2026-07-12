@@ -2,6 +2,7 @@
 #![warn(clippy::unwrap_used)]
 #![warn(clippy::expect_used)]
 #![warn(clippy::panic)]
+#![warn(clippy::todo)]
 
 use {
     std::path::PathBuf,

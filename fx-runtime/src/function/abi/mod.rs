@@ -454,6 +454,7 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
                 SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
+                SqlQueryError::UnknownError => response_error.set_unknown_error(()),
             }
         }
     }
@@ -518,7 +519,7 @@ pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
                 SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
                 SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                SqlBatchError::RuntimeSqlTaskError => response_error.set_runtime_error(()),
+                SqlBatchError::UnknownError => response_error.set_unknown_error(()),
             }
         }
     }
@@ -571,7 +572,7 @@ pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 },
                 SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
                 SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                SqlMigrationError::RuntimeSqlTaskError => response_error.set_runtime_error(()),
+                SqlMigrationError::UnknownError => response_error.set_unknown_error(()),
             }
         }
     }

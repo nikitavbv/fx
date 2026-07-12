@@ -78,7 +78,7 @@ pub enum SqlMigrationError {
     RuntimeShutdown,
 
     #[error("internal runtime error")]
-    RuntimeError,
+    UnknownError,
 
     #[error("internal sdk error")]
     InternalSdkError,

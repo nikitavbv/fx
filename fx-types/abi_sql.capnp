@@ -20,6 +20,7 @@ struct SqlExecError {
         runtimeShutdown @2 :Void;
         statementError @3 :Text;
         textValueDecodeError @4 :Void;
+        unknownError @5 :Void;
     }
 }
 
@@ -46,7 +47,7 @@ struct SqlMigrateError {
         executionError @2 :ExecutionError;
         sqlError @3 :Text;
         runtimeShutdown @4 :Void;
-        runtimeError @5 :Void;
+        unknownError @5 :Void;
     }
 }
 
@@ -73,7 +74,7 @@ struct SqlBatchError {
         bindingNotFound @1 :Void;
         statementFailed @2 :Text;
         runtimeShutdown @3 :Void;
-        runtimeError @4 :Void;
+        unknownError @4 :Void;
     }
 }
 

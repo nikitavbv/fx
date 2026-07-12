@@ -63,6 +63,7 @@ impl Future for SqlQueryResultFuture {
                         abi_sql_capnp::sql_exec_error::error::Which::RuntimeShutdown(_) => SqlError::RuntimeShutdown,
                         abi_sql_capnp::sql_exec_error::error::Which::StatementError(reason) => SqlError::StatementError(reason.unwrap().to_string().unwrap()),
                         abi_sql_capnp::sql_exec_error::error::Which::TextValueDecodeError(_) => SqlError::TextValueDecodeError,
+                        abi_sql_capnp::sql_exec_error::error::Which::UnknownError(_) => SqlError::UnknownError,
                     }),
                 }
             }),
@@ -107,7 +108,7 @@ impl Future for SqlBatchResultFuture {
                         abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
                         abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
                         abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
-                        abi_sql_capnp::sql_batch_error::error::Which::RuntimeError(_) => SqlBatchError::RuntimeError,
+                        abi_sql_capnp::sql_batch_error::error::Which::UnknownError(_) => SqlBatchError::UnknownError,
                     }),
                 }
             }),
@@ -164,7 +165,7 @@ impl Future for SqlMigrateResultFuture {
                             message: message.unwrap().to_string().unwrap(),
                         },
                         abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
-                        abi_sql_capnp::sql_migrate_error::error::Which::RuntimeError(_) => SqlMigrationError::RuntimeError,
+                        abi_sql_capnp::sql_migrate_error::error::Which::UnknownError(_) => SqlMigrationError::UnknownError,
                     }),
                 }
             }),

@@ -69,6 +69,8 @@ impl FetchResultWithBodyResource {
 pub enum HttpStreamError {
     #[error("failed to read fetch response stream")]
     FetchResponseStreamError(reqwest::Error),
+    #[error("failed to read http request body stream")]
+    RequestBodyStreamError,
 }
 
 impl DeserializeFunctionResource for HttpBody {

@@ -35,8 +35,8 @@ pub(crate) enum SqlMigrationError {
     },
     #[error("runtime is being shut down")]
     RuntimeShutdown,
-    #[error("unexpected error in runtime implementation of sql task")]
-    RuntimeSqlTaskError,
+    #[error("unknown error in sql task")]
+    UnknownError,
 }
 
 impl From<SqlTaskMigrationError> for SqlMigrationError {
@@ -45,7 +45,7 @@ impl From<SqlTaskMigrationError> for SqlMigrationError {
             SqlTaskMigrationError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskMigrationError::MigrationExecutionError { message } => Self::MigrationExecutionError { message },
             SqlTaskMigrationError::SqlError { message } => Self::SqlError { message },
-            SqlTaskMigrationError::RuntimeSqlTaskError => Self::RuntimeSqlTaskError,
+            SqlTaskMigrationError::UnknownError => Self::UnknownError,
         }
     }
 }
@@ -60,8 +60,8 @@ pub(crate) enum SqlBatchError {
     StatementFailed { reason: String },
     #[error("runtime is being shut down")]
     RuntimeShutdown,
-    #[error("unexpected error in runtime implementation of sql task")]
-    RuntimeSqlTaskError,
+    #[error("unknown error in sql task")]
+    UnknownError,
 }
 
 impl From<SqlTaskBatchError> for SqlBatchError {
@@ -69,7 +69,7 @@ impl From<SqlTaskBatchError> for SqlBatchError {
         match err {
             SqlTaskBatchError::DatabaseBusy => Self::DatabaseBusy,
             SqlTaskBatchError::StatementFailed { reason } => Self::StatementFailed { reason },
-            SqlTaskBatchError::RuntimeSqlTaskError => Self::RuntimeSqlTaskError,
+            SqlTaskBatchError::UnknownError => Self::UnknownError,
         }
     }
 }
@@ -252,6 +252,8 @@ pub(crate) enum SqlQueryError {
     StatementError(String),
     #[error("failed to convert database text value to utf8 string")]
     TextValueDecodeError,
+    #[error("unknown error in sql task")]
+    UnknownError,
 }
 
 /// SqlQueryExecutionError is a subset of SqlQueryError
@@ -261,6 +263,7 @@ impl From<SqlQueryExecutionError> for SqlQueryError {
             SqlQueryExecutionError::DatabaseBusy => Self::DatabaseBusy,
             SqlQueryExecutionError::StatementError(reason) => Self::StatementError(reason),
             SqlQueryExecutionError::TextValueDecodeError => Self::TextValueDecodeError,
+            SqlQueryExecutionError::UnknownError => Self::UnknownError,
         }
     }
 }
@@ -274,4 +277,6 @@ pub(crate) enum SqlQueryExecutionError {
     StatementError(String),
     #[error("failed to convert database text value to utf8 string")]
     TextValueDecodeError,
+    #[error("unknown error in sql task")]
+    UnknownError,
 }

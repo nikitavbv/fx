@@ -101,7 +101,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let function_future = target_function_deployment
                 .handle_request(
                     FetchRequestHeader::from(header),
-                    Some(HttpBody::for_stream(body.into_data_stream().map(|v| v.map_err(|_| todo!())).boxed()))
+                    Some(HttpBody::for_stream(
+                        body.into_data_stream()
+                            .map(|v| v.map_err(|_| HttpStreamError::RequestBodyStreamError))
+                            .boxed()
+                    ))
                 ).await;
             let timeout_future = tokio::time::sleep(std::time::Duration::from_secs(20));
 
