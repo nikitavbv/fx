@@ -64,3 +64,6 @@ pre-build = [
     "apt update",
     "apt install -y capnproto"
 ]
+
+[dev-dependencies]
+ulid = "1.1.0"

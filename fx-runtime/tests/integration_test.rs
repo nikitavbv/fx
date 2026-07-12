@@ -411,17 +411,20 @@ async fn fetch_query() {
 
 #[tokio::test]
 async fn fetch_with_header() {
+    let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
 
-    let result = client.get("/test/fetch/with-header").send().await.unwrap();
-    assert!(result.status().is_success());
-    let result = result.text().await.unwrap();
+    let result = client.get("/test/fetch/with-header").header("x-test-request-id", request_id.to_string()).send().await.unwrap();
 
+    let status = result.status();
+    assert!(status.is_success(), "request did not return success status code, instead got: {status:?}, request id={request_id}");
+
+    let result = result.text().await.unwrap();
     if !result.contains("x-custom-header") {
-        panic!("response body does not contain X-Custom-Header. full response body is {result:?}");
+        panic!("response body does not contain X-Custom-Header. request id={request_id}, full response body is {result:?}");
     }
 
-    assert!(result.contains("custom-value"));
+    assert!(result.contains("custom-value"), "request id={request_id}");
 }
 
 
