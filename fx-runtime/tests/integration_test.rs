@@ -421,10 +421,10 @@ async fn fetch_with_header() {
 
     let result = result.text().await.unwrap();
     if !result.contains("x-custom-header") {
-        panic!("response body does not contain X-Custom-Header. request id={request_id}, full response body is {result:?}");
+        panic!("response body does not contain X-Custom-Header. full response body is {result:?}");
     }
 
-    assert!(result.contains("custom-value"), "request id={request_id}");
+    assert!(result.contains("custom-value"));
 }
 
 
