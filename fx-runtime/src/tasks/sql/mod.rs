@@ -48,6 +48,8 @@ pub(crate) enum SqlConnectionInitError {
     DatabaseBusy,
     #[error("failed to init sql connection for unknown reasons")]
     UnknownError,
+    #[error("failed to init sql connection because of error in sql task implementation")]
+    RuntimeError,
 }
 
 #[derive(Debug, Error)]
@@ -65,6 +67,8 @@ pub(crate) enum SqlTaskMigrationError {
     },
     #[error("unknown error in sql task")]
     UnknownError,
+    #[error("error in sql task implementation")]
+    RuntimeError,
 }
 
 #[derive(Debug, Error)]
@@ -82,10 +86,10 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
 
     let mut connections = HashMap::<String, rusqlite::Connection>::new();
 
-    if !databases_path.exists() {
-        std::fs::create_dir_all(&databases_path).unwrap();
+    if !databases_path.exists() && let Err(err) = std::fs::create_dir_all(&databases_path) {
+        error!("failed to create directory for databases: {err:?}. Stopping sql task.");
+        return;
     }
-
 
     while let Ok(msg) = flume::Selector::new()
         .recv(&sql_rx, |v| v)
@@ -106,35 +110,47 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                     SqlBindingConfigLocation::InMemory(v) => rusqlite::Connection::open_with_flags(
                         format!("file:/{v}?vfs=memdb"), // slash in front is needed to make this database shared between threads!
                         rusqlite::OpenFlags::default()
-                    ).unwrap(),
+                    ).map_err(|err| {
+                        error!("failed to open in-memory sqlite connection: {err:?}");
+                        SqlConnectionInitError::RuntimeError
+                    }),
                     SqlBindingConfigLocation::DatabaseId(database_id) => {
                         let mut database_path = databases_path.join(database_id);
                         database_path.add_extension("sqlite");
-                        rusqlite::Connection::open(database_path).unwrap()
+                        rusqlite::Connection::open(database_path).map_err(|err| {
+                            error!("failed to open sqlite connection: {err:?}");
+                            SqlConnectionInitError::RuntimeError
+                        })
                     },
                 };
+
                 debug!(database=connection_id, "created connection");
-                if let Some(busy_timeout) = binding.busy_timeout {
-                    connection.busy_timeout(busy_timeout).unwrap();
-                }
-                let result = if let Err(err) = connection.pragma_update(None, "journal_mode", "WAL") {
-                    if is_database_busy_error(&err) {
-                        Err(SqlConnectionInitError::DatabaseBusy)
-                    } else {
-                        todo!("unhandled sqlite error: {err:?}")
-                    }
-                } else {
-                    if let Err(err) = connection.pragma_update(None, "synchronous", "NORMAL") {
-                        if is_database_busy_error(&err) {
-                            Err(SqlConnectionInitError::DatabaseBusy)
-                        } else {
-                            error!("unknown sqlite error when updating pragma for \"synchronous\": {err:?}");
-                            Err(SqlConnectionInitError::UnknownError)
+                let connection = connection
+                    .and_then(|connection| {
+                        if let Some(busy_timeout) = binding.busy_timeout {
+                            connection.busy_timeout(busy_timeout)
+                                .map_err(|err| {
+                                    error!("failed to set busy timeout for connection: {err:?}");
+                                    SqlConnectionInitError::UnknownError
+                                })?
                         }
-                    } else {
-                        Ok(entry.insert(connection))
-                    }
+
+                        Ok(connection)
+                    })
+                    .and_then(|connection| {
+                        try_pragma_update(&connection, "journal_mode", "WAL")?;
+                        Ok(connection)
+                    })
+                    .and_then(|connection| {
+                        try_pragma_update(&connection, "synchronous", "NORMAL")?;
+                        Ok(connection)
+                    });
+
+                let result = match connection {
+                    Ok(connection) => Ok(entry.insert(connection)),
+                    Err(err) => Err(err),
                 };
+
                 debug!(database=connection_id, "connection setup finished");
                 result
             }
@@ -145,17 +161,22 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 debug!(database=connection_id, "running sql exec");
                 let connection = match connection {
                     Ok(v) => v,
-                    Err(err) => match err {
-                        SqlConnectionInitError::DatabaseBusy => {
-                            // error can be ignored here because it means that request was cancelled
-                            let _ = msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy));
-                            continue;
-                        },
-                        SqlConnectionInitError::UnknownError => {
-                            // error can be ignored here because it means that request was cancelled
-                            let _ = msg.response.send(Err(SqlQueryExecutionError::UnknownError));
-                            continue;
-                        },
+                    Err(err) => {
+                        match err {
+                            SqlConnectionInitError::DatabaseBusy => {
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlQueryExecutionError::DatabaseBusy));
+                            },
+                            SqlConnectionInitError::UnknownError => {
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlQueryExecutionError::UnknownError));
+                            },
+                            SqlConnectionInitError::RuntimeError => {
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlQueryExecutionError::RuntimeError));
+                            },
+                        }
+                        continue;
                     }
                 };
 
@@ -243,17 +264,22 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 debug!(database=connection_id, "running sql batch");
                 let connection = match connection {
                     Ok(v) => v,
-                    Err(err) => match err {
-                        SqlConnectionInitError::DatabaseBusy => {
-                            // error can be ignored here because that means that request has been cancelled
-                            let _ = msg.response.send(Err(SqlTaskBatchError::DatabaseBusy));
-                            continue;
-                        },
-                        SqlConnectionInitError::UnknownError => {
-                            // error can be ignored here because it means that request was cancelled
-                            let _ = msg.response.send(Err(SqlTaskBatchError::UnknownError));
-                            continue;
-                        }
+                    Err(err) => {
+                        match err {
+                            SqlConnectionInitError::DatabaseBusy => {
+                                // error can be ignored here because that means that request has been cancelled
+                                let _ = msg.response.send(Err(SqlTaskBatchError::DatabaseBusy));
+                            },
+                            SqlConnectionInitError::UnknownError => {
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlTaskBatchError::UnknownError));
+                            },
+                            SqlConnectionInitError::RuntimeError => {
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlTaskBatchError::UnknownError));
+                            }
+                        };
+                        continue;
                     },
                 };
 
@@ -312,18 +338,24 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                 debug!(database=connection_id, "running migration, busy timeout: {busy_timeout:?}");
                 let connection = match connection {
                     Ok(v) => v,
-                    Err(err) => match err {
-                        SqlConnectionInitError::DatabaseBusy => {
-                            debug!("database busy when getting connection to run migration");
-                            // error can be ignored here because it means that request was cancelled
-                            let _ = msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy));
-                            continue;
-                        },
-                        SqlConnectionInitError::UnknownError => {
-                            // error can be ignored here because it means that request was cancelled
-                            let _ = msg.response.send(Err(SqlTaskMigrationError::UnknownError));
-                            continue;
+                    Err(err) => {
+                        match err {
+                            SqlConnectionInitError::DatabaseBusy => {
+                                debug!("database busy when getting connection to run migration");
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlTaskMigrationError::DatabaseBusy));
+                            },
+                            SqlConnectionInitError::UnknownError => {
+                                // error can be ignored here because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlTaskMigrationError::UnknownError));
+                            },
+                            SqlConnectionInitError::RuntimeError => {
+                                // error can be ignoredhere because it means that request was cancelled
+                                let _ = msg.response.send(Err(SqlTaskMigrationError::RuntimeError));
+                            }
                         }
+
+                        continue;
                     }
                 };
 
@@ -373,6 +405,18 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
             },
         }
     }
+}
+
+fn try_pragma_update(connection: &rusqlite::Connection, pragma_name: &str, pragma_value: &str) -> Result<(), SqlConnectionInitError> {
+    connection.pragma_update(None, pragma_name, pragma_value)
+        .map_err(|err| {
+            if is_database_busy_error(&err) {
+                SqlConnectionInitError::DatabaseBusy
+            } else {
+                error!("unknown sqlite error when updating pragma for {pragma_name:?}: {err:?}");
+                SqlConnectionInitError::UnknownError
+            }
+        })
 }
 
 fn is_database_busy_error(err: &rusqlite::Error) -> bool {

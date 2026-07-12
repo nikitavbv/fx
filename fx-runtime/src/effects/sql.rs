@@ -37,6 +37,8 @@ pub(crate) enum SqlMigrationError {
     RuntimeShutdown,
     #[error("unknown error in sql task")]
     UnknownError,
+    #[error("error in runtime implementation of sql task")]
+    RuntimeError,
 }
 
 impl From<SqlTaskMigrationError> for SqlMigrationError {
@@ -46,6 +48,7 @@ impl From<SqlTaskMigrationError> for SqlMigrationError {
             SqlTaskMigrationError::MigrationExecutionError { message } => Self::MigrationExecutionError { message },
             SqlTaskMigrationError::SqlError { message } => Self::SqlError { message },
             SqlTaskMigrationError::UnknownError => Self::UnknownError,
+            SqlTaskMigrationError::RuntimeError => Self::RuntimeError,
         }
     }
 }
@@ -254,6 +257,8 @@ pub(crate) enum SqlQueryError {
     TextValueDecodeError,
     #[error("unknown error in sql task")]
     UnknownError,
+    #[error("error in runtime implementation of sql task")]
+    RuntimeError,
 }
 
 /// SqlQueryExecutionError is a subset of SqlQueryError
@@ -264,6 +269,7 @@ impl From<SqlQueryExecutionError> for SqlQueryError {
             SqlQueryExecutionError::StatementError(reason) => Self::StatementError(reason),
             SqlQueryExecutionError::TextValueDecodeError => Self::TextValueDecodeError,
             SqlQueryExecutionError::UnknownError => Self::UnknownError,
+            SqlQueryExecutionError::RuntimeError => Self::RuntimeError,
         }
     }
 }
@@ -279,4 +285,6 @@ pub(crate) enum SqlQueryExecutionError {
     TextValueDecodeError,
     #[error("unknown error in sql task")]
     UnknownError,
+    #[error("error in implementation of sql task")]
+    RuntimeError,
 }

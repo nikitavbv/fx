@@ -455,6 +455,7 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
                 SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
                 SqlQueryError::UnknownError => response_error.set_unknown_error(()),
+                SqlQueryError::RuntimeError => response_error.set_runtime_error(()),
             }
         }
     }
@@ -573,6 +574,7 @@ pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, Fun
                 SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
                 SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                 SqlMigrationError::UnknownError => response_error.set_unknown_error(()),
+                SqlMigrationError::RuntimeError => response_error.set_runtime_error(()),
             }
         }
     }

@@ -21,6 +21,7 @@ struct SqlExecError {
         statementError @3 :Text;
         textValueDecodeError @4 :Void;
         unknownError @5 :Void;
+        runtimeError @6 :Void;
     }
 }
 
@@ -48,6 +49,7 @@ struct SqlMigrateError {
         sqlError @3 :Text;
         runtimeShutdown @4 :Void;
         unknownError @5 :Void;
+        runtimeError @6 :Void;
     }
 }
 

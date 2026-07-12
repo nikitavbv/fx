@@ -64,6 +64,7 @@ impl Future for SqlQueryResultFuture {
                         abi_sql_capnp::sql_exec_error::error::Which::StatementError(reason) => SqlError::StatementError(reason.unwrap().to_string().unwrap()),
                         abi_sql_capnp::sql_exec_error::error::Which::TextValueDecodeError(_) => SqlError::TextValueDecodeError,
                         abi_sql_capnp::sql_exec_error::error::Which::UnknownError(_) => SqlError::UnknownError,
+                        abi_sql_capnp::sql_exec_error::error::Which::RuntimeError(_) => SqlError::RuntimeError,
                     }),
                 }
             }),
@@ -166,6 +167,7 @@ impl Future for SqlMigrateResultFuture {
                         },
                         abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
                         abi_sql_capnp::sql_migrate_error::error::Which::UnknownError(_) => SqlMigrationError::UnknownError,
+                        abi_sql_capnp::sql_migrate_error::error::Which::RuntimeError(_) => SqlMigrationError::RuntimeError,
                     }),
                 }
             }),
