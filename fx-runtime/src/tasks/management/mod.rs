@@ -1,5 +1,6 @@
 use {
     std::{collections::HashMap, sync::Arc},
+    tracing::error,
     send_wrapper::SendWrapper,
     tokio::sync::oneshot,
     tracing::info,
@@ -47,8 +48,14 @@ pub(crate) fn run_management_task(
 ) {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .unwrap();
+        .build();
+    let tokio_runtime = match tokio_runtime {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to create tokio runtime: {err:?}");
+            return;
+        },
+    };
     let local_set = tokio::task::LocalSet::new();
 
     let runtime_state = RuntimeState::new();
@@ -76,7 +83,8 @@ pub(crate) fn run_management_task(
                             match msg {
                                 ManagementMessage::DeployFunction(msg) => {
                                     let result = definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
-                                    msg.on_ready.send(()).unwrap();
+                                    // error can be ignored here because it means that request was cancelled
+                                    let _ = msg.on_ready.send(());
                                     match result {
                                         Ok(_) => {},
                                         Err(ApplyConfigError::CronTaskShutdown) => {

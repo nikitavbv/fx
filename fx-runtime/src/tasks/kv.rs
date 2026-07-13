@@ -45,10 +45,10 @@ impl Channel {
         rx
     }
 
-    fn publish(&self, data: Vec<u8>) {
-        for subscriber in &self.subscribers {
-            subscriber.send(data.clone()).unwrap();
-        }
+    fn publish(&mut self, data: Vec<u8>) -> u64 {
+        // remove subscribers that are closed
+        self.subscribers.retain(|v| v.send(data.clone()).is_ok());
+        self.subscribers.len() as u64
     }
 }
 
@@ -113,9 +113,12 @@ impl Kv {
         self.channels.entry(channel).or_insert(Channel::new()).subscribe()
     }
 
-    fn publish(&self, channel: &Vec<u8>, data: Vec<u8>) {
-        if let Some(channel) = self.channels.get(channel) {
-            channel.publish(data);
+    fn publish(&mut self, channel_key: &Vec<u8>, data: Vec<u8>) {
+        if let Some(channel) = self.channels.get_mut(channel_key) {
+            if channel.publish(data) == 0 {
+                // if all subscribers are closed, we can remove this channel
+                self.channels.remove(channel_key);
+            }
         }
     }
 }
@@ -127,16 +130,23 @@ pub(crate) fn run_kv_task(kv_rx: flume::Receiver<KvMessage>) {
         let kv = kv.entry(msg.namespace).or_default();
 
         match msg.operation {
-            KvOperation::Set(request, result) => result.send(kv.set(request)).unwrap(),
-            KvOperation::Get { key, result } => result.send(kv.get(&key).cloned()).unwrap(),
+            KvOperation::Set(request, result) => {
+                let _ = result.send(kv.set(request));
+            },
+            KvOperation::Get { key, result } => {
+                let _ = result.send(kv.get(&key).cloned());
+            },
             KvOperation::Delex(request, result) => {
                 kv.delex(request);
-                result.send(()).unwrap();
+                let _ = result.send(());
             },
-            KvOperation::Subscribe { channel, result } => result.send(kv.subscribe(channel)).unwrap(),
+            KvOperation::Subscribe { channel, result } => {
+                let _  = result.send(kv.subscribe(channel));
+            }
             KvOperation::Publish(request, result) => {
                 kv.publish(&request.channel, request.data);
-                result.send(()).unwrap();
+                // error can be ignored here because it means that request was cancelled
+                let _ = result.send(());
             },
         }
     }
