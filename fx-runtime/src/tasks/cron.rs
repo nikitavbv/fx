@@ -138,7 +138,14 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
         };
 
         let delay = if let Some(prev_run_time) = prev_run_time {
-            let next_scheduled_run = task.schedule.after(&prev_run_time).next().unwrap();
+            let next_scheduled_run = match task.schedule.after(&prev_run_time).next() {
+                Some(v) => v,
+                None => {
+                    // TODO: report this error to management thread or logs.
+                    error!("could not calculate next cron task run date according to schedule, skipping task from running");
+                    continue;
+                }
+            };
 
             if next_scheduled_run > now {
                 next_run = next_run.map(|v| if v < next_scheduled_run { v } else { next_scheduled_run });
@@ -157,21 +164,40 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
         let running_tasks = running_tasks.clone();
 
         task_futures.push(async move {
-            let task_next_run = task.schedule.after(&now).next().unwrap();
+            let task_next_run = match task.schedule.after(&now).next() {
+                Some(v) => v,
+                None => {
+                    // TODO: report this error to management thread or logs
+                    error!("could not calculate next cron task run date (from now) according to schedule, skipping task from running");
+                    return Utc::now() + Duration::from_secs(60); // retrying likely won't help, but let's schedule task one minute into future anyway
+                },
+            };
 
-            cron_events.send_async(CronTaskEvent::Start {
+            let event_send_result = cron_events.send_async(CronTaskEvent::Start {
                 name: task.name.clone(),
                 function_id: task.function_id.clone(),
-            }).await.unwrap();
+            }).await;
+            if event_send_result.is_err() {
+                // error here means that management thread was shut down. In that case it makes sense to stop executing cron tasks early
+                // because cron thread will shut down too.
+                info!("skipping running cron task because management thread shut down.");
+                return task_next_run;
+            }
 
             let iteration_delay = Instant::now() - iteration_start_time;
 
             let request_future = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
-                http::Request::builder()
-                    .method(http::Method::GET)
-                    .uri(task.endpoint.as_deref().unwrap_or("/_fx/cron"))
-                    .body(())
-                    .unwrap()
+                let mut request = http::Request::new(());
+                *request.method_mut() = http::Method::GET;
+                *request.uri_mut() = match task.endpoint.as_deref().unwrap_or("/_fx/cron").parse() {
+                    Ok(v) => v,
+                    Err(err) => {
+                        // TODO: report this error to management thread or logs
+                        error!("cannot construct request to cron endpoint, invalid url: {err:?}");
+                        return Utc::now() + Duration::from_secs(60); // retrying won't help, but let's schedule task one minute into future anyway
+                    }
+                };
+                request
                     .into_parts()
                     .0
             }));
@@ -193,19 +219,19 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
 
             let run_at = Utc::now();
 
-            if is_ok {
-                if database.update_run_time(&task.task_id, run_at).is_err() {
-                    error!("failed to update run time in cron database for task. Task will run again.");
-                }
+            if is_ok && database.update_run_time(&task.task_id, run_at).is_err() {
+                error!("failed to update run time in cron database for task. Task will run again.");
             }
 
-            cron_events.send_async(CronTaskEvent::Run {
+            // error here means that management thread was shut down. In this future, we cannot control cron task (to shut it down in reaction
+            // to management thread), so it makes sense to just ignore the error
+            let _ = cron_events.send_async(CronTaskEvent::Run {
                 name: task.name.clone(),
                 function_id: task.function_id.clone(),
                 run_at,
                 delay,
                 iteration_delay,
-            }).await.unwrap();
+            }).await;
 
             running_tasks.borrow_mut().remove(&task.task_id);
 

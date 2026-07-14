@@ -114,11 +114,9 @@ impl Kv {
     }
 
     fn publish(&mut self, channel_key: &Vec<u8>, data: Vec<u8>) {
-        if let Some(channel) = self.channels.get_mut(channel_key) {
-            if channel.publish(data) == 0 {
-                // if all subscribers are closed, we can remove this channel
-                self.channels.remove(channel_key);
-            }
+        if let Some(channel) = self.channels.get_mut(channel_key) && channel.publish(data) == 0 {
+            // if all subscribers are closed, we can remove this channel
+            self.channels.remove(channel_key);
         }
     }
 }
