@@ -1,4 +1,7 @@
-use crate::function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}};
+use {
+    thiserror::Error,
+    crate::function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
+};
 
 pub(crate) enum BlobGetResponse {
     NotFound,
@@ -30,6 +33,21 @@ impl From<FunctionMemoryGetStringError> for BlobGetResponse {
         match value {
             FunctionMemoryGetStringError::OutOfBounds => Self::BadRequestArgumentOutOfBounds,
             FunctionMemoryGetStringError::FailedToDecode => Self::BadRequestArgumentFailedToDecode,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum BlobDeleteError {
+    #[error("failed to delete object because of unexpected error in blob storage implementation")]
+    StorageError,
+}
+
+impl From<crate::tasks::blob::DeleteError> for BlobDeleteError {
+    fn from(err: crate::tasks::blob::DeleteError) -> Self {
+        use crate::tasks::blob::DeleteError as SourceError;
+        match err {
+            SourceError::BlobStorageError => Self::StorageError,
         }
     }
 }

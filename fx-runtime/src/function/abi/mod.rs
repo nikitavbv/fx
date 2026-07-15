@@ -39,6 +39,8 @@ use {
         AsyncResourcePollResult,
         BlobGetResultSerializeResult,
         BlobGetResultSerializeResultCode,
+        BlobDeleteResultSerializeResult,
+        BlobDeleteResultSerializeResultCode,
         AsyncStreamResourcePollResult,
     },
     crate::{
@@ -58,7 +60,7 @@ use {
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
-            blob::BlobGetResponse,
+            blob::{BlobGetResponse, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError},
@@ -790,6 +792,50 @@ pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, Func
     BlobGetResultSerializeResultCode::Ok as u64
 }
 
+pub(super) fn fx_blob_delete_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.blob_delete_result_futures,
+        |s| &mut s.blob_delete_results,
+        resource_id
+    );
+
+    write_result(&mut caller, result_addr, Into::<AsyncResourcePollResult>::into(result));
+
+    0
+}
+
+pub(super) fn fx_blob_delete_result_serailize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let blob_delete_result = match caller.data_mut().resource_set.blob_delete_results.remove(resource_id.into()) {
+        Some(v) => v,
+        None => return BlobDeleteResultSerializeResultCode::NotFound as u64,
+    };
+
+    let mut message = capnp::message::Builder::new_default();
+    let blob_delete_response = message.init_root::<abi_blob_capnp::blob_delete_response::Builder>();
+    let mut response = blob_delete_response.init_response();
+
+    match blob_delete_result {
+        Ok(()) => response.set_ok(()),
+        Err(BlobDeleteError::StorageError) => response.set_storage_error(()),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(
+        &mut caller,
+        result_addr,
+        BlobDeleteResultSerializeResult {
+            bytes_resource_id: bytes_resource_id.into(),
+            bytes_length: bytes_length as u64,
+        }
+    );
+
+    BlobDeleteResultSerializeResultCode::Ok as u64
+}
+
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
     caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
     resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T, F>,
@@ -1110,10 +1156,10 @@ pub(super) fn fx_blob_delete_handler(
 
     let blob_tx = caller.data().blob_tx.clone();
 
-    caller.data_mut().resource_set.unit_futures.insert(async move {
+    caller.data_mut().resource_set.blob_delete_result_futures.insert(async move {
         let (result, result_rx) = oneshot::channel();
         blob_tx.send_async(BlobMessage::Delete { bucket, key, result }).await.unwrap();
-        result_rx.await.unwrap();
+        result_rx.await.unwrap().map_err(BlobDeleteError::from)
     }.boxed()).into()
 }
 

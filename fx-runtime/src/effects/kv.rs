@@ -48,7 +48,6 @@ pub(crate) struct KvDelexRequest {
     pub(crate) ifeq: Vec<u8>,
 }
 
-
 pub(crate) struct KvPublishRequest {
     pub(crate) channel: Vec<u8>,
     pub(crate) data: Vec<u8>,

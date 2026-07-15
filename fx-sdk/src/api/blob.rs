@@ -7,6 +7,7 @@ use {
         fx_blob_delete,
         fx_blob_get_result_poll,
         fx_blob_get_result_serialize,
+        fx_blob_delete_result_poll,
         fx_bytes_move,
         HostUnitFuture,
     },
@@ -111,4 +112,31 @@ pub enum BlobGetError {
 
     #[error("failed to read sdk because of internal error in fx sdk")]
     InternalSdkError,
+}
+
+struct BlobDeleteResponseFuture(u64);
+
+impl Future for BlobDeleteResponseFuture {
+    type Output = Result<(), BlobDeleteError>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
+        assert!(unsafe { fx_blob_delete_result_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
+                todo!()
+            }),
+            other => todo!()
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum BlobDeleteError {
+    #[error("failed to delete blob because of an error in runtime storage implementation")]
+    StorageError,
 }

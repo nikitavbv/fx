@@ -172,6 +172,20 @@ pub enum BlobGetResultSerializeResultCode {
 
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct BlobDeleteResultSerializeResult {
+    pub bytes_resource_id: u64,
+    pub bytes_length: u64,
+}
+
+#[derive(TryFromPrimitive)]
+#[repr(i64)]
+pub enum BlobDeleteResultSerializeResultCode {
+    Ok = 0,
+    NotFound = 1,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct AsyncStreamResourcePollResult {
     pub tag: u8, // 0 - stream finished, 1 - next item ready, 2 - pending
     pub _pad: [u8; 7],

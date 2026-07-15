@@ -54,8 +54,14 @@ pub(crate) fn run_cron_task(
 ) {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .unwrap();
+        .build();
+    let tokio_runtime = match tokio_runtime {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to create tokio runtime: {err:?}. Stopping cron task");
+            return;
+        }
+    };
     let local_set = tokio::task::LocalSet::new();
 
     tokio_runtime.block_on(local_set.run_until(async {
@@ -82,7 +88,7 @@ pub(crate) fn run_cron_task(
                 }
 
                 Some(res) = task_futures.next(), if !task_futures.is_empty() => {
-                    let new_deadline = Instant::now() + Duration::from_millis((res - Utc::now()).num_milliseconds().max(0).try_into().unwrap());
+                    let new_deadline = Instant::now() + (res - Utc::now()).to_std().unwrap_or(Duration::ZERO);
                     if new_deadline < sleep.deadline() {
                         sleep.as_mut().reset(new_deadline);
                     }

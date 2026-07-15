@@ -1,5 +1,7 @@
 use {
     std::path::{PathBuf, Path},
+    tracing::error,
+    thiserror::Error,
     rusqlite::OptionalExtension,
     tokio::{sync::oneshot, fs},
 };
@@ -19,8 +21,14 @@ pub(crate) enum BlobMessage {
     Delete {
         bucket: String,
         key: Vec<u8>,
-        result: oneshot::Sender<()>,
+        result: oneshot::Sender<Result<(), DeleteError>>,
     },
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum DeleteError {
+    #[error("failed to delete object because of unexpected error in blob storage implementation")]
+    BlobStorageError,
 }
 
 pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMessage>) {
@@ -63,16 +71,20 @@ pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMes
                 },
                 BlobMessage::Delete { bucket, key, result } => {
                     let key_hash = match index_db.delete_object(&bucket, &key) {
-                        Some(v) => v,
-                        None => {
-                            result.send(()).unwrap();
+                        Ok(Some(v)) => v,
+                        Ok(None) => {
+                            result.send(Ok(())).unwrap();
                             continue;
-                        }
+                        },
+                        Err(()) => {
+                            let _ = result.send(Err(DeleteError::BlobStorageError));
+                            continue;
+                        },
                     };
 
                     tokio::fs::remove_file(key_path(&data_path, key_hash.as_str()).await.as_path()).await.unwrap();
 
-                    result.send(()).unwrap();
+                    result.send(Ok(())).unwrap();
                 },
             }
         }
@@ -167,14 +179,17 @@ impl IndexDb {
         ).optional().unwrap()
     }
 
-    fn delete_object(&self, bucket: &str, key: &[u8]) -> Option<String> {
+    fn delete_object(&self, bucket: &str, key: &[u8]) -> Result<Option<String>, ()> {
         let bucket_id: Option<i64> = self.connection.query_row(
             "select id from buckets where name = ?1",
             rusqlite::params![bucket],
             |row| row.get(0),
         ).optional().unwrap();
 
-        let bucket_id = bucket_id?;
+        let bucket_id = match bucket_id {
+            Some(v) => v,
+            None => return Ok(None),
+        };
 
         let key_hash: Option<String> = self.connection.query_row(
             "select key_hash from objects where bucket_id = ?1 and key = ?2",
@@ -182,13 +197,16 @@ impl IndexDb {
             |row| row.get(0),
         ).optional().unwrap();
 
-        let key_hash = key_hash?;
+        let key_hash = match key_hash {
+            Some(v) => v,
+            None => return Ok(None),
+        };
 
         self.connection.execute(
             "delete from objects where bucket_id = ?1 and key = ?2",
             rusqlite::params![bucket_id, key],
-        ).unwrap();
+        ).map_err(|err| error!("failed to delete object from index: {err:?}"))?;
 
-        Some(key_hash)
+        Ok(Some(key_hash))
     }
 }

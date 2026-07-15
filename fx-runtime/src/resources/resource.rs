@@ -9,7 +9,7 @@ use {
         triggers::http::{FetchRequestHeader, HttpBody},
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
-            blob::BlobGetResponse,
+            blob::{BlobGetResponse, BlobDeleteError},
             fetch::{FetchResultError, HttpStreamError},
             kv::{KvGetResponse, KvSetError, KvSubscriptionResource},
         },
@@ -111,6 +111,8 @@ pub(crate) struct FunctionResources {
     pub(crate) http_frames: ResourceTable<HttpFrameResourceKey, Option<Result<Bytes, HttpStreamError>>>,
     pub(crate) blob_get_response_futures: ResourceTable<BlobGetResponseFutureResourceKey, BoxFuture<'static, BlobGetResponse>>,
     pub(crate) blob_get_responses: ResourceTable<BlobGetResponseResourceKey, BlobGetResponse>,
+    pub(crate) blob_delete_result_futures: ResourceTable<BlobDeleteResultFutureResourceKey, BoxFuture<'static, Result<(), BlobDeleteError>>>,
+    pub(crate) blob_delete_results: ResourceTable<BlobDeleteResultResourceKey, Result<(), BlobDeleteError>>,
 }
 
 impl FunctionResources {
@@ -213,3 +215,5 @@ key!(pub(crate) struct HttpFrameResourceKey);
 key!(pub(crate) struct BlobGetResponseFutureResourceKey);
 key!(pub(crate) struct BlobGetResponseResourceKey);
 key!(pub(crate) struct KvSubscriptionResourceKey);
+key!(pub(crate) struct BlobDeleteResultFutureResourceKey);
+key!(pub(crate) struct BlobDeleteResultResourceKey);

@@ -10,3 +10,10 @@ struct BlobGetResponse {
         badRequestFailedToAccessMemory @5 :Void;
     }
 }
+
+struct BlobDeleteResponse {
+    response :union {
+        ok @0 :Void;
+        storageError @1 :Void;
+    }
+}
