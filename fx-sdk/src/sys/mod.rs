@@ -246,7 +246,7 @@ unsafe extern "C" {
     pub(crate) fn fx_blob_get_result_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_blob_get_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_blob_delete_result_poll(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_blob_delete_result_serailize(resource_id: u64, result_addr: u64) -> u64;
+    pub(crate) fn fx_blob_delete_result_serialize(resource_id: u64, result_addr: u64) -> u64;
 }
 
 #[derive(Debug)]

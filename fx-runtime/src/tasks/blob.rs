@@ -184,7 +184,7 @@ impl IndexDb {
             "select id from buckets where name = ?1",
             rusqlite::params![bucket],
             |row| row.get(0),
-        ).optional().unwrap();
+        ).optional().map_err(|err| error!("failed to check if bucket exists before deleting object: {err:?}"))?;
 
         let bucket_id = match bucket_id {
             Some(v) => v,
@@ -195,7 +195,7 @@ impl IndexDb {
             "select key_hash from objects where bucket_id = ?1 and key = ?2",
             rusqlite::params![bucket_id, key],
             |row| row.get(0),
-        ).optional().unwrap();
+        ).optional().map_err(|err| error!("failed to check if object exists before deleting: {err:?}"))?;
 
         let key_hash = match key_hash {
             Some(v) => v,

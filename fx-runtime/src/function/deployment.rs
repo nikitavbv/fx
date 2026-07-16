@@ -97,7 +97,7 @@ impl FunctionDeployment {
         linker.func_wrap("fx", "fx_blob_get_result_poll", super::abi::fx_blob_get_result_poll).unwrap();
         linker.func_wrap("fx", "fx_blob_get_result_serialize", super::abi::fx_blob_get_result_serialize).unwrap();
         linker.func_wrap("fx", "fx_blob_delete_result_poll", super::abi::fx_blob_delete_result_poll).unwrap();
-        linker.func_wrap("fx", "fx_blob_delete_result_serailize", super::abi::fx_blob_delete_result_serailize).unwrap();
+        linker.func_wrap("fx", "fx_blob_delete_result_serialize", super::abi::fx_blob_delete_result_serialize).unwrap();
 
         for import in module.imports() {
             if import.module() == "fx" {

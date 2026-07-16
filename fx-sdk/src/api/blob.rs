@@ -1,5 +1,9 @@
 use {
-    fx_types::{capnp, abi_blob_capnp, abi::{AsyncResourcePollResult, BlobGetResultSerializeResult}},
+    fx_types::{
+        capnp,
+        abi_blob_capnp,
+        abi::{AsyncResourcePollResult, BlobGetResultSerializeResult, BlobDeleteResultSerializeResult},
+    },
     thiserror::Error,
     crate::sys::{
         fx_blob_put,
@@ -8,6 +12,7 @@ use {
         fx_blob_get_result_poll,
         fx_blob_get_result_serialize,
         fx_blob_delete_result_poll,
+        fx_blob_delete_result_serialize,
         fx_bytes_move,
         HostUnitFuture,
     },
@@ -47,13 +52,13 @@ impl BlobBucket {
         }
     }
 
-    pub async fn delete(&self, key: String) {
-        HostUnitFuture::new(unsafe { fx_blob_delete(
+    pub async fn delete(&self, key: String) -> Result<(), BlobDeleteError> {
+        BlobDeleteResponseFuture(unsafe { fx_blob_delete(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key.as_ptr() as u64,
             key.len() as u64,
-        ) }).await.unwrap();
+        ) }).await
     }
 }
 
@@ -110,7 +115,7 @@ pub enum BlobGetError {
     #[error("blob binding with this name does not exist")]
     BindingNotExists,
 
-    #[error("failed to read sdk because of internal error in fx sdk")]
+    #[error("failed to read blob because of internal error in fx sdk")]
     InternalSdkError,
 }
 
@@ -119,7 +124,7 @@ struct BlobDeleteResponseFuture(u64);
 impl Future for BlobDeleteResponseFuture {
     type Output = Result<(), BlobDeleteError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
         assert!(unsafe { fx_blob_delete_result_poll(self.0, result.as_mut_ptr() as u64) } == 0);
 
@@ -128,9 +133,21 @@ impl Future for BlobDeleteResponseFuture {
         match result.tag {
             1 => std::task::Poll::Pending,
             0 => std::task::Poll::Ready({
-                todo!()
+                let mut serialization_result = std::mem::MaybeUninit::<BlobDeleteResultSerializeResult>::zeroed();
+                assert!(unsafe { fx_blob_delete_result_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                let result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                let request = resource_reader.get_root::<abi_blob_capnp::blob_delete_response::Reader>().unwrap();
+                match request.get_response().which().unwrap() {
+                    abi_blob_capnp::blob_delete_response::response::Which::Ok(()) => Ok(()),
+                    abi_blob_capnp::blob_delete_response::response::Which::StorageError(()) => Err(BlobDeleteError::StorageError),
+                }
             }),
-            other => todo!()
+            _ => std::task::Poll::Ready(Err(BlobDeleteError::InternalSdkError)),
         }
     }
 }
@@ -139,4 +156,6 @@ impl Future for BlobDeleteResponseFuture {
 pub enum BlobDeleteError {
     #[error("failed to delete blob because of an error in runtime storage implementation")]
     StorageError,
+    #[error("failed to read blob because of internal error in fx sdk")]
+    InternalSdkError,
 }

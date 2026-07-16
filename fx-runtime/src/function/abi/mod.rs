@@ -805,7 +805,7 @@ pub(super) fn fx_blob_delete_result_poll(mut caller: wasmtime::Caller<'_, Functi
     0
 }
 
-pub(super) fn fx_blob_delete_result_serailize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+pub(super) fn fx_blob_delete_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let blob_delete_result = match caller.data_mut().resource_set.blob_delete_results.remove(resource_id.into()) {
         Some(v) => v,
         None => return BlobDeleteResultSerializeResultCode::NotFound as u64,

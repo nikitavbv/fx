@@ -424,7 +424,7 @@ async fn test_blob_put() {
 }
 
 async fn test_blob_delete() {
-    blob("test-blob").delete("test-key".to_owned()).await;
+    blob("test-blob").delete("test-key".to_owned()).await.unwrap();
 }
 
 async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
