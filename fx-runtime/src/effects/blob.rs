@@ -3,36 +3,43 @@ use {
     crate::function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
 };
 
-pub(crate) enum BlobGetResponse {
-    NotFound,
-    Ok(Vec<u8>),
+#[derive(Debug, Error)]
+pub(crate) enum BlobGetError {
+    #[error("bad request: failed to access memory")]
     BadRequestFailedToAccessMemory,
+    #[error("bad request: argument out of bounds")]
     BadRequestArgumentOutOfBounds,
+    #[error("bad request: argument failed to decode")]
     BadRequestArgumentFailedToDecode,
+
+    #[error("binding does not exist")]
     BindingNotExists,
+
+    #[error("error in storage implementation")]
+    StorageError,
 }
 
-impl From<FunctionMemoryError> for BlobGetResponse {
+impl From<FunctionMemoryError> for Result<Option<Vec<u8>>, BlobGetError> {
     fn from(value: FunctionMemoryError) -> Self {
         match value {
-            FunctionMemoryError::MemoryNotFound | FunctionMemoryError::MemoryNotMemory => Self::BadRequestFailedToAccessMemory,
+            FunctionMemoryError::MemoryNotFound | FunctionMemoryError::MemoryNotMemory => Err(BlobGetError::BadRequestFailedToAccessMemory),
         }
     }
 }
 
-impl From<FunctionMemoryAccessError> for BlobGetResponse {
+impl From<FunctionMemoryAccessError> for Result<Option<Vec<u8>>, BlobGetError> {
     fn from(value: FunctionMemoryAccessError) -> Self {
         match value {
-            FunctionMemoryAccessError::OutOfBounds => Self::BadRequestArgumentOutOfBounds,
+            FunctionMemoryAccessError::OutOfBounds => Err(BlobGetError::BadRequestArgumentOutOfBounds),
         }
     }
 }
 
-impl From<FunctionMemoryGetStringError> for BlobGetResponse {
+impl From<FunctionMemoryGetStringError> for Result<Option<Vec<u8>>, BlobGetError> {
     fn from(value: FunctionMemoryGetStringError) -> Self {
         match value {
-            FunctionMemoryGetStringError::OutOfBounds => Self::BadRequestArgumentOutOfBounds,
-            FunctionMemoryGetStringError::FailedToDecode => Self::BadRequestArgumentFailedToDecode,
+            FunctionMemoryGetStringError::OutOfBounds => Err(BlobGetError::BadRequestArgumentOutOfBounds),
+            FunctionMemoryGetStringError::FailedToDecode => Err(BlobGetError::BadRequestArgumentFailedToDecode),
         }
     }
 }

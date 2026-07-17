@@ -8,6 +8,7 @@ struct BlobGetResponse {
         badRequestArgumentOutOfBounds @3 :Void;
         badRequestArgumentFailedToDecode @4 :Void;
         badRequestFailedToAccessMemory @5 :Void;
+        storageError @6 :Void;
     }
 }
 

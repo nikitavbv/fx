@@ -60,7 +60,7 @@ use {
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
-            blob::{BlobGetResponse, BlobDeleteError},
+            blob::{BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError},
@@ -768,12 +768,13 @@ pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, Func
     let mut response = blob_get_response.init_response();
 
     match blob_get_result {
-        BlobGetResponse::NotFound => response.set_not_found(()),
-        BlobGetResponse::Ok(v) => response.set_value(&v),
-        BlobGetResponse::BadRequestFailedToAccessMemory => response.set_bad_request_failed_to_access_memory(()),
-        BlobGetResponse::BadRequestArgumentOutOfBounds => response.set_bad_request_argument_out_of_bounds(()),
-        BlobGetResponse::BadRequestArgumentFailedToDecode => response.set_bad_request_argument_failed_to_decode(()),
-        BlobGetResponse::BindingNotExists => response.set_binding_not_exists(()),
+        Ok(None) => response.set_not_found(()),
+        Ok(Some(v)) => response.set_value(&v),
+        Err(BlobGetError::BadRequestFailedToAccessMemory) => response.set_bad_request_failed_to_access_memory(()),
+        Err(BlobGetError::BadRequestArgumentOutOfBounds) => response.set_bad_request_argument_out_of_bounds(()),
+        Err(BlobGetError::BadRequestArgumentFailedToDecode) => response.set_bad_request_argument_failed_to_decode(()),
+        Err(BlobGetError::BindingNotExists) => response.set_binding_not_exists(()),
+        Err(BlobGetError::StorageError) => response.set_storage_error(()),
     }
 
     let bytes = capnp::serialize::write_message_to_words(&message);
@@ -1085,26 +1086,26 @@ pub(super) fn fx_blob_get_handler(
     key_ptr: u64,
     key_len: u64,
 ) -> u64 {
-    fn handle_ready_resource(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>, resource: BlobGetResponse) -> BlobGetResponseFutureResourceKey {
+    fn handle_ready_resource(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>, resource: Result<Option<Vec<u8>>, BlobGetError>) -> BlobGetResponseFutureResourceKey {
         caller.data_mut().resource_set.blob_get_response_futures.insert(std::future::ready(resource).boxed())
     }
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)).into(),
+        Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
     };
     let context = caller.as_context();
     let memory = memory.view(&context);
 
     let binding = match memory.str_ref(binding_ptr, binding_len) {
         Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)).into(),
+        Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
     };
     let bucket = caller.data().bindings_blob.get(binding).map(|v| v.bucket.clone());
 
     let key = match memory.vec_clone(key_ptr, key_len) {
         Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, BlobGetResponse::from(err)).into(),
+        Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
     };
 
     let blob_tx = caller.data().blob_tx.clone();
@@ -1121,11 +1122,11 @@ pub(super) fn fx_blob_get_handler(
                 }).unwrap();
 
                 match result_rx.await.unwrap() {
-                    Some(v) => BlobGetResponse::Ok(v),
-                    None => BlobGetResponse::NotFound,
+                    Ok(v) => Ok(v),
+                    Err(crate::tasks::blob::GetError::BlobStorageError) => Err(BlobGetError::StorageError),
                 }
             },
-            None => BlobGetResponse::BindingNotExists
+            None => Err(BlobGetError::BindingNotExists),
         }
     }.boxed()).into()
 }

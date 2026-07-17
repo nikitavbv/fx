@@ -9,7 +9,7 @@ use {
         triggers::http::{FetchRequestHeader, HttpBody},
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
-            blob::{BlobGetResponse, BlobDeleteError},
+            blob::{BlobGetError, BlobDeleteError},
             fetch::{FetchResultError, HttpStreamError},
             kv::{KvGetResponse, KvSetError, KvSubscriptionResource},
         },
@@ -109,8 +109,8 @@ pub(crate) struct FunctionResources {
     pub(crate) fetch_results: ResourceTable<FetchResultResourceKey, Result<http::Response<HttpBody>, FetchResultError>>,
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
     pub(crate) http_frames: ResourceTable<HttpFrameResourceKey, Option<Result<Bytes, HttpStreamError>>>,
-    pub(crate) blob_get_response_futures: ResourceTable<BlobGetResponseFutureResourceKey, BoxFuture<'static, BlobGetResponse>>,
-    pub(crate) blob_get_responses: ResourceTable<BlobGetResponseResourceKey, BlobGetResponse>,
+    pub(crate) blob_get_response_futures: ResourceTable<BlobGetResponseFutureResourceKey, BoxFuture<'static, Result<Option<Vec<u8>>, BlobGetError>>>,
+    pub(crate) blob_get_responses: ResourceTable<BlobGetResponseResourceKey, Result<Option<Vec<u8>>, BlobGetError>>,
     pub(crate) blob_delete_result_futures: ResourceTable<BlobDeleteResultFutureResourceKey, BoxFuture<'static, Result<(), BlobDeleteError>>>,
     pub(crate) blob_delete_results: ResourceTable<BlobDeleteResultResourceKey, Result<(), BlobDeleteError>>,
 }

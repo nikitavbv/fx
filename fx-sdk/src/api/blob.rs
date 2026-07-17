@@ -49,6 +49,7 @@ impl BlobBucket {
             BlobGetResponse::Ok(v) => Ok(Some(v)),
             BlobGetResponse::BindingNotExists => Err(BlobGetError::BindingNotExists),
             BlobGetResponse::InternalSdkError => Err(BlobGetError::InternalSdkError),
+            BlobGetResponse::StorageError => Err(BlobGetError::StorageError),
         }
     }
 
@@ -96,6 +97,7 @@ impl Future for BlobGetResponseFuture {
                     abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentOutOfBounds(_)
                     | abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentFailedToDecode(_)
                     | abi_blob_capnp::blob_get_response::response::Which::BadRequestFailedToAccessMemory(_) => BlobGetResponse::InternalSdkError,
+                    abi_blob_capnp::blob_get_response::response::Which::StorageError(()) => BlobGetResponse::StorageError,
                 }
             }),
             _ => std::task::Poll::Ready(BlobGetResponse::InternalSdkError),
@@ -103,11 +105,13 @@ impl Future for BlobGetResponseFuture {
     }
 }
 
+// TODO: convert to Result<Option<Vec<u8>>, BlobGetError>,
 enum BlobGetResponse {
     NotFound,
     Ok(Vec<u8>),
     BindingNotExists,
     InternalSdkError,
+    StorageError,
 }
 
 #[derive(Debug, Error)]
@@ -117,6 +121,9 @@ pub enum BlobGetError {
 
     #[error("failed to read blob because of internal error in fx sdk")]
     InternalSdkError,
+
+    #[error("failed to get blob because of an error in runtime storage implementation")]
+    StorageError,
 }
 
 struct BlobDeleteResponseFuture(u64);
