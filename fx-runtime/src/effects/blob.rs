@@ -4,6 +4,21 @@ use {
 };
 
 #[derive(Debug, Error)]
+pub(crate) enum BlobPutError {
+    #[error("error in storage implementation")]
+    StorageError,
+}
+
+impl From<crate::tasks::blob::PutError> for BlobPutError {
+    fn from(err: crate::tasks::blob::PutError) -> Self {
+        use crate::tasks::blob::PutError as SourceError;
+        match err {
+            SourceError::BlobStorageError => Self::StorageError,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
 pub(crate) enum BlobGetError {
     #[error("bad request: failed to access memory")]
     BadRequestFailedToAccessMemory,

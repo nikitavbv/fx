@@ -37,6 +37,8 @@ use {
         HttpFrameSerializeResult,
         HttpFrameSerializeResultCode,
         AsyncResourcePollResult,
+        BlobPutResultSerializeResult,
+        BlobPutResultSerializeResultCode,
         BlobGetResultSerializeResult,
         BlobGetResultSerializeResultCode,
         BlobDeleteResultSerializeResult,
@@ -60,7 +62,7 @@ use {
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
-            blob::{BlobGetError, BlobDeleteError},
+            blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError},
@@ -733,6 +735,61 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
     0
 }
 
+pub(super) fn fx_blob_put_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.blob_put_result_futures,
+        |s| &mut s.blob_put_results,
+        resource_id
+    );
+
+    write_result(&mut caller, result_addr, match result {
+        Poll::Pending => AsyncResourcePollResult {
+            tag: 1,
+            _pad: Default::default(),
+            resolved_resource_id: 0,
+        },
+        Poll::Ready(v) => AsyncResourcePollResult {
+            tag: 0,
+            _pad: Default::default(),
+            resolved_resource_id: v.into(),
+        },
+    });
+
+    0
+}
+
+pub(super) fn fx_blob_put_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let blob_put_result = match caller.data_mut().resource_set.blob_put_results.remove(resource_id.into()) {
+        Some(v) => v,
+        None => return BlobPutResultSerializeResultCode::NotFound as u64,
+    };
+
+    let mut message = capnp::message::Builder::new_default();
+    let blob_put_response = message.init_root::<abi_blob_capnp::blob_put_result::Builder>();
+    let mut response = blob_put_response.init_result();
+
+    match blob_put_result {
+        Ok(()) => response.set_ok(()),
+        Err(BlobPutError::StorageError) => response.set_storage_error(()),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(
+        &mut caller,
+        result_addr,
+        BlobPutResultSerializeResult {
+            bytes_resource_id: bytes_resource_id.into(),
+            bytes_length: bytes_length as u64,
+        },
+    );
+
+    BlobPutResultSerializeResultCode::Ok as u64
+}
+
 pub(super) fn fx_blob_get_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let result = resource_poll(
         &mut caller,
@@ -1065,7 +1122,7 @@ pub(super) fn fx_blob_put_handler(
 
     let blob_tx = caller.data().blob_tx.clone();
 
-    caller.data_mut().resource_set.unit_futures.insert(async move {
+    caller.data_mut().resource_set.blob_put_result_futures.insert(async move {
         let (result, result_rx) = oneshot::channel();
 
         blob_tx.send_async(BlobMessage::Put {
@@ -1075,7 +1132,7 @@ pub(super) fn fx_blob_put_handler(
             result,
         }).await.unwrap();
 
-        result_rx.await.unwrap()
+        result_rx.await.unwrap().map_err(BlobPutError::from)
     }.boxed()).into()
 }
 

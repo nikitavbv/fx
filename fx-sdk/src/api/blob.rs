@@ -27,15 +27,15 @@ impl BlobBucket {
         Self { binding: binding.into() }
     }
 
-    pub async fn put(&self, key: String, value: Vec<u8>) {
-        HostUnitFuture::new(unsafe { fx_blob_put(
+    pub async fn put(&self, key: String, value: Vec<u8>) -> Result<(), BlobPutError> {
+        BlobPutResultFuture(unsafe { fx_blob_put(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key.as_ptr() as u64,
             key.len() as u64,
             value.as_ptr() as u64,
             value.len() as u64,
-        ) }).await.unwrap();
+        ) }).await
     }
 
     pub async fn get(&self, key: String) -> Result<Option<Vec<u8>>, BlobGetError> {
@@ -65,6 +65,22 @@ impl BlobBucket {
 
 pub fn blob(binding: impl Into<String>) -> BlobBucket {
     BlobBucket::new(binding)
+}
+
+#[derive(Debug, Error)]
+pub enum BlobPutError {
+    #[error("failed to put blob because of an error in runtime storage implementation")]
+    StorageError,
+}
+
+struct BlobPutResultFuture(u64);
+
+impl Future for BlobPutResultFuture {
+    type Output = Result<(), BlobPutError>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        todo!()
+    }
 }
 
 struct BlobGetResponseFuture(u64);

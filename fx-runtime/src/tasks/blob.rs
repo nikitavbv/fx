@@ -11,7 +11,7 @@ pub(crate) enum BlobMessage {
         bucket: String,
         key: Vec<u8>,
         value: Vec<u8>,
-        result: oneshot::Sender<()>,
+        result: oneshot::Sender<Result<(), PutError>>,
     },
     Get {
         bucket: String,
@@ -23,6 +23,12 @@ pub(crate) enum BlobMessage {
         key: Vec<u8>,
         result: oneshot::Sender<Result<(), DeleteError>>,
     },
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum PutError {
+    #[error("failed to put object because of unexpected error in blob storage implementation")]
+    BlobStorageError,
 }
 
 #[derive(Debug, Error)]
@@ -56,11 +62,14 @@ pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMes
             match msg {
                 BlobMessage::Put { bucket, key, value, result } => {
                     let key_hash = hash_key_for_object(bucket.as_str(), &key);
-                    index_db.put_object(&bucket, &key, &key_hash, value.len() as u64);
+                    if index_db.put_object(&bucket, &key, &key_hash, value.len() as u64).is_err() {
+                        let _ = result.send(Err(PutError::BlobStorageError));
+                        continue;
+                    }
 
                     tokio::fs::write(key_path(&data_path, key_hash.as_str()).await.as_path(), value).await.unwrap();
 
-                    result.send(()).unwrap();
+                    let _ = result.send(Ok(()));
                 },
                 BlobMessage::Get { bucket, key, result } => {
                     let key_hash = match index_db.get_object(&bucket, &key) {
@@ -163,14 +172,14 @@ impl IndexDb {
         ).unwrap()
     }
 
-    fn put_object(&self, bucket: &str, key: &[u8], key_hash: &str, size: u64) {
+    fn put_object(&self, bucket: &str, key: &[u8], key_hash: &str, size: u64) -> Result<(), ()> {
         let bucket_id = self.get_or_create_bucket(bucket);
 
         self.connection.execute(
             "insert into objects (bucket_id, key, key_hash, size) values (?1, ?2, ?3, ?4)
              on conflict (bucket_id, key) do update set key_hash = excluded.key_hash, size = excluded.size",
             rusqlite::params![bucket_id, key, key_hash, size as i64],
-        ).unwrap();
+        ).map(|_| ()).map_err(|err| error!("failed to insert object into index: {err:?}"))
     }
 
     fn get_object(&self, bucket: &str, key: &[u8]) -> Result<Option<String>, ()> {

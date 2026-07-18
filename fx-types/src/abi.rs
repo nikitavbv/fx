@@ -158,6 +158,20 @@ impl<T: Into<u64>> From<Poll<T>> for AsyncResourcePollResult {
 
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct BlobPutResultSerializeResult {
+    pub bytes_resource_id: u64,
+    pub bytes_length: u64,
+}
+
+#[derive(TryFromPrimitive)]
+#[repr(i64)]
+pub enum BlobPutResultSerializeResultCode {
+    Ok = 0,
+    NotFound = 1,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct BlobGetResultSerializeResult {
     pub bytes_resource_id: u64,
     pub bytes_length: u64,

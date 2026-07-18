@@ -1,5 +1,12 @@
 @0xa397c31dc0b3ff8c;
 
+struct BlobPutResult {
+    result :union {
+        ok @0 :Void;
+        storageError @1 :Void;
+    }
+}
+
 struct BlobGetResponse {
     response :union {
         notFound @0 :Void;
