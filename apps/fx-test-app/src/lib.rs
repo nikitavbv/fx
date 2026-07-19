@@ -444,9 +444,10 @@ async fn test_fetch_post() -> impl IntoResponse {
     ).await.unwrap().into_body().into_response()
 }
 
-async fn test_fetch_json() -> impl IntoResponse {
+async fn test_fetch_json(headers: axum::http::HeaderMap) -> impl IntoResponse {
     fetch(
         HttpRequest::post("https://fxruntime.com/test/post").unwrap()
+            .with_header("x-test-request-id".parse().unwrap(), headers.get("x-test-request-id").unwrap().clone())
             .with_json(&serde_json::json!({"key": "value"}))
     ).await.unwrap().into_body().into_response()
 }

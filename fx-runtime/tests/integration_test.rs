@@ -105,10 +105,15 @@ async fn http_pending_forever() {
 
 #[tokio::test]
 async fn fetch_json() {
+    let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
-    let response = client.get("/test/fetch/json").send().await.unwrap();
+    let response = client.get("/test/fetch/json")
+        .header("x-test-request-id", request_id.to_string())
+        .send()
+        .await
+        .unwrap();
     let status = response.status();
-    assert!(status.is_success(), "expected status code = 200, got: {status:?}");
+    assert!(status.is_success(), "expected status code = 200, got: {status:?}, request id: {request_id:?}");
     let text = response.text().await.unwrap();
     assert!(text.contains(r#""content-type": "application/json""#), "httpbin response should show application/json content-type, response body = {text:?}");
     assert!(text.contains(r#"\"key\":\"value\""#), "httpbin response should contain the json payload, response body = {text:?}");
@@ -443,7 +448,7 @@ async fn fetch_body_read_all() {
         .await;
     let result = match result {
         Ok(v) => v,
-        Err(err) => panic!("request to test endpoint failed. request id={request_id:?}"),
+        Err(err) => panic!("request to test endpoint failed. request id={request_id:?}, err: {err:?}"),
     };
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
