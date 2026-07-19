@@ -434,9 +434,17 @@ async fn fetch_with_header() {
 
 #[tokio::test]
 async fn fetch_body_read_all() {
+    let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
 
-    let result = client.get("/test/fetch/body-read-all").send().await.unwrap();
+    let result = client.get("/test/fetch/body-read-all")
+        .header("x-test-request-id", request_id.to_string())
+        .send()
+        .await;
+    let result = match result {
+        Ok(v) => v,
+        Err(err) => panic!("request to test endpoint failed. request id={request_id:?}"),
+    };
     assert!(result.status().is_success());
     let result = result.text().await.unwrap();
     assert!(result.contains("\"url\": \"fxruntime.com/test/get\""), "expected result to contain url: {result:?}");
