@@ -2,6 +2,7 @@ use {
     std::thread::JoinHandle,
     tracing::{error, info},
     tokio::sync::oneshot,
+    thiserror::Error,
     crate::{
         definitions::config::{ServerConfig, LoggerConfig, FunctionConfig},
         effects::{
@@ -129,13 +130,26 @@ impl FxServer {
         };
 
         let cron_thread_handle = {
-            let cron_database = match self.config.cron_data_path {
-                Some(cron_data_path) => SqlDatabase::new(self.config.config_path.unwrap().parent().unwrap().join(cron_data_path)).unwrap(),
-                None => SqlDatabase::in_memory().unwrap(),
-            };
-            let cron_database = CronDatabase::new(cron_database);
-
             std::thread::spawn(move || {
+                let cron_database = match self.config.cron_data_path {
+                    Some(cron_data_path) => match SqlDatabase::new(self.config.config_path.unwrap().parent().unwrap().join(cron_data_path)) {
+                        Ok(v) => v,
+                        Err(err) => {
+                            error!("skipping cron thread from starting: failed to create sql database: {err:?}");
+                            return;
+                        },
+                    },
+                    None => match SqlDatabase::in_memory() {
+                        Ok(v) => v,
+                        Err(err) => {
+                            error!("skipping cron thread from starting: failed to create in-memory sql database: {err:?}");
+                            return;
+                        },
+                    },
+                };
+
+                let cron_database = CronDatabase::new(cron_database);
+
                 let cron_database = match cron_database {
                     Ok(v) => v,
                     Err(_) => {
@@ -151,11 +165,10 @@ impl FxServer {
 
         let sql_cores = cpu_info.as_ref()
             .map(|v| v.logical_processor_ids().iter().take(sql_threads).map(|v| Some(*v)).collect::<Vec<_>>())
-            .unwrap_or(std::iter::repeat(None).take(sql_threads).collect());
+            .unwrap_or(std::iter::repeat_n(None, sql_threads).collect());
 
-        let mut sql_worker_id = 0;
         let mut sql_worker_handles = Vec::new();
-        for (sql_worker, sql_thread_rx) in sql_cores.into_iter().zip(sql_thread_rx.into_iter()) {
+        for (sql_worker_id, (sql_worker, sql_thread_rx)) in sql_cores.into_iter().zip(sql_thread_rx).enumerate() {
             let sql_rx = sql_rx.clone();
             let config = self.config.sql.as_ref().cloned().unwrap_or_default();
 
@@ -175,7 +188,6 @@ impl FxServer {
                 run_sql_task(config.path, sql_rx, sql_thread_rx);
             });
             sql_worker_handles.push(handle);
-            sql_worker_id += 1;
         }
 
         let kv_thread_handle = {
@@ -196,7 +208,7 @@ impl FxServer {
 
         let worker_cores = cpu_info.as_ref()
             .map(|v| v.logical_processor_ids().iter().take(worker_threads).map(|v| Some(*v)).collect::<Vec<_>>())
-            .unwrap_or(std::iter::repeat(None).take(worker_threads).collect());
+            .unwrap_or(std::iter::repeat_n(None, worker_threads).collect());
 
         let workers = worker_cores.into_iter()
             .zip(workers_rx)
@@ -264,15 +276,6 @@ pub struct RunningFxServer {
 }
 
 impl RunningFxServer {
-    #[allow(dead_code)]
-    pub async fn deploy_function(&self, function_id: FunctionId, function_config: FunctionConfig) {
-        let (response_tx, response_rx) = oneshot::channel();
-
-        self.management_tx.send_async(ManagementMessage::DeployFunction(Box::new(DeployFunctionMessage { function_id, function_config, on_ready: response_tx }))).await.unwrap();
-
-        response_rx.await.unwrap();
-    }
-
     pub fn wait_until_finished(self) {
         for handle in self.worker_handles {
             if let Err(err) = handle.join() {
@@ -284,13 +287,41 @@ impl RunningFxServer {
                 error!("sql worker thread panic detected: {err:?}");
             }
         }
-        self.kv_thread_handle.join().unwrap();
-        self.blob_thread_handle.join().unwrap();
-        self.cron_thread_handle.join().unwrap();
-        self.compiler_thread_handle.join().unwrap();
-        self.logger_thread_handle.join().unwrap();
-        self.management_thread_handle.join().unwrap();
-        self.timer_thread_handle.join().unwrap();
+        wait_until_finished("kv", self.kv_thread_handle);
+        wait_until_finished("blob", self.blob_thread_handle);
+        wait_until_finished("cron", self.cron_thread_handle);
+        wait_until_finished("compiler", self.compiler_thread_handle);
+        wait_until_finished("logger", self.logger_thread_handle);
+        wait_until_finished("management", self.management_thread_handle);
+        wait_until_finished("timer", self.timer_thread_handle);
         info!("server shutdown all threads.");
+    }
+}
+
+mod deploy_function {
+    use super::*;
+
+    #[derive(Debug, Error)]
+    pub enum DeployError {
+        #[error("failed to deploy function because runtime is being shut down")]
+        RuntimeShutdown,
+    }
+
+    impl RunningFxServer {
+        #[allow(dead_code)]
+        pub async fn deploy_function(&self, function_id: FunctionId, function_config: FunctionConfig) -> Result<(), DeployError> {
+            let (response_tx, response_rx) = oneshot::channel();
+
+            self.management_tx.send_async(ManagementMessage::DeployFunction(Box::new(DeployFunctionMessage { function_id, function_config, on_ready: response_tx }))).await
+                .map_err(|_| DeployError::RuntimeShutdown)?;
+
+            response_rx.await.map_err(|_| DeployError::RuntimeShutdown)
+        }
+    }
+}
+
+fn wait_until_finished(thread_name: &'static str, join_handle: JoinHandle<()>) {
+    if let Err(err) = join_handle.join() {
+        error!("thread panic detected, thread = {thread_name}, error: {err:?}");
     }
 }
