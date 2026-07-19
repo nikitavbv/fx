@@ -46,14 +46,24 @@ pub(crate) enum DeleteError {
 pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMessage>) {
     let tokio_runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
-        .build()
-        .unwrap();
+        .build();
+    let tokio_runtime = match tokio_runtime {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to create tokio runtime for blob task: {err:?}. Stopping blob task.");
+            return;
+        }
+    };
     let local_set = tokio::task::LocalSet::new();
 
     tokio_runtime.block_on(local_set.run_until(async {
         let data_path = blob_path.join("data");
-        if !data_path.exists() {
-            fs::create_dir_all(&data_path).await.unwrap();
+        match tokio::fs::try_exists(&data_path).await {
+            Ok(false) => if let Err(err) = fs::create_dir_all(&data_path).await {
+                error!("failed to create data directory for blob storage: {err:?}");
+            },
+            Ok(true) => {},
+            Err(err) => error!("failed to check if data directory for blob storage exists: {err:?}"),
         }
 
         let index_db = match IndexDb::new(blob_path.join("index.sqlite")) {
@@ -73,15 +83,19 @@ pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMes
                         continue;
                     }
 
-                    tokio::fs::write(key_path(&data_path, key_hash.as_str()).await.as_path(), value).await.unwrap();
-
-                    let _ = result.send(Ok(()));
+                    let _ = result.send(
+                        tokio::fs::write(key_path(&data_path, key_hash.as_str()).await.as_path(), value).await
+                            .map_err(|err| {
+                                error!("failed to write object to fs: {err:?}");
+                                PutError::BlobStorageError
+                            })
+                    );
                 },
                 BlobMessage::Get { bucket, key, result } => {
                     let key_hash = match index_db.get_object(&bucket, &key) {
                         Ok(Some(v)) => v,
                         Ok(None) => {
-                            result.send(Ok(None)).unwrap();
+                            let _ = result.send(Ok(None));
                             continue;
                         },
                         Err(()) => {
@@ -90,26 +104,36 @@ pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMes
                         },
                     };
 
-                    let value = tokio::fs::read(key_path(&data_path, key_hash.as_str()).await.as_path()).await.unwrap();
+                    let value = tokio::fs::read(key_path(&data_path, key_hash.as_str()).await.as_path()).await
+                        .map_err(|err| {
+                            error!("failed to read object from fs: {err:?}");
+                            GetError::BlobStorageError
+                        })
+                        .map(Some);
 
-                    result.send(Ok(Some(value))).unwrap();
+                    let _ = result.send(value);
                 },
-                BlobMessage::Delete { bucket, key, result } => {
+                BlobMessage::Delete { bucket, key, result: result_sender } => {
                     let key_hash = match index_db.delete_object(&bucket, &key) {
                         Ok(Some(v)) => v,
                         Ok(None) => {
-                            result.send(Ok(())).unwrap();
+                            let _ = result_sender.send(Ok(()));
                             continue;
                         },
                         Err(()) => {
-                            let _ = result.send(Err(DeleteError::BlobStorageError));
+                            let _ = result_sender.send(Err(DeleteError::BlobStorageError));
                             continue;
                         },
                     };
 
-                    tokio::fs::remove_file(key_path(&data_path, key_hash.as_str()).await.as_path()).await.unwrap();
+                    let result = tokio::fs::remove_file(key_path(&data_path, key_hash.as_str()).await.as_path()).await
+                        .map_err(|err| {
+                            error!("failed to remove object file: {err:?}");
+                            DeleteError::BlobStorageError
+                        });
 
-                    result.send(Ok(())).unwrap();
+                    // error here can be ignored because it means request has been cancelled
+                    let _ = result_sender.send(result);
                 },
             }
         }
@@ -126,9 +150,16 @@ fn hash_key_for_object(bucket_name: &str, key: &[u8]) -> String {
 
 async fn key_path(data_path: &Path, key: &str) -> PathBuf {
     let dir_path = data_path.join(&key[0..2]).join(&key[2..4]);
-    if !dir_path.exists() {
-        fs::create_dir_all(&dir_path).await.unwrap();
-    }
+
+    match tokio::fs::try_exists(&dir_path).await {
+        Ok(false) => {
+            if let Err(err) = fs::create_dir_all(&dir_path).await {
+                error!("failed to create directory for key path: {err:?}");
+            }
+        },
+        Ok(true) => {},
+        Err(err) => error!("failed to check if key path directory exists: {err:?}"),
+    };
 
     dir_path.join(&key[4..])
 }
