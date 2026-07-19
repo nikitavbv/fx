@@ -165,9 +165,20 @@ pub(crate) fn run_management_task(
 }
 
 async fn open_invocations_log_file(invocations_log_path: &Path) -> Option<tokio::fs::File> {
-    let logs_dir = invocations_log_path.parent().unwrap();
+    let logs_dir = match invocations_log_path.parent() {
+        Some(v) => v,
+        None => {
+            error!("failed to get parent dir of invocations log file path");
+            return None;
+        }
+    };
 
-    if !tokio::fs::try_exists(logs_dir).await.unwrap() {
+    let logs_dir_exists = tokio::fs::try_exists(logs_dir)
+        .await
+        .map_err(|err| error!("failed to check if logs dir exists: {err:?}"))
+        .ok()?;
+
+    if !logs_dir_exists {
         tokio::fs::create_dir_all(logs_dir)
             .await
             .map_err(|err| error!("failed to create logs dir: {err:?}"))

@@ -56,7 +56,13 @@ pub(crate) fn run_blob_task(blob_path: PathBuf, blob_rx: flume::Receiver<BlobMes
             fs::create_dir_all(&data_path).await.unwrap();
         }
 
-        let index_db = IndexDb::new(blob_path.join("index.sqlite"));
+        let index_db = match IndexDb::new(blob_path.join("index.sqlite")) {
+            Ok(v) => v,
+            Err(()) => {
+                error!("failed to create index database. Stopping blob task.");
+                return;
+            },
+        };
 
         while let Ok(msg) = blob_rx.recv_async().await {
             match msg {
@@ -132,10 +138,13 @@ struct IndexDb {
 }
 
 impl IndexDb {
-    fn new(path: PathBuf) -> Self {
-        let mut connection = rusqlite::Connection::open(path).unwrap();
-        connection.pragma_update(None, "journal_mode", "WAL").unwrap();
-        connection.pragma_update(None, "synchronous", "NORMAL").unwrap();
+    fn new(path: PathBuf) -> Result<Self, ()> {
+        let mut connection = rusqlite::Connection::open(path)
+            .map_err(|err| error!("failed to open connection to index database for blob: {err:?}"))?;
+        connection.pragma_update(None, "journal_mode", "WAL")
+            .map_err(|err| error!("failed to update pragma for \"journal_mode\" for index db connection: {err:?}"))?;
+        connection.pragma_update(None, "synchronous", "NORMAL")
+            .map_err(|err| error!("failed to update pragma for \"synchronous\" for index db connection: {err:?}"))?;
 
         rusqlite_migration::Migrations::new(vec![
             rusqlite_migration::M::up(r#"
@@ -152,28 +161,30 @@ impl IndexDb {
                     primary key (bucket_id, key)
                 );
             "#),
-        ]).to_latest(&mut connection).unwrap();
+        ])
+            .to_latest(&mut connection)
+            .map_err(|err| error!("failed to run migrations for index database: {err:?}"))?;
 
-        Self {
+        Ok(Self {
             connection,
-        }
+        })
     }
 
-    fn get_or_create_bucket(&self, name: &str) -> i64 {
+    fn get_or_create_bucket(&self, name: &str) -> Result<i64, ()> {
         self.connection.execute(
             "insert or ignore into buckets (name) values (?1)",
             rusqlite::params![name],
-        ).unwrap();
+        ).map_err(|err| error!("failed to create bucket if not exists in index: {err:?}"))?;
 
         self.connection.query_row(
             "select id from buckets where name = ?1",
             rusqlite::params![name],
             |row| row.get(0),
-        ).unwrap()
+        ).map_err(|err| error!("failed to find bucket by name in index: {err:?}"))
     }
 
     fn put_object(&self, bucket: &str, key: &[u8], key_hash: &str, size: u64) -> Result<(), ()> {
-        let bucket_id = self.get_or_create_bucket(bucket);
+        let bucket_id = self.get_or_create_bucket(bucket)?;
 
         self.connection.execute(
             "insert into objects (bucket_id, key, key_hash, size) values (?1, ?2, ?3, ?4)
