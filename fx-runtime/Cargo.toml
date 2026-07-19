@@ -52,6 +52,7 @@ async-unsync = "0.3.0"
 send_wrapper = "0.6.0"
 blake3 = "1.8.3"
 zerocopy = "0.8.49"
+ulid = "1.1.0"
 
 fx-types = { path = "../fx-types" }
 
@@ -64,6 +65,3 @@ pre-build = [
     "apt update",
     "apt install -y capnproto"
 ]
-
-[dev-dependencies]
-ulid = "1.1.0"

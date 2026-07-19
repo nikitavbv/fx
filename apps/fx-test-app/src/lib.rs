@@ -420,7 +420,7 @@ async fn test_blob_get() -> (StatusCode, String) {
 }
 
 async fn test_blob_put() {
-    blob("test-blob").put("test-key".to_owned(), "test-value".as_bytes().to_vec()).await;
+    blob("test-blob").put("test-key".to_owned(), "test-value".as_bytes().to_vec()).await.unwrap();
 }
 
 async fn test_blob_delete() {

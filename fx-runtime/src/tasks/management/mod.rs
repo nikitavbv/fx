@@ -1,9 +1,10 @@
 use {
-    std::{collections::HashMap, sync::Arc},
+    std::{collections::HashMap, sync::Arc, time::Duration},
     tracing::error,
     send_wrapper::SendWrapper,
-    tokio::sync::oneshot,
+    tokio::{sync::oneshot, io::AsyncWriteExt},
     tracing::info,
+    serde::Serialize,
     crate::{
         function::FunctionId,
         definitions::{config::{FunctionConfig, ServerConfig}, monitor::{DefinitionsMonitor, ApplyConfigError}},
@@ -23,7 +24,7 @@ pub(crate) mod runtime_state;
 pub(crate) enum ManagementMessage {
     DeployFunction(Box<DeployFunctionMessage>),
     WorkerMetrics(MetricsFlushMessage),
-    FunctionInvoked(()),
+    FunctionInvoked(FunctionInvokedMessage),
 }
 
 pub(crate) struct DeployFunctionMessage {
@@ -35,6 +36,12 @@ pub(crate) struct DeployFunctionMessage {
 #[derive(Debug)]
 pub(crate) struct MetricsFlushMessage {
     pub(crate) function_metrics: HashMap<FunctionId, FunctionMetricsDelta>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct FunctionInvokedMessage {
+    pub(crate) request_id: String,
+    pub(crate) total_duration: Duration,
 }
 
 pub(crate) fn run_management_task(
@@ -66,10 +73,25 @@ pub(crate) fn run_management_task(
         .map(|v| (v.enabled, v.port))
         .unwrap_or((true, 9000));
 
+    let invocations_log_enabled = config.management.and_then(|v| v.function_invocations_log_enabled).unwrap_or(false);
+    let invocations_log_path = std::path::Path::new("../local/logs/function_invocations.jsonl");
+
     tokio_runtime.block_on(local_set.run_until(async {
         tokio::join!(
             definitions_monitor.scan_definitions(),
             async {
+                let mut invocations_log_file = if invocations_log_enabled {
+                    let logs_dir = invocations_log_path.parent().unwrap();
+
+                    if !tokio::fs::try_exists(logs_dir).await.unwrap() {
+                        tokio::fs::create_dir_all(logs_dir).await.unwrap();
+                    }
+
+                    Some(tokio::fs::OpenOptions::new().append(true).create(true).open(invocations_log_path).await.unwrap())
+                } else {
+                    None
+                };
+
                 loop {
                     tokio::select! {
                         msg = management_rx.recv_async() => {
@@ -96,7 +118,12 @@ pub(crate) fn run_management_task(
                                 ManagementMessage::WorkerMetrics(msg) => {
                                     metrics.update(msg.function_metrics);
                                 },
-                                ManagementMessage::FunctionInvoked(_msg) => {
+                                ManagementMessage::FunctionInvoked(msg) => {
+                                    if let Some(invocations_log_file) = invocations_log_file.as_mut() {
+                                        let mut event_line = serde_json::to_string_pretty(&msg).unwrap();
+                                        event_line.push('\n');
+                                        invocations_log_file.write_all(event_line.as_bytes()).await.unwrap();
+                                    }
                                     metrics.counter_increment(MetricKey::new("function_invoked"), 1);
                                 },
                             }

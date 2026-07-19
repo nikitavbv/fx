@@ -1,5 +1,5 @@
 use {
-    std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll},
+    std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll, time::Instant},
     tracing::warn,
     futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
     hyper::{Response, body::Bytes},
@@ -19,11 +19,12 @@ use {
             instance::{FunctionInstance, FunctionFramePollFuture},
         },
         effects::fetch::HttpStreamError,
-        tasks::management::ManagementMessage,
+        tasks::management::{ManagementMessage, FunctionInvokedMessage},
     },
 };
 
 const HTTP_PATH_NAMESPACE_INTERNAL: &str = "/_fx/";
+const HEADER_REQUEST_ID: &str = "x-request-id";
 
 pub(crate) struct HttpHandler {
     management_tx: flume::Sender<ManagementMessage>,
@@ -57,6 +58,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        let request_received_at = Instant::now();
+
         let host_header = req.headers().get("Host");
         let host_str = match host_header {
             Some(header) => match header.to_str() {
@@ -91,6 +94,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             };
 
             let (header, body) = req.into_parts();
+            let request_id = header.headers.get(HEADER_REQUEST_ID).map(|v| v.to_str().unwrap().to_owned()).unwrap_or_else(|| ulid::Ulid::new().to_string());
 
             if header.uri.path().starts_with(HTTP_PATH_NAMESPACE_INTERNAL) {
                 let mut response = Response::new(HttpBody::for_bytes(Bytes::from("not found.\n".as_bytes())));
@@ -122,7 +126,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 Err(err) => Err(err),
             };
 
-            let response = match function_response {
+            let mut response = match function_response {
                 Ok(function_response) => function_response.unwrap(),
                 Err(err) => match err {
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
@@ -138,7 +142,15 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            if management_tx.send_async(ManagementMessage::FunctionInvoked(())).await.is_err() {
+            if !response.headers().contains_key(HEADER_REQUEST_ID) {
+                response.headers_mut().insert(HEADER_REQUEST_ID, request_id.parse().unwrap());
+            }
+
+            let invoked_event = FunctionInvokedMessage {
+                request_id,
+                total_duration: Instant::now() - request_received_at,
+            };
+            if management_tx.send_async(ManagementMessage::FunctionInvoked(invoked_event)).await.is_err() {
                 warn!("failed to send function invoked event to management thread.");
             }
 

@@ -21,6 +21,7 @@ use {
             IntrospectionConfig,
             FunctionCronTriggerConfig,
             EnvVariableConfig,
+            ManagementConfig,
         },
         effects::logs::{EventFieldValue, LogEventType, BoxLogger},
     },
@@ -320,10 +321,13 @@ async fn test_random() {
 async fn test_time() {
     let client = init_fx_server().await;
 
-    let millis: u64 = client.get("/test/time").send().await.unwrap()
+    let response = client.get("/test/time").send().await.unwrap();
+    let request_id = response.headers().get("x-request-id").unwrap().to_str().unwrap().to_owned();
+
+    let millis: u64 = response
         .text().await.unwrap()
         .parse().unwrap();
-    assert!((950..=1050).contains(&millis), "got unexpected response from /test/time: {millis:?}");
+    assert!((950..=1050).contains(&millis), "got unexpected response from /test/time: {millis:?}, request_id: {request_id:?}");
 }
 
 #[tokio::test]
@@ -935,6 +939,9 @@ async fn preemption() {
         blob: Some(BlobConfig {
             path: "/tmp/fx/blob".parse().unwrap(),
         }),
+        management: Some(ManagementConfig {
+            function_invocations_log_enabled: Some(true),
+        }),
         logger: None,
         introspection: Some(IntrospectionConfig {
             enabled: false,
@@ -1091,6 +1098,9 @@ async fn init_fx_server() -> TestClient {
                         }),
                         blob: Some(BlobConfig {
                             path: "/tmp/fx/blob".parse().unwrap(),
+                        }),
+                        management: Some(ManagementConfig {
+                            function_invocations_log_enabled: Some(true),
                         }),
                         logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
                         introspection: Some(IntrospectionConfig { enabled: true, port: introspection_port }),

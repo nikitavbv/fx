@@ -20,6 +20,8 @@ pub struct ServerConfig {
     pub sql: Option<SqlConfig>,
     pub blob: Option<BlobConfig>,
 
+    pub management: Option<ManagementConfig>,
+
     pub logger: Option<LoggerConfig>,
     pub introspection: Option<IntrospectionConfig>,
 }
@@ -73,6 +75,11 @@ impl Default for BlobConfig {
             path: "/var/lib/fx/blob".parse().unwrap(),
         }
     }
+}
+
+#[derive(Deserialize, Clone)]
+pub struct ManagementConfig {
+    pub function_invocations_log_enabled: Option<bool>,
 }
 
 #[derive(Deserialize, Clone)]

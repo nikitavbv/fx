@@ -2,19 +2,25 @@ use {
     fx_types::{
         capnp,
         abi_blob_capnp,
-        abi::{AsyncResourcePollResult, BlobGetResultSerializeResult, BlobDeleteResultSerializeResult},
+        abi::{
+            AsyncResourcePollResult,
+            BlobPutResultSerializeResult,
+            BlobGetResultSerializeResult,
+            BlobDeleteResultSerializeResult,
+        },
     },
     thiserror::Error,
     crate::sys::{
         fx_blob_put,
         fx_blob_get,
         fx_blob_delete,
+        fx_blob_put_result_poll,
+        fx_blob_put_result_serialize,
         fx_blob_get_result_poll,
         fx_blob_get_result_serialize,
         fx_blob_delete_result_poll,
         fx_blob_delete_result_serialize,
         fx_bytes_move,
-        HostUnitFuture,
     },
 };
 
@@ -71,6 +77,8 @@ pub fn blob(binding: impl Into<String>) -> BlobBucket {
 pub enum BlobPutError {
     #[error("failed to put blob because of an error in runtime storage implementation")]
     StorageError,
+    #[error("failed to read blob because of internal error in fx sdk")]
+    InternalSdkError,
 }
 
 struct BlobPutResultFuture(u64);
@@ -78,8 +86,31 @@ struct BlobPutResultFuture(u64);
 impl Future for BlobPutResultFuture {
     type Output = Result<(), BlobPutError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        todo!()
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
+        assert!(unsafe { fx_blob_put_result_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
+                let mut serialization_result = std::mem::MaybeUninit::<BlobPutResultSerializeResult>::zeroed();
+                assert!(unsafe { fx_blob_put_result_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                let result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+                let request = resource_reader.get_root::<abi_blob_capnp::blob_put_result::Reader>().unwrap();
+                match request.get_result().which().unwrap() {
+                    abi_blob_capnp::blob_put_result::result::Which::Ok(()) => Ok(()),
+                    abi_blob_capnp::blob_put_result::result::Which::StorageError(()) => Err(BlobPutError::StorageError),
+                }
+            }),
+            _ => std::task::Poll::Ready(Err(BlobPutError::InternalSdkError)),
+        }
     }
 }
 
