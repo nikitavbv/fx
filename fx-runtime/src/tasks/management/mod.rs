@@ -1,5 +1,5 @@
 use {
-    std::{collections::HashMap, sync::Arc, time::Duration},
+    std::{collections::HashMap, sync::Arc, time::Duration, path::Path},
     tracing::error,
     send_wrapper::SendWrapper,
     tokio::{sync::oneshot, io::AsyncWriteExt},
@@ -81,13 +81,7 @@ pub(crate) fn run_management_task(
             definitions_monitor.scan_definitions(),
             async {
                 let mut invocations_log_file = if invocations_log_enabled {
-                    let logs_dir = invocations_log_path.parent().unwrap();
-
-                    if !tokio::fs::try_exists(logs_dir).await.unwrap() {
-                        tokio::fs::create_dir_all(logs_dir).await.unwrap();
-                    }
-
-                    Some(tokio::fs::OpenOptions::new().append(true).create(true).open(invocations_log_path).await.unwrap())
+                    open_invocations_log_file(invocations_log_path).await
                 } else {
                     None
                 };
@@ -120,9 +114,17 @@ pub(crate) fn run_management_task(
                                 },
                                 ManagementMessage::FunctionInvoked(msg) => {
                                     if let Some(invocations_log_file) = invocations_log_file.as_mut() {
-                                        let mut event_line = serde_json::to_string_pretty(&msg).unwrap();
-                                        event_line.push('\n');
-                                        invocations_log_file.write_all(event_line.as_bytes()).await.unwrap();
+                                        match serde_json::to_string(&msg) {
+                                            Ok(mut event_line) => {
+                                                event_line.push('\n');
+                                                if let Err(err) = invocations_log_file.write_all(event_line.as_bytes()).await {
+                                                    error!("failed to write even to invocations log: {err:?}");
+                                                }
+                                            },
+                                            Err(err) => {
+                                                error!("failed to serialize function invocation event for invocation log: {err:?}");
+                                            }
+                                        }
                                     }
                                     metrics.counter_increment(MetricKey::new("function_invoked"), 1);
                                 },
@@ -160,4 +162,20 @@ pub(crate) fn run_management_task(
             },
         )
     }));
+}
+
+async fn open_invocations_log_file(invocations_log_path: &Path) -> Option<tokio::fs::File> {
+    let logs_dir = invocations_log_path.parent().unwrap();
+
+    if !tokio::fs::try_exists(logs_dir).await.unwrap() {
+        tokio::fs::create_dir_all(logs_dir)
+            .await
+            .map_err(|err| error!("failed to create logs dir: {err:?}"))
+            .ok()?;
+    }
+
+    tokio::fs::OpenOptions::new().append(true).create(true).open(invocations_log_path)
+        .await
+        .map_err(|err| error!("failed to open invocations log file: {err:?}"))
+        .ok()
 }

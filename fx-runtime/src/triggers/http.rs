@@ -94,7 +94,10 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             };
 
             let (header, body) = req.into_parts();
-            let request_id = header.headers.get(HEADER_REQUEST_ID).map(|v| v.to_str().unwrap().to_owned()).unwrap_or_else(|| ulid::Ulid::new().to_string());
+            let request_id = header.headers.get(HEADER_REQUEST_ID)
+                .and_then(|v| v.to_str().ok())
+                .map(|v| v.to_owned())
+                .unwrap_or_else(|| ulid::Ulid::new().to_string());
 
             if header.uri.path().starts_with(HTTP_PATH_NAMESPACE_INTERNAL) {
                 let mut response = Response::new(HttpBody::for_bytes(Bytes::from("not found.\n".as_bytes())));
@@ -142,8 +145,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
 
-            if !response.headers().contains_key(HEADER_REQUEST_ID) {
-                response.headers_mut().insert(HEADER_REQUEST_ID, request_id.parse().unwrap());
+            if !response.headers().contains_key(HEADER_REQUEST_ID) && let Ok(request_id) = request_id.parse() {
+                response.headers_mut().insert(HEADER_REQUEST_ID, request_id);
             }
 
             let invoked_event = FunctionInvokedMessage {
