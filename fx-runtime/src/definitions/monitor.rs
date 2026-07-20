@@ -91,11 +91,12 @@ impl DefinitionsMonitor {
             };
 
             match self.apply_config(function_id, function_config).await {
-                Ok(_) => continue,
+                Ok(()) => continue,
                 Err(ApplyConfigError::CronTaskShutdown) => {
                     info!("shutting down definitions monitor because cron task shutdown.");
                     return;
                 },
+                Err(ApplyConfigError::CompilerError) => continue,
             };
         }
 
@@ -145,11 +146,12 @@ impl DefinitionsMonitor {
             };
 
             match self.apply_config(function_id, function_config).await {
-                Ok(_) => continue,
+                Ok(()) => continue,
                 Err(ApplyConfigError::CronTaskShutdown) => {
                     info!("shutting down definitions monitor because cron task shutdown.");
                     return;
                 },
+                Err(ApplyConfigError::CompilerError) => continue,
             }
         }
     }
@@ -200,7 +202,13 @@ impl DefinitionsMonitor {
         }).await.unwrap();
 
         let deployment_id = self.next_deployment_id();
-        let module = compiler_response_rx.await.unwrap();
+        let module = match compiler_response_rx.await.unwrap() {
+            Ok(v) => v,
+            Err(err) => {
+                error!("skipping applying config for function id={function_id:?} because of compiler error: {err:?}");
+                return Err(ApplyConfigError::CompilerError);
+            }
+        };
 
         let limit_memory_bytes = config.limits.as_ref().and_then(|v| v.memory_bytes);
 
@@ -335,4 +343,6 @@ enum FunctionIdDetectionError {
 pub(crate) enum ApplyConfigError {
     #[error("failed to apply config. Cannot apply updated cron config because cron task shutdown")]
     CronTaskShutdown,
+    #[error("failed to apply config because failed to compile module")]
+    CompilerError,
 }

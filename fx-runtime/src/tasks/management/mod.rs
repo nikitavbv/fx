@@ -5,6 +5,7 @@ use {
     tokio::{sync::oneshot, io::AsyncWriteExt},
     tracing::info,
     serde::Serialize,
+    thiserror::Error,
     crate::{
         function::FunctionId,
         definitions::{config::{FunctionConfig, ServerConfig}, monitor::{DefinitionsMonitor, ApplyConfigError}},
@@ -30,7 +31,13 @@ pub(crate) enum ManagementMessage {
 pub(crate) struct DeployFunctionMessage {
     pub(crate) function_id: FunctionId,
     pub(crate) function_config: FunctionConfig,
-    pub(crate) on_ready: oneshot::Sender<()>,
+    pub(crate) on_ready: oneshot::Sender<Result<(), DeployFunctionError>>,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum DeployFunctionError {
+    #[error("failed to deploy function: failed to compile wasm module")]
+    CompileError,
 }
 
 #[derive(Debug)]
@@ -99,15 +106,16 @@ pub(crate) fn run_management_task(
                             match msg {
                                 ManagementMessage::DeployFunction(msg) => {
                                     let result = definitions_monitor.apply_config(msg.function_id, msg.function_config).await;
-                                    // error can be ignored here because it means that request was cancelled
-                                    let _ = msg.on_ready.send(());
-                                    match result {
-                                        Ok(_) => {},
+                                    let result = match result {
+                                        Ok(()) => Ok(()),
                                         Err(ApplyConfigError::CronTaskShutdown) => {
                                             info!("stopping management task, because cron task is stopped");
                                             break;
                                         },
-                                    }
+                                        Err(ApplyConfigError::CompilerError) => Err(DeployFunctionError::CompileError),
+                                    };
+                                    // error can be ignored here because it means that request was cancelled
+                                    let _ = msg.on_ready.send(result);
                                 },
                                 ManagementMessage::WorkerMetrics(msg) => {
                                     metrics.update(msg.function_metrics);

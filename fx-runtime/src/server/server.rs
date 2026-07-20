@@ -12,7 +12,7 @@ use {
         tasks::{
             worker::{WorkerMessage, WorkerConfig, run_worker_task, WorkersController},
             sql::{SqlMessage, run_sql_task, SqlController},
-            compiler::CompilerMessage,
+            compiler::{CompilerMessage, CompilerError},
             management::{ManagementMessage, run_management_task, DeployFunctionMessage},
             cron::{run_cron_task, CronTaskEvent},
             kv::run_kv_task,
@@ -109,7 +109,13 @@ impl FxServer {
                     let function_id = msg.function_id.as_string();
 
                     info!(function_id, "compiling");
-                    msg.response.send(wasmtime::Module::new(&wasmtime, msg.code).unwrap()).unwrap();
+                    let _ = msg.response.send(
+                        wasmtime::Module::new(&wasmtime, msg.code)
+                            .map_err(|err| {
+                                error!("failed to compile wasm module: {err:?}");
+                                CompilerError::FailedToCompile
+                            })
+                    );
                     info!(function_id, "done compiling");
                 }
             })
@@ -132,12 +138,30 @@ impl FxServer {
         let cron_thread_handle = {
             std::thread::spawn(move || {
                 let cron_database = match self.config.cron_data_path {
-                    Some(cron_data_path) => match SqlDatabase::new(self.config.config_path.unwrap().parent().unwrap().join(cron_data_path)) {
-                        Ok(v) => v,
-                        Err(err) => {
-                            error!("skipping cron thread from starting: failed to create sql database: {err:?}");
-                            return;
-                        },
+                    Some(cron_data_path) => {
+                        let config_path = match self.config.config_path {
+                            Some(v) => v,
+                            None => {
+                                error!("skipping cron thread from starting: expected config path to be set.");
+                                return;
+                            }
+                        };
+
+                        let fx_root_dir = match config_path.parent() {
+                            Some(v) => v,
+                            None => {
+                                error!("skipping cron thread from starting: failed to get fx root dir based on config path.");
+                                return;
+                            }
+                        };
+
+                        match SqlDatabase::new(fx_root_dir.join(cron_data_path)) {
+                            Ok(v) => v,
+                            Err(err) => {
+                                error!("skipping cron thread from starting: failed to create sql database: {err:?}");
+                                return;
+                            },
+                        }
                     },
                     None => match SqlDatabase::in_memory() {
                         Ok(v) => v,
@@ -305,6 +329,17 @@ mod deploy_function {
     pub enum DeployError {
         #[error("failed to deploy function because runtime is being shut down")]
         RuntimeShutdown,
+        #[error("failed to deploy function because failed to compile wasm module")]
+        CompileError,
+    }
+
+    impl From<crate::tasks::management::DeployFunctionError> for DeployError {
+        fn from(err: crate::tasks::management::DeployFunctionError) -> Self {
+            use crate::tasks::management::DeployFunctionError as SourceError;
+            match err {
+                SourceError::CompileError => Self::CompileError,
+            }
+        }
     }
 
     impl RunningFxServer {
@@ -315,7 +350,7 @@ mod deploy_function {
             self.management_tx.send_async(ManagementMessage::DeployFunction(Box::new(DeployFunctionMessage { function_id, function_config, on_ready: response_tx }))).await
                 .map_err(|_| DeployError::RuntimeShutdown)?;
 
-            response_rx.await.map_err(|_| DeployError::RuntimeShutdown)
+            response_rx.await.map_err(|_| DeployError::RuntimeShutdown)?.map_err(DeployError::from)
         }
     }
 }
