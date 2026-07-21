@@ -125,12 +125,12 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
             let function_response = match response {
-                Ok(v) => Ok(v.move_to_host().await),
+                Ok(v) => Ok(v.await),
                 Err(err) => Err(err),
             };
 
             let mut response = match function_response {
-                Ok(function_response) => function_response.unwrap(),
+                Ok(function_response) => function_response,
                 Err(err) => match err {
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
                         let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")));

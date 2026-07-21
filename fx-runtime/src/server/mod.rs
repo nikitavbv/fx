@@ -1,3 +1,3 @@
-pub use self::server::{FxServer, RunningFxServer};
+pub use self::fx_server::{FxServer, RunningFxServer};
 
-pub(crate) mod server;
+mod fx_server;

@@ -3,7 +3,12 @@ use {
     tokio::sync::oneshot,
     thiserror::Error,
     crate::{
-        function::{FunctionId, FunctionDeploymentId, deployment::FunctionDeploymentHandleRequestError},
+        function::{
+            FunctionId,
+            FunctionDeploymentId,
+            deployment::FunctionDeploymentHandleRequestError,
+            resource::FunctionHttpResponseFuture,
+        },
         definitions::{
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
@@ -44,7 +49,7 @@ pub(crate) enum WorkerLocalMessage {
     FunctionInvoke {
         function_id: FunctionId,
         header: FetchRequestHeader,
-        response_tx: async_unsync::oneshot::Sender<Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>>,
+        response_tx: async_unsync::oneshot::Sender<Result<FunctionHttpResponseFuture, FunctionInvokeError>>,
     }
 }
 

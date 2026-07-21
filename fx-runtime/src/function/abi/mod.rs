@@ -1271,7 +1271,7 @@ pub(super) fn fx_fetch_handler(
 
         async move {
             match response_rx.await {
-                Ok(v) => Ok(v.move_to_host().await.unwrap()),
+                Ok(v) => Ok(v.await),
                 Err(err) => Err(FetchResultError::from(err)),
             }
         }.boxed_local()

@@ -6,7 +6,7 @@
 
 use {
     std::path::PathBuf,
-    tracing::{info, warn},
+    tracing::{info, warn, error},
     tracing_subscriber::{FmtSubscriber, EnvFilter},
     clap::{Parser, Subcommand},
     fx_runtime::{FxServer, config::ServerConfig},
@@ -59,7 +59,15 @@ fn main() {
             info!("Loading config from {config_path:?}");
             let config = ServerConfig::load(config_path);
 
-            FxServer::new(config).start().wait_until_finished();
+            let server = match FxServer::new(config).start() {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to start fx server: {err:?}. Exiting...");
+                    return;
+                }
+            };
+
+            server.wait_until_finished();
         },
     }
 }

@@ -4,9 +4,8 @@ use {
     send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{
-        function::FunctionId,
+        function::{FunctionId, resource::FunctionHttpResponseFuture},
         triggers::http::{FetchRequestHeader, HttpBody},
-        resources::serialize::SerializedFunctionResource,
         tasks::worker::messages::FunctionInvokeError,
     },
     super::messages::{WorkerMessage, WorkerLocalMessage},
@@ -140,7 +139,7 @@ pub(crate) mod local_worker_controller {
         }
 
         impl LocalWorkerController {
-            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> impl Future<Output = Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionInvokeError>> + 'static {
+            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> impl Future<Output = Result<FunctionHttpResponseFuture, FunctionInvokeError>> + 'static {
                 let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
                 let send_message_result = self.self_tx.send(WorkerLocalMessage::FunctionInvoke {

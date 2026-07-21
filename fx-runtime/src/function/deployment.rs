@@ -13,7 +13,10 @@ use {
             future::{FunctionFuture, FunctionUnitFuture},
         },
     },
-    super::instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
+    super::{
+        instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
+        resource::FunctionHttpResponseFuture,
+    },
 };
 
 /// deployment is a set of FunctionInstances deployed with same configuration
@@ -158,7 +161,7 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<SerializedFunctionResource<http::Response<HttpBody>>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<FunctionHttpResponseFuture, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         let instance = if *instance.borrow().has_panicked.borrow() {
@@ -208,7 +211,7 @@ impl FunctionDeployment {
 
             debug!("function future created");
             result
-                .map(|response_resource| SerializedFunctionResource::new(instance, response_resource))
+                .map(|response_resource| FunctionHttpResponseFuture::new(instance, response_resource))
                 .map_err(|err| match err {
                     FunctionFutureError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
                 })
