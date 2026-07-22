@@ -8,10 +8,7 @@ use {
         tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, HttpBody},
-        resources::{
-            serialize::SerializedFunctionResource,
-            future::{FunctionFuture, FunctionUnitFuture},
-        },
+        resources::future::{FunctionFuture, FunctionUnitFuture},
     },
     super::{
         instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},

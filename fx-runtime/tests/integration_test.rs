@@ -960,7 +960,7 @@ async fn preemption() {
             enabled: false,
             port: introspection_port,
         }),
-    }).start();
+    }).start().unwrap();
 
     server.deploy_function(
         FunctionId::new("test-app"),
@@ -1117,7 +1117,7 @@ async fn init_fx_server() -> TestClient {
                         }),
                         logger: Some(LoggerConfig::Custom(Arc::new(BoxLogger::new(LOGGER.clone())))),
                         introspection: Some(IntrospectionConfig { enabled: true, port: introspection_port }),
-                    }).start();
+                    }).start().unwrap();
 
                     server.deploy_function(
                         FunctionId::new("test-app"),
