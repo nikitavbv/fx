@@ -7,7 +7,7 @@ use {
     wasmtime::{AsContextMut, AsContext},
     fx_types::{capnp, abi_http_capnp},
     crate::{
-        function::abi::FuturePollResult,
+        function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
@@ -181,7 +181,7 @@ impl FunctionInstance {
         resource_data
     }
 
-    pub(crate) async fn stream_frame_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Poll<()> {
+    pub(crate) async fn stream_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<()> {
         let mut store = self.store.lock().await;
         store.data_mut().waker = Some(waker);
         let frame_poll_result = self.fn_stream_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
@@ -194,7 +194,7 @@ impl FunctionInstance {
         }
     }
 
-    pub(crate) async fn stream_advance(&self, resource_id: &FunctionResourceId) {
+    pub(crate) async fn stream_advance(&self, resource_id: &FunctionStreamResourceId) {
         let mut store = self.store.lock().await;
         self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
     }
@@ -210,7 +210,7 @@ pub(crate) mod stream_frame_read_v2 {
     }
 
     impl FunctionInstance {
-        pub(crate) async fn stream_frame_read_v2(&self, resource_id: &FunctionResourceId) -> Result<Option<Vec<u8>>, StreamFrameReadError> {
+        pub(crate) async fn stream_frame_read_v2(&self, resource_id: &FunctionStreamResourceId) -> Result<Option<Vec<u8>>, StreamFrameReadError> {
             let len = {
                 let mut store = self.store.lock().await;
                 self.fn_stream_frame_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await
@@ -223,7 +223,7 @@ pub(crate) mod stream_frame_read_v2 {
                         }
                     })? as usize
             };
-            let ptr = self.resource_serialized_ptr(resource_id).await as usize;
+            let ptr = self.resource_serialized_ptr(&FunctionResourceId::new(resource_id.as_u64())).await as usize; // TODO: remove this cast
 
             let frame_data = {
                 let store = self.store.lock().await;
@@ -364,13 +364,13 @@ pub enum FunctionFuturePollError {
 
 pub(crate) struct FunctionFramePollFuture {
     instance: Rc<FunctionInstance>,
-    resource_id: FunctionResourceId,
+    resource_id: FunctionStreamResourceId,
 
     inner_poll_future: Option<LocalBoxFuture<'static, Poll<()>>>,
 }
 
 impl FunctionFramePollFuture {
-    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionStreamResourceId) -> Self {
         Self {
             instance,
             resource_id,

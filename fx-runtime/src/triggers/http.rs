@@ -9,7 +9,7 @@ use {
     thiserror::Error,
     crate::{
         resources::{
-            resource::{OwnedFunctionResourceId, HttpBodyResourceKey},
+            resource::HttpBodyResourceKey,
             FunctionResourceId,
         },
         function::{
@@ -17,6 +17,7 @@ use {
             FunctionDeploymentId,
             deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
             instance::{FunctionInstance, FunctionFramePollFuture},
+            resource::FunctionStreamResourceId,
         },
         effects::fetch::HttpStreamError,
         tasks::management::{ManagementMessage, FunctionInvokedMessage},
@@ -169,8 +170,8 @@ impl HttpBody {
         Self::for_stream(futures::stream::once(async { Ok(bytes) }).boxed())
     }
 
-    pub fn for_function_stream(resource: OwnedFunctionResourceId) -> Self {
-        Self(HttpBodyInner::FunctionStream(SendWrapper::new(FunctionStreamReader::new(resource))))
+    pub fn for_function_stream(instance: Rc<FunctionInstance>, resource: FunctionStreamResourceId) -> Self {
+        Self(HttpBodyInner::FunctionStream(SendWrapper::new(FunctionStreamReader::new(instance, resource))))
     }
 
     pub fn for_stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
@@ -216,14 +217,12 @@ mod function_stream_reader {
 
     pub(crate) struct FunctionStreamReader {
         function: Rc<FunctionInstance>,
-        resource_id: FunctionResourceId,
+        resource_id: FunctionStreamResourceId,
         poll_future: Option<LocalBoxFuture<'static, Result<Option<Vec<u8>>, PollFrameError>>>,
     }
 
     impl FunctionStreamReader {
-        pub(crate) fn new(resource: OwnedFunctionResourceId) -> Self {
-            let (function, resource_id) = resource.consume();
-
+        pub(crate) fn new(function: Rc<FunctionInstance>, resource_id: FunctionStreamResourceId) -> Self {
             Self {
                 function,
                 resource_id,

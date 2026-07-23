@@ -25,9 +25,9 @@ impl OwnedFunctionResourceId {
         Self(Cell::new(Some((function_instance, resource_id))))
     }
 
-    pub fn consume(self) -> (Rc<FunctionInstance>, FunctionResourceId) {
+    /*pub fn consume(self) -> (Rc<FunctionInstance>, FunctionResourceId) {
         self.0.replace(None).unwrap()
-    }
+    }*/
 }
 
 impl Drop for OwnedFunctionResourceId {
@@ -56,9 +56,9 @@ impl From<slotmap::DefaultKey> for ResourceId {
     }
 }
 
-impl Into<slotmap::DefaultKey> for &ResourceId {
-    fn into(self) -> slotmap::DefaultKey {
-        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(self.id))
+impl From<&ResourceId> for slotmap::DefaultKey {
+    fn from(value: &ResourceId) -> Self {
+        slotmap::DefaultKey::from(slotmap::KeyData::from_ffi(value.id))
     }
 }
 
@@ -105,14 +105,14 @@ pub(crate) struct FunctionResources {
     pub(crate) sql_batch_results: ResourceTable<SqlBatchResultResourceKey, Result<(), SqlBatchError>>,
     pub(crate) sql_migration_result_futures: ResourceTable<SqlMigrationResultFutureResourceKey, BoxFuture<'static, Result<(), SqlMigrationError>>>,
     pub(crate) sql_migration_results: ResourceTable<SqlMigrationResultResourceKey, Result<(), SqlMigrationError>>,
-    pub(crate) fetch_result_futures: ResourceTable<FetchResultFutureResourceKey, SendWrapper<LocalBoxFuture<'static, Result<http::Response<HttpBody>, FetchResultError>>>>,
-    pub(crate) fetch_results: ResourceTable<FetchResultResourceKey, Result<http::Response<HttpBody>, FetchResultError>>,
+    pub(crate) fetch_result_futures: ResourceTable<FetchResultFutureResourceKey, SendWrapper<LocalBoxFuture<'static, FetchResultResource>>>,
+    pub(crate) fetch_results: ResourceTable<FetchResultResourceKey, FetchResultResource>,
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
     pub(crate) http_frames: ResourceTable<HttpFrameResourceKey, Option<Result<Bytes, HttpStreamError>>>,
     pub(crate) blob_put_result_futures: ResourceTable<BlobPutResultFutureResourceKey, BoxFuture<'static, Result<(), BlobPutError>>>,
     pub(crate) blob_put_results: ResourceTable<BlobPutResultResourceKey, Result<(), BlobPutError>>,
-    pub(crate) blob_get_response_futures: ResourceTable<BlobGetResponseFutureResourceKey, BoxFuture<'static, Result<Option<Vec<u8>>, BlobGetError>>>,
-    pub(crate) blob_get_responses: ResourceTable<BlobGetResponseResourceKey, Result<Option<Vec<u8>>, BlobGetError>>,
+    pub(crate) blob_get_response_futures: ResourceTable<BlobGetResponseFutureResourceKey, BoxFuture<'static, BlobGetResponseResource>>,
+    pub(crate) blob_get_responses: ResourceTable<BlobGetResponseResourceKey, BlobGetResponseResource>,
     pub(crate) blob_delete_result_futures: ResourceTable<BlobDeleteResultFutureResourceKey, BoxFuture<'static, Result<(), BlobDeleteError>>>,
     pub(crate) blob_delete_results: ResourceTable<BlobDeleteResultResourceKey, Result<(), BlobDeleteError>>,
 }
@@ -221,3 +221,6 @@ key!(pub(crate) struct BlobGetResponseFutureResourceKey);
 key!(pub(crate) struct BlobGetResponseResourceKey);
 key!(pub(crate) struct BlobDeleteResultFutureResourceKey);
 key!(pub(crate) struct BlobDeleteResultResourceKey);
+
+type FetchResultResource = Result<http::Response<HttpBody>, FetchResultError>;
+type BlobGetResponseResource = Result<Option<Vec<u8>>, BlobGetError>;

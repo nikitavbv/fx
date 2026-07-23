@@ -5,4 +5,3 @@ pub(crate) use self::resource::{FunctionResourceId, FunctionResources};
 
 pub(crate) mod future;
 pub(crate) mod resource;
-pub(crate) mod serialize;

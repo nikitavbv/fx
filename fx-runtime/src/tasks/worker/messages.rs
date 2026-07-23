@@ -13,8 +13,7 @@ use {
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
         },
-        triggers::http::{FetchRequestHeader, HttpBody},
-        resources::serialize::SerializedFunctionResource,
+        triggers::http::FetchRequestHeader,
     },
 };
 

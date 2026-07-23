@@ -32,7 +32,7 @@ impl FunctionHttpResponseFuture {
 
                 match response.get_body().which().unwrap() {
                     abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => http_response.body(
-                        HttpBody::for_function_stream(OwnedFunctionResourceId::new(instance, FunctionResourceId::from(resource_id)))
+                        HttpBody::for_function_stream(instance, resource_id.into())
                     ).unwrap(),
                     abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => http_response.body({
                         instance.clone().store.lock().await.data_mut().resource_set.http_bodies.remove(resource_id.into()).unwrap()
@@ -48,5 +48,26 @@ impl Future for FunctionHttpResponseFuture {
 
     fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         self.inner.poll_unpin(cx)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct FunctionStreamResourceId {
+    id: u64,
+}
+
+impl FunctionStreamResourceId {
+    pub fn new(id: u64) -> Self {
+        Self { id }
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.id
+    }
+}
+
+impl From<u64> for FunctionStreamResourceId {
+    fn from(id: u64) -> Self {
+        Self { id }
     }
 }
