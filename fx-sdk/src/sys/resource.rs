@@ -1,5 +1,5 @@
 use {
-    std::cell::RefCell,
+    std::{cell::RefCell, marker::PhantomData},
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
@@ -16,9 +16,86 @@ use {
 };
 
 thread_local! {
+    pub(crate) static RESOURCE_SET: RefCell<FunctionResources> = RefCell::new(FunctionResources::new());
     static FUNCTION_RESOURCES: RefCell<SlotMap<DefaultKey, FunctionResource>> = RefCell::new(SlotMap::new());
 }
 
+#[derive(Default)]
+pub struct FunctionResources {
+    pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
+}
+
+impl FunctionResources {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+}
+
+pub(crate) struct ResourceTable<K, V> {
+    map: SlotMap<slotmap::DefaultKey, V>,
+    _key: PhantomData<K>,
+}
+
+impl<K, V> ResourceTable<K, V> {
+    pub(crate) fn new() -> Self {
+        Self {
+            map: SlotMap::new(),
+            _key: PhantomData,
+        }
+    }
+
+    pub fn insert(&mut self, value: V) -> K where K: From<slotmap::DefaultKey> {
+        self.map.insert(value).into()
+    }
+}
+
+impl<K, V> Default for ResourceTable<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+macro_rules! key {
+    ($(#[$meta:meta])* $vis:vis struct $name:ident) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        $vis struct $name(u64);
+
+        impl ::core::convert::From<::slotmap::DefaultKey> for $name {
+            fn from(value: ::slotmap::DefaultKey) -> Self {
+                Self(value.data().as_ffi())
+            }
+        }
+
+        impl ::core::convert::From<$name> for u64 {
+            fn from(value: $name) -> u64 {
+                value.0
+            }
+        }
+
+        impl ::core::convert::From<&$name> for u64 {
+            fn from(value: &$name) -> u64 {
+                value.0
+            }
+        }
+
+        impl ::core::convert::From<u64> for $name {
+            fn from(id: u64) -> Self {
+                Self(id)
+            }
+        }
+
+        impl ::core::convert::From<$name> for ::slotmap::DefaultKey {
+            fn from(value: $name) -> ::slotmap::DefaultKey {
+                ::slotmap::DefaultKey::from(::slotmap::KeyData::from_ffi(value.0))
+            }
+        }
+    };
+}
+
+key!(pub(crate) struct HttpBodyResourceKey);
+
+// previous:
 pub struct FetchRequestHeaderResourceId {
     id: u64,
     is_consumed: bool,
@@ -81,7 +158,6 @@ impl Into<DefaultKey> for &FunctionResourceId {
 pub(crate) enum FunctionResource {
     FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
-    HttpBody(HttpBody),
     BackgroundTask(LocalBoxFuture<'static, ()>),
 }
 

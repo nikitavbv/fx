@@ -3,7 +3,7 @@ use {
     futures::future::{LocalBoxFuture, FutureExt},
     fx_types::{capnp, abi_http_capnp},
     crate::{
-        resources::{FunctionResourceId, resource::OwnedFunctionResourceId},
+        resources::FunctionResourceId,
         triggers::http::HttpBody,
         function::instance::FunctionInstance,
     },
@@ -57,10 +57,6 @@ pub(crate) struct FunctionStreamResourceId {
 }
 
 impl FunctionStreamResourceId {
-    pub fn new(id: u64) -> Self {
-        Self { id }
-    }
-
     pub fn as_u64(&self) -> u64 {
         self.id
     }

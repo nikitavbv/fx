@@ -16,30 +16,6 @@ use {
     },
 };
 
-/// Function resource handle that is owned by host.
-/// Cleans up function memory if dropped before being consumed
-pub struct OwnedFunctionResourceId(Cell<Option<(Rc<FunctionInstance>, FunctionResourceId)>>);
-
-impl OwnedFunctionResourceId {
-    pub fn new(function_instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
-        Self(Cell::new(Some((function_instance, resource_id))))
-    }
-
-    /*pub fn consume(self) -> (Rc<FunctionInstance>, FunctionResourceId) {
-        self.0.replace(None).unwrap()
-    }*/
-}
-
-impl Drop for OwnedFunctionResourceId {
-    fn drop(&mut self) {
-        if let Some((function_instance, resource_id)) = self.0.replace(None) {
-            tokio::task::spawn_local(async move {
-                function_instance.resource_drop(&resource_id).await;
-            });
-        }
-    }
-}
-
 pub(crate) struct ResourceId {
     id: u64,
 }

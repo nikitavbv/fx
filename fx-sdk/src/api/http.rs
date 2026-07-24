@@ -18,6 +18,7 @@ use {
         },
     },
     crate::sys::{
+        RESOURCE_SET,
         FetchRequestHeaderResourceId,
         FunctionResource,
         BytesResource,
@@ -435,7 +436,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
                 HttpBodyInner::Empty => request_body.set_empty(()),
                 HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
                 HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
-                    request_body.set_function_stream(add_function_resource(FunctionResource::HttpBody(HttpBody::stream(stream))).as_u64())
+                    request_body.set_function_stream(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody::stream(stream))).into())
                 },
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id),
                 HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
