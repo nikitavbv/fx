@@ -1,7 +1,7 @@
 use {
     std::{pin::Pin, future::Future},
     crate::{
-        sys::{FunctionResourceId, FunctionResource, add_function_resource},
+        sys::{FunctionResourceId, FunctionResource, add_function_resource, RESOURCE_SET, resource::HttpBodyResourceKey},
         api::http::{HttpResponse, HttpBody, HttpBodyInner},
     },
 };
@@ -36,7 +36,7 @@ pub(crate) struct FunctionHttpResponse {
 }
 
 pub(crate) enum FunctionHttpResponseBody {
-    FunctionResource(FunctionResourceId),
+    FunctionResource(HttpBodyResourceKey),
     HostResource(u64),
 }
 
@@ -59,7 +59,7 @@ impl IntoFunctionResponse for HttpResponse {
             headers: parts.headers,
             body: match body.0 {
                 HttpBodyInner::HostResource(resource_id) => FunctionHttpResponseBody::HostResource(resource_id),
-                other => FunctionHttpResponseBody::FunctionResource(add_function_resource(FunctionResource::HttpBody(HttpBody(other)))),
+                other => FunctionHttpResponseBody::FunctionResource(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody(other)))),
             },
         }))
     }

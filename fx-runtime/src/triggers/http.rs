@@ -8,10 +8,7 @@ use {
     send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{
-        resources::{
-            resource::HttpBodyResourceKey,
-            FunctionResourceId,
-        },
+        resources::resource::HttpBodyResourceKey,
         function::{
             FunctionId,
             FunctionDeploymentId,

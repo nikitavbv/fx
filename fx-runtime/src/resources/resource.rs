@@ -1,11 +1,10 @@
 use {
-    std::{cell::Cell, rc::Rc, marker::PhantomData},
+    std::marker::PhantomData,
     futures::future::{BoxFuture, LocalBoxFuture},
     slotmap::{Key, SlotMap},
     send_wrapper::SendWrapper,
     hyper::body::Bytes,
     crate::{
-        function::instance::FunctionInstance,
         triggers::http::{FetchRequestHeader, HttpBody},
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},

@@ -5,7 +5,7 @@ use {
     thiserror::Error,
     crate::{
         function::{FunctionId, resource::FunctionHttpResponseFuture},
-        triggers::http::{FetchRequestHeader, HttpBody},
+        triggers::http::FetchRequestHeader,
         tasks::worker::messages::FunctionInvokeError,
     },
     super::messages::{WorkerMessage, WorkerLocalMessage},

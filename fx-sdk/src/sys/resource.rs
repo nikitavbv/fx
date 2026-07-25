@@ -1,9 +1,9 @@
 use {
-    std::{cell::RefCell, marker::PhantomData},
+    std::{cell::RefCell, marker::PhantomData, task::Poll},
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
-    fx_types::{capnp, abi::{UnitFuturePollResult}, abi_http_capnp},
+    fx_types::{capnp, abi::{UnitFuturePollResult, AsyncResourcePollResult}, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponseBody},
         sys::{
@@ -12,6 +12,7 @@ use {
             fx_unit_future_poll,
         },
         api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
+        io::http::HttpStreamError,
     },
 };
 
@@ -23,6 +24,7 @@ thread_local! {
 #[derive(Default)]
 pub struct FunctionResources {
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
+    pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
 }
 
 impl FunctionResources {
@@ -46,6 +48,10 @@ impl<K, V> ResourceTable<K, V> {
 
     pub fn insert(&mut self, value: V) -> K where K: From<slotmap::DefaultKey> {
         self.map.insert(value).into()
+    }
+
+    pub fn get_mut(&mut self, key: K) -> Option<&mut V> where K: Into<slotmap::DefaultKey> {
+        self.map.get_mut(key.into())
     }
 }
 
@@ -94,6 +100,7 @@ macro_rules! key {
 }
 
 key!(pub(crate) struct HttpBodyResourceKey);
+key!(pub(crate) struct BytesResourceKey);
 
 // previous:
 pub struct FetchRequestHeaderResourceId {
@@ -209,7 +216,7 @@ impl SerializeResource for FunctionResponse {
 
                 let mut body = resource.init_body();
                 match http.body {
-                    FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.as_u64()),
+                    FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.into()),
                     FunctionHttpResponseBody::HostResource(v) => body.set_host_resource_id(v),
                 }
             }
@@ -312,55 +319,6 @@ pub(crate) fn serialize_function_resource(resource_id: &FunctionResourceId) -> u
                 let serialized = v.map_to_serialized();
                 let serialized_size = serialized.serialized_size();
                 (FunctionResource::FunctionResponse(serialized), serialized_size)
-            },
-            FunctionResource::HttpBody(v) => match v.0 {
-                HttpBodyInner::Empty => {
-                    let mut message = capnp::message::Builder::new_default();
-                    let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
-                    let mut serialized_body = serialized_body.init_body();
-
-                    serialized_body.set_empty(());
-
-                    let serialized_frame = capnp::serialize::write_message_to_words(&message);
-                    let serialized_len = serialized_frame.len();
-
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_frame))), serialized_len)
-                },
-                HttpBodyInner::Bytes(v) => {
-                    let serialized = serialize_http_body_full(v);
-                    let serialized_size = serialized.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized))), serialized_size)
-                },
-                HttpBodyInner::Stream { stream, frame_serialized } => {
-                    let mut message = capnp::message::Builder::new_default();
-                    let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
-                    let mut serialized_body = serialized_body.init_body();
-
-                    let stream_resource_id = resources.insert(FunctionResource::HttpBody(HttpBody(HttpBodyInner::Stream { stream, frame_serialized })));
-                    let stream_resource_id = FunctionResourceId::new(stream_resource_id.data().as_ffi());
-
-                    serialized_body.set_function_stream(stream_resource_id.as_u64());
-
-                    let serialized_body = capnp::serialize::write_message_to_words(&message);
-                    let serialized_len = serialized_body.len();
-
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_body))), serialized_len)
-                },
-                HttpBodyInner::HostResource(resource_id) => {
-                    let mut message = capnp::message::Builder::new_default();
-                    let http_body = message.init_root::<abi_http_capnp::http_body::Builder>();
-                    let mut http_body = http_body.init_body();
-                    http_body.set_host_resource(resource_id);
-
-                    let serialized_frame = capnp::serialize::write_message_to_words(&message);
-                    let serialized_len = serialized_frame.len();
-
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(serialized_frame))), serialized_len)
-                },
-                HttpBodyInner::Serialized(v) => {
-                    let serialized_len = v.len();
-                    (FunctionResource::HttpBody(HttpBody(HttpBodyInner::Serialized(v))), serialized_len)
-                },
             },
         };
         resources.reattach(resource_id.into(), resource);
