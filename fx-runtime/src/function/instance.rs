@@ -5,7 +5,8 @@ use {
     futures_intrusive::sync::LocalMutex,
     futures::{FutureExt, future::LocalBoxFuture},
     wasmtime::{AsContextMut, AsContext},
-    fx_types::{capnp, abi_http_capnp},
+    zerocopy::FromBytes,
+    fx_types::{capnp, abi_http_capnp, abi::{AsyncResourcePollResult, FunctionBytesPtrAndLenResult}},
     crate::{
         function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
         effects::{
@@ -36,9 +37,8 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
-    fn_stream_frame_poll: wasmtime::TypedFunc<u64, i64>,
-    fn_stream_frame_serialize: wasmtime::TypedFunc<u64, u64>,
-    fn_stream_advance: wasmtime::TypedFunc<u64, ()>,
+    fn_http_body_frame_poll: wasmtime::TypedFunc<u64, u64>,
+    fn_bytes_ptr_and_len: wasmtime::TypedFunc<u64, u64>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
@@ -94,11 +94,9 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_stream_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_stream_frame_poll")
+        let fn_http_body_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_http_body_frame_poll")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_stream_frame_serialize = instance.get_typed_func(store.as_context_mut(), "_fx_stream_frame_serialize")
-            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_stream_advance = instance.get_typed_func(store.as_context_mut(), "_fx_stream_advance")
+        let fn_bytes_ptr_and_len = instance.get_typed_func(store.as_context_mut(), "_fx_bytes_ptr_and_len")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
@@ -122,9 +120,8 @@ impl FunctionInstance {
             fn_resource_serialize,
             fn_resource_serialized_ptr,
             fn_resource_drop,
-            fn_stream_frame_poll,
-            fn_stream_frame_serialize,
-            fn_stream_advance,
+            fn_http_body_frame_poll,
+            fn_bytes_ptr_and_len,
             fn_handler,
         })
     }
@@ -181,64 +178,35 @@ impl FunctionInstance {
         resource_data
     }
 
-    pub(crate) async fn stream_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<()> {
+    pub(crate) async fn http_body_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<FunctionResourceId> {
         let mut store = self.store.lock().await;
         store.data_mut().waker = Some(waker);
-        let frame_poll_result = self.fn_stream_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
+
+        let async_operation_addr = self.fn_http_body_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize;
+        let poll_result = AsyncResourcePollResult::read_from_bytes(
+            &self.memory.data(store.as_context())[async_operation_addr..async_operation_addr+std::mem::size_of::<AsyncResourcePollResult>()]
+        ).unwrap();
+
         drop(store);
 
-        match FuturePollResult::try_from(frame_poll_result).unwrap() {
-            FuturePollResult::Pending => Poll::Pending,
-            FuturePollResult::Ready => Poll::Ready(()),
-            FuturePollResult::NotFound => todo!(),
+        match poll_result.tag {
+            1 => Poll::Pending,
+            0 => Poll::Ready(FunctionResourceId::new(poll_result.resolved_resource_id)),
+            other => todo!()
         }
     }
 
-    pub(crate) async fn stream_advance(&self, resource_id: &FunctionStreamResourceId) {
+    pub(crate) async fn bytes_copy_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
         let mut store = self.store.lock().await;
-        self.fn_stream_advance.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
-    }
-}
 
-pub(crate) mod stream_frame_read_v2 {
-    use super::*;
+        let ptr_and_len_addr = self.fn_bytes_ptr_and_len.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize;
+        let ptr_and_len = FunctionBytesPtrAndLenResult::read_from_bytes(
+            &self.memory.data(store.as_context())[ptr_and_len_addr..ptr_and_len_addr+std::mem::size_of::<AsyncResourcePollResult>()]
+        ).unwrap();
 
-    #[derive(Debug, Error)]
-    pub(crate) enum StreamFrameReadError {
-        #[error("function panicked while reading next frame")]
-        FunctionPanicked,
-    }
+        drop(store);
 
-    impl FunctionInstance {
-        pub(crate) async fn stream_frame_read_v2(&self, resource_id: &FunctionStreamResourceId) -> Result<Option<Vec<u8>>, StreamFrameReadError> {
-            let len = {
-                let mut store = self.store.lock().await;
-                self.fn_stream_frame_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await
-                    .map_err(|err| {
-                        // TODO: forward backtraces to management thread (or logger thread)
-                        let trap = err.downcast::<wasmtime::Trap>().unwrap();
-                        match trap {
-                            wasmtime::Trap::UnreachableCodeReached => StreamFrameReadError::FunctionPanicked,
-                            other => panic!("unexpected trap: {other:?}"),
-                        }
-                    })? as usize
-            };
-            let ptr = self.resource_serialized_ptr(&FunctionResourceId::new(resource_id.as_u64())).await as usize; // TODO: remove this cast
-
-            let frame_data = {
-                let store = self.store.lock().await;
-                let view = self.memory.data(store.as_context());
-                view[ptr..ptr+len].to_owned()
-            };
-
-            let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-            let response = reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
-
-            Ok(match response.get_frame().which().unwrap() {
-                abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
-                abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
-            })
-        }
+        todo!()
     }
 }
 
@@ -380,7 +348,7 @@ impl FunctionFramePollFuture {
 }
 
 impl Future for FunctionFramePollFuture {
-    type Output = ();
+    type Output = Option<Vec<u8>>;
 
     fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let inner_poll_future = std::mem::replace(&mut self.inner_poll_future, None);
@@ -392,7 +360,12 @@ impl Future for FunctionFramePollFuture {
                 let resource_id = self.resource_id.clone();
                 async move {
                     let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-                    instance.stream_frame_poll(&resource_id, waker).await
+                    match instance.http_body_frame_poll(&resource_id, waker).await {
+                        Poll::Pending => Poll::Pending,
+                        Poll::Ready(resource_id) => {
+                            todo!()
+                        }
+                    }
                 }.boxed_local()
             },
         };
@@ -406,6 +379,6 @@ impl Future for FunctionFramePollFuture {
             Poll::Ready(Poll::Ready(())) => Poll::Ready(()),
         };
 
-        result
+        todo!()
     }
 }

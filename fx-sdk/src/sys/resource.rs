@@ -11,7 +11,7 @@ use {
             fx_bytes_move,
             fx_unit_future_poll,
         },
-        api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
+        api::http::{HttpBody, HttpBodyInner},
         io::http::HttpStreamError,
     },
 };

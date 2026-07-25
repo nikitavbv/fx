@@ -207,10 +207,7 @@ pub(crate) enum HttpBodyInner {
 }
 
 mod function_stream_reader {
-    use {
-        crate::function::instance::stream_frame_read_v2::StreamFrameReadError,
-        super::*,
-    };
+    use super::*;
 
     pub(crate) struct FunctionStreamReader {
         function: Rc<FunctionInstance>,
@@ -242,18 +239,7 @@ mod function_stream_reader {
                     let function = self.function.clone();
                     let resource_id = self.resource_id.clone();
 
-                    async move {
-                        FunctionFramePollFuture::new(function.clone(), resource_id.clone()).await;
-                        let result = match function.stream_frame_read_v2(&resource_id).await {
-                            Ok(v) => v,
-                            Err(StreamFrameReadError::FunctionPanicked) => {
-                                *function.has_panicked.borrow_mut() = true;
-                                return Err(PollFrameError::FunctionPanicked);
-                            },
-                        };
-                        function.stream_advance(&resource_id).await;
-                        Ok(result)
-                    }.boxed_local()
+                    FunctionFramePollFuture::new(function.clone(), resource_id.clone()).map(|v| Ok(v)).boxed_local()
                 },
             };
 

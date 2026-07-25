@@ -26,9 +26,8 @@ use {
     futures::{FutureExt, StreamExt},
     fx_types::{capnp, abi::{FuturePollResult, AsyncResourcePollResult}, abi_http_capnp},
     crate::{
-        api::http::{HttpBody, HttpBodyInner, serialize_http_body_full},
+        api::http::HttpBodyInner,
     },
-    self::resource::replace_function_resource_with,
 };
 
 mod future;
@@ -60,7 +59,6 @@ pub extern "C" fn _fx_http_body_frame_poll(resource_id: u64) -> u64 {
             HttpBodyInner::Empty => Poll::Ready(None),
             HttpBodyInner::Bytes(v) => Poll::Ready(Some(Ok(v.clone()))),
             HttpBodyInner::HostResource(_) => panic!("stream poll should not be called for host resources"), // TODO: http body should be split into seperate resources
-            HttpBodyInner::Serialized(_) => panic!("strema poll called for non-stream body!"), // TODO: should not exist
         };
 
         let result = match result {

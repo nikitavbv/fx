@@ -227,3 +227,11 @@ impl<T: Into<u64>> From<Poll<Option<T>>> for AsyncStreamResourcePollResult {
         }
     }
 }
+
+// exported by function
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct FunctionBytesPtrAndLenResult {
+    pub ptr: u64,
+    pub len: u64,
+}

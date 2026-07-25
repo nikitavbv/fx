@@ -20,9 +20,7 @@ use {
     crate::sys::{
         RESOURCE_SET,
         FetchRequestHeaderResourceId,
-        FunctionResource,
         BytesResource,
-        add_function_resource,
         fx_fetch,
         fx_fetch_result_future_poll,
         fx_fetch_result_serialize,
@@ -354,7 +352,6 @@ impl Stream for HttpBody {
                     _other => std::task::Poll::Ready(Some(Err(HttpBodyStreamError::AbiAssertionError))),
                 }
             },
-            HttpBodyInner::Serialized(_) => panic!("cannot read from HttpBody that has just been serialized for writing to host"),
         }
     }
 }
@@ -392,17 +389,6 @@ pub(crate) enum HttpBodyInner {
         frame_serialized: Option<Vec<u8>>,
     },
     HostResource(u64),
-    Serialized(Vec<u8>),
-}
-
-pub(crate) fn serialize_http_body_full(body: Vec<u8>) -> Vec<u8> {
-    let mut message = capnp::message::Builder::new_default();
-    let serialized_body = message.init_root::<abi_http_capnp::http_body::Builder>();
-    let mut serialized_body = serialized_body.init_body();
-
-    serialized_body.set_bytes(&body);
-
-    capnp::serialize::write_message_to_words(&message)
 }
 
 pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError> {
@@ -439,7 +425,6 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
                     request_body.set_function_stream(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody::stream(stream))).into())
                 },
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id),
-                HttpBodyInner::Serialized(_) => panic!("http body of this type (FrameSerialized) cannot be used as request body"),
             },
             None => request_body.set_empty(()),
         }
