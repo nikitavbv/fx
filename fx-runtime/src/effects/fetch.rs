@@ -55,7 +55,10 @@ impl From<crate::function::resource::FunctionHttpResponseFutureError> for FetchR
     fn from(err: crate::function::resource::FunctionHttpResponseFutureError) -> Self {
         use crate::function::resource::FunctionHttpResponseFutureError as SourceError;
         match err {
-            SourceError::HostResourceNotFound => Self::FunctionIncorrectResponse,
+            SourceError::HostResourceNotFound
+            | SourceError::InvalidStatusCode
+            | SourceError::InvalidHeaders
+            | SourceError::FailedToDeserialize => Self::FunctionIncorrectResponse,
         }
     }
 }
