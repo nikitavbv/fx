@@ -177,7 +177,10 @@ impl FetchRequestHeaderResource {
                     .collect(),
                 body: match request.get_body().unwrap().get_body().which().unwrap() {
                     abi_http_capnp::http_body::body::Which::Empty(_) => None,
-                    abi_http_capnp::http_body::body::Which::Bytes(v) => Some(HttpBodyInner::Bytes(v.unwrap().to_vec())),
+                    abi_http_capnp::http_body::body::Which::Bytes(v) => {
+                        let data = v.unwrap().to_vec();
+                        Some(HttpBodyInner::Stream { stream: futures::stream::once(async move { Ok(Bytes::from(data)) }).boxed(), frame_serialized: None })
+                    },
                     abi_http_capnp::http_body::body::Which::HostResource(resource_id) => Some(HttpBodyInner::HostResource(resource_id)),
                     abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
                 },
@@ -290,7 +293,7 @@ impl HttpBody {
     }
 
     pub fn bytes(bytes: Vec<u8>) -> Self {
-        Self(HttpBodyInner::Bytes(bytes))
+        Self::stream(futures::stream::once(async { Ok(Bytes::from(bytes)) }).boxed())
     }
 
     pub fn stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
@@ -321,7 +324,6 @@ impl Stream for HttpBody {
     fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         match &mut self.0 {
             HttpBodyInner::Empty => std::task::Poll::Ready(None),
-            HttpBodyInner::Bytes(_) => todo!(),
             HttpBodyInner::Stream { stream, frame_serialized: _discarded } => stream.poll_next_unpin(cx)
                 .map_err(|_| todo!()),
             HttpBodyInner::HostResource(resource_id) => {
@@ -383,7 +385,6 @@ impl axum::response::IntoResponse for HttpBody {
 
 pub(crate) enum HttpBodyInner {
     Empty,
-    Bytes(Vec<u8>),
     Stream {
         stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
         frame_serialized: Option<Vec<u8>>,
@@ -420,7 +421,6 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
         match request.body() {
             Some(body) => match body.0 {
                 HttpBodyInner::Empty => request_body.set_empty(()),
-                HttpBodyInner::Bytes(v) => request_body.set_bytes(&v),
                 HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
                     request_body.set_function_stream(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody::stream(stream))).into())
                 },
@@ -527,19 +527,19 @@ pub trait IntoHttpBody {
 
 impl IntoHttpBody for Vec<u8> {
     fn into_http_body(self) -> HttpBody {
-        HttpBody(HttpBodyInner::Bytes(self))
+        HttpBody::bytes(self)
     }
 }
 
 impl IntoHttpBody for &str {
     fn into_http_body(self) -> HttpBody {
-        HttpBody(HttpBodyInner::Bytes(self.as_bytes().to_vec()))
+        HttpBody::bytes(self.as_bytes().to_vec())
     }
 }
 
 impl IntoHttpBody for String {
     fn into_http_body(self) -> HttpBody {
-        HttpBody(HttpBodyInner::Bytes(self.as_bytes().to_vec()))
+        HttpBody::bytes(self.as_bytes().to_vec())
     }
 }
 
@@ -573,13 +573,13 @@ impl From<BoxStream<'static, Result<Bytes, HttpStreamError>>> for HttpBody {
 
 impl From<&str> for HttpBody {
     fn from(value: &str) -> Self {
-        HttpBody(HttpBodyInner::Bytes(value.as_bytes().to_vec()))
+        HttpBody::bytes(value.as_bytes().to_vec())
     }
 }
 
 impl From<String> for HttpBody {
     fn from(value: String) -> Self {
-        HttpBody(HttpBodyInner::Bytes(value.into_bytes()))
+        HttpBody::bytes(value.into_bytes())
     }
 }
 

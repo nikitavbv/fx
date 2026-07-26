@@ -50,6 +50,10 @@ impl<K, V> ResourceTable<K, V> {
         self.map.insert(value).into()
     }
 
+    pub fn get(&self, key: K) -> Option<&V> where K: Into<slotmap::DefaultKey> {
+        self.map.get(key.into())
+    }
+
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> where K: Into<slotmap::DefaultKey> {
         self.map.get_mut(key.into())
     }

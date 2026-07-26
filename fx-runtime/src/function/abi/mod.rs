@@ -72,7 +72,7 @@ use {
             kv::{KvMessage, KvOperation},
             blob::BlobMessage,
         },
-        triggers::http::{FetchRequestHeader, HttpBody, HttpBodyInner},
+        triggers::http::{FetchRequestHeader, HttpBody, HttpBodyInner, FunctionStreamReader},
     },
 };
 
@@ -1305,7 +1305,10 @@ pub(super) fn fx_fetch_handler(
                     });
                 *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
             },
-            abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
+            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => {
+                let reader = FunctionStreamReader::new(caller.data_mut().self_instance.upgrade().unwrap(), resource_id.into());
+                *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(send_wrapper::SendWrapper::new(reader)));
+            },
         }
 
         let client = caller.data().http_client.clone();

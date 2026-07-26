@@ -13,7 +13,7 @@ use {
             FunctionId,
             FunctionDeploymentId,
             deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
-            instance::{FunctionInstance, FunctionFramePollFuture},
+            instance::{FunctionInstance, FunctionFramePollFuture, FunctionFramePollError},
             resource::FunctionStreamResourceId,
         },
         effects::fetch::HttpStreamError,
@@ -227,8 +227,16 @@ mod function_stream_reader {
 
     #[derive(Debug, Error)]
     pub(crate) enum PollFrameError {
-        #[error("function panicked while polling next frame")]
-        FunctionPanicked,
+        #[error("failed to read function stream because of internal error in sdk on function side")]
+        InternalSdkError,
+    }
+
+    impl From<FunctionFramePollError> for PollFrameError {
+        fn from(err: FunctionFramePollError) -> Self {
+            match err {
+                FunctionFramePollError::InternalSdkError => PollFrameError::InternalSdkError,
+            }
+        }
     }
 
     impl FunctionStreamReader {
@@ -239,7 +247,7 @@ mod function_stream_reader {
                     let function = self.function.clone();
                     let resource_id = self.resource_id.clone();
 
-                    FunctionFramePollFuture::new(function.clone(), resource_id.clone()).map(|v| Ok(v)).boxed_local()
+                    FunctionFramePollFuture::new(function.clone(), resource_id.clone()).map(|v| v.map_err(PollFrameError::from)).boxed_local()
                 },
             };
 

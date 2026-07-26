@@ -154,7 +154,7 @@ impl FunctionDeployment {
         Ok(Self {
             function_id,
             template,
-            instance: RefCell::new(Rc::new(instance)),
+            instance: RefCell::new(instance),
         })
     }
 
@@ -163,7 +163,6 @@ impl FunctionDeployment {
 
         let instance = if *instance.borrow().has_panicked.borrow() {
             let instance = self.template.instantiate().await.unwrap();
-            let instance = Rc::new(instance);
             *self.instance.borrow_mut() = instance.clone();
             instance
         } else {
@@ -339,7 +338,7 @@ impl FunctionTemplate {
         }
     }
 
-    pub async fn instantiate(&self) -> Result<FunctionInstance, FunctionInstanceInitError> {
+    pub async fn instantiate(&self) -> Result<Rc<FunctionInstance>, FunctionInstanceInitError> {
         FunctionInstance::new(
             &self.wasmtime,
             self.limit_memory_bytes.clone(),

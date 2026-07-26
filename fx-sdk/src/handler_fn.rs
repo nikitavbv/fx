@@ -1,7 +1,7 @@
 use {
     std::{pin::Pin, future::Future},
     crate::{
-        sys::{FunctionResourceId, FunctionResource, add_function_resource, RESOURCE_SET, resource::HttpBodyResourceKey},
+        sys::{RESOURCE_SET, resource::HttpBodyResourceKey},
         api::http::{HttpResponse, HttpBody, HttpBodyInner},
     },
 };

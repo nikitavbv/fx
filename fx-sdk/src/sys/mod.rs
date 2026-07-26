@@ -24,7 +24,7 @@ pub(crate) use self::{
 use {
     std::task::Poll,
     futures::{FutureExt, StreamExt},
-    fx_types::{capnp, abi::{FuturePollResult, AsyncResourcePollResult}, abi_http_capnp},
+    fx_types::{capnp, abi::{FuturePollResult, AsyncResourcePollResult, FunctionBytesPtrAndLenResult}, abi_http_capnp},
     crate::{
         api::http::HttpBodyInner,
     },
@@ -39,6 +39,11 @@ static mut ASYNC_OPERATION_RESULT: AsyncResourcePollResult = AsyncResourcePollRe
     tag: 1,
     _pad: [0; 7],
     resolved_resource_id: 0,
+};
+
+static mut BYTES_PTR_AND_LEN_RESULT: FunctionBytesPtrAndLenResult = FunctionBytesPtrAndLenResult {
+    ptr: 0,
+    len: 0,
 };
 
 #[unsafe(no_mangle)]
@@ -57,7 +62,6 @@ pub extern "C" fn _fx_http_body_frame_poll(resource_id: u64) -> u64 {
                 }
             },
             HttpBodyInner::Empty => Poll::Ready(None),
-            HttpBodyInner::Bytes(v) => Poll::Ready(Some(Ok(v.clone()))),
             HttpBodyInner::HostResource(_) => panic!("stream poll should not be called for host resources"), // TODO: http body should be split into seperate resources
         };
 
@@ -91,6 +95,17 @@ pub extern "C" fn _fx_http_body_frame_poll(resource_id: u64) -> u64 {
 
         std::ptr::addr_of!(ASYNC_OPERATION_RESULT) as u64
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_bytes_ptr_and_len(resource_id: u64) -> u64 {
+    let (ptr, len) = RESOURCE_SET.with_borrow_mut(|resources| {
+        let bytes = resources.bytes.get(resource_id.into()).unwrap();
+        (bytes.as_ptr() as u64, bytes.len() as u64)
+    });
+
+    unsafe { std::ptr::addr_of_mut!(BYTES_PTR_AND_LEN_RESULT).write(FunctionBytesPtrAndLenResult { ptr, len }); }
+    std::ptr::addr_of!(BYTES_PTR_AND_LEN_RESULT) as u64
 }
 
 /// returns fx_types::abi::FunctionPollResult
