@@ -62,6 +62,9 @@ pub(crate) enum FunctionInvokeError {
 
     #[error("function is busy handling other requests and cannot accept new requests")]
     FunctionBusy,
+
+    #[error("function returned incorrect response")]
+    FunctionIncorrectResponse,
 }
 
 impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
@@ -69,6 +72,7 @@ impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
         match err {
             FunctionDeploymentHandleRequestError::FunctionBusy => Self::FunctionBusy,
             FunctionDeploymentHandleRequestError::FunctionPanicked => Self::FunctionPanicked,
+            FunctionDeploymentHandleRequestError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
         }
     }
 }

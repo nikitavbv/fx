@@ -656,6 +656,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 FetchResultError::FunctionNotFound => error_builder.set_function_not_found(()),
                 FetchResultError::FunctionPanicked => error_builder.set_function_panicked(()),
                 FetchResultError::FunctionBusy => error_builder.set_function_busy(()),
+                FetchResultError::FunctionIncorrectResponse => error_builder.set_function_incorrect_response(()),
                 FetchResultError::RuntimeShutdown => error_builder.set_runtime_shutdown(()),
             }
         }
@@ -1271,7 +1272,7 @@ pub(super) fn fx_fetch_handler(
 
         async move {
             match response_rx.await {
-                Ok(v) => Ok(v.await),
+                Ok(v) => v.await.map_err(FetchResultError::from),
                 Err(err) => Err(FetchResultError::from(err)),
             }
         }.boxed_local()

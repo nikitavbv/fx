@@ -80,6 +80,9 @@ pub(crate) enum WorkersControllerFunctionInvokeError {
 
     #[error("function is busy handling other requests and cannot accept a new one")]
     FunctionBusy,
+
+    #[error("function returned incorrect response")]
+    FunctionIncorrectResponse,
 }
 
 impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
@@ -88,6 +91,7 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
             FunctionInvokeError::NotFound => Self::NotFound,
             FunctionInvokeError::FunctionPanicked => Self::FunctionPanicked,
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
+            FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
         }
     }
 }
@@ -122,6 +126,9 @@ pub(crate) mod local_worker_controller {
             #[error("function is busy handling other requests and cannot accept new requests")]
             FunctionBusy,
 
+            #[error("function returned incorrect response")]
+            FunctionIncorrectResponse,
+
             #[error("runtime is being shut down. New requests are rejected")]
             RuntimeShutdown,
         }
@@ -134,6 +141,7 @@ pub(crate) mod local_worker_controller {
                     SourceError::NotFound => Self::NotFound,
                     SourceError::FunctionPanicked => Self::FunctionPanicked,
                     SourceError::FunctionBusy => Self::FunctionBusy,
+                    SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
                 }
             }
         }

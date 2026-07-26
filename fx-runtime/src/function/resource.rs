@@ -1,6 +1,7 @@
 use {
     std::rc::Rc,
     futures::future::{LocalBoxFuture, FutureExt},
+    thiserror::Error,
     fx_types::{capnp, abi_http_capnp},
     crate::{
         resources::FunctionResourceId,
@@ -10,7 +11,13 @@ use {
 };
 
 pub(crate) struct FunctionHttpResponseFuture {
-    inner: LocalBoxFuture<'static, http::Response<HttpBody>>,
+    inner: LocalBoxFuture<'static, Result<http::Response<HttpBody>, FunctionHttpResponseFutureError>>,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum FunctionHttpResponseFutureError {
+    #[error("host resource referenced by function is not found")]
+    HostResourceNotFound,
 }
 
 impl FunctionHttpResponseFuture {
@@ -30,21 +37,22 @@ impl FunctionHttpResponseFuture {
                     http_response = http_response.header(name, value);
                 }
 
-                match response.get_body().which().unwrap() {
+                Ok(match response.get_body().which().unwrap() {
                     abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => http_response.body(
                         HttpBody::for_function_stream(instance, resource_id.into())
                     ).unwrap(),
                     abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => http_response.body({
-                        instance.clone().store.lock().await.data_mut().resource_set.http_bodies.remove(resource_id.into()).unwrap()
+                        instance.clone().store.lock().await.data_mut().resource_set.http_bodies.remove(resource_id.into())
+                            .ok_or(FunctionHttpResponseFutureError::HostResourceNotFound)?
                     }).unwrap(),
-                }
+                })
             }.boxed_local()
         }
     }
 }
 
 impl Future for FunctionHttpResponseFuture {
-    type Output = http::Response<HttpBody>;
+    type Output = Result<http::Response<HttpBody>, FunctionHttpResponseFutureError>;
 
     fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         self.inner.poll_unpin(cx)

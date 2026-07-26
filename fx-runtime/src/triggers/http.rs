@@ -123,7 +123,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 }
             };
             let function_response = match response {
-                Ok(v) => Ok(v.await),
+                Ok(v) => v.await.map_err(FunctionDeploymentHandleRequestError::from),
                 Err(err) => Err(err),
             };
 
@@ -140,6 +140,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                         *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
                         response
                     },
+                    FunctionDeploymentHandleRequestError::FunctionIncorrectResponse => {
+                        let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function returned incorrect response.\n")));
+                        *response.status_mut() = StatusCode::BAD_GATEWAY;
+                        response
+                    }
                 }
             };
 

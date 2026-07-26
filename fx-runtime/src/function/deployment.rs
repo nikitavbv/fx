@@ -241,6 +241,8 @@ pub enum FunctionDeploymentHandleRequestError {
     /// Function is busy handling other requests and cannot accept a new one
     #[error("function busy handling other requests and cannot accept a new one")]
     FunctionBusy,
+    #[error("function returned incorrect response")]
+    FunctionIncorrectResponse,
 }
 
 impl From<crate::function::instance::invoke_http_trigger::InvokeError> for FunctionDeploymentHandleRequestError {
@@ -249,6 +251,15 @@ impl From<crate::function::instance::invoke_http_trigger::InvokeError> for Funct
         match err {
             InvokeError::FunctionBusy => Self::FunctionBusy,
             InvokeError::FunctionPanicked => Self::FunctionPanicked,
+        }
+    }
+}
+
+impl From<crate::function::resource::FunctionHttpResponseFutureError> for FunctionDeploymentHandleRequestError {
+    fn from(err: crate::function::resource::FunctionHttpResponseFutureError) -> Self {
+        use crate::function::resource::FunctionHttpResponseFutureError as SourceError;
+        match err {
+            SourceError::HostResourceNotFound => Self::FunctionIncorrectResponse,
         }
     }
 }

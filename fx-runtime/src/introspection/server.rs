@@ -1,6 +1,7 @@
 use {
     std::sync::Arc,
     chrono::{DateTime, Utc},
+    tracing::error,
     serde::Deserialize,
     send_wrapper::SendWrapper,
     axum::{Router, routing::{get, delete}, response::Response, Extension, extract, http::StatusCode},
@@ -30,8 +31,16 @@ pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, work
         .layer(Extension(IntrospectionWorkersController { controller: Arc::new(workers_controller) }))
         .layer(Extension(runtime_state));
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = match tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await {
+        Ok(v) => v,
+        Err(err) => {
+            error!("failed to bind tcp listener for introspection server: {err:?}");
+            return;
+        }
+    };
+    if let Err(err) = axum::serve(listener, app).await {
+        error!("failed to start introspection server: {err:?}");
+    }
 }
 
 async fn introspection_home() -> Response {
@@ -50,10 +59,9 @@ async fn introspection_metrics(Extension(metrics): Extension<Arc<MetricsRegistry
 }
 
 fn render_component(component: impl IntoView + 'static) -> Response {
-    Response::builder()
-        .header("content-type", "text/html; charset=utf-8")
-        .body(component.to_html().into())
-        .unwrap()
+    let mut response = Response::new(component.to_html().into());
+    response.headers_mut().insert("content-type", http::HeaderValue::from_static("text/html; charset=utf-8"));
+    response
 }
 
 #[derive(Deserialize)]
