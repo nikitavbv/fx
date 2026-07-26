@@ -6,7 +6,7 @@ use {
     futures::{FutureExt, future::LocalBoxFuture},
     wasmtime::{AsContextMut, AsContext},
     zerocopy::FromBytes,
-    fx_types::{capnp, abi_http_capnp, abi::{AsyncResourcePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult}},
+    fx_types::abi::FunctionHttpBodyFramePollResult,
     crate::{
         function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
         effects::{
@@ -38,7 +38,6 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
     fn_http_body_frame_poll: wasmtime::TypedFunc<u64, u64>,
-    fn_bytes_ptr_and_len: wasmtime::TypedFunc<u64, u64>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
@@ -96,8 +95,6 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_http_body_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_http_body_frame_poll")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_bytes_ptr_and_len = instance.get_typed_func(store.as_context_mut(), "_fx_bytes_ptr_and_len")
-            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
@@ -121,7 +118,6 @@ impl FunctionInstance {
             fn_resource_serialized_ptr,
             fn_resource_drop,
             fn_http_body_frame_poll,
-            fn_bytes_ptr_and_len,
             fn_handler,
         });
 
@@ -180,23 +176,6 @@ impl FunctionInstance {
         let resource_data = self.copy_serializable_resource_to_host(resource_id).await;
         self.resource_drop(resource_id).await;
         resource_data
-    }
-
-    pub(crate) async fn bytes_copy_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
-        let mut store = self.store.lock().await;
-
-        let ptr_and_len_addr = self.fn_bytes_ptr_and_len.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize;
-        let ptr_and_len = FunctionBytesPtrAndLenResult::read_from_bytes(
-            &self.memory.data(store.as_context())[ptr_and_len_addr..ptr_and_len_addr+std::mem::size_of::<AsyncResourcePollResult>()]
-        ).unwrap();
-
-        let ptr = ptr_and_len.ptr as usize;
-        let len = ptr_and_len.len as usize;
-        let data = self.memory.data(store.as_context())[ptr..ptr+len].to_vec();
-
-        drop(store);
-
-        data
     }
 }
 
@@ -384,8 +363,10 @@ pub(crate) struct FunctionFramePollFuture {
     instance: Rc<FunctionInstance>,
     resource_id: FunctionStreamResourceId,
 
-    inner_poll_future: Option<LocalBoxFuture<'static, Poll<Result<Option<FunctionFrame>, FunctionFramePollError>>>>,
+    inner_poll_future: Option<LocalBoxFuture<'static, Poll<FunctionFramePollResult>>>,
 }
+
+type FunctionFramePollResult = Result<Option<FunctionFrame>, FunctionFramePollError>;
 
 impl FunctionFramePollFuture {
     pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionStreamResourceId) -> Self {
@@ -404,16 +385,14 @@ pub enum FunctionFramePollError {
 }
 
 impl Future for FunctionFramePollFuture {
-    type Output = Result<Option<FunctionFrame>, FunctionFramePollError>;
+    type Output = FunctionFramePollResult;
 
     fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        let inner_poll_future = std::mem::replace(&mut self.inner_poll_future, None);
+        let instance = self.instance.clone();
+        let resource_id = self.resource_id.clone();
 
-        let mut inner_poll_future = match inner_poll_future {
-            Some(v) => v,
-            None => {
-                let instance = self.instance.clone();
-                let resource_id = self.resource_id.clone();
+        let result = self.inner_poll_future
+            .get_or_insert_with(|| {
                 async move {
                     let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
                     match instance.http_body_frame_poll(&resource_id, waker).await {
@@ -422,15 +401,17 @@ impl Future for FunctionFramePollFuture {
                         Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
                     }
                 }.boxed_local()
-            },
-        };
+            })
+            .poll_unpin(cx);
 
-        match inner_poll_future.poll_unpin(cx) {
+        match result {
             Poll::Pending => {
-                self.inner_poll_future = Some(inner_poll_future);
                 Poll::Pending
             },
-            Poll::Ready(v) => v,
+            Poll::Ready(v) => {
+                self.inner_poll_future = None;
+                v
+            },
         }
     }
 }
