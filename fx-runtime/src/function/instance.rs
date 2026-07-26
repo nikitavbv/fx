@@ -209,8 +209,24 @@ pub(crate) mod http_body_frame_poll {
         AbiError,
     }
 
+    // TODO: implement drop for this
+    pub(crate) struct FunctionFrame {
+        resource_id: u64,
+
+        ptr: send_wrapper::SendWrapper<*const u8>, // absolute pointer into guest linear memory
+        len: usize,
+    }
+
+    impl AsRef<[u8]> for FunctionFrame {
+        fn as_ref(&self) -> &[u8] {
+            // ptr points into instance's linear memory.
+            // safe because wastime grows memory in place and base pointer cannot move.
+            unsafe { std::slice::from_raw_parts(*self.ptr, self.len) }
+        }
+    }
+
     impl FunctionInstance {
-        pub(crate) async fn http_body_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<Result<Option<Vec<u8>>, HttpBodyFramePollError>> {
+        pub(crate) async fn http_body_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<Result<Option<FunctionFrame>, HttpBodyFramePollError>> {
             let mut store = self.store.lock().await;
             store.data_mut().waker = Some(waker);
 
@@ -225,13 +241,20 @@ pub(crate) mod http_body_frame_poll {
                 1 => Poll::Ready(Ok(Some({
                     let addr = poll_result.frame_bytes_addr as usize;
                     let len = poll_result.frame_bytes_len as usize;
-                    self.memory.data(store.as_context())[addr..addr+len].to_vec()
+                    let slice = &self.memory.data(store.as_context())[addr..addr+len];
+                    FunctionFrame {
+                        resource_id: poll_result.frame_bytes_resource_id,
+
+                        ptr: send_wrapper::SendWrapper::new(slice.as_ptr()),
+                        len,
+                    }
                 }))),
                 _other => Poll::Ready(Err(HttpBodyFramePollError::AbiError)),
             }
         }
     }
 }
+pub(crate) use http_body_frame_poll::FunctionFrame;
 
 pub(crate) mod invoke_http_trigger {
     use super::*;
@@ -361,7 +384,7 @@ pub(crate) struct FunctionFramePollFuture {
     instance: Rc<FunctionInstance>,
     resource_id: FunctionStreamResourceId,
 
-    inner_poll_future: Option<LocalBoxFuture<'static, Poll<Result<Option<Vec<u8>>, FunctionFramePollError>>>>,
+    inner_poll_future: Option<LocalBoxFuture<'static, Poll<Result<Option<FunctionFrame>, FunctionFramePollError>>>>,
 }
 
 impl FunctionFramePollFuture {
@@ -381,7 +404,7 @@ pub enum FunctionFramePollError {
 }
 
 impl Future for FunctionFramePollFuture {
-    type Output = Result<Option<Vec<u8>>, FunctionFramePollError>;
+    type Output = Result<Option<FunctionFrame>, FunctionFramePollError>;
 
     fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let inner_poll_future = std::mem::replace(&mut self.inner_poll_future, None);

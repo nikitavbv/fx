@@ -13,7 +13,7 @@ use {
             FunctionId,
             FunctionDeploymentId,
             deployment::{FunctionDeployment, FunctionDeploymentHandleRequestError},
-            instance::{FunctionInstance, FunctionFramePollFuture, FunctionFramePollError},
+            instance::{FunctionInstance, FunctionFramePollFuture, FunctionFramePollError, FunctionFrame},
             resource::FunctionStreamResourceId,
         },
         effects::fetch::HttpStreamError,
@@ -192,7 +192,7 @@ impl hyper::body::Body for HttpBody {
         match &mut self.0 {
             HttpBodyInner::FunctionStream(resource) =>
                 resource.poll_frame(cx)
-                    .map(|v| v.map(|v| v.map(|v| hyper::body::Frame::data(Bytes::from(v))))
+                    .map(|v| v.map(|v| v.map(|v| hyper::body::Frame::data(Bytes::from_owner(v))))
                         .map_err(std::io::Error::other)
                         .transpose()
                     ),
@@ -217,7 +217,7 @@ mod function_stream_reader {
     pub(crate) struct FunctionStreamReader {
         function: Rc<FunctionInstance>,
         resource_id: FunctionStreamResourceId,
-        poll_future: Option<LocalBoxFuture<'static, Result<Option<Vec<u8>>, PollFrameError>>>,
+        poll_future: Option<LocalBoxFuture<'static, Result<Option<FunctionFrame>, PollFrameError>>>,
     }
 
     impl FunctionStreamReader {
@@ -245,8 +245,8 @@ mod function_stream_reader {
     }
 
     impl FunctionStreamReader {
-        pub(crate) fn poll_frame(&mut self, context: &mut std::task::Context<'_>) -> Poll<Result<Option<Vec<u8>>, PollFrameError>> {
-            let mut poll_future: LocalBoxFuture<'_, Result<Option<Vec<u8>>, PollFrameError>> = match self.poll_future.take() {
+        pub(crate) fn poll_frame(&mut self, context: &mut std::task::Context<'_>) -> Poll<Result<Option<FunctionFrame>, PollFrameError>> {
+            let mut poll_future: LocalBoxFuture<'_, Result<Option<FunctionFrame>, PollFrameError>> = match self.poll_future.take() {
                 Some(v) => v,
                 None => {
                     let function = self.function.clone();
@@ -266,10 +266,10 @@ mod function_stream_reader {
     }
 
     impl Stream for FunctionStreamReader {
-        type Item = Result<Vec<u8>, PollFrameError>;
+        type Item = Result<Bytes, PollFrameError>;
 
         fn poll_next(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
-            self.poll_frame(cx).map(|v| v.transpose())
+            self.poll_frame(cx).map(|v| v.transpose().map(|v| v.map(Bytes::from_owner)))
         }
     }
 }
