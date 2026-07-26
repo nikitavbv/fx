@@ -1,9 +1,9 @@
 use {
-    std::{cell::RefCell, marker::PhantomData, task::Poll},
+    std::{cell::RefCell, marker::PhantomData},
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
-    fx_types::{capnp, abi::{UnitFuturePollResult, AsyncResourcePollResult}, abi_http_capnp},
+    fx_types::{capnp, abi::UnitFuturePollResult, abi_http_capnp},
     crate::{
         handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponseBody},
         sys::{
@@ -11,8 +11,7 @@ use {
             fx_bytes_move,
             fx_unit_future_poll,
         },
-        api::http::{HttpBody, HttpBodyInner},
-        io::http::HttpStreamError,
+        api::http::HttpBody,
     },
 };
 

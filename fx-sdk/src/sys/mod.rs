@@ -17,7 +17,6 @@ pub(crate) use self::{
         drop_function_resource,
         map_function_resource_ref,
         map_function_resource_ref_mut,
-        replace_function_resource_with_effect,
     },
 };
 
@@ -53,7 +52,7 @@ pub extern "C" fn _fx_http_body_frame_poll(resource_id: u64) -> u64 {
 
     RESOURCE_SET.with_borrow_mut(|resources| {
         let result = match &mut resources.http_bodies.get_mut(resource_id.into()).as_mut().unwrap().0 {
-            HttpBodyInner::Stream { stream, frame_serialized } => {
+            HttpBodyInner::Stream(stream) => {
                 match stream.poll_next_unpin(&mut context) {
                     Poll::Pending => Poll::Pending,
                     Poll::Ready(frame) => {

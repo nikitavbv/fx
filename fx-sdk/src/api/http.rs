@@ -179,7 +179,7 @@ impl FetchRequestHeaderResource {
                     abi_http_capnp::http_body::body::Which::Empty(_) => None,
                     abi_http_capnp::http_body::body::Which::Bytes(v) => {
                         let data = v.unwrap().to_vec();
-                        Some(HttpBodyInner::Stream { stream: futures::stream::once(async move { Ok(Bytes::from(data)) }).boxed(), frame_serialized: None })
+                        Some(HttpBodyInner::Stream(futures::stream::once(async move { Ok(Bytes::from(data)) }).boxed()))
                     },
                     abi_http_capnp::http_body::body::Which::HostResource(resource_id) => Some(HttpBodyInner::HostResource(resource_id)),
                     abi_http_capnp::http_body::body::Which::FunctionStream(_) => todo!(),
@@ -297,7 +297,7 @@ impl HttpBody {
     }
 
     pub fn stream(stream: BoxStream<'static, Result<Bytes, HttpStreamError>>) -> Self {
-        Self(HttpBodyInner::Stream { stream, frame_serialized: None })
+        Self(HttpBodyInner::Stream(stream))
     }
 
     pub fn host_resource(resource_id: u64) -> Self {
@@ -324,7 +324,7 @@ impl Stream for HttpBody {
     fn poll_next(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
         match &mut self.0 {
             HttpBodyInner::Empty => std::task::Poll::Ready(None),
-            HttpBodyInner::Stream { stream, frame_serialized: _discarded } => stream.poll_next_unpin(cx)
+            HttpBodyInner::Stream(stream) => stream.poll_next_unpin(cx)
                 .map_err(|_| todo!()),
             HttpBodyInner::HostResource(resource_id) => {
                 let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
@@ -385,10 +385,7 @@ impl axum::response::IntoResponse for HttpBody {
 
 pub(crate) enum HttpBodyInner {
     Empty,
-    Stream {
-        stream: BoxStream<'static, Result<Bytes, HttpStreamError>>,
-        frame_serialized: Option<Vec<u8>>,
-    },
+    Stream(BoxStream<'static, Result<Bytes, HttpStreamError>>),
     HostResource(u64),
 }
 
@@ -421,9 +418,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
         match request.body() {
             Some(body) => match body.0 {
                 HttpBodyInner::Empty => request_body.set_empty(()),
-                HttpBodyInner::Stream { stream, frame_serialized: _frame_discarded } => {
-                    request_body.set_function_stream(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody::stream(stream))).into())
-                },
+                HttpBodyInner::Stream(stream) => request_body.set_function_stream(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody::stream(stream))).into()),
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id),
             },
             None => request_body.set_empty(()),
