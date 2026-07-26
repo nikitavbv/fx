@@ -6,7 +6,7 @@ use {
     futures::{FutureExt, future::LocalBoxFuture},
     wasmtime::{AsContextMut, AsContext},
     zerocopy::FromBytes,
-    fx_types::{capnp, abi_http_capnp, abi::{AsyncResourcePollResult, FunctionBytesPtrAndLenResult}},
+    fx_types::{capnp, abi_http_capnp, abi::{AsyncResourcePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult}},
     crate::{
         function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
         effects::{
@@ -210,20 +210,23 @@ pub(crate) mod http_body_frame_poll {
     }
 
     impl FunctionInstance {
-        pub(crate) async fn http_body_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<Result<FunctionResourceId, HttpBodyFramePollError>> {
+        pub(crate) async fn http_body_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<Result<Option<Vec<u8>>, HttpBodyFramePollError>> {
             let mut store = self.store.lock().await;
             store.data_mut().waker = Some(waker);
 
             let async_operation_addr = self.fn_http_body_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize;
-            let poll_result = AsyncResourcePollResult::read_from_bytes(
-                &self.memory.data(store.as_context())[async_operation_addr..async_operation_addr+std::mem::size_of::<AsyncResourcePollResult>()]
+            let poll_result = FunctionHttpBodyFramePollResult::read_from_bytes(
+                &self.memory.data(store.as_context())[async_operation_addr..async_operation_addr+std::mem::size_of::<FunctionHttpBodyFramePollResult>()]
             ).unwrap();
 
-            drop(store);
-
             match poll_result.tag {
-                1 => Poll::Pending,
-                0 => Poll::Ready(Ok(FunctionResourceId::new(poll_result.resolved_resource_id))),
+                2 => Poll::Pending,
+                0 => Poll::Ready(Ok(None)),
+                1 => Poll::Ready(Ok(Some({
+                    let addr = poll_result.frame_bytes_addr as usize;
+                    let len = poll_result.frame_bytes_len as usize;
+                    self.memory.data(store.as_context())[addr..addr+len].to_vec()
+                }))),
                 _other => Poll::Ready(Err(HttpBodyFramePollError::AbiError)),
             }
         }
@@ -393,15 +396,7 @@ impl Future for FunctionFramePollFuture {
                     match instance.http_body_frame_poll(&resource_id, waker).await {
                         Poll::Pending => Poll::Pending,
                         Poll::Ready(Err(http_body_frame_poll::HttpBodyFramePollError::AbiError)) => Poll::Ready(Err(FunctionFramePollError::InternalSdkError)),
-                        Poll::Ready(Ok(resource_id)) => Poll::Ready(Ok({
-                            let frame_data = instance.bytes_copy_to_host(&resource_id).await;
-                            let reader = capnp::serialize::read_message_from_flat_slice(&mut frame_data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                            let response = reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
-                            match response.get_frame().which().unwrap() {
-                                abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
-                                abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(v.unwrap().to_vec()),
-                            }
-                        })),
+                        Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
                     }
                 }.boxed_local()
             },

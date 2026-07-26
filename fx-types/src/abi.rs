@@ -235,3 +235,13 @@ pub struct FunctionBytesPtrAndLenResult {
     pub ptr: u64,
     pub len: u64,
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Default)]
+pub struct FunctionHttpBodyFramePollResult {
+    pub tag: u8, // 0 - stream end, 1 - ready, 2 - pending
+    pub _pad: [u8; 7],
+    pub frame_bytes_resource_id: u64,
+    pub frame_bytes_addr: u64,
+    pub frame_bytes_len: u64,
+}

@@ -23,7 +23,7 @@ pub(crate) use self::{
 use {
     std::task::Poll,
     futures::{FutureExt, StreamExt},
-    fx_types::{capnp, abi::{FuturePollResult, AsyncResourcePollResult, FunctionBytesPtrAndLenResult}, abi_http_capnp},
+    fx_types::abi::{FuturePollResult, AsyncResourcePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult},
     crate::{
         api::http::HttpBodyInner,
     },
@@ -43,6 +43,14 @@ static mut ASYNC_OPERATION_RESULT: AsyncResourcePollResult = AsyncResourcePollRe
 static mut BYTES_PTR_AND_LEN_RESULT: FunctionBytesPtrAndLenResult = FunctionBytesPtrAndLenResult {
     ptr: 0,
     len: 0,
+};
+
+static mut HTTP_BODY_FRAME_POLL_RESULT: FunctionHttpBodyFramePollResult = FunctionHttpBodyFramePollResult {
+    tag: 0,
+    _pad: [0; 7],
+    frame_bytes_resource_id: 0,
+    frame_bytes_addr: 0,
+    frame_bytes_len: 0,
 };
 
 #[unsafe(no_mangle)]
@@ -65,34 +73,29 @@ pub extern "C" fn _fx_http_body_frame_poll(resource_id: u64) -> u64 {
         };
 
         let result = match result {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(v) => {
-                let mut message = capnp::message::Builder::new_default();
-                let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
-                let mut serialized_frame = serialized_frame.init_frame();
-
-                match v {
-                    None => serialized_frame.set_stream_end(()),
-                    Some(Err(err)) => todo!("handle error: {err:?}"),
-                    Some(Ok(frame)) => serialized_frame.set_bytes(&frame.to_vec()),
-                }
-
-                Poll::Ready(resources.bytes.insert(capnp::serialize::write_message_to_words(&message)))
+            Poll::Pending => FunctionHttpBodyFramePollResult {
+                tag: 2,
+                ..Default::default()
             },
+            Poll::Ready(None) => FunctionHttpBodyFramePollResult {
+                tag: 0,
+                ..Default::default()
+            },
+            Poll::Ready(Some(Ok(v))) => FunctionHttpBodyFramePollResult {
+                tag: 1,
+                _pad: Default::default(),
+                frame_bytes_addr: v.as_ptr() as u64,
+                frame_bytes_len: v.len() as u64,
+                frame_bytes_resource_id: resources.bytes.insert(v).into(),
+            },
+            Poll::Ready(Some(Err(err))) => todo!(),
         };
 
         unsafe {
-            std::ptr::addr_of_mut!(ASYNC_OPERATION_RESULT).write(AsyncResourcePollResult {
-                tag: if result.is_ready() { 0 } else { 1 },
-                _pad: Default::default(),
-                resolved_resource_id: match result {
-                    Poll::Ready(v) => v.into(),
-                    Poll::Pending => 0,
-                }
-            });
+            std::ptr::addr_of_mut!(HTTP_BODY_FRAME_POLL_RESULT).write(result);
         }
 
-        std::ptr::addr_of!(ASYNC_OPERATION_RESULT) as u64
+        std::ptr::addr_of!(HTTP_BODY_FRAME_POLL_RESULT) as u64
     })
 }
 
