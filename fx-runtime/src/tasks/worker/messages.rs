@@ -1,5 +1,5 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, rc::Weak},
     tokio::sync::oneshot,
     thiserror::Error,
     crate::{
@@ -8,12 +8,14 @@ use {
             FunctionDeploymentId,
             deployment::FunctionDeploymentHandleRequestError,
             resource::FunctionHttpResponseFuture,
+            instance::FunctionInstance,
         },
         definitions::{
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
         },
         triggers::http::FetchRequestHeader,
+        resources::FunctionResourceId,
     },
 };
 
@@ -49,7 +51,11 @@ pub(crate) enum WorkerLocalMessage {
         function_id: FunctionId,
         header: FetchRequestHeader,
         response_tx: async_unsync::oneshot::Sender<Result<FunctionHttpResponseFuture, FunctionInvokeError>>,
-    }
+    },
+    FunctionBytesDrop {
+        instance: Weak<FunctionInstance>,
+        bytes_resource_id: FunctionResourceId,
+    },
 }
 
 #[derive(Debug, Error)]

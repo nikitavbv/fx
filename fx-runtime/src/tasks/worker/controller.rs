@@ -1,12 +1,14 @@
 use {
+    std::rc::Weak,
     tokio::sync::oneshot,
     futures::{stream::FuturesUnordered, StreamExt, FutureExt},
     send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{
-        function::{FunctionId, resource::FunctionHttpResponseFuture},
+        function::{FunctionId, resource::FunctionHttpResponseFuture, instance::FunctionInstance},
         triggers::http::FetchRequestHeader,
         tasks::worker::messages::FunctionInvokeError,
+        resources::FunctionResourceId,
     },
     super::messages::{WorkerMessage, WorkerLocalMessage},
 };
@@ -163,6 +165,10 @@ pub(crate) mod local_worker_controller {
                         .map_err(|_| FunctionInvokeError::RuntimeShutdown)?
                         .map_err(FunctionInvokeError::from)
                 }.boxed_local()
+            }
+
+            pub(crate) fn bytes_drop(&self, instance: Weak<FunctionInstance>, bytes_resource_id: FunctionResourceId) {
+                self.self_tx.send(WorkerLocalMessage::FunctionBytesDrop { instance, bytes_resource_id });
             }
         }
     }

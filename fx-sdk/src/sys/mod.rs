@@ -110,6 +110,13 @@ pub extern "C" fn _fx_bytes_ptr_and_len(resource_id: u64) -> u64 {
     std::ptr::addr_of!(BYTES_PTR_AND_LEN_RESULT) as u64
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_bytes_drop(resource_id: u64) {
+    RESOURCE_SET.with_borrow_mut(|resources| {
+        resources.bytes.remove(resource_id.into());
+    })
+}
+
 /// returns fx_types::abi::FunctionPollResult
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {

@@ -6,6 +6,7 @@ use {
     futures::{FutureExt, future::LocalBoxFuture},
     wasmtime::{AsContextMut, AsContext},
     zerocopy::FromBytes,
+    send_wrapper::SendWrapper,
     fx_types::abi::FunctionHttpBodyFramePollResult,
     crate::{
         function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
@@ -13,7 +14,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
         },
-        tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
+        tasks::{sql::SqlController, worker::{LocalWorkerController, WorkerLocalMessage}, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         resources::{
             FunctionResourceId,
@@ -38,6 +39,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
     fn_http_body_frame_poll: wasmtime::TypedFunc<u64, u64>,
+    fn_bytes_drop: wasmtime::TypedFunc<u64, ()>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
@@ -95,6 +97,8 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_http_body_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_http_body_frame_poll")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_bytes_drop = instance.get_typed_func(store.as_context_mut(), "_fx_bytes_drop")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
@@ -118,6 +122,7 @@ impl FunctionInstance {
             fn_resource_serialized_ptr,
             fn_resource_drop,
             fn_http_body_frame_poll,
+            fn_bytes_drop,
             fn_handler,
         });
 
@@ -177,6 +182,11 @@ impl FunctionInstance {
         self.resource_drop(resource_id).await;
         resource_data
     }
+
+    pub(crate) async fn bytes_drop(&self, resource_id: &FunctionResourceId) {
+        let mut store = self.store.lock().await;
+        self.fn_bytes_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
+    }
 }
 
 pub(crate) mod http_body_frame_poll {
@@ -188,12 +198,21 @@ pub(crate) mod http_body_frame_poll {
         AbiError,
     }
 
-    // TODO: implement drop for this
     pub(crate) struct FunctionFrame {
-        resource_id: u64,
+        local_worker: LocalWorkerController,
 
-        ptr: send_wrapper::SendWrapper<*const u8>, // absolute pointer into guest linear memory
+        function_instance: SendWrapper<Weak<FunctionInstance>>,
+
+        resource_id: FunctionResourceId,
+
+        ptr: SendWrapper<*const u8>, // absolute pointer into guest linear memory
         len: usize,
+    }
+
+    impl Drop for FunctionFrame {
+        fn drop(&mut self) {
+            self.local_worker.bytes_drop((*self.function_instance).clone(), self.resource_id.clone());
+        }
     }
 
     impl AsRef<[u8]> for FunctionFrame {
@@ -222,7 +241,11 @@ pub(crate) mod http_body_frame_poll {
                     let len = poll_result.frame_bytes_len as usize;
                     let slice = &self.memory.data(store.as_context())[addr..addr+len];
                     FunctionFrame {
-                        resource_id: poll_result.frame_bytes_resource_id,
+                        local_worker: store.data().local_worker.clone(),
+
+                        function_instance: store.data().self_instance.clone(),
+
+                        resource_id: poll_result.frame_bytes_resource_id.into(),
 
                         ptr: send_wrapper::SendWrapper::new(slice.as_ptr()),
                         len,

@@ -56,6 +56,10 @@ impl<K, V> ResourceTable<K, V> {
     pub fn get_mut(&mut self, key: K) -> Option<&mut V> where K: Into<slotmap::DefaultKey> {
         self.map.get_mut(key.into())
     }
+
+    pub fn remove(&mut self, key: K) -> Option<V> where K: Into<slotmap::DefaultKey> {
+        self.map.remove(key.into())
+    }
 }
 
 impl<K, V> Default for ResourceTable<K, V> {
