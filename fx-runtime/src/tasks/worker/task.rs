@@ -19,7 +19,7 @@ use {
         function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
         triggers::http::HttpHandler,
     },
-    super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::FunctionInvokeError},
+    super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::{FunctionInvokeError, FunctionDeployMessage}},
     self::worker_handle_metrics_flush::worker_handle_metrics_flush,
 };
 
@@ -184,18 +184,20 @@ async fn worker_handle_message(
     message: WorkerMessage
 ) {
     match message {
-        WorkerMessage::FunctionDeploy {
-            function_id,
-            deployment_id,
-            module,
-            limit_memory_bytes,
-            http_listeners,
-            env,
-            bindings_sql,
-            bindings_blob,
-            bindings_kv,
-            bindings_functions,
-        } => {
+        WorkerMessage::FunctionDeploy(message) => {
+            let FunctionDeployMessage {
+                function_id,
+                deployment_id,
+                module,
+                limit_memory_bytes,
+                http_listeners,
+                env,
+                bindings_sql,
+                bindings_blob,
+                bindings_kv,
+                bindings_functions,
+            } = *message;
+
             let deployment = FunctionDeployment::new(
                 world.wasmtime.clone(),
                 limit_memory_bytes,
@@ -263,7 +265,11 @@ async fn worker_handle_message(
                 let _ = on_ready.send(());
             }
         },
-        WorkerMessage::FunctionInvoke { function_id, header, mut response_tx } => {
+        WorkerMessage::FunctionInvoke(message) => {
+            let function_id = message.function_id;
+            let mut response_tx = message.response_tx;
+            let header = message.header;
+
             debug!("function invoke: {function_id:?}");
             let deployment = match world.functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
@@ -311,7 +317,11 @@ async fn worker_handle_local_message(
     message: WorkerLocalMessage
 ) {
     match message {
-        WorkerLocalMessage::FunctionInvoke { function_id, header, mut response_tx } => {
+        WorkerLocalMessage::FunctionInvoke(message) => {
+            let function_id = message.function_id;
+            let mut response_tx = message.response_tx;
+            let header = message.header;
+
             let deployment = match functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
                 None => {

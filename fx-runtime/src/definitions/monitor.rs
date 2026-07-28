@@ -13,7 +13,7 @@ use {
     walkdir::WalkDir,
     crate::{
         tasks::{
-            worker::WorkerMessage,
+            worker::{WorkerMessage, FunctionDeployMessage},
             compiler::CompilerMessage,
             cron::CronMessage,
             management::runtime_state::{RuntimeState, CronTaskInfo},
@@ -281,7 +281,7 @@ impl DefinitionsMonitor {
             .collect::<HashMap<_, _>>();
 
         for worker in self.workers_tx.iter() {
-            worker.send_async(WorkerMessage::FunctionDeploy {
+            worker.send_async(WorkerMessage::FunctionDeploy(Box::new(FunctionDeployMessage {
                 function_id: function_id.clone(),
                 deployment_id: deployment_id.clone(),
                 module: module.clone(),
@@ -294,7 +294,7 @@ impl DefinitionsMonitor {
                 bindings_blob: bindings_blob.clone(),
                 bindings_kv: bindings_kv.clone(),
                 bindings_functions: bindings_functions.clone(),
-            }).await.unwrap();
+            }))).await.unwrap();
         }
 
         let cron_triggers = config.triggers.iter()

@@ -14,7 +14,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
         },
-        tasks::{sql::SqlController, worker::{LocalWorkerController, WorkerLocalMessage}, kv::KvMessage, blob::BlobMessage},
+        tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         resources::{
             FunctionResourceId,

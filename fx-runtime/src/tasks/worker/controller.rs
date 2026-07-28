@@ -10,7 +10,7 @@ use {
         tasks::worker::messages::FunctionInvokeError,
         resources::FunctionResourceId,
     },
-    super::messages::{WorkerMessage, WorkerLocalMessage},
+    super::messages::{WorkerMessage, WorkerLocalMessage, FunctionInvokeMessage, LocalFunctionInvokeMessage},
 };
 
 pub(crate) use self::local_worker_controller::LocalWorkerController;
@@ -55,7 +55,7 @@ impl WorkersController {
 
     pub(crate) async fn function_invoke(&self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.any_worker_tx.send_async(WorkerMessage::FunctionInvoke { function_id, header: req, response_tx }).await
+        self.any_worker_tx.send_async(WorkerMessage::FunctionInvoke(Box::new(FunctionInvokeMessage { function_id, header: req, response_tx }))).await
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?;
         response_rx.await
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?
@@ -152,11 +152,11 @@ pub(crate) mod local_worker_controller {
             pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> impl Future<Output = Result<FunctionHttpResponseFuture, FunctionInvokeError>> + 'static {
                 let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
-                let send_message_result = self.self_tx.send(WorkerLocalMessage::FunctionInvoke {
+                let send_message_result = self.self_tx.send(WorkerLocalMessage::FunctionInvoke(Box::new(LocalFunctionInvokeMessage {
                     function_id,
                     header,
                     response_tx,
-                });
+                })));
 
                 async move {
                     send_message_result.map_err(|_| FunctionInvokeError::RuntimeShutdown)?;
@@ -168,7 +168,8 @@ pub(crate) mod local_worker_controller {
             }
 
             pub(crate) fn bytes_drop(&self, instance: Weak<FunctionInstance>, bytes_resource_id: FunctionResourceId) {
-                self.self_tx.send(WorkerLocalMessage::FunctionBytesDrop { instance, bytes_resource_id });
+                // error can be ignored here because that means that runtime is being shut down
+                let _ = self.self_tx.send(WorkerLocalMessage::FunctionBytesDrop { instance, bytes_resource_id });
             }
         }
     }

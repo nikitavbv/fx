@@ -24,38 +24,44 @@ pub(crate) enum WorkerMessage {
         function_id: FunctionId,
         on_ready: Option<oneshot::Sender<()>>,
     },
-    FunctionDeploy {
-        function_id: FunctionId,
-        deployment_id: FunctionDeploymentId,
-        module: wasmtime::Module,
+    FunctionDeploy(Box<FunctionDeployMessage>),
+    FunctionInvoke(Box<FunctionInvokeMessage>),
+}
 
-        limit_memory_bytes: Option<usize>,
+pub(crate) struct FunctionDeployMessage {
+    pub(crate) function_id: FunctionId,
+    pub(crate) deployment_id: FunctionDeploymentId,
+    pub(crate) module: wasmtime::Module,
 
-        http_listeners: Vec<FunctionHttpListener>,
+    pub(crate) limit_memory_bytes: Option<usize>,
 
-        env: HashMap<String, String>,
-        bindings_sql: HashMap<String, SqlBindingConfig>,
-        bindings_blob: HashMap<String, BlobBindingConfig>,
-        bindings_kv: HashMap<String, KvBindingConfig>,
-        bindings_functions: HashMap<String, FunctionBindingConfig>,
-    },
-    FunctionInvoke {
-        function_id: FunctionId,
-        header: FetchRequestHeader,
-        response_tx: oneshot::Sender<Result<(), FunctionInvokeError>>,
-    },
+    pub(crate) http_listeners: Vec<FunctionHttpListener>,
+
+    pub(crate) env: HashMap<String, String>,
+    pub(crate) bindings_sql: HashMap<String, SqlBindingConfig>,
+    pub(crate) bindings_blob: HashMap<String, BlobBindingConfig>,
+    pub(crate) bindings_kv: HashMap<String, KvBindingConfig>,
+    pub(crate) bindings_functions: HashMap<String, FunctionBindingConfig>,
+}
+
+pub(crate) struct FunctionInvokeMessage {
+    pub(crate) function_id: FunctionId,
+    pub(crate) header: FetchRequestHeader,
+    pub(crate) response_tx: oneshot::Sender<Result<(), FunctionInvokeError>>,
 }
 
 pub(crate) enum WorkerLocalMessage {
-    FunctionInvoke {
-        function_id: FunctionId,
-        header: FetchRequestHeader,
-        response_tx: async_unsync::oneshot::Sender<Result<FunctionHttpResponseFuture, FunctionInvokeError>>,
-    },
+    FunctionInvoke(Box<LocalFunctionInvokeMessage>),
     FunctionBytesDrop {
         instance: Weak<FunctionInstance>,
         bytes_resource_id: FunctionResourceId,
     },
+}
+
+pub(crate) struct LocalFunctionInvokeMessage {
+    pub(crate) function_id: FunctionId,
+    pub(crate) header: FetchRequestHeader,
+    pub(crate) response_tx: async_unsync::oneshot::Sender<Result<FunctionHttpResponseFuture, FunctionInvokeError>>,
 }
 
 #[derive(Debug, Error)]

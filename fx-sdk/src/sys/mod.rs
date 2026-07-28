@@ -23,7 +23,7 @@ pub(crate) use self::{
 use {
     std::task::Poll,
     futures::{FutureExt, StreamExt},
-    fx_types::abi::{FuturePollResult, AsyncResourcePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult},
+    fx_types::abi::{FuturePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult},
     crate::{
         api::http::HttpBodyInner,
     },
@@ -34,12 +34,6 @@ mod logs;
 pub(crate) mod resource;
 
 // exports:
-static mut ASYNC_OPERATION_RESULT: AsyncResourcePollResult = AsyncResourcePollResult {
-    tag: 1,
-    _pad: [0; 7],
-    resolved_resource_id: 0,
-};
-
 static mut BYTES_PTR_AND_LEN_RESULT: FunctionBytesPtrAndLenResult = FunctionBytesPtrAndLenResult {
     ptr: 0,
     len: 0,
