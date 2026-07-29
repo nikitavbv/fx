@@ -16,7 +16,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsDelta,
         },
-        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}},
+        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}, instance::RuntimeServices},
         triggers::http::HttpHandler,
     },
     super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::{FunctionInvokeError, FunctionDeployMessage}},
@@ -200,12 +200,14 @@ async fn worker_handle_message(
 
             let deployment = FunctionDeployment::new(
                 world.wasmtime.clone(),
+                RuntimeServices::new(
+                    local_controller.clone(),
+                    worker.logger_tx.clone(),
+                    worker.sql_controller.clone(),
+                    worker.kv_tx.clone(),
+                    worker.blob_tx.clone()
+                ),
                 limit_memory_bytes,
-                local_controller.clone(),
-                worker.logger_tx.clone(),
-                worker.sql_controller.clone(),
-                worker.kv_tx.clone(),
-                worker.blob_tx.clone(),
                 function_id.clone(),
                 module,
                 env,

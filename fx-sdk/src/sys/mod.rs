@@ -22,10 +22,12 @@ pub(crate) use self::{
 
 use {
     std::task::Poll,
+    tracing::error,
     futures::{FutureExt, StreamExt},
     fx_types::abi::{FuturePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult},
     crate::{
         api::http::HttpBodyInner,
+        io::http::HttpStreamError,
     },
 };
 
@@ -82,7 +84,13 @@ pub extern "C" fn _fx_http_body_frame_poll(resource_id: u64) -> u64 {
                 frame_bytes_len: v.len() as u64,
                 frame_bytes_resource_id: resources.bytes.insert(v).into(),
             },
-            Poll::Ready(Some(Err(err))) => todo!(),
+            Poll::Ready(Some(Err(HttpStreamError::AxumStreamRead(err)))) => {
+                error!("axum stream error when reading http body: {err:?}");
+                FunctionHttpBodyFramePollResult {
+                    tag: 3,
+                    ..Default::default()
+                }
+            },
         };
 
         unsafe {

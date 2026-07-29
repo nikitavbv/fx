@@ -151,7 +151,7 @@ pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSt
         }
     ).into();
 
-    if caller.data().logger_tx.send(message).is_err() {
+    if caller.data().runtime_services.logger.send(message).is_err() {
         warn!("failed to write log message to logger: log channel is closed.");
     }
 }
@@ -956,7 +956,7 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     };
 
     let (response_tx, response_rx) = oneshot::channel();
-    caller.data().sql_controller.send_message(SqlMessage::Exec(SqlExecMessage {
+    caller.data().runtime_services.sql.send_message(SqlMessage::Exec(SqlExecMessage {
         binding: binding.clone(),
         statement: message.get_statement().unwrap().to_string().unwrap(),
         params: message.get_params().unwrap().into_iter()
@@ -1000,7 +1000,7 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     };
 
     let (response_tx, response_rx) = oneshot::channel();
-    let send_result = caller.data().sql_controller.send_message_migrate(SqlMigrateMessage {
+    let send_result = caller.data().runtime_services.sql.send_message_migrate(SqlMigrateMessage {
         binding: binding.clone(),
         migrations: message.get_migrations().unwrap().into_iter()
             .map(|v| v.unwrap().to_string().unwrap())
@@ -1055,7 +1055,7 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
         .collect();
 
     let (response_tx, response_rx) = oneshot::channel();
-    caller.data().sql_controller.send_message(SqlMessage::Batch(SqlBatchMessage {
+    caller.data().runtime_services.sql.send_message(SqlMessage::Batch(SqlBatchMessage {
         binding: binding.clone(),
         queries,
         response: response_tx,
@@ -1121,7 +1121,7 @@ pub(super) fn fx_blob_put_handler(
         view[ptr..ptr+len].to_vec()
     };
 
-    let blob_tx = caller.data().blob_tx.clone();
+    let blob_tx = caller.data().runtime_services.blob.clone();
 
     caller.data_mut().resource_set.blob_put_result_futures.insert(async move {
         let (result, result_rx) = oneshot::channel();
@@ -1166,7 +1166,7 @@ pub(super) fn fx_blob_get_handler(
         Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
     };
 
-    let blob_tx = caller.data().blob_tx.clone();
+    let blob_tx = caller.data().runtime_services.blob.clone();
 
     caller.data_mut().resource_set.blob_get_response_futures.insert(async move {
         match bucket {
@@ -1213,7 +1213,7 @@ pub(super) fn fx_blob_delete_handler(
         view[ptr..ptr+len].to_vec()
     };
 
-    let blob_tx = caller.data().blob_tx.clone();
+    let blob_tx = caller.data().runtime_services.blob.clone();
 
     caller.data_mut().resource_set.blob_delete_result_futures.insert(async move {
         let (result, result_rx) = oneshot::channel();
@@ -1268,7 +1268,7 @@ pub(super) fn fx_fetch_handler(
         let header = FetchRequestHeader::from_http_parts(
             http_builder.body(()).unwrap().into_parts().0
         );
-        let response_rx = caller.data().local_worker.invoke_function(function_binding.function_id.clone(), header).boxed_local();
+        let response_rx = caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), header).boxed_local();
 
         async move {
             match response_rx.await {
@@ -1442,7 +1442,7 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
         view[ptr..ptr+len].to_vec()
     };
 
-    let kv_tx = caller.data_mut().kv_tx.clone();
+    let kv_tx = caller.data_mut().runtime_services.kv.clone();
 
     let req = KvSetRequest::new(key, value);
 
@@ -1485,7 +1485,7 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
         view[ptr..ptr+len].to_vec()
     };
 
-    let kv_tx = caller.data_mut().kv_tx.clone();
+    let kv_tx = caller.data_mut().runtime_services.kv.clone();
 
     let req = KvSetRequest::new(key, value)
         .with_nx(nx != 0)
@@ -1522,7 +1522,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
         view[ptr..ptr+len].to_vec()
     };
 
-    let kv_tx = caller.data_mut().kv_tx.clone();
+    let kv_tx = caller.data_mut().runtime_services.kv.clone();
 
     caller.data_mut().resource_set.kv_get_response_futures.insert(async move {
         let (result_tx, result_rx) = oneshot::channel();
@@ -1564,7 +1564,7 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
         view[ptr..ptr+len].to_vec()
     };
 
-    let kv_tx = caller.data_mut().kv_tx.clone();
+    let kv_tx = caller.data_mut().runtime_services.kv.clone();
     let (result_tx, result_rx) = oneshot::channel();
 
     caller.data_mut().resource_set.unit_futures.insert(async move {
@@ -1597,7 +1597,7 @@ pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionI
     };
 
     let (result_tx, result_rx) = oneshot::channel();
-    caller.data_mut().kv_tx.send(KvMessage {
+    caller.data_mut().runtime_services.kv.send(KvMessage {
         namespace,
         operation: KvOperation::Subscribe { channel, result: result_tx },
     }).unwrap();
@@ -1631,7 +1631,7 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
     };
 
     let (result_tx, result_rx) = oneshot::channel();
-    caller.data().kv_tx.send(KvMessage {
+    caller.data().runtime_services.kv.send(KvMessage {
         namespace,
         operation: KvOperation::Publish(KvPublishRequest {
             channel,

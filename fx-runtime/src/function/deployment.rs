@@ -9,6 +9,7 @@ use {
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, HttpBody},
         resources::future::{FunctionFuture, FunctionUnitFuture},
+        function::instance::RuntimeServices,
     },
     super::{
         instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
@@ -37,12 +38,8 @@ pub(crate) struct FunctionDeployment {
 impl FunctionDeployment {
     pub async fn new(
         wasmtime: Rc<wasmtime::Engine>,
+        runtime_services: RuntimeServices,
         limit_memory_bytes: Option<usize>,
-        local_worker: LocalWorkerController,
-        logger_tx: flume::Sender<LogMessageEvent>,
-        sql_controller: SqlController,
-        kv_tx: flume::Sender<KvMessage>,
-        blob_tx: flume::Sender<BlobMessage>,
         function_id: FunctionId,
         module: wasmtime::Module,
         env: HashMap<String, String>,
@@ -132,12 +129,8 @@ impl FunctionDeployment {
 
         let template = FunctionTemplate::new(
             wasmtime,
+            runtime_services,
             limit_memory_bytes,
-            local_worker,
-            logger_tx,
-            sql_controller,
-            kv_tx,
-            blob_tx,
             function_id.clone(),
             instance_template,
             env,
@@ -302,12 +295,8 @@ impl Into<String> for &FunctionId {
 
 struct FunctionTemplate {
     wasmtime: Rc<wasmtime::Engine>,
+    runtime_services: RuntimeServices,
     limit_memory_bytes: Option<usize>,
-    local_worker: LocalWorkerController,
-    logger_tx: flume::Sender<LogMessageEvent>,
-    sql_controller: SqlController,
-    kv_tx: flume::Sender<KvMessage>,
-    blob_tx: flume::Sender<BlobMessage>,
     function_id: FunctionId,
     instance_template: wasmtime::InstancePre<FunctionInstanceState>,
     env: HashMap<String, String>,
@@ -320,12 +309,8 @@ struct FunctionTemplate {
 impl FunctionTemplate {
     pub fn new(
         wasmtime: Rc<wasmtime::Engine>,
+        runtime_services: RuntimeServices,
         limit_memory_bytes: Option<usize>,
-        local_worker: LocalWorkerController,
-        logger_tx: flume::Sender<LogMessageEvent>,
-        sql_controller: SqlController,
-        kv_tx: flume::Sender<KvMessage>,
-        blob_tx: flume::Sender<BlobMessage>,
         function_id: FunctionId,
         instance_template: wasmtime::InstancePre<FunctionInstanceState>,
         env: HashMap<String, String>,
@@ -336,12 +321,8 @@ impl FunctionTemplate {
     ) -> Self {
         Self {
             wasmtime,
+            runtime_services,
             limit_memory_bytes,
-            local_worker,
-            logger_tx,
-            sql_controller,
-            kv_tx,
-            blob_tx,
             function_id,
             instance_template,
             env,
@@ -355,12 +336,8 @@ impl FunctionTemplate {
     pub async fn instantiate(&self) -> Result<Rc<FunctionInstance>, FunctionInstanceInitError> {
         FunctionInstance::new(
             &self.wasmtime,
+            self.runtime_services.clone(),
             self.limit_memory_bytes.clone(),
-            self.local_worker.clone(),
-            self.logger_tx.clone(),
-            self.sql_controller.clone(),
-            self.kv_tx.clone(),
-            self.blob_tx.clone(),
             self.function_id.clone(),
             &self.instance_template,
             self.env.clone(),

@@ -47,12 +47,8 @@ pub(crate) struct FunctionInstance {
 impl FunctionInstance {
     pub async fn new(
         wasmtime: &wasmtime::Engine,
+        runtime_services: RuntimeServices,
         limit_memory_bytes: Option<usize>,
-        local_worker: LocalWorkerController,
-        logger_tx: flume::Sender<LogMessageEvent>,
-        sql_controller: SqlController,
-        kv_tx: flume::Sender<KvMessage>,
-        blob_tx: flume::Sender<BlobMessage>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
         env: HashMap<String, String>,
@@ -62,12 +58,8 @@ impl FunctionInstance {
         bindings_functions: HashMap<String, FunctionBindingConfig>,
     ) -> Result<Rc<Self>, FunctionInstanceInitError> {
         let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(
+            runtime_services,
             limit_memory_bytes,
-            local_worker,
-            logger_tx,
-            sql_controller,
-            kv_tx,
-            blob_tx,
             function_id,
             env,
             bindings_sql,
@@ -241,7 +233,7 @@ pub(crate) mod http_body_frame_poll {
                     let len = poll_result.frame_bytes_len as usize;
                     let slice = &self.memory.data(store.as_context())[addr..addr+len];
                     FunctionFrame {
-                        local_worker: store.data().local_worker.clone(),
+                        local_worker: store.data().runtime_services.local_worker.clone(),
 
                         function_instance: store.data().self_instance.clone(),
 
@@ -306,11 +298,8 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) self_instance: send_wrapper::SendWrapper<Weak<FunctionInstance>>,
 
     pub(crate) waker: Option<std::task::Waker>,
-    pub(crate) local_worker: LocalWorkerController,
-    pub(crate) logger_tx: flume::Sender<LogMessageEvent>,
-    pub(crate) sql_controller: SqlController,
-    pub(crate) kv_tx: flume::Sender<KvMessage>,
-    pub(crate) blob_tx: flume::Sender<BlobMessage>,
+    pub(crate) runtime_services: RuntimeServices,
+
     pub(crate) function_id: FunctionId,
 
     pub(crate) resource_set: FunctionResources,
@@ -327,12 +316,8 @@ pub(crate) struct FunctionInstanceState {
 
 impl FunctionInstanceState {
     pub fn new(
+        runtime_services: RuntimeServices,
         limit_memory_bytes: Option<usize>,
-        local_worker: LocalWorkerController,
-        logger_tx: flume::Sender<LogMessageEvent>,
-        sql_controller: SqlController,
-        kv_tx: flume::Sender<KvMessage>,
-        blob_tx: flume::Sender<BlobMessage>,
         function_id: FunctionId,
         env: HashMap<String, String>,
         bindings_sql: HashMap<String, SqlBindingConfig>,
@@ -353,11 +338,8 @@ impl FunctionInstanceState {
             self_instance: send_wrapper::SendWrapper::new(Weak::new()),
 
             waker: None,
-            local_worker,
-            logger_tx,
-            sql_controller,
-            kv_tx,
-            blob_tx,
+            runtime_services,
+
             function_id,
             env,
 
@@ -372,6 +354,39 @@ impl FunctionInstanceState {
             metrics: FunctionMetricsState::new(),
         }
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct RuntimeServices {
+    pub(crate) local_worker: LocalWorkerController,
+    pub(crate) logger: flume::Sender<LogMessageEvent>,
+    pub(crate) sql: SqlController,
+    pub(crate) kv: flume::Sender<KvMessage>,
+    pub(crate) blob: flume::Sender<BlobMessage>,
+}
+
+impl RuntimeServices {
+    pub fn new(
+        local_worker: LocalWorkerController,
+        logger: flume::Sender<LogMessageEvent>,
+        sql: SqlController,
+        kv: flume::Sender<KvMessage>,
+        blob: flume::Sender<BlobMessage>,
+    ) -> Self {
+        Self {
+            local_worker,
+            logger,
+            sql,
+            kv,
+            blob,
+        }
+    }
+}
+
+pub(crate) struct InstanceBindings {
+    pub(crate) env: HashMap<String, String>,
+    pub(crate) sql: HashMap<String, SqlBindingConfig>,
+    pub(crate) blob: HashMap<String, BlobBindingConfig>,
 }
 
 /// Error that occured while polling function future
