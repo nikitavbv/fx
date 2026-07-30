@@ -485,7 +485,7 @@ async fn test_fetch_timeout() -> &'static str {
         Err(FetchError::ConnectionTimeout) => "connection timeout",
         Err(FetchError::ResponseTimeout) => "response timeout",
         Err(FetchError::InternalSdkError) => "internal sdk error",
-        Err(FetchError::FunctionNotFound) | Err(FetchError::FunctionPanicked) | Err(FetchError::FunctionBusy) => "rpc call error",
+        Err(FetchError::FunctionNotFound) | Err(FetchError::FunctionPanicked) | Err(FetchError::FunctionBusy) | Err(FetchError::FunctionCrashed) => "rpc call error",
         Err(FetchError::RuntimeShutdown) => "runtime shutdown",
         Err(FetchError::FunctionIncorrectResponse) => "incorrect response",
     }

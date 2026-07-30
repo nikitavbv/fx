@@ -19,6 +19,8 @@ pub(crate) enum FetchResultError {
     FunctionNotFound,
     #[error("rpc target function panicked")]
     FunctionPanicked,
+    #[error("rpc target function stopped execution with unknown wasm error")]
+    FunctionCrashed,
     #[error("rpc target function is busy handling other requests and cannot accept a new one")]
     FunctionBusy,
     #[error("rpc target function returned incorrect response")]
@@ -32,6 +34,7 @@ impl From<FunctionInvokeError> for FetchResultError {
         match err {
             FunctionInvokeError::NotFound => Self::FunctionNotFound,
             FunctionInvokeError::FunctionPanicked => Self::FunctionPanicked,
+            FunctionInvokeError::FunctionCrashed => Self::FunctionCrashed,
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
         }
@@ -44,6 +47,7 @@ impl From<crate::tasks::worker::local_worker_controller::invoke_function::Functi
         match err {
             SourceError::NotFound => Self::FunctionNotFound,
             SourceError::FunctionPanicked => Self::FunctionPanicked,
+            SourceError::FunctionCrashed => Self::FunctionCrashed,
             SourceError::FunctionBusy => Self::FunctionBusy,
             SourceError::RuntimeShutdown => Self::RuntimeShutdown,
             SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,

@@ -80,6 +80,9 @@ pub(crate) enum WorkersControllerFunctionInvokeError {
     #[error("function panicked")]
     FunctionPanicked,
 
+    #[error("function stopped execution with unknown wasm trap")]
+    FunctionCrashed,
+
     #[error("function is busy handling other requests and cannot accept a new one")]
     FunctionBusy,
 
@@ -92,6 +95,7 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
         match error {
             FunctionInvokeError::NotFound => Self::NotFound,
             FunctionInvokeError::FunctionPanicked => Self::FunctionPanicked,
+            FunctionInvokeError::FunctionCrashed => Self::FunctionCrashed,
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
         }
@@ -125,6 +129,9 @@ pub(crate) mod local_worker_controller {
             #[error("function panicked during execution")]
             FunctionPanicked,
 
+            #[error("function stopped execution with unknown wasm trap")]
+            FunctionCrashed,
+
             #[error("function is busy handling other requests and cannot accept new requests")]
             FunctionBusy,
 
@@ -142,6 +149,7 @@ pub(crate) mod local_worker_controller {
                 match err {
                     SourceError::NotFound => Self::NotFound,
                     SourceError::FunctionPanicked => Self::FunctionPanicked,
+                    SourceError::FunctionCrashed => Self::FunctionCrashed,
                     SourceError::FunctionBusy => Self::FunctionBusy,
                     SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
                 }

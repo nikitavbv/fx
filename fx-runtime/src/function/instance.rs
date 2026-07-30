@@ -51,21 +51,13 @@ impl FunctionInstance {
         limit_memory_bytes: Option<usize>,
         function_id: FunctionId,
         instance_template: &wasmtime::InstancePre<FunctionInstanceState>,
-        env: HashMap<String, String>,
-        bindings_sql: HashMap<String, SqlBindingConfig>,
-        bindings_blob: HashMap<String, BlobBindingConfig>,
-        bindings_kv: HashMap<String, KvBindingConfig>,
-        bindings_functions: HashMap<String, FunctionBindingConfig>,
+        bindings: InstanceBindings,
     ) -> Result<Rc<Self>, FunctionInstanceInitError> {
         let mut store = wasmtime::Store::new(wasmtime, FunctionInstanceState::new(
             runtime_services,
             limit_memory_bytes,
             function_id,
-            env,
-            bindings_sql,
-            bindings_blob,
-            bindings_kv,
-            bindings_functions
+            bindings,
         ));
         store.limiter(|state| &mut state.limits);
         store.epoch_deadline_callback(|_store_ctx| {
@@ -259,6 +251,8 @@ pub(crate) mod invoke_http_trigger {
         FunctionBusy,
         #[error("function panicked when invoked")]
         FunctionPanicked,
+        #[error("function stopped with unknown wasm trap when invoked")]
+        FunctionCrashed,
     }
 
     impl FunctionInstance {
@@ -278,7 +272,10 @@ pub(crate) mod invoke_http_trigger {
                         let trap = err.downcast::<wasmtime::Trap>().unwrap();
                         match trap {
                             wasmtime::Trap::UnreachableCodeReached => InvokeError::FunctionPanicked,
-                            other => panic!("unexpected trap: {other:?}"),
+                            other => {
+                                error!("unexpected wasm trap when calling fn_handler: {other:?}");
+                                InvokeError::FunctionCrashed
+                            }
                         }
                     })? as u64)
             )
@@ -305,11 +302,7 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) resource_set: FunctionResources,
     pub(crate) tasks_background: Vec<FunctionResourceId>,
 
-    pub(crate) env: HashMap<String, String>,
-    pub(crate) bindings_sql: HashMap<String, SqlBindingConfig>,
-    pub(crate) bindings_blob: HashMap<String, BlobBindingConfig>,
-    pub(crate) bindings_kv: HashMap<String, KvBindingConfig>,
-    pub(crate) bindings_functions: HashMap<String, FunctionBindingConfig>, // host is key
+    pub(crate) bindings: InstanceBindings,
     pub(crate) http_client: reqwest::Client,
     pub(crate) metrics: FunctionMetricsState,
 }
@@ -319,11 +312,7 @@ impl FunctionInstanceState {
         runtime_services: RuntimeServices,
         limit_memory_bytes: Option<usize>,
         function_id: FunctionId,
-        env: HashMap<String, String>,
-        bindings_sql: HashMap<String, SqlBindingConfig>,
-        bindings_blob: HashMap<String, BlobBindingConfig>,
-        bindings_kv: HashMap<String, KvBindingConfig>,
-        bindings_functions: HashMap<String, FunctionBindingConfig>,
+        bindings: InstanceBindings,
     ) -> Self {
         let limits = wasmtime::StoreLimitsBuilder::new();
 
@@ -341,15 +330,12 @@ impl FunctionInstanceState {
             runtime_services,
 
             function_id,
-            env,
 
             resource_set: FunctionResources::new(),
             tasks_background: Vec::new(),
 
-            bindings_sql,
-            bindings_blob,
-            bindings_kv,
-            bindings_functions,
+            bindings,
+
             http_client: reqwest::Client::new(),
             metrics: FunctionMetricsState::new(),
         }
@@ -383,10 +369,25 @@ impl RuntimeServices {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct InstanceBindings {
     pub(crate) env: HashMap<String, String>,
     pub(crate) sql: HashMap<String, SqlBindingConfig>,
     pub(crate) blob: HashMap<String, BlobBindingConfig>,
+    pub(crate) kv: HashMap<String, KvBindingConfig>,
+    pub(crate) functions: HashMap<String, FunctionBindingConfig>,
+}
+
+impl InstanceBindings {
+    pub fn new(env: HashMap<String, String>, sql: HashMap<String, SqlBindingConfig>, blob: HashMap<String, BlobBindingConfig>, kv: HashMap<String, KvBindingConfig>, functions: HashMap<String, FunctionBindingConfig>) -> Self {
+        Self {
+            env,
+            sql,
+            blob,
+            kv,
+            functions,
+        }
+    }
 }
 
 /// Error that occured while polling function future

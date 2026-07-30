@@ -16,7 +16,7 @@ use {
             logs::LogMessageEvent,
             metrics::FunctionMetricsDelta,
         },
-        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}, instance::RuntimeServices},
+        function::{FunctionDeploymentId, FunctionId, deployment::{FunctionDeployment, DeploymentInitError}, instance::{RuntimeServices, InstanceBindings}},
         triggers::http::HttpHandler,
     },
     super::{WorkerMessage, WorkerLocalMessage, LocalWorkerController, messages::{FunctionInvokeError, FunctionDeployMessage}},
@@ -210,11 +210,13 @@ async fn worker_handle_message(
                 limit_memory_bytes,
                 function_id.clone(),
                 module,
-                env,
-                bindings_sql,
-                bindings_blob,
-                bindings_kv,
-                bindings_functions,
+                InstanceBindings::new(
+                    env,
+                    bindings_sql,
+                    bindings_blob,
+                    bindings_kv,
+                    bindings_functions,
+                ),
             ).await;
             let deployment = match deployment {
                 Ok(v) => v,

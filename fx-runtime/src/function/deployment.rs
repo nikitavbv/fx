@@ -4,12 +4,10 @@ use {
     thiserror::Error,
     serde::{Serialize, Deserialize},
     crate::{
-        effects::logs::LogMessageEvent,
-        tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, HttpBody},
         resources::future::{FunctionFuture, FunctionUnitFuture},
-        function::instance::RuntimeServices,
+        function::instance::{RuntimeServices, InstanceBindings},
     },
     super::{
         instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
@@ -42,11 +40,7 @@ impl FunctionDeployment {
         limit_memory_bytes: Option<usize>,
         function_id: FunctionId,
         module: wasmtime::Module,
-        env: HashMap<String, String>,
-        bindings_sql: HashMap<String, SqlBindingConfig>,
-        bindings_blob: HashMap<String, BlobBindingConfig>,
-        bindings_kv: HashMap<String, KvBindingConfig>,
-        bindings_functions: HashMap<String, FunctionBindingConfig>,
+        bindings: InstanceBindings,
     ) -> Result<Self, DeploymentInitError> {
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(&wasmtime);
 
@@ -133,11 +127,7 @@ impl FunctionDeployment {
             limit_memory_bytes,
             function_id.clone(),
             instance_template,
-            env,
-            bindings_sql,
-            bindings_blob,
-            bindings_kv,
-            bindings_functions,
+            bindings,
         );
 
         let instance = template.instantiate().await.map_err(|err| match err {
@@ -231,6 +221,8 @@ pub enum FunctionDeploymentHandleRequestError {
     /// Function panicked while handling request
     #[error("function panicked")]
     FunctionPanicked,
+    #[error("function stopped execution with unknown wasm trap")]
+    FunctionCrashed,
     /// Function is busy handling other requests and cannot accept a new one
     #[error("function busy handling other requests and cannot accept a new one")]
     FunctionBusy,
@@ -244,6 +236,7 @@ impl From<crate::function::instance::invoke_http_trigger::InvokeError> for Funct
         match err {
             InvokeError::FunctionBusy => Self::FunctionBusy,
             InvokeError::FunctionPanicked => Self::FunctionPanicked,
+            InvokeError::FunctionCrashed => Self::FunctionCrashed,
         }
     }
 }
@@ -299,11 +292,7 @@ struct FunctionTemplate {
     limit_memory_bytes: Option<usize>,
     function_id: FunctionId,
     instance_template: wasmtime::InstancePre<FunctionInstanceState>,
-    env: HashMap<String, String>,
-    bindings_sql: HashMap<String, SqlBindingConfig>,
-    bindings_blob: HashMap<String, BlobBindingConfig>,
-    bindings_kv: HashMap<String, KvBindingConfig>,
-    bindings_functions: HashMap<String, FunctionBindingConfig>,
+    bindings: InstanceBindings,
 }
 
 impl FunctionTemplate {
@@ -313,11 +302,7 @@ impl FunctionTemplate {
         limit_memory_bytes: Option<usize>,
         function_id: FunctionId,
         instance_template: wasmtime::InstancePre<FunctionInstanceState>,
-        env: HashMap<String, String>,
-        bindings_sql: HashMap<String, SqlBindingConfig>,
-        bindings_blob: HashMap<String, BlobBindingConfig>,
-        bindings_kv: HashMap<String, KvBindingConfig>,
-        bindings_functions: HashMap<String, FunctionBindingConfig>,
+        bindings: InstanceBindings,
     ) -> Self {
         Self {
             wasmtime,
@@ -325,11 +310,7 @@ impl FunctionTemplate {
             limit_memory_bytes,
             function_id,
             instance_template,
-            env,
-            bindings_sql,
-            bindings_blob,
-            bindings_kv,
-            bindings_functions,
+            bindings,
         }
     }
 
@@ -340,11 +321,7 @@ impl FunctionTemplate {
             self.limit_memory_bytes.clone(),
             self.function_id.clone(),
             &self.instance_template,
-            self.env.clone(),
-            self.bindings_sql.clone(),
-            self.bindings_blob.clone(),
-            self.bindings_kv.clone(),
-            self.bindings_functions.clone(),
+            self.bindings.clone(),
         ).await
     }
 }

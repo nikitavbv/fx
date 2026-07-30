@@ -72,5 +72,6 @@ struct FetchError {
         functionBusy @5 :Void;
         runtimeShutdown @6 :Void;
         functionIncorrectResponse @7 :Void;
+        functionCrashed @8 :Void;
     }
 }

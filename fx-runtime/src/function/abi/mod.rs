@@ -655,6 +655,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 FetchResultError::ResponseTimeout => error_builder.set_response_timeout(()),
                 FetchResultError::FunctionNotFound => error_builder.set_function_not_found(()),
                 FetchResultError::FunctionPanicked => error_builder.set_function_panicked(()),
+                FetchResultError::FunctionCrashed => error_builder.set_function_crashed(()),
                 FetchResultError::FunctionBusy => error_builder.set_function_busy(()),
                 FetchResultError::FunctionIncorrectResponse => error_builder.set_function_incorrect_response(()),
                 FetchResultError::RuntimeShutdown => error_builder.set_runtime_shutdown(()),
@@ -948,7 +949,7 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
     let message = message_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
 
     let binding = message.get_binding().unwrap().to_str().unwrap();
-    let binding = match caller.data().bindings_sql.get(binding) {
+    let binding = match caller.data().bindings.sql.get(binding) {
         Some(v) => v,
         None => {
             return caller.data_mut().resource_set.sql_query_result_futures.insert(std::future::ready(Err(SqlQueryError::BindingNotFound)).boxed()).into();
@@ -994,7 +995,7 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     let message = message_reader.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().unwrap();
 
     let binding = message.get_binding().unwrap().to_str().unwrap();
-    let binding = match caller.data().bindings_sql.get(binding) {
+    let binding = match caller.data().bindings.sql.get(binding) {
         Some(v) => v,
         None => return caller.data_mut().resource_set.sql_migration_result_futures.insert(std::future::ready(Err(SqlMigrationError::BindingNotFound)).boxed()).into(),
     };
@@ -1033,7 +1034,7 @@ pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInst
     let message = message_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
 
     let binding = message.get_binding().unwrap().to_str().unwrap();
-    let binding = match caller.data().bindings_sql.get(binding) {
+    let binding = match caller.data().bindings.sql.get(binding) {
         Some(v) => v,
         None => return caller.data_mut().resource_set.sql_batch_result_futures.insert(std::future::ready(Err(SqlBatchError::BindingNotFound)).boxed()).into(),
     };
@@ -1107,7 +1108,7 @@ pub(super) fn fx_blob_put_handler(
         let len = binding_len as usize;
         str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
-    let bucket = caller.data().bindings_blob.get(binding).unwrap().bucket.clone();
+    let bucket = caller.data().bindings.blob.get(binding).unwrap().bucket.clone();
 
     let key = {
         let ptr = key_ptr as usize;
@@ -1159,7 +1160,7 @@ pub(super) fn fx_blob_get_handler(
         Ok(v) => v,
         Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
     };
-    let bucket = caller.data().bindings_blob.get(binding).map(|v| v.bucket.clone());
+    let bucket = caller.data().bindings.blob.get(binding).map(|v| v.bucket.clone());
 
     let key = match memory.vec_clone(key_ptr, key_len) {
         Ok(v) => v,
@@ -1205,7 +1206,7 @@ pub(super) fn fx_blob_delete_handler(
         let len = binding_len as usize;
         str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
-    let bucket = caller.data().bindings_blob.get(binding).unwrap().bucket.clone();
+    let bucket = caller.data().bindings.blob.get(binding).unwrap().bucket.clone();
 
     let key = {
         let ptr = key_ptr as usize;
@@ -1256,7 +1257,7 @@ pub(super) fn fx_fetch_handler(
     let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
-    let result = if let Some(function_binding) = caller.data().bindings_functions.get(&request_host) {
+    let result = if let Some(function_binding) = caller.data().bindings.functions.get(&request_host) {
         let mut http_builder = http::Request::builder()
             .method(request_method)
             .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap());
@@ -1389,7 +1390,7 @@ pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
 
-    match caller.data().env.get(key) {
+    match caller.data().bindings.env.get(key) {
         Some(value) => value.len() as i64,
         None => -1,
     }
@@ -1406,7 +1407,7 @@ pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         str::from_utf8(&view[ptr..ptr+len]).unwrap()
     };
 
-    let value = match state.env.get(key) {
+    let value = match state.bindings.env.get(key) {
         Some(value) => value,
         None => return,
     };
@@ -1428,7 +1429,7 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
     let key = {
         let ptr = key_addr as usize;
@@ -1471,7 +1472,7 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
     let key = {
         let ptr = key_addr as usize;
@@ -1514,7 +1515,7 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
     let key = {
         let ptr = key_addr as usize;
@@ -1550,7 +1551,7 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
     let key = {
         let ptr = key_addr as usize;
@@ -1588,7 +1589,7 @@ pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionI
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
     let channel = {
         let ptr = channel_addr as usize;
@@ -1616,7 +1617,7 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings_kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
     let channel = {
         let ptr = channel_addr as usize;

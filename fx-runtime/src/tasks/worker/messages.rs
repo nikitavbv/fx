@@ -72,6 +72,9 @@ pub(crate) enum FunctionInvokeError {
     #[error("function panicked during execution")]
     FunctionPanicked,
 
+    #[error("function stopped execution with unknown wasm trap")]
+    FunctionCrashed,
+
     #[error("function is busy handling other requests and cannot accept new requests")]
     FunctionBusy,
 
@@ -84,6 +87,7 @@ impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
         match err {
             FunctionDeploymentHandleRequestError::FunctionBusy => Self::FunctionBusy,
             FunctionDeploymentHandleRequestError::FunctionPanicked => Self::FunctionPanicked,
+            FunctionDeploymentHandleRequestError::FunctionCrashed => Self::FunctionCrashed,
             FunctionDeploymentHandleRequestError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
         }
     }

@@ -135,6 +135,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                         *response.status_mut() = StatusCode::BAD_GATEWAY;
                         response
                     },
+                    FunctionDeploymentHandleRequestError::FunctionCrashed => {
+                        let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function crashed while handling request.\n")));
+                        *response.status_mut() = StatusCode::BAD_GATEWAY;
+                        response
+                    },
                     FunctionDeploymentHandleRequestError::FunctionBusy => {
                         let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function is busy handling other requests and cannot accept a new one.\n")));
                         *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
