@@ -1,5 +1,5 @@
 use {
-    std::{collections::HashMap, rc::Weak},
+    std::{collections::HashMap, rc::Rc},
     tokio::sync::oneshot,
     thiserror::Error,
     crate::{
@@ -53,7 +53,7 @@ pub(crate) struct FunctionInvokeMessage {
 pub(crate) enum WorkerLocalMessage {
     FunctionInvoke(Box<LocalFunctionInvokeMessage>),
     FunctionBytesDrop {
-        instance: Weak<FunctionInstance>,
+        instance: Rc<FunctionInstance>,
         bytes_resource_id: FunctionResourceId,
     },
 }

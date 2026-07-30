@@ -357,9 +357,7 @@ async fn worker_handle_local_message(
             });
         },
         WorkerLocalMessage::FunctionBytesDrop { instance, bytes_resource_id } => {
-            if let Some(instance) = instance.upgrade() {
-                instance.bytes_drop(&bytes_resource_id).await;
-            }
+            instance.bytes_drop(&bytes_resource_id).await;
         }
     }
 }

@@ -185,7 +185,7 @@ pub(crate) mod http_body_frame_poll {
     pub(crate) struct FunctionFrame {
         local_worker: LocalWorkerController,
 
-        function_instance: SendWrapper<Weak<FunctionInstance>>,
+        function_instance: SendWrapper<Rc<FunctionInstance>>,
 
         resource_id: FunctionResourceId,
 
@@ -227,7 +227,7 @@ pub(crate) mod http_body_frame_poll {
                     FunctionFrame {
                         local_worker: store.data().runtime_services.local_worker.clone(),
 
-                        function_instance: store.data().self_instance.clone(),
+                        function_instance: SendWrapper::new(store.data().self_instance.upgrade().unwrap()),
 
                         resource_id: poll_result.frame_bytes_resource_id.into(),
 

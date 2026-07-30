@@ -1,5 +1,5 @@
 use {
-    std::rc::Weak,
+    std::rc::Rc,
     tokio::sync::oneshot,
     futures::{stream::FuturesUnordered, StreamExt, FutureExt},
     send_wrapper::SendWrapper,
@@ -175,7 +175,7 @@ pub(crate) mod local_worker_controller {
                 }.boxed_local()
             }
 
-            pub(crate) fn bytes_drop(&self, instance: Weak<FunctionInstance>, bytes_resource_id: FunctionResourceId) {
+            pub(crate) fn bytes_drop(&self, instance: Rc<FunctionInstance>, bytes_resource_id: FunctionResourceId) {
                 // error can be ignored here because that means that runtime is being shut down
                 let _ = self.self_tx.send(WorkerLocalMessage::FunctionBytesDrop { instance, bytes_resource_id });
             }
