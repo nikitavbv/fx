@@ -1,10 +1,9 @@
 use {
-    std::{rc::Rc, collections::HashMap, pin::Pin, cell::RefCell},
+    std::{rc::Rc, pin::Pin, cell::RefCell},
     tracing::debug,
     thiserror::Error,
     serde::{Serialize, Deserialize},
     crate::{
-        definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
         triggers::http::{FetchRequestHeader, HttpBody},
         resources::future::{FunctionFuture, FunctionUnitFuture},
         function::instance::{RuntimeServices, InstanceBindings},
