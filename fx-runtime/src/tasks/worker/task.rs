@@ -357,7 +357,9 @@ async fn worker_handle_local_message(
             });
         },
         WorkerLocalMessage::FunctionBytesDrop { instance, bytes_resource_id } => {
-            instance.bytes_drop(&bytes_resource_id).await;
+            if let Err(err) = instance.bytes_drop(&bytes_resource_id).await {
+                warn!("failed to async drop bytes: {err:?}");
+            }
         }
     }
 }

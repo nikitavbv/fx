@@ -110,3 +110,31 @@ impl Future for FunctionUnitFuture {
         }
     }
 }
+
+pub struct FunctionBackgroundTask {
+    inner: LocalBoxFuture<'static, Result<Poll<()>, ()>>,
+    instance: Rc<FunctionInstance>,
+    resource_id: FunctionResourceId,
+}
+
+impl FunctionBackgroundTask {
+    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+        Self {
+            inner: Self::start_new_poll_call(instance.clone(), resource_id.clone()),
+            instance,
+            resource_id,
+        }
+    }
+
+    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Result<Poll<()>, ()>> {
+        todo!()
+    }
+}
+
+impl Future for FunctionBackgroundTask {
+    type Output = Result<(), ()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        todo!()
+    }
+}

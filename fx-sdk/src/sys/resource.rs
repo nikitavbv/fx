@@ -24,6 +24,7 @@ thread_local! {
 pub struct FunctionResources {
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
     pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
+    pub(crate) background_tasks: ResourceTable<BackgroundTaskResourceKey, LocalBoxFuture<'static, ()>>,
 }
 
 impl FunctionResources {
@@ -108,6 +109,7 @@ macro_rules! key {
 
 key!(pub(crate) struct HttpBodyResourceKey);
 key!(pub(crate) struct BytesResourceKey);
+key!(pub(crate) struct BackgroundTaskResourceKey);
 
 // previous:
 pub struct FetchRequestHeaderResourceId {
@@ -172,7 +174,6 @@ impl Into<DefaultKey> for &FunctionResourceId {
 pub(crate) enum FunctionResource {
     FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
     FunctionResponse(SerializableResource<FunctionResponse>),
-    BackgroundTask(LocalBoxFuture<'static, ()>),
 }
 
 impl From<FunctionResponse> for FunctionResource {
@@ -303,8 +304,7 @@ pub(crate) fn serialize_function_resource(resource_id: &FunctionResourceId) -> u
     FUNCTION_RESOURCES.with_borrow_mut(|resources| {
         let resource = resources.detach(resource_id.into()).unwrap();
         let (resource, serialized_size) = match resource {
-            FunctionResource::FunctionResponseFuture(_) |
-            FunctionResource::BackgroundTask(_) => panic!("this type of resource cannot be serialized"),
+            FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
             FunctionResource::FunctionResponse(v) => {
                 let serialized = v.map_to_serialized();
                 let serialized_size = serialized.serialized_size();

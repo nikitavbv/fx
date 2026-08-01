@@ -40,6 +40,7 @@ pub(crate) struct FunctionInstance {
     fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
     fn_http_body_frame_poll: wasmtime::TypedFunc<u64, u64>,
     fn_bytes_drop: wasmtime::TypedFunc<u64, ()>,
+    fn_background_task_poll: wasmtime::TypedFunc<u64, u64>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
@@ -83,6 +84,8 @@ impl FunctionInstance {
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_bytes_drop = instance.get_typed_func(store.as_context_mut(), "_fx_bytes_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_background_task_poll = instance.get_typed_func(store.as_context_mut(), "_fx_background_task_poll")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
@@ -107,6 +110,7 @@ impl FunctionInstance {
             fn_resource_drop,
             fn_http_body_frame_poll,
             fn_bytes_drop,
+            fn_background_task_poll,
             fn_handler,
         });
 
@@ -167,9 +171,20 @@ impl FunctionInstance {
         resource_data
     }
 
-    pub(crate) async fn bytes_drop(&self, resource_id: &FunctionResourceId) {
+    pub(crate) async fn bytes_drop(&self, resource_id: &FunctionResourceId) -> Result<(), WasmFunctionCallError> {
         let mut store = self.store.lock().await;
-        self.fn_bytes_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
+        self.fn_bytes_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.map_err(WasmFunctionCallError::from)
+    }
+
+    pub(crate) async fn background_task_poll(&self, resource_id: &FunctionResourceId) -> Result<Poll<()>, WasmFunctionCallError> {
+        let mut store = self.store.lock().await;
+        self.fn_background_task_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
+            .map_err(WasmFunctionCallError::from)
+            .map(|v| match v {
+                1 => Poll::Pending,
+                0 => Poll::Ready(()),
+                _other => todo!(),
+            })
     }
 }
 
@@ -512,7 +527,7 @@ impl Future for FunctionFramePollFuture {
 }
 
 #[derive(Debug, Error)]
-enum WasmFunctionCallError {
+pub(crate) enum WasmFunctionCallError {
     #[error("function panicked when called")]
     Panicked,
     #[error("function crashed when called")]

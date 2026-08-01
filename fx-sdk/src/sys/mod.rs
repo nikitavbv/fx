@@ -119,6 +119,21 @@ pub extern "C" fn _fx_bytes_drop(resource_id: u64) {
     })
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn _fx_background_task_poll(resource_id: u64) -> u64 {
+    use std::task::{Context, Waker};
+    let mut context = Context::from_waker(Waker::noop());
+
+    RESOURCE_SET.with_borrow_mut(|resources| {
+        let result = resources.background_tasks.get_mut(resource_id.into()).unwrap().poll_unpin(&mut context);
+
+        match result {
+            Poll::Pending => 1,
+            Poll::Ready(()) => 0,
+        }
+    })
+}
+
 /// returns fx_types::abi::FunctionPollResult
 #[unsafe(no_mangle)]
 pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
@@ -132,10 +147,6 @@ pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
             FunctionResource::FunctionResponseFuture(v) => v
                 .poll_unpin(&mut context)
                 .map(|v| Some(FunctionResource::from(v))),
-            FunctionResource::BackgroundTask(v) => match v.poll_unpin(&mut context) {
-                std::task::Poll::Pending => std::task::Poll::Pending,
-                std::task::Poll::Ready(_) => std::task::Poll::Ready(None),
-            },
             _other => panic!("resource is not future"),
         }
     });
@@ -164,7 +175,6 @@ pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
                 SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
                 SerializableResource::Serialized(v) => v.as_ptr(),
             },
-            FunctionResource::BackgroundTask(_) => panic!("resource of this type cannot be serialized"),
         }
     }) as i64
 }
