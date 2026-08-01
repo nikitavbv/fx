@@ -113,7 +113,7 @@ async fn fetch_json() {
         .await
         .unwrap();
     let status = response.status();
-    assert!(status.is_success(), "expected status code = 200, got: {status:?}, request id: {request_id:?}");
+    assert!(status.is_success(), "expected status code = 200, got: {status:?}, request id: {:?}", request_id.to_string());
     let text = response.text().await.unwrap();
     assert!(text.contains(r#""content-type": "application/json""#), "httpbin response should show application/json content-type, response body = {text:?}");
     assert!(text.contains(r#"\"key\":\"value\""#), "httpbin response should contain the json payload, response body = {text:?}");
