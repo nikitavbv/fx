@@ -1,6 +1,6 @@
 use {
     std::{collections::HashMap, task::Poll, cell::RefCell, rc::{Rc, Weak}, time::Duration},
-    tracing::error,
+    tracing::{error, warn},
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,
     futures::{FutureExt, future::LocalBoxFuture},
@@ -178,8 +178,23 @@ pub(crate) mod http_body_frame_poll {
 
     #[derive(Debug, Error)]
     pub(crate) enum HttpBodyFramePollError {
-        #[error("function abi returned incorrect data whne polling http body stream")]
+        #[error("function abi returned incorrect data when polling http body stream")]
         AbiError,
+        #[error("an assertion failed when polling http body stream")]
+        AssertionError,
+        #[error("function panicked when polling http body stream")]
+        FunctionPanicked,
+        #[error("function crashed when polling http body stream")]
+        FunctionCrashed,
+    }
+
+    impl From<WasmFunctionCallError> for HttpBodyFramePollError {
+        fn from(err: WasmFunctionCallError) -> Self {
+            match err {
+                WasmFunctionCallError::Panicked => Self::FunctionPanicked,
+                WasmFunctionCallError::Crashed => Self::FunctionCrashed,
+            }
+        }
     }
 
     pub(crate) struct FunctionFrame {
@@ -212,10 +227,25 @@ pub(crate) mod http_body_frame_poll {
             let mut store = self.store.lock().await;
             store.data_mut().waker = Some(waker);
 
-            let async_operation_addr = self.fn_http_body_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as usize;
+            let async_operation_addr = self.fn_http_body_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
+                .map(|v| v as usize)
+                .map_err(WasmFunctionCallError::from);
+            let async_operation_addr = match async_operation_addr {
+                Ok(v) => v,
+                Err(err) => return Poll::Ready(Err(HttpBodyFramePollError::from(err))),
+            };
+
             let poll_result = FunctionHttpBodyFramePollResult::read_from_bytes(
                 &self.memory.data(store.as_context())[async_operation_addr..async_operation_addr+std::mem::size_of::<FunctionHttpBodyFramePollResult>()]
-            ).unwrap();
+            ).map_err(|err| {
+                warn!("failed to read FunctionHttpBodyFramePollResult: {err:?}");
+                HttpBodyFramePollError::AbiError
+            });
+
+            let poll_result = match poll_result {
+                Ok(v) => v,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
 
             match poll_result.tag {
                 2 => Poll::Pending,
@@ -227,7 +257,15 @@ pub(crate) mod http_body_frame_poll {
                     FunctionFrame {
                         local_worker: store.data().runtime_services.local_worker.clone(),
 
-                        function_instance: SendWrapper::new(store.data().self_instance.upgrade().unwrap()),
+                        function_instance: SendWrapper::new(
+                            match store.data().self_instance.upgrade() {
+                                Some(v) => v,
+                                None => {
+                                    error!("assertion error: expected upgrade() on self_instance to always succeed because that pointer is pointing to self");
+                                    return Poll::Ready(Err(HttpBodyFramePollError::AssertionError));
+                                },
+                            }
+                        ),
 
                         resource_id: poll_result.frame_bytes_resource_id.into(),
 
@@ -248,11 +286,20 @@ pub(crate) mod invoke_http_trigger {
     #[derive(Debug, Error)]
     pub(crate) enum InvokeError {
         #[error("function is busy handling other requests and cannot accept new request")]
-        FunctionBusy,
+        Busy,
         #[error("function panicked when invoked")]
-        FunctionPanicked,
+        Panicked,
         #[error("function stopped with unknown wasm trap when invoked")]
-        FunctionCrashed,
+        Crashed,
+    }
+
+    impl From<WasmFunctionCallError> for InvokeError {
+        fn from(err: WasmFunctionCallError) -> Self {
+            match err {
+                WasmFunctionCallError::Panicked => Self::Panicked,
+                WasmFunctionCallError::Crashed => Self::Crashed,
+            }
+        }
     }
 
     impl FunctionInstance {
@@ -261,23 +308,14 @@ pub(crate) mod invoke_http_trigger {
                 store = self.store.lock() => store,
                 _ = tokio::time::sleep(Duration::from_secs(1)) => {
                     error!("invoke_http_trigger: timeout when acquiring store lock");
-                    return Err(InvokeError::FunctionBusy);
+                    return Err(InvokeError::Busy);
                 },
             };
             store.set_epoch_deadline(SCHEDULING_YIELD_INTERVALS);
             Ok(FunctionResourceId::new(
                 self.fn_handler.call_async(store.as_context_mut(), resource_id.into()).await
-                    .map_err(|err| {
-                        // TODO: forward backtraces to management thread (or logger thread)
-                        let trap = err.downcast::<wasmtime::Trap>().unwrap();
-                        match trap {
-                            wasmtime::Trap::UnreachableCodeReached => InvokeError::FunctionPanicked,
-                            other => {
-                                error!("unexpected wasm trap when calling fn_handler: {other:?}");
-                                InvokeError::FunctionCrashed
-                            }
-                        }
-                    })? as u64)
+                    .map_err(WasmFunctionCallError::from)
+                    .map_err(InvokeError::from)? as u64)
             )
         }
     }
@@ -421,6 +459,24 @@ impl FunctionFramePollFuture {
 pub enum FunctionFramePollError {
     #[error("failed to poll frame because of error in sdk on function side")]
     InternalSdkError,
+    #[error("internal runtime assertion error")]
+    AssertionError,
+    #[error("function panicked when polling frame")]
+    FunctionPanicked,
+    #[error("function crashed when polling frame")]
+    FunctionCrashed,
+}
+
+impl From<http_body_frame_poll::HttpBodyFramePollError> for FunctionFramePollError {
+    fn from(err: http_body_frame_poll::HttpBodyFramePollError) -> Self {
+        use http_body_frame_poll::HttpBodyFramePollError as SourceError;
+        match err {
+            SourceError::AbiError => Self::InternalSdkError,
+            SourceError::AssertionError => Self::AssertionError,
+            SourceError::FunctionPanicked => Self::FunctionPanicked,
+            SourceError::FunctionCrashed => Self::FunctionCrashed,
+        }
+    }
 }
 
 impl Future for FunctionFramePollFuture {
@@ -436,7 +492,7 @@ impl Future for FunctionFramePollFuture {
                     let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
                     match instance.http_body_frame_poll(&resource_id, waker).await {
                         Poll::Pending => Poll::Pending,
-                        Poll::Ready(Err(http_body_frame_poll::HttpBodyFramePollError::AbiError)) => Poll::Ready(Err(FunctionFramePollError::InternalSdkError)),
+                        Poll::Ready(Err(err)) => Poll::Ready(Err(FunctionFramePollError::from(err))),
                         Poll::Ready(Ok(v)) => Poll::Ready(Ok(v)),
                     }
                 }.boxed_local()
@@ -451,6 +507,28 @@ impl Future for FunctionFramePollFuture {
                 self.inner_poll_future = None;
                 v
             },
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+enum WasmFunctionCallError {
+    #[error("function panicked when called")]
+    Panicked,
+    #[error("function crashed when called")]
+    Crashed,
+}
+
+impl From<wasmtime::Error> for WasmFunctionCallError {
+    fn from(err: wasmtime::Error) -> Self {
+        // TODO: forward backtraces to management thread (or logger thread)
+        let trap = err.downcast::<wasmtime::Trap>();
+        match trap {
+            Ok(wasmtime::Trap::UnreachableCodeReached) => WasmFunctionCallError::Panicked,
+            other => {
+                error!("unexpected wasm trap when calling function: {other:?}");
+                WasmFunctionCallError::Crashed
+            }
         }
     }
 }

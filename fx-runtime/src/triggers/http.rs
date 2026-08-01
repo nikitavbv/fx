@@ -239,12 +239,21 @@ mod function_stream_reader {
     pub(crate) enum PollFrameError {
         #[error("failed to read function stream because of internal error in sdk on function side")]
         InternalSdkError,
+        #[error("internal runtime assertion error")]
+        AssertionError,
+        #[error("function panicked when polling frame")]
+        FunctionPanicked,
+        #[error("function crashed when polling frame")]
+        FunctionCrashed,
     }
 
     impl From<FunctionFramePollError> for PollFrameError {
         fn from(err: FunctionFramePollError) -> Self {
             match err {
                 FunctionFramePollError::InternalSdkError => PollFrameError::InternalSdkError,
+                FunctionFramePollError::AssertionError => PollFrameError::AssertionError,
+                FunctionFramePollError::FunctionPanicked => PollFrameError::FunctionPanicked,
+                FunctionFramePollError::FunctionCrashed => PollFrameError::FunctionCrashed,
             }
         }
     }

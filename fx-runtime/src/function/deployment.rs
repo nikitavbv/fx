@@ -233,9 +233,9 @@ impl From<crate::function::instance::invoke_http_trigger::InvokeError> for Funct
     fn from(err: crate::function::instance::invoke_http_trigger::InvokeError) -> Self {
         use crate::function::instance::invoke_http_trigger::InvokeError;
         match err {
-            InvokeError::FunctionBusy => Self::FunctionBusy,
-            InvokeError::FunctionPanicked => Self::FunctionPanicked,
-            InvokeError::FunctionCrashed => Self::FunctionCrashed,
+            InvokeError::Busy => Self::FunctionBusy,
+            InvokeError::Panicked => Self::FunctionPanicked,
+            InvokeError::Crashed => Self::FunctionCrashed,
         }
     }
 }
