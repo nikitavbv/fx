@@ -17,7 +17,6 @@ use {
 
 thread_local! {
     pub(crate) static RESOURCE_SET: RefCell<FunctionResources> = RefCell::new(FunctionResources::new());
-    static FUNCTION_RESOURCES: RefCell<SlotMap<DefaultKey, FunctionResource>> = RefCell::new(SlotMap::new());
 }
 
 #[derive(Default)]
@@ -25,6 +24,7 @@ pub struct FunctionResources {
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
     pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
     pub(crate) background_tasks: ResourceTable<BackgroundTaskResourceKey, LocalBoxFuture<'static, ()>>,
+    pub(crate) function_response_futures: ResourceTable<FunctionResponseFutureResourceKey, LocalBoxFuture<'static, FunctionResponse>>,
 }
 
 impl FunctionResources {
@@ -110,6 +110,7 @@ macro_rules! key {
 key!(pub(crate) struct HttpBodyResourceKey);
 key!(pub(crate) struct BytesResourceKey);
 key!(pub(crate) struct BackgroundTaskResourceKey);
+key!(pub struct FunctionResponseFutureResourceKey);
 
 // previous:
 pub struct FetchRequestHeaderResourceId {
@@ -168,17 +169,6 @@ impl FunctionResourceId {
 impl Into<DefaultKey> for &FunctionResourceId {
     fn into(self) -> DefaultKey {
         DefaultKey::from(KeyData::from_ffi(self.as_u64()))
-    }
-}
-
-pub(crate) enum FunctionResource {
-    FunctionResponseFuture(LocalBoxFuture<'static, FunctionResponse>),
-    FunctionResponse(SerializableResource<FunctionResponse>),
-}
-
-impl From<FunctionResponse> for FunctionResource {
-    fn from(value: FunctionResponse) -> Self {
-        Self::FunctionResponse(SerializableResource::Raw(value))
     }
 }
 
@@ -268,54 +258,3 @@ mod host_unit_future {
     }
 }
 pub(crate) use host_unit_future::HostUnitFuture;
-
-pub(crate) fn add_function_resource(resource: FunctionResource) -> FunctionResourceId {
-    FUNCTION_RESOURCES.with_borrow_mut(|v| FunctionResourceId::new(v.insert(resource).data().as_ffi()))
-}
-
-pub(crate) fn map_function_resource_ref<T, F: FnOnce(&FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
-    let resource = FUNCTION_RESOURCES.with_borrow_mut(|v| v.detach(resource_id.into()).unwrap());
-
-    let result = mapper(&resource);
-
-    FUNCTION_RESOURCES.with_borrow_mut(|v| v.reattach(resource_id.into(), resource));
-
-    result
-}
-
-pub(crate) fn map_function_resource_ref_mut<T, F: FnOnce(&mut FunctionResource) -> T>(resource_id: &FunctionResourceId, mapper: F) -> T {
-    let mut resource = FUNCTION_RESOURCES.with_borrow_mut(|v| v.detach(resource_id.into()).unwrap());
-
-    let result = mapper(&mut resource);
-
-    FUNCTION_RESOURCES.with_borrow_mut(|v| v.reattach(resource_id.into(), resource));
-
-    result
-}
-
-pub(crate) fn replace_function_resource(resource_id: &FunctionResourceId, new_resource: FunctionResource) {
-    FUNCTION_RESOURCES.with_borrow_mut(|resources| {
-        *resources.get_mut(resource_id.into()).unwrap() = new_resource;
-    })
-}
-
-/// returns length of serialized resource
-pub(crate) fn serialize_function_resource(resource_id: &FunctionResourceId) -> u64 {
-    FUNCTION_RESOURCES.with_borrow_mut(|resources| {
-        let resource = resources.detach(resource_id.into()).unwrap();
-        let (resource, serialized_size) = match resource {
-            FunctionResource::FunctionResponseFuture(_) => panic!("this type of resource cannot be serialized"),
-            FunctionResource::FunctionResponse(v) => {
-                let serialized = v.map_to_serialized();
-                let serialized_size = serialized.serialized_size();
-                (FunctionResource::FunctionResponse(serialized), serialized_size)
-            },
-        };
-        resources.reattach(resource_id.into(), resource);
-        serialized_size
-    }) as u64
-}
-
-pub(crate) fn drop_function_resource(resource_id: &FunctionResourceId) {
-    FUNCTION_RESOURCES.with_borrow_mut(|v| v.remove(resource_id.into()));
-}

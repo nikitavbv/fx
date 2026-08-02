@@ -22,7 +22,7 @@ pub fn handler(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
             let future = ::fx_sdk::sys::wrap_function_response_future(response_future);
 
-            future.as_u64()
+            future.into()
         }
     };
 

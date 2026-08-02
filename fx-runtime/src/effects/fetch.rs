@@ -55,18 +55,6 @@ impl From<crate::tasks::worker::local_worker_controller::invoke_function::Functi
     }
 }
 
-impl From<crate::function::resource::FunctionHttpResponseFutureError> for FetchResultError {
-    fn from(err: crate::function::resource::FunctionHttpResponseFutureError) -> Self {
-        use crate::function::resource::FunctionHttpResponseFutureError as SourceError;
-        match err {
-            SourceError::HostResourceNotFound
-            | SourceError::InvalidStatusCode
-            | SourceError::InvalidHeaders
-            | SourceError::FailedToDeserialize => Self::FunctionIncorrectResponse,
-        }
-    }
-}
-
 pub(crate) struct FetchResultWithBodyResource {
     pub(crate) parts: http::response::Parts,
     pub(crate) body: HttpBodyResourceKey,

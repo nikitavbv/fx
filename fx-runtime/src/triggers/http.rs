@@ -122,10 +122,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     return Ok(response);
                 }
             };
-            let function_response = match response {
-                Ok(v) => v.await.map_err(FunctionDeploymentHandleRequestError::from),
-                Err(err) => Err(err),
-            };
+            let function_response = response.map_err(FunctionDeploymentHandleRequestError::from);
 
             let mut response = match function_response {
                 Ok(function_response) => function_response,

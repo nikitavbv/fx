@@ -5,13 +5,10 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         triggers::http::{FetchRequestHeader, HttpBody},
-        resources::future::{FunctionFuture, FunctionBackgroundTask},
-        function::instance::{RuntimeServices, InstanceBindings},
+        resources::future::{FunctionBackgroundTask, FunctionResponseFuture},
+        function::instance::{RuntimeServices, InstanceBindings, function_response_poll::FunctionResponsePollError},
     },
-    super::{
-        instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
-        resource::FunctionHttpResponseFuture,
-    },
+    super::instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
 };
 
 /// deployment is a set of FunctionInstances deployed with same configuration
@@ -140,7 +137,7 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<FunctionHttpResponseFuture, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         let instance = if *instance.borrow().has_panicked.borrow() {
@@ -164,7 +161,7 @@ impl FunctionDeployment {
             };
 
             debug!("resource obtained");
-            let result = FunctionFuture::new(
+            let result = FunctionResponseFuture::new(
                 instance.clone(),
                 match instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from) {
                     Ok(v) => v,
@@ -189,9 +186,14 @@ impl FunctionDeployment {
 
             debug!("function future created");
             result
-                .map(|response_resource| FunctionHttpResponseFuture::new(instance, response_resource))
                 .map_err(|err| match err {
-                    FunctionFutureError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
+                    FunctionResponsePollError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
+                    FunctionResponsePollError::FunctionCrashed => FunctionDeploymentHandleRequestError::FunctionCrashed,
+                    FunctionResponsePollError::AbiError
+                    | FunctionResponsePollError::FailedToDeserialize
+                    | FunctionResponsePollError::HostResourceNotFound
+                    | FunctionResponsePollError::InvalidStatusCode
+                    | FunctionResponsePollError::InvalidHeaders => FunctionDeploymentHandleRequestError::FunctionIncorrectResponse,
                 })
         })
     }
@@ -236,18 +238,6 @@ impl From<crate::function::instance::invoke_http_trigger::InvokeError> for Funct
             InvokeError::Busy => Self::FunctionBusy,
             InvokeError::Panicked => Self::FunctionPanicked,
             InvokeError::Crashed => Self::FunctionCrashed,
-        }
-    }
-}
-
-impl From<crate::function::resource::FunctionHttpResponseFutureError> for FunctionDeploymentHandleRequestError {
-    fn from(err: crate::function::resource::FunctionHttpResponseFutureError) -> Self {
-        use crate::function::resource::FunctionHttpResponseFutureError as SourceError;
-        match err {
-            SourceError::HostResourceNotFound
-            | SourceError::InvalidStatusCode
-            | SourceError::InvalidHeaders
-            | SourceError::FailedToDeserialize => Self::FunctionIncorrectResponse,
         }
     }
 }

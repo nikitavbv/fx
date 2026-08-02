@@ -7,14 +7,13 @@ use {
             FunctionId,
             FunctionDeploymentId,
             deployment::FunctionDeploymentHandleRequestError,
-            resource::FunctionHttpResponseFuture,
             instance::FunctionInstance,
         },
         definitions::{
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
         },
-        triggers::http::FetchRequestHeader,
+        triggers::http::{FetchRequestHeader, HttpBody},
         resources::FunctionResourceId,
     },
 };
@@ -61,7 +60,7 @@ pub(crate) enum WorkerLocalMessage {
 pub(crate) struct LocalFunctionInvokeMessage {
     pub(crate) function_id: FunctionId,
     pub(crate) header: FetchRequestHeader,
-    pub(crate) response_tx: async_unsync::oneshot::Sender<Result<FunctionHttpResponseFuture, FunctionInvokeError>>,
+    pub(crate) response_tx: async_unsync::oneshot::Sender<Result<http::Response<HttpBody>, FunctionInvokeError>>,
 }
 
 #[derive(Debug, Error)]

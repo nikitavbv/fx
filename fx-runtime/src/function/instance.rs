@@ -7,7 +7,7 @@ use {
     wasmtime::{AsContextMut, AsContext},
     zerocopy::FromBytes,
     send_wrapper::SendWrapper,
-    fx_types::abi::FunctionHttpBodyFramePollResult,
+    fx_types::{abi::{FunctionHttpBodyFramePollResult, FunctionResponsePollResult}, capnp, abi_http_capnp},
     crate::{
         function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
         effects::{
@@ -21,6 +21,7 @@ use {
             FunctionResources,
             resource::FetchRequestHeaderResourceKey,
         },
+        triggers::http::HttpBody,
     },
     super::FunctionId,
 };
@@ -34,13 +35,10 @@ pub(crate) struct FunctionInstance {
     pub(crate) store: LocalMutex<wasmtime::Store<FunctionInstanceState>>,
     memory: wasmtime::Memory,
     // fx apis:
-    fn_future_poll: wasmtime::TypedFunc<u64, i64>,
-    fn_resource_serialize: wasmtime::TypedFunc<u64, u64>,
-    fn_resource_serialized_ptr: wasmtime::TypedFunc<u64, i64>,
-    fn_resource_drop: wasmtime::TypedFunc<u64, ()>,
     fn_http_body_frame_poll: wasmtime::TypedFunc<u64, u64>,
     fn_bytes_drop: wasmtime::TypedFunc<u64, ()>,
     fn_background_task_poll: wasmtime::TypedFunc<u64, u64>,
+    fn_function_response_poll: wasmtime::TypedFunc<u64, u64>,
     // triggers:
     fn_handler: wasmtime::TypedFunc<u64, u64>,
 }
@@ -72,19 +70,13 @@ impl FunctionInstance {
 
         let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
 
-        let fn_future_poll = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_future_poll")
-            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_resource_serialize = instance.get_typed_func::<u64, u64>(store.as_context_mut(), "_fx_resource_serialize")
-            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_resource_serialized_ptr = instance.get_typed_func::<u64, i64>(store.as_context_mut(), "_fx_resource_serialized_ptr")
-            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
-        let fn_resource_drop = instance.get_typed_func(store.as_context_mut(), "_fx_resource_drop")
-            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_http_body_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_http_body_frame_poll")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_bytes_drop = instance.get_typed_func(store.as_context_mut(), "_fx_bytes_drop")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
         let fn_background_task_poll = instance.get_typed_func(store.as_context_mut(), "_fx_background_task_poll")
+            .map_err(|_| FunctionInstanceInitError::MissingExport)?;
+        let fn_function_response_poll = instance.get_typed_func(store.as_context_mut(), "_fx_function_response_poll")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
 
         let fn_handler = instance.get_typed_func(store.as_context_mut(), "__fx_handler")
@@ -104,13 +96,10 @@ impl FunctionInstance {
             has_panicked: RefCell::new(false),
             store,
             memory,
-            fn_future_poll,
-            fn_resource_serialize,
-            fn_resource_serialized_ptr,
-            fn_resource_drop,
             fn_http_body_frame_poll,
             fn_bytes_drop,
             fn_background_task_poll,
+            fn_function_response_poll,
             fn_handler,
         });
 
@@ -119,73 +108,9 @@ impl FunctionInstance {
         Ok(instance)
     }
 
-    pub(crate) async fn future_poll(&self, future_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, FunctionFuturePollError> {
-        let mut store = self.store.lock().await;
-        store.data_mut().waker = Some(waker);
-        let future_poll_result = self.fn_future_poll.call_async(store.as_context_mut(), future_id.as_u64()).await;
-        drop(store);
-
-        let future_poll_result = future_poll_result.map_err(|err| {
-            // TODO: forward backtraces to management thread (or logger thread)
-            let trap = err.downcast::<wasmtime::Trap>().unwrap();
-            match trap {
-                wasmtime::Trap::UnreachableCodeReached => FunctionFuturePollError::FunctionPanicked,
-                other => panic!("unexpected trap: {other:?}"),
-            }
-        })?;
-
-        Ok(match FuturePollResult::try_from(future_poll_result).unwrap() {
-            FuturePollResult::Pending => Poll::Pending,
-            FuturePollResult::Ready => Poll::Ready(()),
-            FuturePollResult::NotFound => todo!(),
-        })
-    }
-
-    async fn resource_serialize(&self, resource_id: &FunctionResourceId) -> u64 {
-        let mut store = self.store.lock().await;
-        self.fn_resource_serialize.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64
-    }
-
-    async fn resource_serialized_ptr(&self, resource_id: &FunctionResourceId) -> u64 {
-        let mut store = self.store.lock().await;
-        self.fn_resource_serialized_ptr.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap() as u64
-    }
-
-    pub(crate) async fn resource_drop(&self, resource_id: &FunctionResourceId) {
-        let mut store = self.store.lock().await;
-        self.fn_resource_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.unwrap();
-    }
-
-    pub(crate) async fn copy_serializable_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
-        let len = self.resource_serialize(resource_id).await as usize;
-        let ptr = self.resource_serialized_ptr(resource_id).await as usize;
-
-        let store = self.store.lock().await;
-        let view = self.memory.data(store.as_context());
-        view[ptr..ptr+len].to_owned()
-    }
-
-    pub(crate) async fn move_serializable_resource_to_host(&self, resource_id: &FunctionResourceId) -> Vec<u8> {
-        let resource_data = self.copy_serializable_resource_to_host(resource_id).await;
-        self.resource_drop(resource_id).await;
-        resource_data
-    }
-
     pub(crate) async fn bytes_drop(&self, resource_id: &FunctionResourceId) -> Result<(), WasmFunctionCallError> {
         let mut store = self.store.lock().await;
         self.fn_bytes_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.map_err(WasmFunctionCallError::from)
-    }
-
-    pub(crate) async fn background_task_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, WasmFunctionCallError> {
-        let mut store = self.store.lock().await;
-        store.data_mut().waker = Some(waker);
-        self.fn_background_task_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
-            .map_err(WasmFunctionCallError::from)
-            .map(|v| match v {
-                1 => Poll::Pending,
-                0 => Poll::Ready(()),
-                _other => todo!(),
-            })
     }
 }
 
@@ -333,6 +258,160 @@ pub(crate) mod invoke_http_trigger {
                     .map_err(WasmFunctionCallError::from)
                     .map_err(InvokeError::from)? as u64)
             )
+        }
+    }
+}
+
+pub(crate) mod background_task_poll {
+    use super::*;
+
+    #[derive(Debug, Error, Eq, PartialEq)]
+    pub(crate) enum BackgroundTaskPollError {
+        #[error("function returned incorrect abi response when polling background task")]
+        AbiError,
+        #[error("function panicked when polling background task")]
+        FunctionPanicked,
+        #[error("function crashed when polling background task")]
+        FunctionCrashed,
+    }
+
+    impl From<WasmFunctionCallError> for BackgroundTaskPollError {
+        fn from(err: WasmFunctionCallError) -> Self {
+            match err {
+                WasmFunctionCallError::Panicked => Self::FunctionPanicked,
+                WasmFunctionCallError::Crashed => Self::FunctionCrashed,
+            }
+        }
+    }
+
+    impl FunctionInstance {
+        pub(crate) async fn background_task_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, BackgroundTaskPollError> {
+            let mut store = self.store.lock().await;
+            store.data_mut().waker = Some(waker);
+            self.fn_background_task_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
+                .map_err(WasmFunctionCallError::from)
+                .map_err(BackgroundTaskPollError::from)
+                .and_then(|v| match v {
+                    1 => Ok(Poll::Pending),
+                    0 => Ok(Poll::Ready(())),
+                    _other => Err(BackgroundTaskPollError::AbiError),
+                })
+        }
+    }
+}
+
+pub(crate) mod function_response_poll {
+    use super::*;
+
+    #[derive(Debug, Error, Eq, PartialEq)]
+    pub(crate) enum FunctionResponsePollError {
+        #[error("function returned incorrect abi response when polling background task")]
+        AbiError,
+        #[error("function panicked when polling function response")]
+        FunctionPanicked,
+        #[error("function crashed when polling function response")]
+        FunctionCrashed,
+
+        #[error("failed to deserialize function response")]
+        FailedToDeserialize,
+        #[error("host resource referenced by function is not found")]
+        HostResourceNotFound,
+        #[error("function returned invalid status code")]
+        InvalidStatusCode,
+        #[error("function returned invalid headers")]
+        InvalidHeaders,
+    }
+
+    impl From<WasmFunctionCallError> for FunctionResponsePollError {
+        fn from(err: WasmFunctionCallError) -> Self {
+            match err {
+                WasmFunctionCallError::Panicked => Self::FunctionPanicked,
+                WasmFunctionCallError::Crashed => Self::FunctionCrashed,
+            }
+        }
+    }
+
+    impl FunctionInstance {
+        pub(crate) async fn function_response_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>> {
+            let mut store = self.store.lock().await;
+            store.data_mut().waker = Some(waker);
+
+            let result = self.fn_function_response_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
+                .map_err(WasmFunctionCallError::from)
+                .map_err(FunctionResponsePollError::from);
+
+            let async_operation_addr = match result {
+                Ok(v) => v as usize,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
+
+            let poll_result = FunctionResponsePollResult::read_from_bytes(
+                &self.memory.data(store.as_context())[async_operation_addr..async_operation_addr+std::mem::size_of::<FunctionResponsePollResult>()]
+            ).map_err(|err| {
+                warn!("failed to read AsyncResourcePollResult when polling function response: {err:?}");
+                FunctionResponsePollError::AbiError
+            });
+
+            let result = match poll_result {
+                Ok(v) => v,
+                Err(err) => return Poll::Ready(Err(err)),
+            };
+
+            match result.tag {
+                1 => Poll::Pending,
+                0 => Poll::Ready({
+                    let addr = result.response_bytes_addr as usize;
+                    let len = result.response_bytes_len as usize;
+
+                    let (body, status, headers) = {
+                        let mut slice = &self.memory.data(store.as_context())[addr..addr+len];
+
+                        let message_reader = capnp::serialize::read_message_from_flat_slice(&mut slice, capnp::message::ReaderOptions::default())
+                            .map_err(|_| FunctionResponsePollError::FailedToDeserialize)?;
+                        let response = message_reader.get_root::<abi_http_capnp::http_response::Reader>()
+                            .map_err(|_| FunctionResponsePollError::FailedToDeserialize)?;
+
+                        let body = response.get_body().which()
+                            .map_err(|_| FunctionResponsePollError::FailedToDeserialize)?;
+
+                        let status = ::http::StatusCode::from_u16(response.get_status())
+                            .map_err(|_| FunctionResponsePollError::InvalidStatusCode)?;
+
+                        let mut headers = Vec::new();
+                        for header in response.get_headers().map_err(|_| FunctionResponsePollError::InvalidHeaders)? {
+                            let name = header.get_name()
+                                .map_err(|_| FunctionResponsePollError::InvalidHeaders)?;
+                            let name = ::http::HeaderName::from_bytes(name.as_bytes())
+                                .map_err(|_| FunctionResponsePollError::InvalidHeaders)?;
+
+                            let value = header.get_value()
+                                .map_err(|_| FunctionResponsePollError::InvalidHeaders)?;
+                            let value = ::http::HeaderValue::from_bytes(value.as_bytes())
+                                .map_err(|_| FunctionResponsePollError::InvalidHeaders)?;
+
+                            headers.push((name, value));
+                        }
+
+                        (body, status, headers)
+                    };
+
+                    let body = match body {
+                        abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => HttpBody::for_function_stream(store.data().self_instance.upgrade().unwrap(), resource_id.into()),
+                        abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => store.data_mut().resource_set.http_bodies.remove(resource_id.into())
+                            .ok_or(FunctionResponsePollError::HostResourceNotFound)?,
+                    };
+
+                    let mut http_response = http::Response::new(body);
+                    *http_response.status_mut() = status;
+
+                    for (name, value) in headers {
+                        http_response.headers_mut().insert(name, value);
+                    }
+
+                    Ok(http_response)
+                }),
+                _other => Poll::Ready(Err(FunctionResponsePollError::AbiError)),
+            }
         }
     }
 }

@@ -1272,10 +1272,7 @@ pub(super) fn fx_fetch_handler(
         let response_rx = caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), header).boxed_local();
 
         async move {
-            match response_rx.await {
-                Ok(v) => v.await.map_err(FetchResultError::from),
-                Err(err) => Err(FetchResultError::from(err)),
-            }
+            response_rx.await.map_err(FetchResultError::from)
         }.boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(

@@ -1,5 +1,5 @@
 pub use self::{
-    resource::{FunctionResourceId, FetchRequestHeaderResourceId},
+    resource::{FunctionResourceId, FetchRequestHeaderResourceId, FunctionResponseFutureResourceKey},
     future::wrap_function_response_future,
 };
 
@@ -9,14 +9,7 @@ pub(crate) use self::{
         RESOURCE_SET,
         SerializableResource,
         HostUnitFuture,
-        FunctionResource,
         BytesResource,
-        add_function_resource,
-        replace_function_resource,
-        serialize_function_resource,
-        drop_function_resource,
-        map_function_resource_ref,
-        map_function_resource_ref_mut,
     },
 };
 
@@ -24,10 +17,11 @@ use {
     std::task::Poll,
     tracing::error,
     futures::{FutureExt, StreamExt},
-    fx_types::abi::{FuturePollResult, FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult},
+    fx_types::{capnp, abi::{FunctionBytesPtrAndLenResult, FunctionHttpBodyFramePollResult, FunctionResponsePollResult}, abi_http_capnp},
     crate::{
         api::http::HttpBodyInner,
         io::http::HttpStreamError,
+        handler_fn::{FunctionResponseInner, FunctionHttpResponseBody},
     },
 };
 
@@ -47,6 +41,14 @@ static mut HTTP_BODY_FRAME_POLL_RESULT: FunctionHttpBodyFramePollResult = Functi
     frame_bytes_resource_id: 0,
     frame_bytes_addr: 0,
     frame_bytes_len: 0,
+};
+
+static mut FUNCTION_RESPONSE_POLL_RESULT: FunctionResponsePollResult = FunctionResponsePollResult {
+    tag: 0,
+    _pad: [0; 7],
+    response_bytes_resource_id: 0,
+    response_bytes_addr: 0,
+    response_bytes_len: 0,
 };
 
 #[unsafe(no_mangle)]
@@ -134,54 +136,62 @@ pub extern "C" fn _fx_background_task_poll(resource_id: u64) -> u64 {
     })
 }
 
-/// returns fx_types::abi::FunctionPollResult
 #[unsafe(no_mangle)]
-pub extern "C" fn _fx_future_poll(future_resource_id: u64) -> i64 {
+pub extern "C" fn _fx_function_response_poll(resource_id: u64) -> u64 {
     use std::task::{Context, Waker};
+    let mut context = Context::from_waker(Waker::noop());
 
-    let future_resource_id = FunctionResourceId::new(future_resource_id);
-    let future_poll_result = map_function_resource_ref_mut(&future_resource_id, |future_resource| {
-        let mut context = Context::from_waker(Waker::noop());
+    RESOURCE_SET.with_borrow_mut(|resources| {
+        let result = resources.function_response_futures
+            .get_mut(resource_id.into())
+            .as_mut()
+            .unwrap()
+            .poll_unpin(&mut context);
 
-        match &mut *future_resource {
-            FunctionResource::FunctionResponseFuture(v) => v
-                .poll_unpin(&mut context)
-                .map(|v| Some(FunctionResource::from(v))),
-            _other => panic!("resource is not future"),
-        }
-    });
-
-    (match future_poll_result {
-        Poll::Pending => FuturePollResult::Pending,
-        Poll::Ready(None) => FuturePollResult::Ready,
-        Poll::Ready(Some(resource)) => {
-            replace_function_resource(&future_resource_id, resource);
-            FuturePollResult::Ready
-        }
-    }) as i64
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_resource_serialize(resource_id: u64) -> u64 {
-    serialize_function_resource(&FunctionResourceId::new(resource_id))
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_resource_serialized_ptr(resource_id: u64) -> i64 {
-    map_function_resource_ref(&FunctionResourceId::new(resource_id), |resource| {
-        match &*resource {
-            FunctionResource::FunctionResponseFuture(_) => panic!("not a serialized resource"),
-            FunctionResource::FunctionResponse(v) => match v {
-                SerializableResource::Raw(_) => panic!("resource has to be serialized first"),
-                SerializableResource::Serialized(v) => v.as_ptr(),
+        let result = match result {
+            Poll::Pending => FunctionResponsePollResult {
+                tag: 1,
+                ..Default::default()
             },
-        }
-    }) as i64
-}
+            Poll::Ready(response) => {
+                let mut message = capnp::message::Builder::new_default();
+                let mut resource = message.init_root::<abi_http_capnp::http_response::Builder>();
+                match response.0 {
+                    FunctionResponseInner::HttpResponse(http) => {
+                        resource.set_status(http.status.as_u16());
 
-#[unsafe(no_mangle)]
-pub extern "C" fn _fx_resource_drop(resource_id: u64) {
-    drop_function_resource(&FunctionResourceId::new(resource_id));
+                        let mut headers = resource.reborrow().init_headers(http.headers.len() as u32);
+                        for (index, (name, value)) in http.headers.iter().enumerate() {
+                            let mut header = headers.reborrow().get(index as u32);
+                            header.set_name(name.as_str());
+                            header.set_value(value.to_str().unwrap());
+                        }
+
+                        let mut body = resource.init_body();
+                        match http.body {
+                            FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.into()),
+                            FunctionHttpResponseBody::HostResource(v) => body.set_host_resource_id(v),
+                        }
+                    }
+                }
+                let response = capnp::serialize::write_message_to_words(&message);
+
+                FunctionResponsePollResult {
+                    tag: 0,
+                    _pad: Default::default(),
+                    response_bytes_addr: response.as_ptr() as u64,
+                    response_bytes_len: response.len() as u64,
+                    response_bytes_resource_id: resources.bytes.insert(response).into(),
+                }
+            }
+        };
+
+        unsafe {
+            std::ptr::addr_of_mut!(FUNCTION_RESPONSE_POLL_RESULT).write(result);
+        }
+
+        std::ptr::addr_of!(FUNCTION_RESPONSE_POLL_RESULT) as u64
+    })
 }
 
 // imports:
