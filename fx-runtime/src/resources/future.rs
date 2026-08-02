@@ -2,7 +2,10 @@ use {
     std::{task::Poll, rc::Rc, pin::Pin},
     futures::{future::LocalBoxFuture, FutureExt},
     crate::{
-        function::{instance::{FunctionFuturePollError, FunctionInstance}, deployment::FunctionFutureError},
+        function::{
+            instance::{FunctionFuturePollError, FunctionInstance, WasmFunctionCallError},
+            deployment::FunctionFutureError,
+        },
         resources::FunctionResourceId,
     },
 };
@@ -111,8 +114,8 @@ impl Future for FunctionUnitFuture {
     }
 }
 
-pub struct FunctionBackgroundTask {
-    inner: LocalBoxFuture<'static, Result<Poll<()>, ()>>,
+pub(crate) struct FunctionBackgroundTask {
+    inner: LocalBoxFuture<'static, Result<Poll<()>, WasmFunctionCallError>>,
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,
 }
@@ -126,15 +129,29 @@ impl FunctionBackgroundTask {
         }
     }
 
-    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Result<Poll<()>, ()>> {
-        todo!()
+    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Result<Poll<()>, WasmFunctionCallError>> {
+        async move {
+            let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
+            instance.background_task_poll(&resource_id, waker).await
+        }.boxed_local()
     }
 }
 
 impl Future for FunctionBackgroundTask {
-    type Output = Result<(), ()>;
+    type Output = Result<(), WasmFunctionCallError>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
-        todo!()
+    fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        match self.inner.poll_unpin(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Err(err)) => {
+                *self.instance.has_panicked.borrow_mut() = true;
+                Poll::Ready(Err(err))
+            },
+            Poll::Ready(Ok(Poll::Pending)) => {
+                self.inner = Self::start_new_poll_call(self.instance.clone(), self.resource_id.clone());
+                Poll::Pending
+            },
+            Poll::Ready(Ok(Poll::Ready(_))) => Poll::Ready(Ok(())),
+        }
     }
 }

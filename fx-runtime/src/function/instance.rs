@@ -176,8 +176,9 @@ impl FunctionInstance {
         self.fn_bytes_drop.call_async(store.as_context_mut(), resource_id.as_u64()).await.map_err(WasmFunctionCallError::from)
     }
 
-    pub(crate) async fn background_task_poll(&self, resource_id: &FunctionResourceId) -> Result<Poll<()>, WasmFunctionCallError> {
+    pub(crate) async fn background_task_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Result<Poll<()>, WasmFunctionCallError> {
         let mut store = self.store.lock().await;
+        store.data_mut().waker = Some(waker);
         self.fn_background_task_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
             .map_err(WasmFunctionCallError::from)
             .map(|v| match v {

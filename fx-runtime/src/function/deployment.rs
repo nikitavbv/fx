@@ -5,7 +5,7 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         triggers::http::{FetchRequestHeader, HttpBody},
-        resources::future::{FunctionFuture, FunctionUnitFuture},
+        resources::future::{FunctionFuture, FunctionBackgroundTask},
         function::instance::{RuntimeServices, InstanceBindings},
     },
     super::{
@@ -182,7 +182,7 @@ impl FunctionDeployment {
                 let function_state = function_state.data_mut();
                 debug!("draining background tasks");
                 for background_task in function_state.tasks_background.drain(..) {
-                    tokio::task::spawn_local(FunctionUnitFuture::new(instance.clone(), background_task));
+                    tokio::task::spawn_local(FunctionBackgroundTask::new(instance.clone(), background_task));
                 }
                 debug!("drained background tasks");
             }
