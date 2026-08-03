@@ -61,6 +61,14 @@ impl<K, V> ResourceTable<K, V> {
     pub fn remove(&mut self, key: K) -> Option<V> where K: Into<slotmap::DefaultKey> {
         self.map.remove(key.into())
     }
+
+    pub fn detach(&mut self, key: K) -> Option<V> where K: Into<slotmap::DefaultKey> {
+        self.map.detach(key.into())
+    }
+
+    pub fn reattach(&mut self, key: K, value: V) where K: Into<slotmap::DefaultKey> {
+        self.map.reattach(key.into(), value)
+    }
 }
 
 impl<K, V> Default for ResourceTable<K, V> {

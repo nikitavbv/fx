@@ -141,57 +141,54 @@ pub extern "C" fn _fx_function_response_poll(resource_id: u64) -> u64 {
     use std::task::{Context, Waker};
     let mut context = Context::from_waker(Waker::noop());
 
-    RESOURCE_SET.with_borrow_mut(|resources| {
-        let result = resources.function_response_futures
-            .get_mut(resource_id.into())
-            .as_mut()
-            .unwrap()
-            .poll_unpin(&mut context);
+    let mut response_future = RESOURCE_SET.with_borrow_mut(|resources| resources.function_response_futures.detach(resource_id.into())).unwrap();
+    let result = response_future.poll_unpin(&mut context);
 
-        let result = match result {
-            Poll::Pending => FunctionResponsePollResult {
-                tag: 1,
-                ..Default::default()
-            },
-            Poll::Ready(response) => {
-                let mut message = capnp::message::Builder::new_default();
-                let mut resource = message.init_root::<abi_http_capnp::http_response::Builder>();
-                match response.0 {
-                    FunctionResponseInner::HttpResponse(http) => {
-                        resource.set_status(http.status.as_u16());
+    let result = match result {
+        Poll::Pending => FunctionResponsePollResult {
+            tag: 1,
+            ..Default::default()
+        },
+        Poll::Ready(response) => {
+            let mut message = capnp::message::Builder::new_default();
+            let mut resource = message.init_root::<abi_http_capnp::http_response::Builder>();
+            match response.0 {
+                FunctionResponseInner::HttpResponse(http) => {
+                    resource.set_status(http.status.as_u16());
 
-                        let mut headers = resource.reborrow().init_headers(http.headers.len() as u32);
-                        for (index, (name, value)) in http.headers.iter().enumerate() {
-                            let mut header = headers.reborrow().get(index as u32);
-                            header.set_name(name.as_str());
-                            header.set_value(value.to_str().unwrap());
-                        }
+                    let mut headers = resource.reborrow().init_headers(http.headers.len() as u32);
+                    for (index, (name, value)) in http.headers.iter().enumerate() {
+                        let mut header = headers.reborrow().get(index as u32);
+                        header.set_name(name.as_str());
+                        header.set_value(value.to_str().unwrap());
+                    }
 
-                        let mut body = resource.init_body();
-                        match http.body {
-                            FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.into()),
-                            FunctionHttpResponseBody::HostResource(v) => body.set_host_resource_id(v),
-                        }
+                    let mut body = resource.init_body();
+                    match http.body {
+                        FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.into()),
+                        FunctionHttpResponseBody::HostResource(v) => body.set_host_resource_id(v),
                     }
                 }
-                let response = capnp::serialize::write_message_to_words(&message);
-
-                FunctionResponsePollResult {
-                    tag: 0,
-                    _pad: Default::default(),
-                    response_bytes_addr: response.as_ptr() as u64,
-                    response_bytes_len: response.len() as u64,
-                    response_bytes_resource_id: resources.bytes.insert(response).into(),
-                }
             }
-        };
+            let response = capnp::serialize::write_message_to_words(&message);
 
-        unsafe {
-            std::ptr::addr_of_mut!(FUNCTION_RESPONSE_POLL_RESULT).write(result);
+            FunctionResponsePollResult {
+                tag: 0,
+                _pad: Default::default(),
+                response_bytes_addr: response.as_ptr() as u64,
+                response_bytes_len: response.len() as u64,
+                response_bytes_resource_id: RESOURCE_SET.with_borrow_mut(|resources| resources.bytes.insert(response)).into(),
+            }
         }
+    };
 
-        std::ptr::addr_of!(FUNCTION_RESPONSE_POLL_RESULT) as u64
-    })
+    RESOURCE_SET.with_borrow_mut(|resources| resources.function_response_futures.reattach(resource_id.into(), response_future));
+
+    unsafe {
+        std::ptr::addr_of_mut!(FUNCTION_RESPONSE_POLL_RESULT).write(result);
+    }
+
+    std::ptr::addr_of!(FUNCTION_RESPONSE_POLL_RESULT) as u64
 }
 
 // imports:
