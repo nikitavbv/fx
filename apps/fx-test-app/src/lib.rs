@@ -438,9 +438,11 @@ async fn test_fetch() -> impl IntoResponse {
     fetch(HttpRequest::get("https://fxruntime.com/test/get").unwrap()).await.unwrap().into_body().into_response()
 }
 
-async fn test_fetch_post() -> impl IntoResponse {
+async fn test_fetch_post(headers: axum::http::HeaderMap) -> impl IntoResponse {
     fetch(
-        HttpRequest::post("https://fxruntime.com/test/post").unwrap().with_body("test fx request body")
+        HttpRequest::post("https://fxruntime.com/test/post").unwrap()
+            .with_header("x-test-request-id".parse().unwrap(), headers.get("x-test-request-id").unwrap().clone())
+            .with_body("test fx request body")
     ).await.unwrap().into_body().into_response()
 }
 

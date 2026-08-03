@@ -378,12 +378,17 @@ async fn fetch() {
 
 #[tokio::test]
 async fn fetch_post() {
+    let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
 
-    let result = client.get("/test/fetch/post").send().await.unwrap();
+    let result = client.get("/test/fetch/post")
+        .header("x-test-request-id", request_id.to_string())
+        .send()
+        .await
+        .unwrap();
     let status = result.status();
 
-    assert!(status.is_success(), "expected status = 200, got: {status:?}");
+    assert!(status.is_success(), "expected status = 200, got: {status:?}, request id={:?}", request_id.to_string());
     let result = result.text().await.unwrap();
     assert!(result.contains("fxruntime.com/test/post"), "expected result to contain url: {result:?}");
     assert!(result.contains("test fx request body"));
