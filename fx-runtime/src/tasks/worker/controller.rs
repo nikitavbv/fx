@@ -88,6 +88,9 @@ pub(crate) enum WorkersControllerFunctionInvokeError {
 
     #[error("function returned incorrect response")]
     FunctionIncorrectResponse,
+
+    #[error("internal runtime assertion error")]
+    InternalRuntimeAssertionError,
 }
 
 impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
@@ -98,6 +101,7 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
             FunctionInvokeError::FunctionCrashed => Self::FunctionCrashed,
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
+            FunctionInvokeError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
         }
     }
 }
@@ -140,6 +144,9 @@ pub(crate) mod local_worker_controller {
 
             #[error("runtime is being shut down. New requests are rejected")]
             RuntimeShutdown,
+
+            #[error("internal runtime assertion error")]
+            InternalRuntimeAssertionError,
         }
 
         impl From<crate::tasks::worker::messages::FunctionInvokeError> for FunctionInvokeError {
@@ -152,6 +159,7 @@ pub(crate) mod local_worker_controller {
                     SourceError::FunctionCrashed => Self::FunctionCrashed,
                     SourceError::FunctionBusy => Self::FunctionBusy,
                     SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
+                    SourceError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
                 }
             }
         }

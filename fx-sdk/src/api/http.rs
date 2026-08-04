@@ -488,6 +488,7 @@ impl Future for FetchResultFuture {
                             abi_http_capnp::fetch_error::error::Which::FunctionBusy(()) => FetchError::FunctionBusy,
                             abi_http_capnp::fetch_error::error::Which::FunctionIncorrectResponse(()) => FetchError::FunctionIncorrectResponse,
                             abi_http_capnp::fetch_error::error::Which::RuntimeShutdown(()) => FetchError::RuntimeShutdown,
+                            abi_http_capnp::fetch_error::error::Which::RuntimeInternalError(()) => FetchError::RuntimeInternalError,
                         })
                     }
                 }
@@ -520,6 +521,8 @@ pub enum FetchError {
     FunctionIncorrectResponse,
     #[error("runtime is being shutdown, new requests are not accepted")]
     RuntimeShutdown,
+    #[error("request failed because of internal runtime error")]
+    RuntimeInternalError,
 }
 
 pub trait IntoHttpBody {

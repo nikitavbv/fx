@@ -79,11 +79,15 @@ pub(crate) enum FunctionInvokeError {
 
     #[error("function returned incorrect response")]
     FunctionIncorrectResponse,
+
+    #[error("internal runtime assertion error")]
+    InternalRuntimeAssertionError,
 }
 
 impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
     fn from(err: FunctionDeploymentHandleRequestError) -> Self {
         match err {
+            FunctionDeploymentHandleRequestError::AssertionError => Self::InternalRuntimeAssertionError,
             FunctionDeploymentHandleRequestError::FunctionBusy => Self::FunctionBusy,
             FunctionDeploymentHandleRequestError::FunctionPanicked => Self::FunctionPanicked,
             FunctionDeploymentHandleRequestError::FunctionCrashed => Self::FunctionCrashed,

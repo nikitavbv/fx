@@ -73,5 +73,6 @@ struct FetchError {
         runtimeShutdown @6 :Void;
         functionIncorrectResponse @7 :Void;
         functionCrashed @8 :Void;
+        runtimeInternalError @9 :Void;
     }
 }

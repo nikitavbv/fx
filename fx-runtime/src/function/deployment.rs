@@ -128,6 +128,7 @@ impl FunctionDeployment {
 
         let instance = template.instantiate().await.map_err(|err| match err {
             FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
+            FunctionInstanceInitError::MissingMemory => DeploymentInitError::MissingMemory,
         })?;
 
         Ok(Self {
@@ -187,6 +188,7 @@ impl FunctionDeployment {
             debug!("function future created");
             result
                 .map_err(|err| match err {
+                    FunctionResponsePollError::AssertionError => FunctionDeploymentHandleRequestError::AssertionError,
                     FunctionResponsePollError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
                     FunctionResponsePollError::FunctionCrashed => FunctionDeploymentHandleRequestError::FunctionCrashed,
                     FunctionResponsePollError::AbiError
@@ -207,18 +209,14 @@ pub(crate) enum DeploymentInitError {
     IncompatibleImport { details: String },
     #[error("function does not provide export that fx runtime expects")]
     MissingExport,
-}
-
-/// Error that occured while running FunctionFuture
-#[derive(Debug, Error)]
-pub enum FunctionFutureError {
-    /// Function panicked while it was running
-    #[error("function panicked")]
-    FunctionPanicked,
+    #[error("function does not provide memory export that fx runtime expects")]
+    MissingMemory,
 }
 
 #[derive(Debug, Error)]
 pub enum FunctionDeploymentHandleRequestError {
+    #[error("internal runtime assertion error")]
+    AssertionError,
     /// Function panicked while handling request
     #[error("function panicked")]
     FunctionPanicked,

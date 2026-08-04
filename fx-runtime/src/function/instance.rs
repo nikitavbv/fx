@@ -9,7 +9,7 @@ use {
     send_wrapper::SendWrapper,
     fx_types::{abi::{FunctionHttpBodyFramePollResult, FunctionResponsePollResult}, capnp, abi_http_capnp},
     crate::{
-        function::{abi::FuturePollResult, resource::FunctionStreamResourceId},
+        function::resource::FunctionStreamResourceId,
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
@@ -68,7 +68,8 @@ impl FunctionInstance {
 
         let instance = instance_template.instantiate_async(&mut store).await.unwrap();
 
-        let memory = instance.get_memory(store.as_context_mut(), "memory").unwrap();
+        let memory = instance.get_memory(store.as_context_mut(), "memory")
+            .ok_or(FunctionInstanceInitError::MissingMemory)?;
 
         let fn_http_body_frame_poll = instance.get_typed_func(store.as_context_mut(), "_fx_http_body_frame_poll")
             .map_err(|_| FunctionInstanceInitError::MissingExport)?;
@@ -305,6 +306,9 @@ pub(crate) mod function_response_poll {
 
     #[derive(Debug, Error, Eq, PartialEq)]
     pub(crate) enum FunctionResponsePollError {
+        #[error("internal runtime assertion error")]
+        AssertionError,
+
         #[error("function returned incorrect abi response when polling background task")]
         AbiError,
         #[error("function panicked when polling function response")]
@@ -396,7 +400,10 @@ pub(crate) mod function_response_poll {
                     };
 
                     let body = match body {
-                        abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => HttpBody::for_function_stream(store.data().self_instance.upgrade().unwrap(), resource_id.into()),
+                        abi_http_capnp::http_response::body::Which::FunctionResourceId(resource_id) => HttpBody::for_function_stream(
+                            store.data().self_instance.upgrade().ok_or(FunctionResponsePollError::AssertionError)?,
+                            resource_id.into(),
+                        ),
                         abi_http_capnp::http_response::body::Which::HostResourceId(resource_id) => store.data_mut().resource_set.http_bodies.remove(resource_id.into())
                             .ok_or(FunctionResponsePollError::HostResourceNotFound)?,
                     };
@@ -420,6 +427,8 @@ pub(crate) mod function_response_poll {
 pub(crate) enum FunctionInstanceInitError {
     #[error("function does not provide export that fx runtime expects to be present")]
     MissingExport,
+    #[error("function does not provide memory export that fx runtime expects to be present")]
+    MissingMemory,
 }
 
 pub(crate) struct FunctionInstanceState {
@@ -521,14 +530,6 @@ impl InstanceBindings {
             functions,
         }
     }
-}
-
-/// Error that occured while polling function future
-#[derive(Debug, Error)]
-pub enum FunctionFuturePollError {
-    /// Function panicked when future poll was callled
-    #[error("function panicked")]
-    FunctionPanicked,
 }
 
 pub(crate) struct FunctionFramePollFuture {

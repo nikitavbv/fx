@@ -122,9 +122,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     return Ok(response);
                 }
             };
-            let function_response = response.map_err(FunctionDeploymentHandleRequestError::from);
 
-            let mut response = match function_response {
+            let mut response = match response {
                 Ok(function_response) => function_response,
                 Err(err) => match err {
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
@@ -145,6 +144,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     FunctionDeploymentHandleRequestError::FunctionIncorrectResponse => {
                         let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function returned incorrect response.\n")));
                         *response.status_mut() = StatusCode::BAD_GATEWAY;
+                        response
+                    },
+                    FunctionDeploymentHandleRequestError::AssertionError => {
+                        let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("internal runtime error.\n")));
+                        *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                         response
                     }
                 }
