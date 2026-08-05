@@ -660,6 +660,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
                 FetchResultError::FunctionIncorrectResponse => error_builder.set_function_incorrect_response(()),
                 FetchResultError::RuntimeShutdown => error_builder.set_runtime_shutdown(()),
                 FetchResultError::InternalRuntimeAssertionError => error_builder.set_runtime_internal_error(()),
+                FetchResultError::FunctionInstantiationError => error_builder.set_function_instantiation_error(()),
             }
         }
     }

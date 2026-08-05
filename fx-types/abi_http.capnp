@@ -74,5 +74,6 @@ struct FetchError {
         functionIncorrectResponse @7 :Void;
         functionCrashed @8 :Void;
         runtimeInternalError @9 :Void;
+        functionInstantiationError @10 :Void;
     }
 }

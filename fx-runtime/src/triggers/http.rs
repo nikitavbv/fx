@@ -126,6 +126,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let mut response = match response {
                 Ok(function_response) => function_response,
                 Err(err) => match err {
+                    FunctionDeploymentHandleRequestError::FunctionInstantiationError => {
+                        let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("failed to start function to handle the request.\n")));
+                        *response.status_mut() = StatusCode::BAD_GATEWAY;
+                        response
+                    },
                     FunctionDeploymentHandleRequestError::FunctionPanicked => {
                         let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("function panicked while handling request.\n")));
                         *response.status_mut() = StatusCode::BAD_GATEWAY;

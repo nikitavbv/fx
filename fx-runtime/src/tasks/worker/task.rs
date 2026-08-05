@@ -227,6 +227,7 @@ async fn worker_handle_message(
                         DeploymentInitError::IncompatibleImport { details } => warn!(function_id=function_id.as_str(), details=details, "failed to deploy because of incompatible import type - function may have been compiled with a different fx SDK version"),
                         DeploymentInitError::MissingExport => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide export that fx runtime expects"),
                         DeploymentInitError::MissingMemory => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide memory export that fx runtime expects"),
+                        DeploymentInitError::UnknownInstantiationError => warn!(function_id=function_id.as_str(), "failed to create function instance because of unknown instantiation error"),
                     };
                     return;
                 },

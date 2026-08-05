@@ -7,7 +7,6 @@ pub(crate) use self::{
     logs::log,
     resource::{
         RESOURCE_SET,
-        SerializableResource,
         HostUnitFuture,
         BytesResource,
     },

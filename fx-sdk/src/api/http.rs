@@ -483,6 +483,7 @@ impl Future for FetchResultFuture {
                             abi_http_capnp::fetch_error::error::ConnectionTimeout(()) => FetchError::ConnectionTimeout,
                             abi_http_capnp::fetch_error::error::ResponseTimeout(()) => FetchError::ResponseTimeout,
                             abi_http_capnp::fetch_error::error::Which::FunctionNotFound(()) => FetchError::FunctionNotFound,
+                            abi_http_capnp::fetch_error::error::Which::FunctionInstantiationError(()) => FetchError::FunctionInstantiationError,
                             abi_http_capnp::fetch_error::error::Which::FunctionPanicked(()) => FetchError::FunctionPanicked,
                             abi_http_capnp::fetch_error::error::Which::FunctionCrashed(()) => FetchError::FunctionCrashed,
                             abi_http_capnp::fetch_error::error::Which::FunctionBusy(()) => FetchError::FunctionBusy,
@@ -511,6 +512,8 @@ pub enum FetchError {
 
     #[error("target rpc function not found")]
     FunctionNotFound,
+    #[error("failed to create instance of target rpc function")]
+    FunctionInstantiationError,
     #[error("target rpc function panicked")]
     FunctionPanicked,
     #[error("target rpc function crashed with unknown wasm trap")]

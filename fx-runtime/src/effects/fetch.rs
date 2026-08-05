@@ -17,6 +17,8 @@ pub(crate) enum FetchResultError {
 
     #[error("rpc target function not found")]
     FunctionNotFound,
+    #[error("failed to create instance of rpc target function")]
+    FunctionInstantiationError,
     #[error("rpc target function panicked")]
     FunctionPanicked,
     #[error("rpc target function stopped execution with unknown wasm error")]
@@ -40,6 +42,7 @@ impl From<FunctionInvokeError> for FetchResultError {
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
             FunctionInvokeError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+            FunctionInvokeError::FunctionInstantiationError => Self::FunctionInstantiationError,
         }
     }
 }
@@ -55,6 +58,7 @@ impl From<crate::tasks::worker::local_worker_controller::invoke_function::Functi
             SourceError::RuntimeShutdown => Self::RuntimeShutdown,
             SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
             SourceError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+            SourceError::FunctionInstantiationError => Self::FunctionInstantiationError,
         }
     }
 }

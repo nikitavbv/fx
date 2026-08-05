@@ -3,6 +3,7 @@ use {
     tracing::debug,
     thiserror::Error,
     serde::{Serialize, Deserialize},
+    futures::FutureExt,
     crate::{
         triggers::http::{FetchRequestHeader, HttpBody},
         resources::future::{FunctionBackgroundTask, FunctionResponseFuture},
@@ -129,6 +130,7 @@ impl FunctionDeployment {
         let instance = template.instantiate().await.map_err(|err| match err {
             FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
             FunctionInstanceInitError::MissingMemory => DeploymentInitError::MissingMemory,
+            FunctionInstanceInitError::UnknownError => DeploymentInitError::UnknownInstantiationError,
         })?;
 
         Ok(Self {
@@ -142,7 +144,10 @@ impl FunctionDeployment {
         let instance = self.instance.clone();
 
         let instance = if *instance.borrow().has_panicked.borrow() {
-            let instance = self.template.instantiate().await.unwrap();
+            let instance = match self.template.instantiate().await.map_err(FunctionDeploymentHandleRequestError::from) {
+                Ok(v) => v,
+                Err(err) => return std::future::ready(Err(err)).boxed(),
+            };
             *self.instance.borrow_mut() = instance.clone();
             instance
         } else {
@@ -211,6 +216,8 @@ pub(crate) enum DeploymentInitError {
     MissingExport,
     #[error("function does not provide memory export that fx runtime expects")]
     MissingMemory,
+    #[error("failed to create function instance because of unknown instantiation error")]
+    UnknownInstantiationError
 }
 
 #[derive(Debug, Error)]
@@ -227,6 +234,8 @@ pub enum FunctionDeploymentHandleRequestError {
     FunctionBusy,
     #[error("function returned incorrect response")]
     FunctionIncorrectResponse,
+    #[error("failed to create function instance")]
+    FunctionInstantiationError,
 }
 
 impl From<crate::function::instance::invoke_http_trigger::InvokeError> for FunctionDeploymentHandleRequestError {
@@ -237,6 +246,12 @@ impl From<crate::function::instance::invoke_http_trigger::InvokeError> for Funct
             InvokeError::Panicked => Self::FunctionPanicked,
             InvokeError::Crashed => Self::FunctionCrashed,
         }
+    }
+}
+
+impl From<FunctionInstanceInitError> for FunctionDeploymentHandleRequestError {
+    fn from(_err: FunctionInstanceInitError) -> Self {
+        Self::FunctionInstantiationError
     }
 }
 
@@ -261,15 +276,15 @@ impl FunctionId {
     }
 }
 
-impl Into<String> for FunctionId {
-    fn into(self) -> String {
-        self.id
+impl From<FunctionId> for String {
+    fn from(value: FunctionId) -> Self {
+        value.id
     }
 }
 
-impl Into<String> for &FunctionId {
-    fn into(self) -> String {
-        self.id.clone()
+impl From<&FunctionId> for String {
+    fn from(value: &FunctionId) -> Self {
+        value.id.clone()
     }
 }
 
@@ -305,7 +320,7 @@ impl FunctionTemplate {
         FunctionInstance::new(
             &self.wasmtime,
             self.runtime_services.clone(),
-            self.limit_memory_bytes.clone(),
+            self.limit_memory_bytes,
             self.function_id.clone(),
             &self.instance_template,
             self.bindings.clone(),

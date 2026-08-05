@@ -77,6 +77,9 @@ pub(crate) enum WorkersControllerFunctionInvokeError {
     #[error("target function not found")]
     NotFound,
 
+    #[error("failed to create function instance")]
+    FunctionInstantiationError,
+
     #[error("function panicked")]
     FunctionPanicked,
 
@@ -102,6 +105,7 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
             FunctionInvokeError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+            FunctionInvokeError::FunctionInstantiationError => Self::FunctionInstantiationError,
         }
     }
 }
@@ -133,6 +137,9 @@ pub(crate) mod local_worker_controller {
             #[error("function panicked during execution")]
             FunctionPanicked,
 
+            #[error("failed to create function instance")]
+            FunctionInstantiationError,
+
             #[error("function stopped execution with unknown wasm trap")]
             FunctionCrashed,
 
@@ -160,6 +167,7 @@ pub(crate) mod local_worker_controller {
                     SourceError::FunctionBusy => Self::FunctionBusy,
                     SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
                     SourceError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+                    SourceError::FunctionInstantiationError => Self::FunctionInstantiationError,
                 }
             }
         }

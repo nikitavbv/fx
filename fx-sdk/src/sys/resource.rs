@@ -3,9 +3,9 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
-    fx_types::{capnp, abi::UnitFuturePollResult, abi_http_capnp},
+    fx_types::abi::UnitFuturePollResult,
     crate::{
-        handler_fn::{FunctionResponse, FunctionResponseInner, FunctionHttpResponseBody},
+        handler_fn::FunctionResponse,
         sys::{
             fx_bytes_len,
             fx_bytes_move,
@@ -177,57 +177,6 @@ impl FunctionResourceId {
 impl Into<DefaultKey> for &FunctionResourceId {
     fn into(self) -> DefaultKey {
         DefaultKey::from(KeyData::from_ffi(self.as_u64()))
-    }
-}
-
-pub(crate) enum SerializableResource<T: SerializeResource> {
-    Raw(T),
-    Serialized(Vec<u8>),
-}
-
-impl<T: SerializeResource> SerializableResource<T> {
-    fn map_to_serialized(self) -> Self {
-        match self {
-            Self::Serialized(v) => Self::Serialized(v),
-            Self::Raw(v) => Self::Serialized(v.serialize()),
-        }
-    }
-
-    fn serialized_size(&self) -> usize {
-        match self {
-            Self::Raw(_) => panic!("cannot compute serialized size for resource that is not serialized yet"),
-            Self::Serialized(v) => v.len(),
-        }
-    }
-}
-
-pub(crate) trait SerializeResource {
-    fn serialize(self) -> Vec<u8>;
-}
-
-impl SerializeResource for FunctionResponse {
-    fn serialize(self) -> Vec<u8> {
-        let mut message = capnp::message::Builder::new_default();
-        let mut resource = message.init_root::<abi_http_capnp::http_response::Builder>();
-        match self.0 {
-            FunctionResponseInner::HttpResponse(http) => {
-                resource.set_status(http.status.as_u16());
-
-                let mut headers = resource.reborrow().init_headers(http.headers.len() as u32);
-                for (index, (name, value)) in http.headers.iter().enumerate() {
-                    let mut header = headers.reborrow().get(index as u32);
-                    header.set_name(name.as_str());
-                    header.set_value(value.to_str().unwrap());
-                }
-
-                let mut body = resource.init_body();
-                match http.body {
-                    FunctionHttpResponseBody::FunctionResource(v) => body.set_function_resource_id(v.into()),
-                    FunctionHttpResponseBody::HostResource(v) => body.set_host_resource_id(v),
-                }
-            }
-        }
-        capnp::serialize::write_message_to_words(&message)
     }
 }
 

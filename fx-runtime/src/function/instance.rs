@@ -66,7 +66,11 @@ impl FunctionInstance {
             }.boxed()))
         });
 
-        let instance = instance_template.instantiate_async(&mut store).await.unwrap();
+        let instance = instance_template.instantiate_async(&mut store).await
+            .map_err(|err| {
+                error!("failed to instantiate instance template: {err:?}");
+                FunctionInstanceInitError::UnknownError
+            })?;
 
         let memory = instance.get_memory(store.as_context_mut(), "memory")
             .ok_or(FunctionInstanceInitError::MissingMemory)?;
@@ -429,6 +433,8 @@ pub(crate) enum FunctionInstanceInitError {
     MissingExport,
     #[error("function does not provide memory export that fx runtime expects to be present")]
     MissingMemory,
+    #[error("failed to create function instance because of unknown error")]
+    UnknownError,
 }
 
 pub(crate) struct FunctionInstanceState {

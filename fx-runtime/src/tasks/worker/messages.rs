@@ -82,6 +82,9 @@ pub(crate) enum FunctionInvokeError {
 
     #[error("internal runtime assertion error")]
     InternalRuntimeAssertionError,
+
+    #[error("failed to create function instance")]
+    FunctionInstantiationError,
 }
 
 impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
@@ -92,6 +95,7 @@ impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
             FunctionDeploymentHandleRequestError::FunctionPanicked => Self::FunctionPanicked,
             FunctionDeploymentHandleRequestError::FunctionCrashed => Self::FunctionCrashed,
             FunctionDeploymentHandleRequestError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
+            FunctionDeploymentHandleRequestError::FunctionInstantiationError => Self::FunctionInstantiationError,
         }
     }
 }
