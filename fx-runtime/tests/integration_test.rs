@@ -197,8 +197,10 @@ async fn sql_contention_busy() {
     let futures: FuturesUnordered<_> = (0..20).map(|n| async move {
         sleep(Duration::from_millis(n)).await;
         let result = client_ref.get("/test/sql/contention-busy").send().await.unwrap();
-        assert!(result.status().is_success());
-        result.text().await.unwrap()
+        let status = result.status();
+        let response = result.text().await.unwrap();
+        assert!(status.is_success(), "expected status success, got: {status:?}, response: {response:?}");
+        response
     }).collect();
     let results: Vec<_> = futures.collect().await;
 
