@@ -228,6 +228,7 @@ async fn worker_handle_message(
                         DeploymentInitError::MissingExport => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide export that fx runtime expects"),
                         DeploymentInitError::MissingMemory => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide memory export that fx runtime expects"),
                         DeploymentInitError::UnknownInstantiationError => warn!(function_id=function_id.as_str(), "failed to create function instance because of unknown instantiation error"),
+                        DeploymentInitError::AssertionError => warn!(function_id=function_id.as_str(), "failed to create function instance because of unexpected assertino error within runtime"),
                     };
                     return;
                 },

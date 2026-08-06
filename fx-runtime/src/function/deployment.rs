@@ -1,6 +1,6 @@
 use {
     std::{rc::Rc, pin::Pin, cell::RefCell},
-    tracing::debug,
+    tracing::{debug, error},
     thiserror::Error,
     serde::{Serialize, Deserialize},
     futures::FutureExt,
@@ -39,55 +39,74 @@ impl FunctionDeployment {
         module: wasmtime::Module,
         bindings: InstanceBindings,
     ) -> Result<Self, DeploymentInitError> {
+        fn add_imported_function<Params, Args>(linker: &mut wasmtime::Linker<FunctionInstanceState>, name: &'static str, func: impl wasmtime::IntoFunc<FunctionInstanceState, Params, Args>) -> Result<(), DeploymentInitError> {
+            linker.func_wrap("fx", name, func)
+                .map(|_| ())
+                .map_err(|err| {
+                    // not expecting error because there is only one module (fx) with a statically defined list of functions,
+                    // so shadowing is not possible
+                    error!("didn't expect error when adding imported function to linker: {err:?}");
+                    DeploymentInitError::AssertionError
+                })
+        }
+
+        macro_rules! add_imported_functions {
+            ($linker:expr, $($name:literal => $func:expr);* $(;)?) => {
+                $(add_imported_function($linker, $name, $func)?);*
+            };
+        }
+
         let mut linker = wasmtime::Linker::<FunctionInstanceState>::new(&wasmtime);
 
-        linker.func_wrap("fx", "fx_log", super::abi::fx_log_handler).unwrap();
-        linker.func_wrap("fx", "fx_sql_exec", super::abi::fx_sql_exec_handler).unwrap();
-        linker.func_wrap("fx", "fx_sql_batch", super::abi::fx_sql_batch_handler).unwrap();
-        linker.func_wrap("fx", "fx_sql_migrate", super::abi::fx_sql_migrate_handler).unwrap();
-        linker.func_wrap("fx", "fx_sleep", super::abi::fx_sleep_handler).unwrap();
-        linker.func_wrap("fx", "fx_random", super::abi::fx_random_handler).unwrap();
-        linker.func_wrap("fx", "fx_time", super::abi::fx_time_handler).unwrap();
-        linker.func_wrap("fx", "fx_blob_put", super::abi::fx_blob_put_handler).unwrap();
-        linker.func_wrap("fx", "fx_blob_get", super::abi::fx_blob_get_handler).unwrap();
-        linker.func_wrap("fx", "fx_blob_delete", super::abi::fx_blob_delete_handler).unwrap();
-        linker.func_wrap("fx", "fx_fetch", super::abi::fx_fetch_handler).unwrap();
-        linker.func_wrap("fx", "fx_metrics_counter_register", super::abi::fx_metrics_counter_register_handler).unwrap();
-        linker.func_wrap("fx", "fx_metrics_counter_increment", super::abi::fx_metrics_counter_increment_handler).unwrap();
-        linker.func_wrap("fx", "fx_env_len", super::abi::fx_env_len_handler).unwrap();
-        linker.func_wrap("fx", "fx_env_get", super::abi::fx_env_get_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_set", super::abi::fx_kv_set_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_set_nx_px", super::abi::fx_kv_set_nx_px_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_get", super::abi::fx_kv_get_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_delex_ifeq", super::abi::fx_kv_delex_ifeq_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_subscribe", super::abi::fx_kv_subscribe_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_publish", super::abi::fx_kv_publish_handler).unwrap();
-        linker.func_wrap("fx", "fx_tasks_background_spawn", super::abi::fx_tasks_background_spawn_handler).unwrap();
-        linker.func_wrap("fx", "fx_fetch_request_header_serialize", super::abi::fx_fetch_request_header_serialize_handler).unwrap();
-        linker.func_wrap("fx", "fx_bytes_len", super::abi::fx_bytes_len_handler).unwrap();
-        linker.func_wrap("fx", "fx_bytes_move", super::abi::fx_bytes_move_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_get_response_future_poll", super::abi::fx_kv_get_response_future_poll_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_get_response_serialize", super::abi::fx_kv_get_response_serialize_handler).unwrap();
-        linker.func_wrap("fx", "fx_kv_set_response_future_poll", super::abi::fx_kv_set_response_future_poll).unwrap();
-        linker.func_wrap("fx", "fx_kv_set_response_serialize", super::abi::fx_kv_set_response_serialize).unwrap();
-        linker.func_wrap("fx", "fx_kv_subscription_stream_poll_next", super::abi::fx_kv_subscription_stream_poll_next).unwrap();
-        linker.func_wrap("fx", "fx_unit_future_poll", super::abi::fx_unit_future_poll).unwrap();
-        linker.func_wrap("fx", "fx_sql_query_result_future_poll", super::abi::fx_sql_query_result_future_poll).unwrap();
-        linker.func_wrap("fx", "fx_sql_query_result_serialize", super::abi::fx_sql_query_result_serialize).unwrap();
-        linker.func_wrap("fx", "fx_sql_batch_result_future_poll", super::abi::fx_sql_batch_result_future_poll).unwrap();
-        linker.func_wrap("fx", "fx_sql_batch_result_serialize", super::abi::fx_sql_batch_result_serialize).unwrap();
-        linker.func_wrap("fx", "fx_migration_result_future_poll", super::abi::fx_migration_result_future_poll).unwrap();
-        linker.func_wrap("fx", "fx_migration_result_serialize", super::abi::fx_migration_result_serialize).unwrap();
-        linker.func_wrap("fx", "fx_fetch_result_future_poll", super::abi::fx_fetch_result_future_poll).unwrap();
-        linker.func_wrap("fx", "fx_fetch_result_serialize", super::abi::fx_fetch_result_serialize).unwrap();
-        linker.func_wrap("fx", "fx_http_body_poll_frame", super::abi::fx_http_body_poll_frame).unwrap();
-        linker.func_wrap("fx", "fx_http_frame_serialize", super::abi::fx_http_frame_serialize).unwrap();
-        linker.func_wrap("fx", "fx_blob_put_result_poll", super::abi::fx_blob_put_result_poll).unwrap();
-        linker.func_wrap("fx", "fx_blob_put_result_serialize", super::abi::fx_blob_put_result_serialize).unwrap();
-        linker.func_wrap("fx", "fx_blob_get_result_poll", super::abi::fx_blob_get_result_poll).unwrap();
-        linker.func_wrap("fx", "fx_blob_get_result_serialize", super::abi::fx_blob_get_result_serialize).unwrap();
-        linker.func_wrap("fx", "fx_blob_delete_result_poll", super::abi::fx_blob_delete_result_poll).unwrap();
-        linker.func_wrap("fx", "fx_blob_delete_result_serialize", super::abi::fx_blob_delete_result_serialize).unwrap();
+        add_imported_functions!(&mut linker,
+            "fx_log" => super::abi::fx_log_handler;
+            "fx_sql_exec" => super::abi::fx_sql_exec_handler;
+            "fx_sql_batch" => super::abi::fx_sql_batch_handler;
+            "fx_sql_migrate" => super::abi::fx_sql_migrate_handler;
+            "fx_sleep" => super::abi::fx_sleep_handler;
+            "fx_random" => super::abi::fx_random_handler;
+            "fx_time" => super::abi::fx_time_handler;
+            "fx_blob_put" => super::abi::fx_blob_put_handler;
+            "fx_blob_get" => super::abi::fx_blob_get_handler;
+            "fx_blob_delete" => super::abi::fx_blob_delete_handler;
+            "fx_fetch" => super::abi::fx_fetch_handler;
+            "fx_metrics_counter_register" => super::abi::fx_metrics_counter_register_handler;
+            "fx_metrics_counter_increment" => super::abi::fx_metrics_counter_increment_handler;
+            "fx_env_len" => super::abi::fx_env_len_handler;
+            "fx_env_get" => super::abi::fx_env_get_handler;
+            "fx_kv_set" => super::abi::fx_kv_set_handler;
+            "fx_kv_set_nx_px" => super::abi::fx_kv_set_nx_px_handler;
+            "fx_kv_get" => super::abi::fx_kv_get_handler;
+            "fx_kv_delex_ifeq" => super::abi::fx_kv_delex_ifeq_handler;
+            "fx_kv_subscribe" => super::abi::fx_kv_subscribe_handler;
+            "fx_kv_publish" => super::abi::fx_kv_publish_handler;
+            "fx_tasks_background_spawn" => super::abi::fx_tasks_background_spawn_handler;
+            "fx_fetch_request_header_serialize" => super::abi::fx_fetch_request_header_serialize_handler;
+            "fx_bytes_len" => super::abi::fx_bytes_len_handler;
+            "fx_bytes_move" => super::abi::fx_bytes_move_handler;
+            "fx_kv_get_response_future_poll" => super::abi::fx_kv_get_response_future_poll_handler;
+            "fx_kv_get_response_serialize" => super::abi::fx_kv_get_response_serialize_handler;
+            "fx_kv_set_response_future_poll" => super::abi::fx_kv_set_response_future_poll;
+            "fx_kv_set_response_serialize" => super::abi::fx_kv_set_response_serialize;
+            "fx_kv_subscription_stream_poll_next" => super::abi::fx_kv_subscription_stream_poll_next;
+            "fx_unit_future_poll" => super::abi::fx_unit_future_poll;
+            "fx_sql_query_result_future_poll" => super::abi::fx_sql_query_result_future_poll;
+            "fx_sql_query_result_serialize" => super::abi::fx_sql_query_result_serialize;
+            "fx_sql_batch_result_future_poll" => super::abi::fx_sql_batch_result_future_poll;
+            "fx_sql_batch_result_serialize" => super::abi::fx_sql_batch_result_serialize;
+            "fx_migration_result_future_poll" => super::abi::fx_migration_result_future_poll;
+            "fx_migration_result_serialize" => super::abi::fx_migration_result_serialize;
+            "fx_fetch_result_future_poll" => super::abi::fx_fetch_result_future_poll;
+            "fx_fetch_result_serialize" => super::abi::fx_fetch_result_serialize;
+            "fx_http_body_poll_frame" => super::abi::fx_http_body_poll_frame;
+            "fx_http_frame_serialize" => super::abi::fx_http_frame_serialize;
+            "fx_blob_put_result_poll" => super::abi::fx_blob_put_result_poll;
+            "fx_blob_put_result_serialize" => super::abi::fx_blob_put_result_serialize;
+            "fx_blob_get_result_poll" => super::abi::fx_blob_get_result_poll;
+            "fx_blob_get_result_serialize" => super::abi::fx_blob_get_result_serialize;
+            "fx_blob_delete_result_poll" => super::abi::fx_blob_delete_result_poll;
+            "fx_blob_delete_result_serialize" => super::abi::fx_blob_delete_result_serialize;
+        );
 
         for import in module.imports() {
             if import.module() == "fx" {
@@ -95,14 +114,19 @@ impl FunctionDeployment {
             }
 
             if let Some(f) = import.ty().func() {
-                linker.func_new(
+                let result = linker.func_new(
                     import.module(),
                     import.name(),
                     f.clone(),
                     move |_, _, _| {
                         Err(wasmtime::Error::msg("requested function is not implemented by fx runtime"))
                     }
-                ).unwrap();
+                );
+
+                if let Err(err) = result {
+                    error!("unknown error when definining a placeholder import: {err:?}");
+                    return Err(DeploymentInitError::UnknownInstantiationError);
+                }
             }
         }
 
@@ -115,7 +139,8 @@ impl FunctionDeployment {
                 if err_str.contains("incompatible import type") {
                     return DeploymentInitError::IncompatibleImport { details: err_str };
                 }
-                panic!("unexpected error during module instantiation: {err:?}")
+                error!("unexpected error during module instantiation: {err:?}");
+                DeploymentInitError::UnknownInstantiationError
             })?;
 
         let template = FunctionTemplate::new(
@@ -217,7 +242,9 @@ pub(crate) enum DeploymentInitError {
     #[error("function does not provide memory export that fx runtime expects")]
     MissingMemory,
     #[error("failed to create function instance because of unknown instantiation error")]
-    UnknownInstantiationError
+    UnknownInstantiationError,
+    #[error("internal runtime assertion error")]
+    AssertionError,
 }
 
 #[derive(Debug, Error)]
