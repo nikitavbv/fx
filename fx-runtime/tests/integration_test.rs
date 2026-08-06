@@ -457,7 +457,7 @@ async fn fetch_body_read_all() {
         Ok(v) => v,
         Err(err) => panic!("request to test endpoint failed. request id={request_id:?}, err: {err:?}"),
     };
-    assert!(result.status().is_success());
+    assert!(result.status().is_success(), "request to test endpoint returned non-ok status code. request id={}", request_id.to_string());
     let result = result.text().await.unwrap();
     assert!(result.contains("\"url\": \"fxruntime.com/test/get\""), "expected result to contain url: {result:?}");
 }
