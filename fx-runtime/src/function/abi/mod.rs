@@ -65,7 +65,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError},
+            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -286,39 +286,14 @@ pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<
 }
 
 pub(super) fn fx_kv_set_response_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = {
-        let key: KvSetResponseFutureResourceKey = resource_id.into();
-        let function_state = caller.data_mut();
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.kv_set_response_futures,
+        |s| &mut s.kv_set_responses,
+        resource_id,
+    );
 
-        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
-        let future = function_state.resource_set.kv_set_response_futures.get_mut(key.clone()).unwrap();
-        match future.poll_unpin(&mut cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(response) => {
-                let _ = function_state.resource_set.kv_set_response_futures.remove(key).unwrap();
-                Poll::Ready(function_state.resource_set.kv_set_responses.insert(response))
-            }
-        }
-    };
-
-    let result = match result {
-        Poll::Pending => KvSetResponseFuturePollResult {
-            tag: 1,
-            _pad: Default::default(),
-            kv_set_response_resource_id: 0,
-        },
-        Poll::Ready(kv_set_response_resource_id) => KvSetResponseFuturePollResult {
-            tag: 0,
-            _pad: Default::default(),
-            kv_set_response_resource_id: kv_set_response_resource_id.into(),
-        },
-    };
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
+    write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
 
     0
 }
@@ -331,7 +306,7 @@ pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, Func
     let mut response = response.init_response();
 
     match kv_set_response {
-        Ok(v) => response.set_ok(v),
+        Ok(()) => response.set_ok(v),
         Err(KvSetError::AlreadyExists) => response.set_already_exists(()),
     }
 
@@ -398,6 +373,43 @@ pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'
     };
 
     write_result(&mut caller, result_addr, Into::<AsyncStreamResourcePollResult>::into(result));
+
+    0
+}
+
+pub(super) fn fx_kv_publish_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.kv_publish_result_futures,
+        |s| &mut s.kv_publish_results,
+        resource_id,
+    );
+
+    write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
+
+    0
+}
+
+pub(super) fn fx_kv_publish_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let kv_publish_response = caller.data_mut().resource_set.kv_publish_results.remove(resource_id.into()).unwrap();
+
+    let mut message = capnp::message::Builder::new_default();
+    let response = message.init_root::<abi_kv_capnp::kv_publish_response::Builder>();
+    let mut response = response.init_response();
+
+    match kv_publish_response {
+        Ok(()) => response.set_ok(()),
+        Err(KvPublishError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(&mut caller, result_addr, ResourceSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
+    });
 
     0
 }
@@ -744,7 +756,7 @@ pub(super) fn fx_blob_put_result_poll(mut caller: wasmtime::Caller<'_, FunctionI
         &mut caller,
         |s| &mut s.blob_put_result_futures,
         |s| &mut s.blob_put_results,
-        resource_id
+        resource_id,
     );
 
     write_result(&mut caller, result_addr, match result {
@@ -1639,7 +1651,7 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
         }, result_tx),
     }).unwrap();
 
-    caller.data_mut().resource_set.unit_futures.insert(async move { result_rx.await.unwrap(); }.boxed()).into()
+    caller.data_mut().resource_set.kv_publish_result_futures.insert(result_rx.map(|v| v.map_err(|_| KvPublishError::RuntimeShutdown)).boxed()).into()
 }
 
 pub(crate) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {

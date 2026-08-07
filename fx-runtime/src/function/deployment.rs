@@ -89,6 +89,8 @@ impl FunctionDeployment {
             "fx_kv_set_response_future_poll" => super::abi::fx_kv_set_response_future_poll;
             "fx_kv_set_response_serialize" => super::abi::fx_kv_set_response_serialize;
             "fx_kv_subscription_stream_poll_next" => super::abi::fx_kv_subscription_stream_poll_next;
+            "fx_kv_publish_result_future_poll" => super::abi::fx_kv_publish_result_future_poll;
+            "fx_kv_publish_result_serialize" => super::abi::fx_kv_publish_result_serialize;
             "fx_unit_future_poll" => super::abi::fx_unit_future_poll;
             "fx_sql_query_result_future_poll" => super::abi::fx_sql_query_result_future_poll;
             "fx_sql_query_result_serialize" => super::abi::fx_sql_query_result_serialize;

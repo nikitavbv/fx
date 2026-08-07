@@ -53,6 +53,12 @@ pub(crate) struct KvPublishRequest {
     pub(crate) data: Vec<u8>,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum KvPublishError {
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
+}
+
 pub(crate) enum KvSubscriptionResource {
     Init(tokio::sync::oneshot::Receiver<flume::Receiver<Vec<u8>>>),
     Stream(BoxStream<'static, Vec<u8>>),

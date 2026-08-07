@@ -228,6 +228,13 @@ impl<T: Into<u64>> From<Poll<Option<T>>> for AsyncStreamResourcePollResult {
     }
 }
 
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct ResourceSerializeResult {
+    pub bytes_resource_id: u64,
+    pub bytes_length: u64,
+}
+
 // exported by function
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
