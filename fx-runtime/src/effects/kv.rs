@@ -54,7 +54,9 @@ pub(crate) struct KvPublishRequest {
 }
 
 #[derive(Debug, Error)]
-pub(crate) enum KvPublishError {
+pub(crate) enum KvPublishHandlerError {
+    #[error("binding with requested name is not found")]
+    BindingNotFound,
     #[error("runtime is being shut down")]
     RuntimeShutdown,
 }

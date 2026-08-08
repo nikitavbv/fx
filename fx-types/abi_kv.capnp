@@ -20,3 +20,11 @@ struct KvSubscriptionFrame {
         bytes @1 :Data;
     }
 }
+
+struct KvPublishResult {
+    result :union {
+        ok @0 :Void;
+        runtimeShutdown @1 :Void;
+        bindingNotFound @2 :Void;
+    }
+}

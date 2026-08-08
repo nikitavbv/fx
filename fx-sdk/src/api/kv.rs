@@ -30,7 +30,8 @@ use {
         fx_kv_set_response_future_poll,
         fx_kv_set_response_serialize,
         fx_kv_subscription_stream_poll_next,
-        fx_kv_publish_response_future_poll,
+        fx_kv_publish_result_future_poll,
+        fx_kv_publish_result_serialize,
     },
 };
 
@@ -392,6 +393,8 @@ pub enum KvPublishError {
     InternalSdkError,
     #[error("runtime is being shut down")]
     RuntimeShutdown,
+    #[error("binding not found")]
+    BindingNotFound,
 }
 
 struct KvPublishResultFuture(KvPublishResultResourceId);
@@ -405,9 +408,9 @@ impl KvPublishResultFuture {
 impl Future for KvPublishResultFuture {
     type Output = Result<(), KvPublishError>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
-        assert!(unsafe { fx_kv_publish_response_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
+        assert!(unsafe { fx_kv_publish_result_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
 
         let result = unsafe { result.assume_init() };
 
@@ -415,7 +418,7 @@ impl Future for KvPublishResultFuture {
             1 => std::task::Poll::Pending,
             0 => std::task::Poll::Ready({
                 let mut serialization_result = std::mem::MaybeUninit::<ResourceSerializeResult>::zeroed();
-                assert!(unsafe { fx_kv_publish_response_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+                assert!(unsafe { fx_kv_publish_result_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
 
                 let result = unsafe { serialization_result.assume_init() };
                 let mut result_vec = vec![0; result.bytes_length as usize];
@@ -423,10 +426,11 @@ impl Future for KvPublishResultFuture {
 
                 let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
 
-                let resource = resource_reader.get_root::<abi_kv_capnp::kv_publish_response::Reader>().unwrap();
-                match resource.get_response().which().unwrap() {
-                    abi_kv_capnp::kv_publish_result::Which::Ok(_) => Ok(()),
-                    abi_kv_capnp::kv_publish_result::Which::RuntimeShutdown(_) => Err(KvPublishError::RuntimeShutdown),
+                let resource = resource_reader.get_root::<abi_kv_capnp::kv_publish_result::Reader>().unwrap();
+                match resource.get_result().which().unwrap() {
+                    abi_kv_capnp::kv_publish_result::result::Which::Ok(_) => Ok(()),
+                    abi_kv_capnp::kv_publish_result::result::Which::RuntimeShutdown(_) => Err(KvPublishError::RuntimeShutdown),
+                    abi_kv_capnp::kv_publish_result::result::Which::BindingNotFound(_) => Err(KvPublishError::BindingNotFound),
                 }
             }),
             _other => std::task::Poll::Ready(Err(KvPublishError::InternalSdkError)),

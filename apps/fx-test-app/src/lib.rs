@@ -698,7 +698,7 @@ struct KvPubsubPublishRequest {
 async fn kv_pubsub_publish(Json(req): Json<KvPubsubPublishRequest>) -> &'static str {
     let kv = kv::Kv::new("test-namespace");
 
-    kv.publish("test-channel", req.value.to_string().into_bytes()).await;
+    kv.publish("test-channel", req.value.to_string().into_bytes()).await.unwrap();
 
     "ok.\n"
 }

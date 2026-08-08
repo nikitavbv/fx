@@ -23,7 +23,6 @@ use {
     fx_types::abi::{
         ResourceMoveFromHostResult,
         KvGetResponseFuturePollResult,
-        KvSetResponseFuturePollResult,
         KvSetResponseSerializeResult,
         UnitFuturePollResult,
         SqlQueryResultFuturePollResult,
@@ -44,6 +43,7 @@ use {
         BlobDeleteResultSerializeResult,
         BlobDeleteResultSerializeResultCode,
         AsyncStreamResourcePollResult,
+        ResourceSerializeResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -54,7 +54,6 @@ use {
                 FunctionResources,
                 FetchRequestHeaderResourceKey,
                 KvGetResponseFutureResourceKey,
-                KvSetResponseFutureResourceKey,
                 UnitFutureResourceKey,
                 BlobGetResponseFutureResourceKey,
             },
@@ -65,7 +64,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishError},
+            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -306,7 +305,7 @@ pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, Func
     let mut response = response.init_response();
 
     match kv_set_response {
-        Ok(()) => response.set_ok(v),
+        Ok(()) => response.set_ok(()),
         Err(KvSetError::AlreadyExists) => response.set_already_exists(()),
     }
 
@@ -394,12 +393,13 @@ pub(super) fn fx_kv_publish_result_serialize(mut caller: wasmtime::Caller<'_, Fu
     let kv_publish_response = caller.data_mut().resource_set.kv_publish_results.remove(resource_id.into()).unwrap();
 
     let mut message = capnp::message::Builder::new_default();
-    let response = message.init_root::<abi_kv_capnp::kv_publish_response::Builder>();
-    let mut response = response.init_response();
+    let response = message.init_root::<abi_kv_capnp::kv_publish_result::Builder>();
+    let mut response = response.init_result();
 
     match kv_publish_response {
         Ok(()) => response.set_ok(()),
-        Err(KvPublishError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+        Err(KvPublishHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+        Err(KvPublishHandlerError::BindingNotFound) => response.set_binding_not_found(()),
     }
 
     let bytes = capnp::serialize::write_message_to_words(&message);
@@ -1628,7 +1628,11 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
+
+    let namespace = match caller.data().bindings.kv.get(binding) {
+        Some(v) => v.namespace.clone(),
+        None => return caller.data_mut().resource_set.kv_publish_result_futures.insert(std::future::ready(Err(KvPublishHandlerError::BindingNotFound)).boxed()).into(),
+    };
 
     let channel = {
         let ptr = channel_addr as usize;
@@ -1643,15 +1647,18 @@ pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionIns
     };
 
     let (result_tx, result_rx) = oneshot::channel();
-    caller.data().runtime_services.kv.send(KvMessage {
+    let result = caller.data().runtime_services.kv.send(KvMessage {
         namespace,
         operation: KvOperation::Publish(KvPublishRequest {
             channel,
             data
         }, result_tx),
-    }).unwrap();
+    }).map_err(|_| KvPublishHandlerError::RuntimeShutdown);
 
-    caller.data_mut().resource_set.kv_publish_result_futures.insert(result_rx.map(|v| v.map_err(|_| KvPublishError::RuntimeShutdown)).boxed()).into()
+    caller.data_mut().resource_set.kv_publish_result_futures.insert(match result {
+        Ok(()) => result_rx.map(|v| v.map_err(|_| KvPublishHandlerError::RuntimeShutdown)).boxed(),
+        Err(err) => std::future::ready(Err(err)).boxed(),
+    }).into()
 }
 
 pub(crate) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {
