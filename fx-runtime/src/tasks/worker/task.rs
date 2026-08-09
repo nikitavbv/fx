@@ -171,7 +171,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                         info!("stopping worker thread because management thread handle was dropped.");
                         return;
                     }
-                }
+                },
             }
         }
     }));
@@ -430,6 +430,10 @@ mod worker_handle_metrics_flush {
             .collect::<Vec<_>>();
 
         let mut function_metrics = HashMap::<FunctionId, FunctionMetricsDelta, _>::new();
+        let mut resource_count_fetch_result_futures = HashMap::new();
+        let mut resource_count_fetch_results = HashMap::new();
+        let mut resource_count_http_bodies = HashMap::new();
+        let mut resource_count_http_frames = HashMap::new();
 
         for (function_id, instance) in instances {
             let instance = instance.borrow();
@@ -439,6 +443,13 @@ mod worker_handle_metrics_flush {
             };
             let state = store.data_mut();
 
+            // collect runtime metrics
+            *resource_count_fetch_result_futures.entry(function_id.clone()).or_insert(0) += state.resource_set.fetch_result_futures.len() as u64;
+            *resource_count_fetch_results.entry(function_id.clone()).or_insert(0) += state.resource_set.fetch_results.len() as u64;
+            *resource_count_http_bodies.entry(function_id.clone()).or_insert(0) += state.resource_set.http_bodies.len() as u64;
+            *resource_count_http_frames.entry(function_id.clone()).or_insert(0) += state.resource_set.http_frames.len() as u64;
+
+            // collect function metrics
             let metrics_delta = state.metrics.flush_delta();
             if metrics_delta.is_empty() {
                 continue;
@@ -451,9 +462,13 @@ mod worker_handle_metrics_flush {
             }
         }
 
-        if !function_metrics.is_empty() {
-            worker.management_tx.send(ManagementMessage::WorkerMetrics(MetricsFlushMessage { function_metrics })).map_err(|_| MetricsFlushError::ManagementChannelClosed)?;
-        }
+        worker.management_tx.send(ManagementMessage::WorkerMetrics(MetricsFlushMessage {
+            function_metrics,
+            resource_count_fetch_result_futures,
+            resource_count_fetch_results,
+            resource_count_http_bodies,
+            resource_count_http_frames,
+        })).map_err(|_| MetricsFlushError::ManagementChannelClosed)?;
 
         Ok(())
     }

@@ -128,6 +128,10 @@ impl<K, V> ResourceTable<K, V> {
     pub fn remove(&mut self, key: K) -> Option<V> where K: Into<slotmap::DefaultKey> {
         self.map.remove(key.into())
     }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
 }
 
 impl<K, V> Default for ResourceTable<K, V> {

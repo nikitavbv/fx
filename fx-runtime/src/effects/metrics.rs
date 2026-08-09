@@ -46,6 +46,7 @@ pub(crate) struct FunctionMetricsState {
     metrics_series: Vec<MetricKey>,
     metric_key_to_ids: HashMap<MetricKey, MetricId>,
     metrics_counter_delta: HashMap<MetricId, u64>,
+    gauges_updates: HashMap<MetricId, i64>, // value is up-to-date gauge value
 }
 
 impl FunctionMetricsState {
@@ -54,6 +55,7 @@ impl FunctionMetricsState {
             metrics_series: Vec::new(),
             metric_key_to_ids: HashMap::new(),
             metrics_counter_delta: HashMap::new(),
+            gauges_updates: HashMap::new(),
         }
     }
 
@@ -69,14 +71,24 @@ impl FunctionMetricsState {
         *self.metrics_counter_delta.entry(key).or_insert(0) += delta;
     }
 
+    pub(crate) fn gauge_update(&mut self, key: MetricId, value: i64) {
+        self.gauges_updates.insert(key, value);
+    }
+
     pub(crate) fn flush_delta(&mut self) -> FunctionMetricsDelta {
         let counters_delta = std::mem::replace(&mut self.metrics_counter_delta, HashMap::new())
             .into_iter()
             .map(|(metric_id, delta)| (self.metrics_series.get(metric_id.id as usize).unwrap().clone(), delta))
             .collect();
 
+        let gauges_updates = std::mem::replace(&mut self.gauges_updates, HashMap::new())
+            .into_iter()
+            .map(|(metric_id, value)| (self.metrics_series.get(metric_id.id as usize).unwrap().clone(), value))
+            .collect();
+
         FunctionMetricsDelta {
             counters_delta,
+            gauges_updates,
         }
     }
 }
@@ -84,6 +96,7 @@ impl FunctionMetricsState {
 pub(crate) struct MetricsRegistry {
     runtime_counters: RwLock<HashMap<MetricKey, u64>>,
     runtime_counters_float: RwLock<HashMap<MetricKey, f64>>,
+    runtime_gauges: RwLock<HashMap<MetricKey, i64>>,
     function_metrics: RwLock<HashMap<FunctionId, FunctionMetricsDelta>>,
 }
 
@@ -92,6 +105,7 @@ impl MetricsRegistry {
         Self {
             runtime_counters: RwLock::new(HashMap::new()),
             runtime_counters_float: RwLock::new(HashMap::new()),
+            runtime_gauges: RwLock::new(HashMap::new()),
             function_metrics: RwLock::new(HashMap::new()),
         }
     }
@@ -112,6 +126,10 @@ impl MetricsRegistry {
 
     pub fn counter_float_increment(&self, metric_key: MetricKey, delta: f64) {
         *self.runtime_counters_float.write().unwrap().entry(metric_key).or_insert(0.0) += delta;
+    }
+
+    pub fn gauge_update(&self, metric_key: MetricKey, value: i64) {
+        self.runtime_gauges.write().unwrap().insert(metric_key, value);
     }
 
     pub fn encode(&self) -> String {
@@ -143,6 +161,21 @@ impl MetricsRegistry {
             append_metric_labels(&mut result, &metric_key.labels);
             result.push(' ');
             result.push_str(counter_value.to_string().as_str());
+            result.push('\n');
+        }
+
+        // runtime gauges:
+        for (metric_key, gauge_value) in self.runtime_gauges.read().unwrap().iter() {
+            let metric_name = sanitize_metric_name(&metric_key.name);
+
+            result.push_str("# TYPE ");
+            result.push_str(metric_name.as_str());
+            result.push_str(" gauge\n");
+            result.push_str(metric_name.as_str());
+
+            append_metric_labels(&mut result, &metric_key.labels);
+            result.push(' ');
+            result.push_str(gauge_value.to_string().as_str());
             result.push('\n');
         }
 
@@ -232,22 +265,28 @@ fn escape_label_value(s: &str) -> String {
 #[derive(Debug)]
 pub(crate) struct FunctionMetricsDelta {
     counters_delta: HashMap<MetricKey, u64>,
+    gauges_updates: HashMap<MetricKey, i64>,
 }
 
 impl FunctionMetricsDelta {
     pub fn empty() -> Self {
         Self {
             counters_delta: HashMap::new(),
+            gauges_updates: HashMap::new(),
         }
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.counters_delta.is_empty()
+        self.counters_delta.is_empty() && self.gauges_updates.is_empty()
     }
 
     pub(crate) fn append(&mut self, other: FunctionMetricsDelta) {
         for (metric_key, delta) in other.counters_delta {
             *self.counters_delta.entry(metric_key).or_insert(0) += delta;
+        }
+
+        for (metric_key, value) in other.gauges_updates {
+            self.gauges_updates.insert(metric_key, value);
         }
     }
 }

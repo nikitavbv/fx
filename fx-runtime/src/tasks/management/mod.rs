@@ -43,6 +43,11 @@ pub(crate) enum DeployFunctionError {
 #[derive(Debug)]
 pub(crate) struct MetricsFlushMessage {
     pub(crate) function_metrics: HashMap<FunctionId, FunctionMetricsDelta>,
+
+    pub(crate) resource_count_fetch_result_futures: HashMap<FunctionId, u64>,
+    pub(crate) resource_count_fetch_results: HashMap<FunctionId, u64>,
+    pub(crate) resource_count_http_bodies: HashMap<FunctionId, u64>,
+    pub(crate) resource_count_http_frames: HashMap<FunctionId, u64>,
 }
 
 #[derive(Serialize)]
@@ -119,6 +124,31 @@ pub(crate) fn run_management_task(
                                 },
                                 ManagementMessage::WorkerMetrics(msg) => {
                                     metrics.update(msg.function_metrics);
+
+                                    for (function_id, count) in msg.resource_count_fetch_result_futures {
+                                        metrics.gauge_update(
+                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "fetch_result_futures"),
+                                            count as i64
+                                        );
+                                    }
+                                    for (function_id, count) in msg.resource_count_fetch_results {
+                                        metrics.gauge_update(
+                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "fetch_results"),
+                                            count as i64
+                                        );
+                                    }
+                                    for (function_id, count) in msg.resource_count_http_bodies {
+                                        metrics.gauge_update(
+                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "http_bodies"),
+                                            count as i64
+                                        );
+                                    }
+                                    for (function_id, count) in msg.resource_count_http_frames {
+                                        metrics.gauge_update(
+                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "http_frames"),
+                                            count as i64
+                                        );
+                                    }
                                 },
                                 ManagementMessage::FunctionInvoked(msg) => {
                                     if let Some(invocations_log_file) = invocations_log_file.as_mut() {
