@@ -26,5 +26,7 @@ struct KvPublishResult {
         ok @0 :Void;
         runtimeShutdown @1 :Void;
         bindingNotFound @2 :Void;
+        badRequest @3 :Void;
+        failedToReadRequest @4 :Void;
     }
 }

@@ -59,6 +59,16 @@ pub(crate) enum KvPublishHandlerError {
     BindingNotFound,
     #[error("runtime is being shut down")]
     RuntimeShutdown,
+    #[error("invalid kv publish request")]
+    BadRequest,
+    #[error("failed to read request")]
+    FailedToReadRequest,
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum KvSubscriptionHandlerError {
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
 }
 
 pub(crate) enum KvSubscriptionResource {

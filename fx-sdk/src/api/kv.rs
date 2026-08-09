@@ -8,7 +8,7 @@ use {
             KvGetResponseSerializeResult,
             KvSetResponseFuturePollResult,
             KvSetResponseSerializeResult,
-            AsyncStreamResourcePollResult,
+            KvSubscriptionStreamPollResult,
             AsyncResourcePollResult,
             ResourceSerializeResult,
         },
@@ -150,7 +150,7 @@ impl Stream for KvSubscriptionStream {
     type Item = Result<Vec<u8>, KvSubscriptionStreamError>;
 
     fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        let mut result = std::mem::MaybeUninit::<AsyncStreamResourcePollResult>::zeroed();
+        let mut result = std::mem::MaybeUninit::<KvSubscriptionStreamPollResult>::zeroed();
         assert!(unsafe { fx_kv_subscription_stream_poll_next(self.resource_id, result.as_mut_ptr() as u64) } == 0);
 
         let result = unsafe { result.assume_init() };
@@ -165,6 +165,7 @@ impl Stream for KvSubscriptionStream {
                 Ok(result_vec)
             })),
             0 => std::task::Poll::Ready(None),
+            3 => std::task::Poll::Ready(Some(Err(KvSubscriptionStreamError::RuntimeShutdown))),
             _other => std::task::Poll::Ready(Some(Err(KvSubscriptionStreamError::InternalSdkError))),
         }
     }
@@ -174,6 +175,8 @@ impl Stream for KvSubscriptionStream {
 pub enum KvSubscriptionStreamError {
     #[error("internal sdk error")]
     InternalSdkError,
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
 }
 
 // public api
@@ -428,9 +431,11 @@ impl Future for KvPublishResultFuture {
 
                 let resource = resource_reader.get_root::<abi_kv_capnp::kv_publish_result::Reader>().unwrap();
                 match resource.get_result().which().unwrap() {
-                    abi_kv_capnp::kv_publish_result::result::Which::Ok(_) => Ok(()),
-                    abi_kv_capnp::kv_publish_result::result::Which::RuntimeShutdown(_) => Err(KvPublishError::RuntimeShutdown),
-                    abi_kv_capnp::kv_publish_result::result::Which::BindingNotFound(_) => Err(KvPublishError::BindingNotFound),
+                    abi_kv_capnp::kv_publish_result::result::Which::Ok(()) => Ok(()),
+                    abi_kv_capnp::kv_publish_result::result::Which::RuntimeShutdown(()) => Err(KvPublishError::RuntimeShutdown),
+                    abi_kv_capnp::kv_publish_result::result::Which::BindingNotFound(()) => Err(KvPublishError::BindingNotFound),
+                    abi_kv_capnp::kv_publish_result::result::Which::BadRequest(())
+                    | abi_kv_capnp::kv_publish_result::result::Which::FailedToReadRequest(()) => Err(KvPublishError::InternalSdkError),
                 }
             }),
             _other => std::task::Poll::Ready(Err(KvPublishError::InternalSdkError)),

@@ -235,6 +235,18 @@ pub struct ResourceSerializeResult {
     pub bytes_length: u64,
 }
 
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Default)]
+pub struct KvSubscriptionStreamPollResult {
+    // 0 - stream finished
+    // 1 - next item ready
+    // 2 - pending
+    // 3 - error: runtime shutdown
+    pub tag: u8,
+    pub _pad: [u8; 7],
+    pub resolved_resource_id: u64,
+}
+
 // exported by function
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
