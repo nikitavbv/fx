@@ -974,27 +974,31 @@ async fn preemption() {
         FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             .with_trigger_http(None)
-    ).await;
+    ).await.unwrap();
 
     server.deploy_function(
         FunctionId::new("other-app"),
         FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             .with_trigger_http(Some("other-app.fx.local".to_owned()))
-    ).await;
+    ).await.unwrap();
     server.deploy_function(
         FunctionId::new("other-app2"),
         FunctionConfig::new("/tmp/fx/functions/test-app.fx.yaml".into())
             .with_code_inline(fs::read("../target/wasm32-unknown-unknown/release/fx_test_app.wasm").unwrap())
             .with_trigger_http(Some("other-app2.fx.local".to_owned()))
-    ).await;
+    ).await.unwrap();
 
     let client = TestClient::new(format!("http://localhost:{test_port}"), format!("http://localhost:{introspection_port}"));
 
     async fn make_slow_request(client: &TestClient) -> Duration {
         let started_at = Instant::now();
         let result = client.get("/test/limits/cpu-preemption").send().await.unwrap();
-        assert!(result.status().is_success());
+
+        if !result.status().is_success() {
+            panic!( "/cpu-preemption request failed, got response: {:?}", result.text().await.unwrap());
+        }
+
         assert!((Instant::now() - started_at).as_millis() > 1000, "slow request should be slow enough to test cpu preemption");
         Instant::now() - started_at
     }
