@@ -203,6 +203,8 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
                         return Utc::now() + Duration::from_secs(60); // retrying won't help, but let's schedule task one minute into future anyway
                     }
                 };
+                request.headers_mut().insert("x-request-id", ulid::Ulid::new().to_string().parse().unwrap());
+
                 request
                     .into_parts()
                     .0
