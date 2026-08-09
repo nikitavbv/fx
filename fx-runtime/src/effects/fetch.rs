@@ -31,6 +31,8 @@ pub(crate) enum FetchResultError {
     RuntimeShutdown,
     #[error("internal runtime assertion error")]
     InternalRuntimeAssertionError,
+    #[error("internal runtime timeout error")]
+    InternalRuntimeTimeoutError,
 }
 
 impl From<FunctionInvokeError> for FetchResultError {
@@ -41,8 +43,9 @@ impl From<FunctionInvokeError> for FetchResultError {
             FunctionInvokeError::FunctionCrashed => Self::FunctionCrashed,
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
-            FunctionInvokeError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
             FunctionInvokeError::FunctionInstantiationError => Self::FunctionInstantiationError,
+            FunctionInvokeError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+            FunctionInvokeError::InternalRuntimeTimeoutError => Self::InternalRuntimeTimeoutError,
         }
     }
 }
@@ -58,6 +61,7 @@ impl From<crate::tasks::worker::local_worker_controller::invoke_function::Functi
             SourceError::RuntimeShutdown => Self::RuntimeShutdown,
             SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
             SourceError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+            SourceError::InternalRuntimeTimeoutError => Self::InternalRuntimeTimeoutError,
             SourceError::FunctionInstantiationError => Self::FunctionInstantiationError,
         }
     }

@@ -151,7 +151,8 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                         *response.status_mut() = StatusCode::BAD_GATEWAY;
                         response
                     },
-                    FunctionDeploymentHandleRequestError::AssertionError => {
+                    FunctionDeploymentHandleRequestError::AssertionError
+                    | FunctionDeploymentHandleRequestError::RuntimeTimeout => {
                         let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("internal runtime error.\n")));
                         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                         response

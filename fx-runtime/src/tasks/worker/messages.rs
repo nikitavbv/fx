@@ -83,6 +83,9 @@ pub(crate) enum FunctionInvokeError {
     #[error("internal runtime assertion error")]
     InternalRuntimeAssertionError,
 
+    #[error("internal runtime timeout error")]
+    InternalRuntimeTimeoutError,
+
     #[error("failed to create function instance")]
     FunctionInstantiationError,
 }
@@ -91,6 +94,7 @@ impl From<FunctionDeploymentHandleRequestError> for FunctionInvokeError {
     fn from(err: FunctionDeploymentHandleRequestError) -> Self {
         match err {
             FunctionDeploymentHandleRequestError::AssertionError => Self::InternalRuntimeAssertionError,
+            FunctionDeploymentHandleRequestError::RuntimeTimeout => Self::InternalRuntimeTimeoutError,
             FunctionDeploymentHandleRequestError::FunctionBusy => Self::FunctionBusy,
             FunctionDeploymentHandleRequestError::FunctionPanicked => Self::FunctionPanicked,
             FunctionDeploymentHandleRequestError::FunctionCrashed => Self::FunctionCrashed,

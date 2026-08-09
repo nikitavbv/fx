@@ -1,6 +1,6 @@
 use {
     std::{rc::Rc, pin::Pin, cell::RefCell},
-    tracing::{debug, error},
+    tracing::{debug, warn, error},
     thiserror::Error,
     serde::{Serialize, Deserialize},
     futures::FutureExt,
@@ -185,7 +185,13 @@ impl FunctionDeployment {
             debug!("inside request handling");
             let mut header = header;
             let resource = {
-                let mut data = instance.store.lock().await;
+                let mut data = match instance.store_lock().await {
+                    Ok(v) => v,
+                    Err(_) => {
+                        warn!("timeout when acquiring lock to insert http body resource");
+                        return Err(FunctionDeploymentHandleRequestError::RuntimeTimeout);
+                    }
+                };
                 let data = data.data_mut();
                 if let Some(body) = body {
                     header.body_resource_id = Some(data.resource_set.http_bodies.insert(body));
@@ -253,6 +259,8 @@ pub(crate) enum DeploymentInitError {
 pub enum FunctionDeploymentHandleRequestError {
     #[error("internal runtime assertion error")]
     AssertionError,
+    #[error("internal timeout in runtime implementation")]
+    RuntimeTimeout,
     /// Function panicked while handling request
     #[error("function panicked")]
     FunctionPanicked,

@@ -94,6 +94,9 @@ pub(crate) enum WorkersControllerFunctionInvokeError {
 
     #[error("internal runtime assertion error")]
     InternalRuntimeAssertionError,
+
+    #[error("internal runtime timeout error")]
+    InternalRuntimeTimeoutError,
 }
 
 impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
@@ -105,6 +108,7 @@ impl From<FunctionInvokeError> for WorkersControllerFunctionInvokeError {
             FunctionInvokeError::FunctionBusy => Self::FunctionBusy,
             FunctionInvokeError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
             FunctionInvokeError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+            FunctionInvokeError::InternalRuntimeTimeoutError => Self::InternalRuntimeTimeoutError,
             FunctionInvokeError::FunctionInstantiationError => Self::FunctionInstantiationError,
         }
     }
@@ -154,6 +158,9 @@ pub(crate) mod local_worker_controller {
 
             #[error("internal runtime assertion error")]
             InternalRuntimeAssertionError,
+
+            #[error("internal runtime timeout error")]
+            InternalRuntimeTimeoutError,
         }
 
         impl From<crate::tasks::worker::messages::FunctionInvokeError> for FunctionInvokeError {
@@ -167,6 +174,7 @@ pub(crate) mod local_worker_controller {
                     SourceError::FunctionBusy => Self::FunctionBusy,
                     SourceError::FunctionIncorrectResponse => Self::FunctionIncorrectResponse,
                     SourceError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+                    SourceError::InternalRuntimeTimeoutError => Self::InternalRuntimeTimeoutError,
                     SourceError::FunctionInstantiationError => Self::FunctionInstantiationError,
                 }
             }

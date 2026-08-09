@@ -119,6 +119,28 @@ impl FunctionInstance {
     }
 }
 
+pub(crate) mod store_lock {
+    use {
+        futures_intrusive::sync::LocalMutexGuard,
+        super::*,
+    };
+
+    #[derive(Debug, Error)]
+    pub(crate) enum StoreLockAcquireError {
+        #[error("timeout when acquiring store lock")]
+        LockAcquireTimeout,
+    }
+
+    impl FunctionInstance {
+        pub(crate) async fn store_lock(&self) -> Result<LocalMutexGuard<'_, wasmtime::Store<FunctionInstanceState>>, StoreLockAcquireError> {
+            tokio::select! {
+                v = self.store.lock() => Ok(v),
+                _ = tokio::time::sleep(Duration::from_secs(1)) => Err(StoreLockAcquireError::LockAcquireTimeout),
+            }
+        }
+    }
+}
+
 pub(crate) mod http_body_frame_poll {
     use super::*;
 
