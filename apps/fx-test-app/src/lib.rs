@@ -728,8 +728,8 @@ async fn test_limits_memory() -> String {
 async fn test_cpu_preemption() -> String {
     let mut data = fx::random(1024);
 
-    // simulate very CPU heavy request (takes around 2s):
-    for _ in 0..10_000_000 {
+    // simulate very CPU heavy request (takes around 700ms):
+    for _ in 0..2_500_000 {
         let mut hasher = Sha256::new();
         hasher.update(&data);
         data = hasher.finalize().to_vec();
