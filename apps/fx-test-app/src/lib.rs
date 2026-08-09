@@ -474,7 +474,7 @@ async fn test_fetch_with_header(headers: axum::http::HeaderMap) -> HttpBody {
 async fn test_fetch_body_read_all(headers: axum::http::HeaderMap) -> impl IntoResponse {
     let response = fetch(
         HttpRequest::get("https://fxruntime.com/test/get").unwrap()
-            .with_header("x-test-request-id".parse().unwrap(), headers.get("x-test-request-id").unwrap().clone())
+            .with_header("x-request-id".parse().unwrap(), headers.get("x-request-id").unwrap().clone())
     ).await.unwrap();
 
     String::from_utf8(response.into_body().read_all().await.unwrap()).unwrap().into_response()

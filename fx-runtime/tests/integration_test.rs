@@ -450,7 +450,7 @@ async fn fetch_body_read_all() {
     let client = init_fx_server().await;
 
     let result = client.get("/test/fetch/body-read-all")
-        .header("x-test-request-id", request_id.to_string())
+        .header("x-request-id", request_id.to_string())
         .send()
         .await;
     let result = match result {
