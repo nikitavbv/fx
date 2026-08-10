@@ -383,10 +383,10 @@ pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'
                 },
             }
         },
-        Err(KvSubscriptionHandlerError::RuntimeShutdown) => KvSubscriptionStreamPollResult {
-            tag: 3,
-            ..Default::default()
-        },
+        Err(KvSubscriptionHandlerError::RuntimeShutdown) => KvSubscriptionStreamPollResult { tag: 3, ..Default::default() },
+        Err(KvSubscriptionHandlerError::BindingNotFound) => KvSubscriptionStreamPollResult { tag: 4, ..Default::default() },
+        Err(KvSubscriptionHandlerError::BadRequest) => KvSubscriptionStreamPollResult { tag: 5, ..Default::default() },
+        Err(KvSubscriptionHandlerError::FailedToReadRequest) => KvSubscriptionStreamPollResult { tag: 6, ..Default::default() },
     };
 
     write_result(&mut caller, result_addr, result);
@@ -1411,6 +1411,10 @@ pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<
     caller.data_mut().metrics.counter_increment(MetricId::from_abi(counter_id), delta);
 }
 
+pub(super) fn fx_metrics_gauge_update(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, gauge_id: u64, value: i64) {
+    caller.data_mut().metrics.gauge_update(MetricId::from_abi(gauge_id), value);
+}
+
 pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64) -> i64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
@@ -1611,22 +1615,31 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
 }
 
 pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::FailedToReadRequest)).into(),
+    };
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let view = memory.view(&context);
 
     let binding = {
-        let ptr = binding_addr as usize;
-        let len = binding_len as usize;
-        let binding = &view[ptr..ptr+len];
-        str::from_utf8(binding).unwrap()
+        let binding = match view.slice(binding_addr, binding_len) {
+            Ok(v) => v,
+            Err(_) => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::FailedToReadRequest)).into(),
+        };
+        match str::from_utf8(binding) {
+            Ok(v) => v,
+            Err(_) => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::BadRequest)).into(),
+        }
     };
-    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
+    let namespace = match caller.data().bindings.kv.get(binding) {
+        Some(v) => v.namespace.clone(),
+        None => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::BindingNotFound)).into(),
+    };
 
-    let channel = {
-        let ptr = channel_addr as usize;
-        let len = channel_len as usize;
-        view[ptr..ptr+len].to_vec()
+    let channel = match view.vec_clone(channel_addr, channel_len) {
+        Ok(v) => v,
+        Err(_)  => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::FailedToReadRequest)).into(),
     };
 
     let (result_tx, result_rx) = oneshot::channel();

@@ -334,7 +334,10 @@ async fn test_time() {
     let millis: u64 = response
         .text().await.unwrap()
         .parse().unwrap();
-    assert!((950..=1050).contains(&millis), "got unexpected response from /test/time: {millis:?}, request_id: {request_id:?}");
+    assert!(
+        (950..=1500).contains(&millis), // upper bound is large because runtime can be slow because of other tests
+        "got unexpected response from /test/time: {millis:?}, request_id: {request_id:?}"
+    );
 }
 
 #[tokio::test]

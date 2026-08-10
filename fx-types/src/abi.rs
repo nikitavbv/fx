@@ -242,6 +242,9 @@ pub struct KvSubscriptionStreamPollResult {
     // 1 - next item ready
     // 2 - pending
     // 3 - error: runtime shutdown
+    // 4 - binding not found
+    // 5 - bad request
+    // 6 - failed to read request
     pub tag: u8,
     pub _pad: [u8; 7],
     pub resolved_resource_id: u64,

@@ -72,6 +72,7 @@ impl FunctionDeployment {
             "fx_fetch" => super::abi::fx_fetch_handler;
             "fx_metrics_counter_register" => super::abi::fx_metrics_counter_register_handler;
             "fx_metrics_counter_increment" => super::abi::fx_metrics_counter_increment_handler;
+            "fx_metrics_gauge_update" => super::abi::fx_metrics_gauge_update;
             "fx_env_len" => super::abi::fx_env_len_handler;
             "fx_env_get" => super::abi::fx_env_get_handler;
             "fx_kv_set" => super::abi::fx_kv_set_handler;

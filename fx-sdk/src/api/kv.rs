@@ -1,5 +1,5 @@
 use {
-    std::time::Duration,
+    std::{time::Duration, task::Poll},
     thiserror::Error,
     futures::Stream,
     fx_types::{
@@ -156,16 +156,18 @@ impl Stream for KvSubscriptionStream {
         let result = unsafe { result.assume_init() };
 
         match result.tag {
-            2 => std::task::Poll::Pending,
-            1 => std::task::Poll::Ready(Some({
+            0 => Poll::Ready(None),
+            1 => Poll::Ready(Some({
                 let bytes_len = unsafe { fx_bytes_len(result.resolved_resource_id) };
 
                 let mut result_vec = vec![0; bytes_len as usize];
                 unsafe { fx_bytes_move(result.resolved_resource_id, result_vec.as_mut_ptr() as u64) };
                 Ok(result_vec)
             })),
-            0 => std::task::Poll::Ready(None),
-            3 => std::task::Poll::Ready(Some(Err(KvSubscriptionStreamError::RuntimeShutdown))),
+            2 => Poll::Pending,
+            3 => Poll::Ready(Some(Err(KvSubscriptionStreamError::RuntimeShutdown))),
+            4 => Poll::Ready(Some(Err(KvSubscriptionStreamError::BindingNotFound))),
+            5 => Poll::Ready(Some(Err(KvSubscriptionStreamError::InternalSdkError))),
             _other => std::task::Poll::Ready(Some(Err(KvSubscriptionStreamError::InternalSdkError))),
         }
     }
@@ -177,6 +179,8 @@ pub enum KvSubscriptionStreamError {
     InternalSdkError,
     #[error("runtime is being shut down")]
     RuntimeShutdown,
+    #[error("binding with this name is not found")]
+    BindingNotFound,
 }
 
 // public api
