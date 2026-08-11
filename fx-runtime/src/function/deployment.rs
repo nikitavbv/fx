@@ -79,6 +79,7 @@ impl FunctionDeployment {
             "fx_kv_set_nx_px" => super::abi::fx_kv_set_nx_px_handler;
             "fx_kv_get" => super::abi::fx_kv_get_handler;
             "fx_kv_delex_ifeq" => super::abi::fx_kv_delex_ifeq_handler;
+            "fx_kv_delex_result_future_poll" => super::abi::fx_kv_delex_result_future_poll;
             "fx_kv_subscribe" => super::abi::fx_kv_subscribe_handler;
             "fx_kv_publish" => super::abi::fx_kv_publish_handler;
             "fx_tasks_background_spawn" => super::abi::fx_tasks_background_spawn_handler;

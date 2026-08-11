@@ -48,6 +48,16 @@ pub(crate) struct KvDelexRequest {
     pub(crate) ifeq: Vec<u8>,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum KvDelexHandlerError {
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
+    #[error("failed to read request")]
+    FailedToReadRequest,
+    #[error("invalid kv delex request")]
+    BadRequest,
+}
+
 pub(crate) struct KvPublishRequest {
     pub(crate) channel: Vec<u8>,
     pub(crate) data: Vec<u8>,

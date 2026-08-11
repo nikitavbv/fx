@@ -10,7 +10,7 @@ pub(crate) use fx_types::{
 };
 
 use {
-    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap},
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap, future::ready},
     tokio::{sync::oneshot, time::Duration},
     tracing::{debug, error, warn},
     http::Method,
@@ -64,7 +64,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -1577,41 +1577,59 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 }
 
 pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, ifeq_addr: u64, ifeq_len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return caller.data_mut().resource_set.kv_delex_result_futures.insert(ready(Err(KvDelexHandlerError::FailedToReadRequest)).boxed()).into(),
+    };
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let view = memory.view(&context);
 
     let binding = {
-        let ptr = binding_addr as usize;
-        let len = binding_len as usize;
-        let binding = &view[ptr..ptr+len];
-        str::from_utf8(binding).unwrap()
+        let binding = match view.slice(binding_addr, binding_len) {
+            Ok(v) => v,
+            Err(_) => return caller.data_mut().resource_set.kv_delex_result_futures.insert(ready(Err(KvDelexHandlerError::FailedToReadRequest)).boxed()).into(),
+        };
+        match str::from_utf8(binding) {
+            Ok(v) => v,
+            Err(_) => return caller.data_mut().resource_set.kv_delex_result_futures.insert(ready(Err(KvDelexHandlerError::BadRequest)).boxed()).into(),
+        }
     };
     let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
 
-    let key = {
-        let ptr = key_addr as usize;
-        let len = key_len as usize;
-        view[ptr..ptr+len].to_vec()
+    let key = match view.vec_clone(key_addr, key_len) {
+        Ok(v) => v,
+        Err(_) => return caller.data_mut().resource_set.kv_delex_result_futures.insert(ready(Err(KvDelexHandlerError::FailedToReadRequest)).boxed()).into(),
     };
 
-    let ifeq = {
-        let ptr = ifeq_addr as usize;
-        let len = ifeq_len as usize;
-        view[ptr..ptr+len].to_vec()
+    let ifeq = match view.vec_clone(ifeq_addr, ifeq_len) {
+        Ok(v) => v,
+        Err(_) => return caller.data_mut().resource_set.kv_delex_result_futures.insert(ready(Err(KvDelexHandlerError::FailedToReadRequest)).boxed()).into(),
     };
 
     let kv_tx = caller.data_mut().runtime_services.kv.clone();
     let (result_tx, result_rx) = oneshot::channel();
 
-    caller.data_mut().resource_set.unit_futures.insert(async move {
+    caller.data_mut().resource_set.kv_delex_result_futures.insert(async move {
         kv_tx.send_async(KvMessage {
             namespace,
             operation: KvOperation::Delex(KvDelexRequest { key, ifeq }, result_tx),
-        }).await.unwrap();
+        }).await.map_err(|_| KvDelexHandlerError::RuntimeShutdown)?;
 
-        result_rx.await.unwrap()
+        result_rx.await.map_err(|_| KvDelexHandlerError::RuntimeShutdown)
     }.boxed()).into()
+}
+
+pub(crate) fn fx_kv_delex_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let result = resource_poll(
+        &mut caller,
+        |s| &mut s.kv_delex_result_futures,
+        |s| &mut s.kv_delex_results,
+        resource_id,
+    );
+
+    write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
+
+    0
 }
 
 pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64 {

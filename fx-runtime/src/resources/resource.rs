@@ -10,7 +10,7 @@ use {
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultError, HttpStreamError},
-            kv::{KvGetResponse, KvSetError, KvSubscriptionResource, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvGetResponse, KvSetError, KvDelexHandlerError, KvSubscriptionResource, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
     },
 };
@@ -72,6 +72,8 @@ pub(crate) struct FunctionResources {
     pub(crate) kv_get_responses: ResourceTable<KvGetResponseKey, KvGetResponse>,
     pub(crate) kv_set_response_futures: ResourceTable<KvSetResponseFutureResourceKey, BoxFuture<'static, Result<(), KvSetError>>>,
     pub(crate) kv_set_responses: ResourceTable<KvSetResponseKey, Result<(), KvSetError>>,
+    pub(crate) kv_delex_result_futures: ResourceTable<KvDelexResultFutureResourceKey, BoxFuture<'static, Result<(), KvDelexHandlerError>>>,
+    pub(crate) kv_delex_results: ResourceTable<KvDelexResultResourceKey, Result<(), KvDelexHandlerError>>,
     pub(crate) kv_publish_result_futures: ResourceTable<KvPublishResultFutureResourceKey, BoxFuture<'static, Result<(), KvPublishHandlerError>>>,
     pub(crate) kv_publish_results: ResourceTable<KvPublishResultResourceKey, Result<(), KvPublishHandlerError>>,
     pub(crate) kv_subscriptions: ResourceTable<KvSubscriptionResourceKey, Result<KvSubscriptionResource, KvSubscriptionHandlerError>>,
@@ -184,6 +186,8 @@ key!(pub(crate) struct KvGetResponseKey);
 key!(pub(crate) struct FetchRequestHeaderResourceKey);
 key!(pub(crate) struct KvSetResponseFutureResourceKey);
 key!(pub(crate) struct KvSetResponseKey);
+key!(pub(crate) struct KvDelexResultFutureResourceKey);
+key!(pub(crate) struct KvDelexResultResourceKey);
 key!(pub(crate) struct KvPublishResultFutureResourceKey);
 key!(pub(crate) struct KvPublishResultResourceKey);
 key!(pub(crate) struct UnitFutureResourceKey);
