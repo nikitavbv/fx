@@ -16,7 +16,6 @@ use {
         abi_kv_capnp,
     },
     crate::sys::{
-        HostUnitFuture,
         fx_bytes_len,
         fx_bytes_move,
         fx_kv_set,
@@ -32,6 +31,8 @@ use {
         fx_kv_subscription_stream_poll_next,
         fx_kv_publish_result_future_poll,
         fx_kv_publish_result_serialize,
+        fx_kv_delex_result_future_poll,
+        fx_kv_delex_result_serialize,
     },
 };
 
@@ -98,14 +99,14 @@ impl Kv {
         let (key_ptr, key_len) = key.as_key();
         let (ifeq_ptr, ifeq_len) = ifeq.as_value();
 
-        HostUnitFuture::new(unsafe { fx_kv_delex_ifeq(
+        KvDelexResultFuture::new(unsafe { fx_kv_delex_ifeq(
             self.binding.as_ptr() as u64,
             self.binding.len() as u64,
             key_ptr,
             key_len,
             ifeq_ptr,
             ifeq_len,
-        ) }).await.unwrap()
+        ) }.into()).await.unwrap()
     }
 
     pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
@@ -373,6 +374,70 @@ pub enum KvSetError {
 enum KvSetResponse {
     Ok,
     AlreadyExists,
+}
+
+#[derive(Debug, Error)]
+pub enum KvDelexError {
+    #[error("internal sdk error")]
+    InternalSdkError,
+    #[error("request was not processed because runtime is being shut down")]
+    RuntimeShutdown,
+}
+
+struct KvDelexResultResourceId(u64);
+
+impl From<u64> for KvDelexResultResourceId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl From<&KvDelexResultResourceId> for u64 {
+    fn from(value: &KvDelexResultResourceId) -> Self {
+        value.0
+    }
+}
+
+struct KvDelexResultFuture(KvDelexResultResourceId);
+
+impl KvDelexResultFuture {
+    pub fn new(id: KvDelexResultResourceId) -> Self {
+        Self(id)
+    }
+}
+
+impl Future for KvDelexResultFuture {
+    type Output = Result<(), KvDelexError>;
+
+    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
+        assert!(unsafe { fx_kv_delex_result_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
+
+        let result = unsafe { result.assume_init() };
+
+        match result.tag {
+            1 => std::task::Poll::Pending,
+            0 => std::task::Poll::Ready({
+                let mut serialization_result = std::mem::MaybeUninit::<ResourceSerializeResult>::zeroed();
+                assert!(unsafe { fx_kv_delex_result_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                let result = unsafe { serialization_result.assume_init() };
+                let mut result_vec = vec![0; result.bytes_length as usize];
+                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+
+                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+
+                let resource = resource_reader.get_root::<abi_kv_capnp::kv_delex_result::Reader>().unwrap();
+                match resource.get_result().which().unwrap() {
+                    abi_kv_capnp::kv_delex_result::result::Which::Ok(_) => Ok(()),
+                    abi_kv_capnp::kv_delex_result::result::Which::BadRequest(())
+                    | abi_kv_capnp::kv_delex_result::result::Which::FailedToReadRequest(()) => Err(KvDelexError::InternalSdkError),
+                    abi_kv_capnp::kv_delex_result::result::Which::RuntimeShutdown(()) => Err(KvDelexError::RuntimeShutdown),
+                }
+            }),
+            _other => std::task::Poll::Ready(Err(KvDelexError::InternalSdkError)),
+        }
+    }
 }
 
 enum KvGetResponse {

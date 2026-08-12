@@ -284,19 +284,6 @@ pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<
     0
 }
 
-pub(super) fn fx_kv_set_response_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.kv_set_response_futures,
-        |s| &mut s.kv_set_responses,
-        resource_id,
-    );
-
-    write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
-
-    0
-}
-
 pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let kv_set_response = caller.data_mut().resource_set.kv_set_responses.remove(resource_id.into()).unwrap();
 
@@ -390,19 +377,6 @@ pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'
     };
 
     write_result(&mut caller, result_addr, result);
-
-    0
-}
-
-pub(super) fn fx_kv_publish_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.kv_publish_result_futures,
-        |s| &mut s.kv_publish_results,
-        resource_id,
-    );
-
-    write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
 
     0
 }
@@ -571,17 +545,6 @@ pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, Fun
         bytes_length: bytes_length as u64,
     });
 
-    0
-}
-
-pub(super) fn fx_migration_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let poll_result = resource_poll(
-        &mut caller,
-        |s| &mut s.sql_migration_result_futures,
-        |s| &mut s.sql_migration_results,
-        resource_id,
-    );
-    write_result(&mut caller, result_addr, Into::<AsyncResourcePollResult>::into(poll_result));
     0
 }
 
@@ -772,30 +735,6 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
     0
 }
 
-pub(super) fn fx_blob_put_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.blob_put_result_futures,
-        |s| &mut s.blob_put_results,
-        resource_id,
-    );
-
-    write_result(&mut caller, result_addr, match result {
-        Poll::Pending => AsyncResourcePollResult {
-            tag: 1,
-            _pad: Default::default(),
-            resolved_resource_id: 0,
-        },
-        Poll::Ready(v) => AsyncResourcePollResult {
-            tag: 0,
-            _pad: Default::default(),
-            resolved_resource_id: v.into(),
-        },
-    });
-
-    0
-}
-
 pub(super) fn fx_blob_put_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let blob_put_result = match caller.data_mut().resource_set.blob_put_results.remove(resource_id.into()) {
         Some(v) => v,
@@ -825,30 +764,6 @@ pub(super) fn fx_blob_put_result_serialize(mut caller: wasmtime::Caller<'_, Func
     );
 
     BlobPutResultSerializeResultCode::Ok as u64
-}
-
-pub(super) fn fx_blob_get_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.blob_get_response_futures,
-        |s| &mut s.blob_get_responses,
-        resource_id
-    );
-
-    write_result(&mut caller, result_addr, match result {
-        Poll::Pending => AsyncResourcePollResult {
-            tag: 1,
-            _pad: Default::default(),
-            resolved_resource_id: 0,
-        },
-        Poll::Ready(v) => AsyncResourcePollResult {
-            tag: 0,
-            _pad: Default::default(),
-            resolved_resource_id: v.into(),
-        },
-    });
-
-    0
 }
 
 pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -885,19 +800,6 @@ pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, Func
     );
 
     BlobGetResultSerializeResultCode::Ok as u64
-}
-
-pub(super) fn fx_blob_delete_result_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.blob_delete_result_futures,
-        |s| &mut s.blob_delete_results,
-        resource_id
-    );
-
-    write_result(&mut caller, result_addr, Into::<AsyncResourcePollResult>::into(result));
-
-    0
 }
 
 pub(super) fn fx_blob_delete_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -1619,15 +1521,28 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
     }.boxed()).into()
 }
 
-pub(crate) fn fx_kv_delex_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.kv_delex_result_futures,
-        |s| &mut s.kv_delex_results,
-        resource_id,
-    );
+pub(crate) fn fx_kv_delex_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let kv_delex_result = caller.data_mut().resource_set.kv_delex_results.remove(resource_id.into()).unwrap();
 
-    write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
+    let mut message = capnp::message::Builder::new_default();
+    let response = message.init_root::<abi_kv_capnp::kv_delex_result::Builder>();
+    let mut response = response.init_result();
+
+    match kv_delex_result {
+        Ok(()) => response.set_ok(()),
+        Err(KvDelexHandlerError::BadRequest) => response.set_bad_request(()),
+        Err(KvDelexHandlerError::FailedToReadRequest) => response.set_failed_to_read_request(()),
+        Err(KvDelexHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+    }
+
+    let bytes = capnp::serialize::write_message_to_words(&message);
+    let bytes_length = bytes.len();
+    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
+
+    write_result(&mut caller, result_addr, ResourceSerializeResult {
+        bytes_resource_id: bytes_resource_id.into(),
+        bytes_length: bytes_length as u64,
+    });
 
     0
 }
@@ -1722,3 +1637,28 @@ pub(crate) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_,
     let resource = FunctionResourceId::new(function_resource_id);
     caller.data_mut().tasks_background.push(resource);
 }
+
+macro_rules! future_poll_handler {
+    ($name:ident, $futures_table:ident, $results_table:ident) => {
+        pub(super) fn $name(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+            let result = resource_poll(
+                &mut caller,
+                |s| &mut s.$futures_table,
+                |s| &mut s.$results_table,
+                resource_id,
+            );
+
+            write_result(&mut caller, result_addr, AsyncResourcePollResult::from(result));
+
+            0
+        }
+    };
+}
+
+future_poll_handler!(fx_kv_set_response_future_poll, kv_set_response_futures, kv_set_responses);
+future_poll_handler!(fx_kv_publish_result_future_poll, kv_publish_result_futures, kv_publish_results);
+future_poll_handler!(fx_kv_delex_result_future_poll, kv_delex_result_futures, kv_delex_results);
+future_poll_handler!(fx_migration_result_future_poll, sql_migration_result_futures, sql_migration_results);
+future_poll_handler!(fx_blob_put_result_poll, blob_put_result_futures, blob_put_results);
+future_poll_handler!(fx_blob_get_result_poll, blob_get_response_futures, blob_get_responses);
+future_poll_handler!(fx_blob_delete_result_poll, blob_delete_result_futures, blob_delete_results);

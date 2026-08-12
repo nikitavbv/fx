@@ -30,3 +30,12 @@ struct KvPublishResult {
         failedToReadRequest @4 :Void;
     }
 }
+
+struct KvDelexResult {
+    result :union {
+        ok @0 :Void;
+        runtimeShutdown @1 :Void;
+        badRequest @2 :Void;
+        failedToReadRequest @3 :Void;
+    }
+}

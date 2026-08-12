@@ -222,6 +222,8 @@ unsafe extern "C" {
     pub(crate) fn fx_kv_get_response_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_set_response_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_set_response_serialize(resource_id: u64, result_addr: u64) -> u64;
+    pub(crate) fn fx_kv_delex_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
+    pub(crate) fn fx_kv_delex_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_subscription_stream_poll_next(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_publish_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_publish_result_serialize(resource_id: u64, result_addr: u64) -> u64;
