@@ -76,7 +76,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
         let target_function = host_str
             .and_then(|v| self.http_hosts.borrow().get(&v.to_lowercase()).cloned())
             .or_else(|| self.http_default.borrow().clone());
-        let target_function_deployment_id = target_function.and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
+        let target_function_deployment_id = target_function.clone().and_then(|function_id| self.functions.borrow().get(&function_id).cloned());
         let target_function_deployment = target_function_deployment_id.and_then(|instance_id| self.function_deployments.borrow().get(&instance_id).cloned());
 
         let management_tx = self.management_tx.clone();
@@ -117,6 +117,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let response = tokio::select! {
                 result = function_future => result,
                 _ = timeout_future => {
+                    warn!("function timed out while handling request: {target_function:?}");
                     let mut response = Response::new(HttpBody::for_bytes(Bytes::from("function timed out while handling request.\n")));
                     *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
                     return Ok(response);
