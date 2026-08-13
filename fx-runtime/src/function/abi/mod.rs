@@ -64,7 +64,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetResponse, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvSetRequest, KvGetError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -263,8 +263,9 @@ pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<
     let mut message_response = message_response.init_response();
 
     match response {
-        KvGetResponse::KeyNotFound => message_response.set_key_not_found(()),
-        KvGetResponse::Ok(v) => message_response.set_value(&v),
+        Ok(v) => message_response.set_value(&v),
+        Err(KvGetError::KeyNotFound) => message_response.set_key_not_found(()),
+        Err(KvGetError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
     }
 
     let bytes = capnp::serialize::write_message_to_words(&message);
@@ -1471,9 +1472,9 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
             operation: KvOperation::Get { key, result: result_tx },
         }).await.unwrap();
 
-        match result_rx.await.unwrap() {
-            None => KvGetResponse::KeyNotFound,
-            Some(v) => KvGetResponse::Ok(v),
+        match result_rx.await.map_err(|_| KvGetError::RuntimeShutdown)? {
+            None => Err(KvGetError::KeyNotFound),
+            Some(v) => Ok(v),
         }
     }.boxed()).into()
 }
@@ -1496,7 +1497,7 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
             Err(_) => return caller.data_mut().resource_set.kv_delex_result_futures.insert(ready(Err(KvDelexHandlerError::BadRequest)).boxed()).into(),
         }
     };
-    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).map(|v| v.namespace.clone());
 
     let key = match view.vec_clone(key_addr, key_len) {
         Ok(v) => v,
@@ -1512,6 +1513,11 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
     let (result_tx, result_rx) = oneshot::channel();
 
     caller.data_mut().resource_set.kv_delex_result_futures.insert(async move {
+        let namespace = match namespace {
+            Some(v) => v,
+            None => return Err(KvDelexHandlerError::BindingNotFound),
+        };
+
         kv_tx.send_async(KvMessage {
             namespace,
             operation: KvOperation::Delex(KvDelexRequest { key, ifeq }, result_tx),
@@ -1522,17 +1528,19 @@ pub(crate) fn fx_kv_delex_ifeq_handler(mut caller: wasmtime::Caller<'_, Function
 }
 
 pub(crate) fn fx_kv_delex_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let kv_delex_result = caller.data_mut().resource_set.kv_delex_results.remove(resource_id.into()).unwrap();
+    let kv_delex_result = caller.data_mut().resource_set.kv_delex_results.remove(resource_id.into());
 
     let mut message = capnp::message::Builder::new_default();
     let response = message.init_root::<abi_kv_capnp::kv_delex_result::Builder>();
     let mut response = response.init_result();
 
     match kv_delex_result {
-        Ok(()) => response.set_ok(()),
-        Err(KvDelexHandlerError::BadRequest) => response.set_bad_request(()),
-        Err(KvDelexHandlerError::FailedToReadRequest) => response.set_failed_to_read_request(()),
-        Err(KvDelexHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+        None => response.set_resource_not_found(()),
+        Some(Ok(())) => response.set_ok(()),
+        Some(Err(KvDelexHandlerError::BadRequest)) => response.set_bad_request(()),
+        Some(Err(KvDelexHandlerError::FailedToReadRequest)) => response.set_failed_to_read_request(()),
+        Some(Err(KvDelexHandlerError::RuntimeShutdown)) => response.set_runtime_shutdown(()),
+        Some(Err(KvDelexHandlerError::BindingNotFound)) => response.set_binding_not_found(()),
     }
 
     let bytes = capnp::serialize::write_message_to_words(&message);

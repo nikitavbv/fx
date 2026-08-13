@@ -11,6 +11,7 @@ struct KvGetResponse {
     response :union {
         keyNotFound @0 :Void;
         value @1 :Data;
+        runtimeShutdown @2 :Void;
     }
 }
 
@@ -37,5 +38,7 @@ struct KvDelexResult {
         runtimeShutdown @1 :Void;
         badRequest @2 :Void;
         failedToReadRequest @3 :Void;
+        resourceNotFound @4 :Void;
+        bindingNotFound @5 :Void;
     }
 }

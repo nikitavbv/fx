@@ -91,7 +91,7 @@ impl Kv {
             key_len,
         )}.into()).await.map(|v| match v {
             KvGetResponse::KeyNotFound => None,
-            KvGetResponse::Some(v) => Some(v)
+            KvGetResponse::Some(v) => Some(v),
         })
     }
 
@@ -295,10 +295,11 @@ impl Future for KvGetResponseFuture {
 
                 let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
                 let resource = resource_reader.get_root::<abi_kv_capnp::kv_get_response::Reader>().unwrap();
-                Ok(match resource.get_response().which().unwrap() {
-                    abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(_) => KvGetResponse::KeyNotFound,
-                    abi_kv_capnp::kv_get_response::response::Which::Value(v) => KvGetResponse::Some(v.unwrap().to_vec()),
-                })
+                match resource.get_response().which().unwrap() {
+                    abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(()) => Ok(KvGetResponse::KeyNotFound),
+                    abi_kv_capnp::kv_get_response::response::Which::Value(v) => Ok(KvGetResponse::Some(v.unwrap().to_vec())),
+                    abi_kv_capnp::kv_get_response::response::Which::RuntimeShutdown(()) => Err(KvGetError::RuntimeShutdown),
+                }
             }),
             _other => std::task::Poll::Ready(Err(KvGetError::InternalSdkError)),
         }
@@ -309,6 +310,8 @@ impl Future for KvGetResponseFuture {
 pub enum KvGetError {
     #[error("internal sdk error")]
     InternalSdkError,
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
 }
 
 struct KvSetResponseResourceId(u64);
@@ -382,6 +385,8 @@ pub enum KvDelexError {
     InternalSdkError,
     #[error("request was not processed because runtime is being shut down")]
     RuntimeShutdown,
+    #[error("kv binding with this name is not found")]
+    BindingNotFound,
 }
 
 struct KvDelexResultResourceId(u64);
@@ -431,8 +436,10 @@ impl Future for KvDelexResultFuture {
                 match resource.get_result().which().unwrap() {
                     abi_kv_capnp::kv_delex_result::result::Which::Ok(_) => Ok(()),
                     abi_kv_capnp::kv_delex_result::result::Which::BadRequest(())
-                    | abi_kv_capnp::kv_delex_result::result::Which::FailedToReadRequest(()) => Err(KvDelexError::InternalSdkError),
+                    | abi_kv_capnp::kv_delex_result::result::Which::FailedToReadRequest(())
+                    | abi_kv_capnp::kv_delex_result::result::Which::ResourceNotFound(()) => Err(KvDelexError::InternalSdkError),
                     abi_kv_capnp::kv_delex_result::result::Which::RuntimeShutdown(()) => Err(KvDelexError::RuntimeShutdown),
+                    abi_kv_capnp::kv_delex_result::result::Which::BindingNotFound(()) => Err(KvDelexError::BindingNotFound),
                 }
             }),
             _other => std::task::Poll::Ready(Err(KvDelexError::InternalSdkError)),

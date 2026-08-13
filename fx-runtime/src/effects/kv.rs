@@ -38,9 +38,12 @@ pub(crate) enum KvSetError {
     AlreadyExists,
 }
 
-pub(crate) enum KvGetResponse {
+#[derive(Debug, Error)]
+pub(crate) enum KvGetError {
+    #[error("key not found")]
     KeyNotFound,
-    Ok(Vec<u8>),
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
 }
 
 pub(crate) struct KvDelexRequest {
@@ -56,6 +59,8 @@ pub(crate) enum KvDelexHandlerError {
     FailedToReadRequest,
     #[error("invalid kv delex request")]
     BadRequest,
+    #[error("binding with requested name is not found")]
+    BindingNotFound,
 }
 
 pub(crate) struct KvPublishRequest {
