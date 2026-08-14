@@ -1,6 +1,6 @@
 use {
     std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll, time::Instant},
-    tracing::warn,
+    tracing::{warn, error},
     futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
     hyper::{Response, body::Bytes},
     http::StatusCode,
@@ -154,6 +154,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                     },
                     FunctionDeploymentHandleRequestError::AssertionError
                     | FunctionDeploymentHandleRequestError::RuntimeTimeout => {
+                        error!("internal runtime error when handling http request: {err:?}");
                         let mut response = http::Response::new(HttpBody::for_bytes(Bytes::from("internal runtime error.\n")));
                         *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
                         response
