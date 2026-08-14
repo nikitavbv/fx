@@ -64,7 +64,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvSetRequest, KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -264,8 +264,11 @@ pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<
 
     match response {
         Ok(v) => message_response.set_value(&v),
-        Err(KvGetError::KeyNotFound) => message_response.set_key_not_found(()),
-        Err(KvGetError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
+        Err(KvGetHandlerError::KeyNotFound) => message_response.set_key_not_found(()),
+        Err(KvGetHandlerError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
+        Err(KvGetHandlerError::BindingNotFound) => message_response.set_binding_not_found(()),
+        Err(KvGetHandlerError::BadRequest) => message_response.set_bad_request(()),
+        Err(KvGetHandlerError::FailedToReadRequest) => message_response.set_failed_to_read_request(()),
     }
 
     let bytes = capnp::serialize::write_message_to_words(&message);
@@ -1444,36 +1447,35 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
 }
 
 pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return caller.data_mut().resource_set.kv_get_response_futures.insert(ready(Err(KvGetHandlerError::FailedToReadRequest)).boxed()).into(),
+    };
+
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let view = memory.view(&context);
 
-    let binding = {
-        let ptr = binding_addr as usize;
-        let len = binding_len as usize;
-        let binding = &view[ptr..ptr+len];
-        str::from_utf8(binding).unwrap()
-    };
-    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
+    let binding = view.slice(binding_addr, binding_len).map_err(|_| KvGetHandlerError::FailedToReadRequest)
+        .and_then(|binding| str::from_utf8(binding).map_err(|_| KvGetHandlerError::BadRequest));
+    let namespace = binding
+        .map(|binding| caller.data().bindings.kv.get(binding).map(|v| v.namespace.clone()));
 
-    let key = {
-        let ptr = key_addr as usize;
-        let len = key_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
+    let key = view.vec_clone(key_addr, key_len).map_err(|_| KvGetHandlerError::FailedToReadRequest);
     let kv_tx = caller.data_mut().runtime_services.kv.clone();
 
     caller.data_mut().resource_set.kv_get_response_futures.insert(async move {
+        let namespace = namespace?.ok_or(KvGetHandlerError::BindingNotFound)?;
+        let key = key?;
+
         let (result_tx, result_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
             namespace,
             operation: KvOperation::Get { key, result: result_tx },
-        }).await.unwrap();
+        }).await.map_err(|_| KvGetHandlerError::RuntimeShutdown)?;
 
-        match result_rx.await.map_err(|_| KvGetError::RuntimeShutdown)? {
-            None => Err(KvGetError::KeyNotFound),
+        match result_rx.await.map_err(|_| KvGetHandlerError::RuntimeShutdown)? {
+            None => Err(KvGetHandlerError::KeyNotFound),
             Some(v) => Ok(v),
         }
     }.boxed()).into()

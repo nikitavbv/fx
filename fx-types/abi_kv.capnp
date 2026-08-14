@@ -12,6 +12,9 @@ struct KvGetResponse {
         keyNotFound @0 :Void;
         value @1 :Data;
         runtimeShutdown @2 :Void;
+        bindingNotFound @3 :Void;
+        badRequest @4 :Void;
+        failedToReadRequest @5 :Void;
     }
 }
 
