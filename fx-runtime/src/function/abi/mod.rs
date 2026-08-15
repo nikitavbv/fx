@@ -64,7 +64,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvSetRequest, KvSetHandlerError, KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -297,7 +297,9 @@ pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, Func
 
     match kv_set_response {
         Ok(()) => response.set_ok(()),
-        Err(KvSetError::AlreadyExists) => response.set_already_exists(()),
+        Err(KvSetHandlerError::AlreadyExists) => response.set_already_exists(()),
+        Err(KvSetHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+        Err(KvSetHandlerError::BindingNotFound) => response.set_binding_not_found(()),
     }
 
     let bytes = capnp::serialize::write_message_segments_to_words(&message);
@@ -1414,7 +1416,7 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
         let binding = &view[ptr..ptr+len];
         str::from_utf8(binding).unwrap()
     };
-    let namespace = caller.data().bindings.kv.get(binding).unwrap().namespace.clone();
+    let namespace = caller.data().bindings.kv.get(binding).map(|v| v.namespace.clone());
 
     let key = {
         let ptr = key_addr as usize;
@@ -1435,14 +1437,16 @@ pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionI
         .with_px(if px > 0  { Some(Duration::from_millis(px as u64)) } else { None });
 
     caller.data_mut().resource_set.kv_set_response_futures.insert(async move {
+        let namespace = namespace.ok_or(KvSetHandlerError::BindingNotFound)?;
+
         let (on_done, on_done_rx) = oneshot::channel();
 
         kv_tx.send_async(KvMessage {
             namespace,
             operation: KvOperation::Set(req, on_done),
-        }).await.unwrap();
+        }).await.map_err(|_| KvSetHandlerError::RuntimeShutdown)?;
 
-        on_done_rx.await.unwrap()
+        on_done_rx.await.map_err(|_| KvSetHandlerError::RuntimeShutdown)?.map_err(KvSetHandlerError::from)
     }.boxed()).into()
 }
 

@@ -39,6 +39,24 @@ pub(crate) enum KvSetError {
 }
 
 #[derive(Debug, Error)]
+pub(crate) enum KvSetHandlerError {
+    #[error("key already exists")]
+    AlreadyExists,
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
+    #[error("binding with requested name is not found")]
+    BindingNotFound,
+}
+
+impl From<KvSetError> for KvSetHandlerError {
+    fn from(err: KvSetError) -> Self {
+        match err {
+            KvSetError::AlreadyExists => Self::AlreadyExists,
+        }
+    }
+}
+
+#[derive(Debug, Error)]
 pub(crate) enum KvGetHandlerError {
     #[error("key not found")]
     KeyNotFound,

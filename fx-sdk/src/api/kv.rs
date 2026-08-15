@@ -75,10 +75,7 @@ impl Kv {
             value_len,
             if nx { 1 } else { 0 },
             px.map(|v| v.as_millis() as i64).unwrap_or(-1)
-        )}.into()).await.map(|v| match v {
-            KvSetResponse::Ok => Ok(()),
-            KvSetResponse::AlreadyExists => Err(KvSetNxPxError::AlreadyExists),
-        })?.map_err(KvSetNxPxError::from)
+        )}.into()).await.map_err(KvSetNxPxError::from)
     }
 
     pub async fn get(&self, key: impl AsKey) -> Result<Option<Vec<u8>>, KvGetError> {
@@ -238,12 +235,19 @@ pub enum KvSetNxPxError {
     AlreadyExists,
     #[error("internal sdk error")]
     InternalSdkError,
+    #[error("runtime is being shut down")]
+    RuntimeShutdown,
+    #[error("binding not found")]
+    BindingNotFound,
 }
 
 impl From<KvSetError> for KvSetNxPxError {
     fn from(err: KvSetError) -> Self {
         match err {
             KvSetError::InternalSdkError => Self::InternalSdkError,
+            KvSetError::RuntimeShutdown => Self::RuntimeShutdown,
+            KvSetError::AlreadyExists => Self::AlreadyExists,
+            KvSetError::BindingNotFound => Self::BindingNotFound,
         }
     }
 }
@@ -339,7 +343,7 @@ impl KvSetResponseFuture {
 }
 
 impl Future for KvSetResponseFuture {
-    type Output = Result<KvSetResponse, KvSetError>;
+    type Output = Result<(), KvSetError>;
 
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<KvSetResponseFuturePollResult>::zeroed();
@@ -360,10 +364,12 @@ impl Future for KvSetResponseFuture {
                 let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
 
                 let resource = resource_reader.get_root::<abi_kv_capnp::kv_set_response::Reader>().unwrap();
-                Ok(match resource.get_response().which().unwrap() {
-                    abi_kv_capnp::kv_set_response::response::Which::Ok(_) => KvSetResponse::Ok,
-                    abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => KvSetResponse::AlreadyExists,
-                })
+                match resource.get_response().which().unwrap() {
+                    abi_kv_capnp::kv_set_response::response::Which::Ok(()) => Ok(()),
+                    abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => Err(KvSetError::AlreadyExists),
+                    abi_kv_capnp::kv_set_response::response::Which::RuntimeShutdown(()) => Err(KvSetError::RuntimeShutdown),
+                    abi_kv_capnp::kv_set_response::response::Which::BindingNotFound(()) => Err(KvSetError::BindingNotFound),
+                }
             }),
             _other => std::task::Poll::Ready(Err(KvSetError::InternalSdkError)),
         }
@@ -372,8 +378,14 @@ impl Future for KvSetResponseFuture {
 
 #[derive(Debug, Error)]
 pub enum KvSetError {
+    #[error("key already exists")]
+    AlreadyExists,
+    #[error("runtime is being shutdown")]
+    RuntimeShutdown,
     #[error("internal sdk error")]
     InternalSdkError,
+    #[error("kv binding with this name is not found")]
+    BindingNotFound,
 }
 
 enum KvSetResponse {

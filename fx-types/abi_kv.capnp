@@ -4,6 +4,8 @@ struct KvSetResponse {
     response :union {
         ok @0 :Void;
         alreadyExists @1 :Void;
+        runtimeShutdown @2 :Void;
+        bindingNotFound @3 :Void;
     }
 }
 
