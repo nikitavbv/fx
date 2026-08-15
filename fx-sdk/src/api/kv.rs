@@ -261,9 +261,9 @@ impl From<u64> for KvGetResponseResourceId {
     }
 }
 
-impl Into<u64> for &KvGetResponseResourceId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&KvGetResponseResourceId> for u64 {
+    fn from(id: &KvGetResponseResourceId) -> u64 {
+        id.0
     }
 }
 
@@ -328,9 +328,9 @@ impl From<u64> for KvSetResponseResourceId {
     }
 }
 
-impl Into<u64> for &KvSetResponseResourceId {
-    fn into(self) -> u64 {
-        self.0
+impl From<&KvSetResponseResourceId> for u64 {
+    fn from(value: &KvSetResponseResourceId) -> u64 {
+        value.0
     }
 }
 
@@ -369,6 +369,8 @@ impl Future for KvSetResponseFuture {
                     abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => Err(KvSetError::AlreadyExists),
                     abi_kv_capnp::kv_set_response::response::Which::RuntimeShutdown(()) => Err(KvSetError::RuntimeShutdown),
                     abi_kv_capnp::kv_set_response::response::Which::BindingNotFound(()) => Err(KvSetError::BindingNotFound),
+                    abi_kv_capnp::kv_set_response::response::Which::FailedToReadRequest(())
+                    | abi_kv_capnp::kv_set_response::response::Which::BadRequest(()) => Err(KvSetError::InternalSdkError),
                 }
             }),
             _other => std::task::Poll::Ready(Err(KvSetError::InternalSdkError)),

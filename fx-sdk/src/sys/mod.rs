@@ -269,14 +269,6 @@ impl PtrWithLen {
     pub fn read(&self) -> &[u8] {
         read_memory(self.ptr, self.len)
     }
-
-    pub fn read_owned(&self) -> Vec<u8> {
-        read_memory_owned(self.ptr, self.len)
-    }
-
-    pub fn read_decode<T: serde::de::DeserializeOwned>(&self) -> T {
-        rmp_serde::from_slice(&self.read_owned()).unwrap()
-    }
 }
 
 impl Default for PtrWithLen {
@@ -288,8 +280,4 @@ impl Default for PtrWithLen {
 // utils:
 pub(crate) fn read_memory<'a>(ptr: i64, len: i64) -> &'a [u8] {
     unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) }
-}
-
-pub(crate) fn read_memory_owned(ptr: i64, len: i64) -> Vec<u8> {
-    unsafe { Vec::from_raw_parts(ptr as *mut u8, len as usize, len as usize) }
 }

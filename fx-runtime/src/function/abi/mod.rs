@@ -300,6 +300,8 @@ pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, Func
         Err(KvSetHandlerError::AlreadyExists) => response.set_already_exists(()),
         Err(KvSetHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
         Err(KvSetHandlerError::BindingNotFound) => response.set_binding_not_found(()),
+        Err(KvSetHandlerError::BadRequest) => response.set_bad_request(()),
+        Err(KvSetHandlerError::FailedToReadRequest) => response.set_failed_to_read_request(()),
     }
 
     let bytes = capnp::serialize::write_message_segments_to_words(&message);
@@ -1406,38 +1408,29 @@ pub(crate) fn fx_kv_set_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
 }
 
 pub(crate) fn fx_kv_set_nx_px_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64, value_addr: u64, value_len: u64, nx: u32, px: i64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return caller.data_mut().resource_set.kv_set_response_futures.insert(ready(Err(KvSetHandlerError::FailedToReadRequest)).boxed()).into(),
+    };
+
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let view = memory.view(&context);
 
-    let binding = {
-        let ptr = binding_addr as usize;
-        let len = binding_len as usize;
-        let binding = &view[ptr..ptr+len];
-        str::from_utf8(binding).unwrap()
-    };
-    let namespace = caller.data().bindings.kv.get(binding).map(|v| v.namespace.clone());
+    let binding = view.slice(binding_addr, binding_len)
+        .map_err(|_| KvSetHandlerError::FailedToReadRequest)
+        .and_then(|v| str::from_utf8(v).map_err(|_| KvSetHandlerError::BadRequest));
+    let namespace = binding.map(|v| caller.data().bindings.kv.get(v).map(|v| v.namespace.clone()));
 
-    let key = {
-        let ptr = key_addr as usize;
-        let len = key_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
-    let value = {
-        let ptr = value_addr as usize;
-        let len = value_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
+    let key = view.vec_clone(key_addr, key_len).map_err(|_| KvSetHandlerError::FailedToReadRequest);
+    let value = view.vec_clone(value_addr, value_len).map_err(|_| KvSetHandlerError::FailedToReadRequest);
 
     let kv_tx = caller.data_mut().runtime_services.kv.clone();
 
-    let req = KvSetRequest::new(key, value)
-        .with_nx(nx != 0)
-        .with_px(if px > 0  { Some(Duration::from_millis(px as u64)) } else { None });
-
     caller.data_mut().resource_set.kv_set_response_futures.insert(async move {
-        let namespace = namespace.ok_or(KvSetHandlerError::BindingNotFound)?;
+        let req = KvSetRequest::new(key?, value?)
+            .with_nx(nx != 0)
+            .with_px(if px > 0  { Some(Duration::from_millis(px as u64)) } else { None });
+        let namespace = namespace?.ok_or(KvSetHandlerError::BindingNotFound)?;
 
         let (on_done, on_done_rx) = oneshot::channel();
 

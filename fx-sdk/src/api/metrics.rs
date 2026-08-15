@@ -50,7 +50,7 @@ impl CounterTemplate {
 
         let mut labels = request.init_labels(self.label_names.len() as u32);
 
-        let label_values = self.label_names.iter().zip(values.into_iter()).collect::<Vec<_>>();
+        let label_values = self.label_names.iter().zip(values).collect::<Vec<_>>();
         for (index, (name, value)) in label_values.into_iter().enumerate() {
             let mut label = labels.reborrow().get(index as u32);
             label.set_name(name);

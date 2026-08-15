@@ -6,6 +6,8 @@ struct KvSetResponse {
         alreadyExists @1 :Void;
         runtimeShutdown @2 :Void;
         bindingNotFound @3 :Void;
+        failedToReadRequest @4 :Void;
+        badRequest @5 :Void;
     }
 }
 

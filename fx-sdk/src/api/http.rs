@@ -367,7 +367,7 @@ impl http_body::Body for HttpBody {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         self.poll_next(cx)
-            .map(|v| v.map(|v| v.map(|v| http_body::Frame::data(v)).map_err(|_| todo!())))
+            .map(|v| v.map(|v| v.map(http_body::Frame::data).map_err(|_| todo!())))
     }
 }
 
@@ -439,7 +439,7 @@ impl Future for FetchResultFuture {
 
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<FetchResultFuturePollResult>::zeroed();
-        assert!(unsafe { fx_fetch_result_future_poll(self.0.into(), result.as_mut_ptr() as u64) } == 0);
+        assert!(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
 
         let result = unsafe { result.assume_init() };
 

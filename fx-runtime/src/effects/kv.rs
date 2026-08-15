@@ -46,6 +46,10 @@ pub(crate) enum KvSetHandlerError {
     RuntimeShutdown,
     #[error("binding with requested name is not found")]
     BindingNotFound,
+    #[error("failed to read request")]
+    FailedToReadRequest,
+    #[error("invalid kv set request")]
+    BadRequest,
 }
 
 impl From<KvSetError> for KvSetHandlerError {
