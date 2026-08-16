@@ -6,7 +6,6 @@ pub(crate) use fx_types::{
     abi_metrics_capnp,
     abi_blob_capnp,
     abi_kv_capnp,
-    abi::KvGetResponseSerializeResult,
 };
 
 use {
@@ -24,7 +23,6 @@ use {
     fx_types::abi::{
         ResourceMoveFromHostResult,
         KvGetResponseFuturePollResult,
-        KvSetResponseSerializeResult,
         UnitFuturePollResult,
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
@@ -45,6 +43,7 @@ use {
         BlobDeleteResultSerializeResultCode,
         ResourceSerializeResult,
         KvSubscriptionStreamPollResult,
+        EnvGetResult,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -65,7 +64,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvSetHandlerError, KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -245,72 +244,6 @@ pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Calle
             _pad: Default::default(),
             kv_get_response_resource_id: kv_get_response_resource_id.into(),
         },
-    };
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
-}
-
-pub(super) fn fx_kv_get_response_serialize_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let response = caller.data_mut().resource_set.kv_get_responses.remove(resource_id.into()).unwrap();
-
-    let mut message = capnp::message::Builder::new_default();
-    let message_response = message.init_root::<abi_kv_capnp::kv_get_response::Builder>();
-    let mut message_response = message_response.init_response();
-
-    match response {
-        Ok(v) => message_response.set_value(&v),
-        Err(KvGetHandlerError::KeyNotFound) => message_response.set_key_not_found(()),
-        Err(KvGetHandlerError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
-        Err(KvGetHandlerError::BindingNotFound) => message_response.set_binding_not_found(()),
-        Err(KvGetHandlerError::BadRequest) => message_response.set_bad_request(()),
-        Err(KvGetHandlerError::FailedToReadRequest) => message_response.set_failed_to_read_request(()),
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-    let result = KvGetResponseSerializeResult {
-        bytes_resource_id: bytes_resource_id.into(),
-        bytes_length: bytes_length as u64,
-    };
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
-}
-
-pub(super) fn fx_kv_set_response_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let kv_set_response = caller.data_mut().resource_set.kv_set_responses.remove(resource_id.into()).unwrap();
-
-    let mut message = capnp::message::Builder::new_default();
-    let response = message.init_root::<abi_kv_capnp::kv_set_response::Builder>();
-    let mut response = response.init_response();
-
-    match kv_set_response {
-        Ok(()) => response.set_ok(()),
-        Err(KvSetHandlerError::AlreadyExists) => response.set_already_exists(()),
-        Err(KvSetHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
-        Err(KvSetHandlerError::BindingNotFound) => response.set_binding_not_found(()),
-        Err(KvSetHandlerError::BadRequest) => response.set_bad_request(()),
-        Err(KvSetHandlerError::FailedToReadRequest) => response.set_failed_to_read_request(()),
-    }
-
-    let bytes = capnp::serialize::write_message_segments_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-    let result = KvSetResponseSerializeResult {
-        bytes_resource_id: bytes_resource_id.into(),
-        bytes_length: bytes_length as u64,
     };
     let result = result.as_bytes();
 
@@ -1380,26 +1313,35 @@ pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
     }
 }
 
-pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let mut context = caller.as_context_mut();
-    let (view, state) = memory.data_and_store_mut(&mut context);
+pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) -> u64 {
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return EnvGetResult::FailedToReadRequest as u64,
+    };
+    let mut context = caller.as_context();
+    let view = memory.view(&context);
 
-    let key = {
-        let ptr = key_addr as usize;
-        let len = key_len as usize;
-        str::from_utf8(&view[ptr..ptr+len]).unwrap()
+    let key = match view.slice(key_addr, key_len) {
+        Ok(v) => v,
+        Err(_) => return EnvGetResult::FailedToReadRequest as u64,
+    };
+    let key = match str::from_utf8(key) {
+        Ok(v) => v,
+        Err(_) => return EnvGetResult::BadRequest as u64,
     };
 
-    let value = match state.bindings.env.get(key) {
-        Some(value) => value,
-        None => return,
+    let value = match caller.data().bindings.env.get(key) {
+        Some(value) => value.clone(),
+        None => return EnvGetResult::NotFound as u64,
     };
-    {
-        let ptr = value_addr as usize;
-        let len = value.len();
-        view[ptr..ptr+len].copy_from_slice(value.as_bytes());
-    }
+
+    drop(view);
+    drop(context);
+
+    (match memory.view_mut(&mut caller.as_context_mut()).copy_from_slice(value_addr, value.len() as u64, value.as_bytes()) {
+        Ok(_) => EnvGetResult::Ok,
+        Err(_) => EnvGetResult::FailedToWriteValue,
+    }) as u64
 }
 
 pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64) -> u64 {

@@ -636,13 +636,13 @@ async fn test_stream_sse() -> Sse<impl Stream<Item = Result<Event, Infallible>>>
 }
 
 async fn env_simple() -> &'static str {
-    let value = env::get("test-env-var").unwrap();
+    let value = env::get("test-env-var").unwrap().unwrap();
     assert_eq!("test value", value);
     "ok."
 }
 
 async fn env_missing_file() -> (StatusCode, String) {
-    match env::get("TEST_FILE_ENV_VAR") {
+    match env::get("TEST_FILE_ENV_VAR").unwrap() {
         None => (StatusCode::OK, "ok.".to_owned()),
         Some(v) => (StatusCode::INTERNAL_SERVER_ERROR, format!("expected env var to NOT be set in this variable, got: {v}"))
     }

@@ -277,3 +277,13 @@ pub struct FunctionResponsePollResult {
     pub response_bytes_addr: u64,
     pub response_bytes_len: u64,
 }
+
+#[derive(TryFromPrimitive)]
+#[repr(i64)]
+pub enum EnvGetResult {
+    Ok = 0,
+    FailedToReadRequest = 1,
+    BadRequest = 2,
+    NotFound = 3,
+    FailedToWriteValue = 4,
+}

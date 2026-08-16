@@ -54,8 +54,6 @@ pub(crate) enum KvSetHandlerError {
     RuntimeShutdown,
     #[error("binding with requested name is not found")]
     BindingNotFound,
-    #[error("failed to read request")]
-    FailedToReadRequest,
     #[error("invalid kv set request")]
     BadRequest,
 }
@@ -248,7 +246,6 @@ async fn handle_kv_set(
         Err(KvSetHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
         Err(KvSetHandlerError::BindingNotFound) => response.set_binding_not_found(()),
         Err(KvSetHandlerError::BadRequest) => response.set_bad_request(()),
-        Err(KvSetHandlerError::FailedToReadRequest) => response.set_failed_to_read_request(()),
     }
 
     capnp::serialize::write_message_segments_to_words(&message)
