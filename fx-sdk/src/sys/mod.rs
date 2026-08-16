@@ -125,14 +125,16 @@ pub extern "C" fn _fx_background_task_poll(resource_id: u64) -> u64 {
     use std::task::{Context, Waker};
     let mut context = Context::from_waker(Waker::noop());
 
-    RESOURCE_SET.with_borrow_mut(|resources| {
-        let result = resources.background_tasks.get_mut(resource_id.into()).unwrap().poll_unpin(&mut context);
+    let mut task_future = RESOURCE_SET.with_borrow_mut(|resources| resources.background_tasks.detach(resource_id.into())).unwrap();
 
-        match result {
-            Poll::Pending => 1,
-            Poll::Ready(()) => 0,
-        }
-    })
+    let result = task_future.poll_unpin(&mut context);
+
+    RESOURCE_SET.with_borrow_mut(|resources| resources.background_tasks.reattach(resource_id.into(), task_future));
+
+    match result {
+        Poll::Pending => 1,
+        Poll::Ready(()) => 0,
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -210,7 +212,6 @@ unsafe extern "C" {
     pub(crate) fn fx_env_get(key_ptr: u64, key_len: u64, value_ptr: u64);
     pub(crate) fn fx_kv_set(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64;
     pub(crate) fn fx_kv_set_nx_px(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64, nx: u32, px: i64) -> u64;
-    pub(crate) fn fx_kv_get(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64) -> u64;
     pub(crate) fn fx_kv_delex_ifeq(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, ifeq_ptr: u64, ifeq_len: u64) -> u64;
     pub(crate) fn fx_kv_subscribe(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64;
     pub(crate) fn fx_kv_publish(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64;

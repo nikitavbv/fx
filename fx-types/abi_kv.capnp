@@ -3,8 +3,9 @@
 struct KvSetRequest {
     binding @0 :Text;
     key @1 :Data;
-    nx @2 :Int32;
-    px @3 :Int32;
+    value @2 :Data;
+    nx @3 :Int8;
+    px @4 :Int64;
 }
 
 struct KvSetResponse {

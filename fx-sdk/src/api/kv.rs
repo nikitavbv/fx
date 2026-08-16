@@ -4,8 +4,6 @@ use {
     futures::Stream,
     fx_types::{
         abi::{
-            KvGetResponseFuturePollResult,
-            KvGetResponseSerializeResult,
             KvSetResponseFuturePollResult,
             KvSetResponseSerializeResult,
             KvSubscriptionStreamPollResult,
@@ -23,8 +21,6 @@ use {
         fx_kv_delex_ifeq,
         fx_kv_subscribe,
         fx_kv_publish,
-        fx_kv_get_response_future_poll,
-        fx_kv_get_response_serialize,
         fx_kv_set_response_future_poll,
         fx_kv_set_response_serialize,
         fx_kv_subscription_stream_poll_next,
@@ -48,33 +44,65 @@ impl Kv {
     }
 
     pub async fn set(&self, key: impl AsKey, value: impl AsValue) -> Result<(), KvSetError> {
-        let (key_ptr, key_len) = key.as_key();
-        let (value_ptr, value_len) = value.as_value();
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut message_request = message.init_root::<abi_kv_capnp::kv_set_request::Builder>();
+            message_request.set_binding(&self.binding);
+            message_request.set_key(&key.into_bytes());
+            message_request.set_value(&value.into_bytes());
 
-        KvSetResponseFuture::new(unsafe { fx_kv_set(
-            self.binding.as_ptr() as u64,
-            self.binding.len() as u64,
-            key_ptr,
-            key_len,
-            value_ptr,
-            value_len,
-        )}.into()).await.map(|_| ())
+            capnp::serialize::write_message_to_words(&message)
+        };
+
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://kv.fx.internal/set").unwrap()
+                .with_body(request)
+        ).await.unwrap().bytes().await;
+
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+
+        let resource = resource_reader.get_root::<abi_kv_capnp::kv_set_response::Reader>().unwrap();
+        match resource.get_response().which().unwrap() {
+            abi_kv_capnp::kv_set_response::response::Which::Ok(()) => Ok(()),
+            abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => Err(KvSetError::AlreadyExists),
+            abi_kv_capnp::kv_set_response::response::Which::RuntimeShutdown(()) => Err(KvSetError::RuntimeShutdown),
+            abi_kv_capnp::kv_set_response::response::Which::BindingNotFound(()) => Err(KvSetError::BindingNotFound),
+            abi_kv_capnp::kv_set_response::response::Which::FailedToReadRequest(())
+            | abi_kv_capnp::kv_set_response::response::Which::BadRequest(()) => Err(KvSetError::InternalSdkError),
+        }
     }
 
     pub async fn set_nx_px(&self, key: impl AsKey, value: impl AsValue, nx: bool, px: Option<Duration>) -> Result<(), KvSetNxPxError> {
-        let (key_ptr, key_len) = key.as_key();
-        let (value_ptr, value_len) = value.as_value();
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut message_request = message.init_root::<abi_kv_capnp::kv_set_request::Builder>();
+            message_request.set_binding(&self.binding);
+            message_request.set_key(&key.into_bytes());
+            message_request.set_value(&value.into_bytes());
+            message_request.set_nx(if nx { 1 } else { 0 });
+            if let Some(px) = px {
+                message_request.set_px(px.as_millis() as i64);
+            }
 
-        KvSetResponseFuture::new(unsafe { fx_kv_set_nx_px(
-            self.binding.as_ptr() as u64,
-            self.binding.len() as u64,
-            key_ptr,
-            key_len,
-            value_ptr,
-            value_len,
-            if nx { 1 } else { 0 },
-            px.map(|v| v.as_millis() as i64).unwrap_or(-1)
-        )}.into()).await.map_err(KvSetNxPxError::from)
+            capnp::serialize::write_message_to_words(&message)
+        };
+
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://kv.fx.internal/set").unwrap()
+                .with_body(request)
+        ).await.unwrap().bytes().await;
+
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+
+        let resource = resource_reader.get_root::<abi_kv_capnp::kv_set_response::Reader>().unwrap();
+        match resource.get_response().which().unwrap() {
+            abi_kv_capnp::kv_set_response::response::Which::Ok(()) => Ok(()),
+            abi_kv_capnp::kv_set_response::response::Which::AlreadyExists(_) => Err(KvSetNxPxError::AlreadyExists),
+            abi_kv_capnp::kv_set_response::response::Which::RuntimeShutdown(()) => Err(KvSetNxPxError::RuntimeShutdown),
+            abi_kv_capnp::kv_set_response::response::Which::BindingNotFound(()) => Err(KvSetNxPxError::BindingNotFound),
+            abi_kv_capnp::kv_set_response::response::Which::FailedToReadRequest(())
+            | abi_kv_capnp::kv_set_response::response::Which::BadRequest(()) => Err(KvSetNxPxError::InternalSdkError),
+        }
     }
 
     pub async fn get(&self, key: impl AsKey) -> Result<Option<Vec<u8>>, KvGetError> {
@@ -221,11 +249,16 @@ impl AsKey for &str {
 
 pub trait AsValue {
     fn as_value(&self) -> (u64, u64);
+    fn into_bytes(self) -> Vec<u8>;
 }
 
 impl AsValue for String {
     fn as_value(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.into_bytes()
     }
 }
 
@@ -233,11 +266,19 @@ impl AsValue for &str {
     fn as_value(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
     }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.as_bytes().to_vec()
+    }
 }
 
 impl AsValue for Vec<u8> {
     fn as_value(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self
     }
 }
 
@@ -245,11 +286,19 @@ impl AsValue for &Vec<u8> {
     fn as_value(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
     }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.clone()
+    }
 }
 
 impl AsValue for &[u8] {
     fn as_value(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.to_vec()
     }
 }
 
@@ -369,11 +418,6 @@ pub enum KvSetError {
     InternalSdkError,
     #[error("kv binding with this name is not found")]
     BindingNotFound,
-}
-
-enum KvSetResponse {
-    Ok,
-    AlreadyExists,
 }
 
 #[derive(Debug, Error)]
