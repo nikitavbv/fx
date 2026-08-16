@@ -1236,6 +1236,7 @@ pub(super) fn fx_fetch_handler(
                     Ok(::http::Response::from_parts(parts, body))
                 }
                 Err(err) => {
+                    warn!("fetch: external http request timeout: {err:?}");
                     let error = if err.is_timeout() && err.is_connect() {
                         FetchResultError::ConnectionTimeout
                     } else if err.is_timeout() {
