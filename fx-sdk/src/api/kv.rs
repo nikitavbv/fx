@@ -79,14 +79,21 @@ impl Kv {
     }
 
     pub async fn get(&self, key: impl AsKey) -> Result<Option<Vec<u8>>, KvGetError> {
-    let (key_ptr, key_len) = key.as_key();
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post(format!("http://kv.fx.internal/{}/get", self.binding)).unwrap()
+                .with_body(key.into_bytes())
+        ).await.unwrap().bytes().await;
 
-        KvGetResponseFuture::new(unsafe { fx_kv_get(
-            self.binding.as_ptr() as u64,
-            self.binding.len() as u64,
-            key_ptr,
-            key_len,
-        )}.into()).await
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let resource = resource_reader.get_root::<abi_kv_capnp::kv_get_response::Reader>().unwrap();
+        match resource.get_response().which().unwrap() {
+            abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(()) => Ok(None),
+            abi_kv_capnp::kv_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
+            abi_kv_capnp::kv_get_response::response::Which::RuntimeShutdown(()) => Err(KvGetError::RuntimeShutdown),
+            abi_kv_capnp::kv_get_response::response::Which::BindingNotFound(()) => Err(KvGetError::BindingNotFound),
+            abi_kv_capnp::kv_get_response::response::Which::BadRequest(())
+            | abi_kv_capnp::kv_get_response::response::Which::FailedToReadRequest(()) => Err(KvGetError::InternalSdkError),
+        }
     }
 
     pub async fn delex_ifeq(&self, key: impl AsKey, ifeq: impl AsValue) {
@@ -181,17 +188,26 @@ pub enum KvSubscriptionStreamError {
 // public api
 pub trait AsKey {
     fn as_key(&self) -> (u64, u64);
+    fn into_bytes(self) -> Vec<u8>;
 }
 
 impl AsKey for String {
     fn as_key(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
     }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.into_bytes()
+    }
 }
 
 impl AsKey for &str {
     fn as_key(&self) -> (u64, u64) {
         (self.as_ptr() as u64, self.len() as u64)
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        self.as_bytes().to_vec()
     }
 }
 

@@ -7,12 +7,14 @@ use {
     wasmtime::{AsContextMut, AsContext},
     zerocopy::FromBytes,
     send_wrapper::SendWrapper,
+    axum::routing::RouterIntoService,
     fx_types::{abi::{FunctionHttpBodyFramePollResult, FunctionResponsePollResult}, capnp, abi_http_capnp},
     crate::{
         function::resource::FunctionStreamResourceId,
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
+            kv,
         },
         tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
@@ -154,6 +156,8 @@ pub(crate) mod http_body_frame_poll {
         FunctionPanicked,
         #[error("function crashed when polling http body stream")]
         FunctionCrashed,
+        #[error("function is busy handling other requests and cannot handle this request right now")]
+        FunctionBusy,
     }
 
     impl From<WasmFunctionCallError> for HttpBodyFramePollError {
@@ -192,7 +196,13 @@ pub(crate) mod http_body_frame_poll {
 
     impl FunctionInstance {
         pub(crate) async fn http_body_frame_poll(&self, resource_id: &FunctionStreamResourceId, waker: std::task::Waker) -> Poll<Result<Option<FunctionFrame>, HttpBodyFramePollError>> {
-            let mut store = self.store.lock().await;
+            let mut store = tokio::select! {
+                store = self.store.lock() => store,
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {
+                    error!("http_body_frame_poll: timeout when acquiring lock");
+                    return Poll::Ready(Err(HttpBodyFramePollError::FunctionBusy));
+                },
+            };
             store.data_mut().waker = Some(waker);
 
             let async_operation_addr = self.fn_http_body_frame_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
@@ -519,6 +529,8 @@ pub(crate) struct RuntimeServices {
     pub(crate) sql: SqlController,
     pub(crate) kv: flume::Sender<KvMessage>,
     pub(crate) blob: flume::Sender<BlobMessage>,
+
+    pub(crate) kv_service: RouterIntoService<HttpBody>,
 }
 
 impl RuntimeServices {
@@ -528,8 +540,11 @@ impl RuntimeServices {
         sql: SqlController,
         kv: flume::Sender<KvMessage>,
         blob: flume::Sender<BlobMessage>,
+        bindings_kv: HashMap<String, KvBindingConfig>,
     ) -> Self {
         Self {
+            kv_service: kv::create_service(kv.clone(), bindings_kv),
+
             local_worker,
             logger,
             sql,
@@ -589,6 +604,8 @@ pub enum FunctionFramePollError {
     FunctionPanicked,
     #[error("function crashed when polling frame")]
     FunctionCrashed,
+    #[error("function is busy handling other requests and cannot handle this request right now")]
+    FunctionBusy,
 }
 
 impl From<http_body_frame_poll::HttpBodyFramePollError> for FunctionFramePollError {
@@ -599,6 +616,7 @@ impl From<http_body_frame_poll::HttpBodyFramePollError> for FunctionFramePollErr
             SourceError::AssertionError => Self::AssertionError,
             SourceError::FunctionPanicked => Self::FunctionPanicked,
             SourceError::FunctionCrashed => Self::FunctionCrashed,
+            SourceError::FunctionBusy => Self::FunctionBusy,
         }
     }
 }

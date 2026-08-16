@@ -254,6 +254,8 @@ mod function_stream_reader {
         FunctionPanicked,
         #[error("function crashed when polling frame")]
         FunctionCrashed,
+        #[error("function is busy handling other requests and cannot handle this request right now")]
+        FunctionBusy,
     }
 
     impl From<FunctionFramePollError> for PollFrameError {
@@ -263,6 +265,7 @@ mod function_stream_reader {
                 FunctionFramePollError::AssertionError => PollFrameError::AssertionError,
                 FunctionFramePollError::FunctionPanicked => PollFrameError::FunctionPanicked,
                 FunctionFramePollError::FunctionCrashed => PollFrameError::FunctionCrashed,
+                FunctionFramePollError::FunctionBusy => PollFrameError::FunctionBusy,
             }
         }
     }

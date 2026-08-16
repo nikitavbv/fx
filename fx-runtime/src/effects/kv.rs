@@ -1,7 +1,14 @@
 use {
-    std::time::Duration,
+    std::{time::Duration, collections::HashMap},
     thiserror::Error,
     futures::{stream::{BoxStream, Stream}, FutureExt, StreamExt},
+    axum::{routing::RouterIntoService, Router},
+    fx_types::{capnp, abi_kv_capnp},
+    crate::{
+        tasks::kv::KvMessage,
+        triggers::http::HttpBody,
+        definitions::bindings::KvBindingConfig,
+    },
 };
 
 pub(crate) struct KvSetRequest {
@@ -142,4 +149,48 @@ impl Stream for KvSubscriptionResource {
             Self::Stream(v) => v.poll_next_unpin(cx)
         }
     }
+}
+
+pub(crate) fn create_service(sender: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>) -> RouterIntoService<HttpBody> {
+    Router::new()
+        .route("/{binding}/get", axum::routing::post(handle_kv_get))
+        .layer(axum::Extension(sender))
+        .layer(axum::Extension(bindings))
+        .into_service()
+}
+
+async fn handle_kv_get(
+    axum::Extension(sender): axum::Extension<flume::Sender<KvMessage>>,
+    axum::Extension(bindings): axum::Extension<HashMap<String, KvBindingConfig>>,
+    axum::extract::Path(binding): axum::extract::Path<String>,
+    body: axum::body::Bytes,
+) -> impl axum::response::IntoResponse {
+    async fn handler(kv_tx: flume::Sender<KvMessage>, binding: Option<&KvBindingConfig>, key: Vec<u8>) -> Result<Option<Vec<u8>>, KvGetHandlerError> {
+        let namespace = binding.map(|v| v.namespace.clone()).ok_or(KvGetHandlerError::BindingNotFound)?;
+        let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+        kv_tx.send_async(KvMessage {
+            namespace,
+            operation: crate::tasks::kv::KvOperation::Get { key, result: result_tx },
+        }).await.map_err(|_| KvGetHandlerError::RuntimeShutdown)?;
+
+        result_rx.await.map_err(|_| KvGetHandlerError::RuntimeShutdown)
+    }
+
+    let response = handler(sender, bindings.get(&binding), body.to_vec()).await;
+
+    let mut message = capnp::message::Builder::new_default();
+    let message_response = message.init_root::<abi_kv_capnp::kv_get_response::Builder>();
+    let mut message_response = message_response.init_response();
+
+    match response {
+        Ok(Some(v)) => message_response.set_value(&v),
+        Ok(None) | Err(KvGetHandlerError::KeyNotFound) => message_response.set_key_not_found(()),
+        Err(KvGetHandlerError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
+        Err(KvGetHandlerError::BindingNotFound) => message_response.set_binding_not_found(()),
+        Err(KvGetHandlerError::BadRequest) => message_response.set_bad_request(()),
+        Err(KvGetHandlerError::FailedToReadRequest) => message_response.set_failed_to_read_request(()),
+    }
+
+    capnp::serialize::write_message_to_words(&message)
 }

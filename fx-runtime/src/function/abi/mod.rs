@@ -20,6 +20,7 @@ use {
     rand::TryRngCore,
     send_wrapper::SendWrapper,
     zerocopy::IntoBytes,
+    tower::Service,
     fx_types::abi::{
         ResourceMoveFromHostResult,
         KvGetResponseFuturePollResult,
@@ -1202,6 +1203,7 @@ pub(super) fn fx_fetch_handler(
     let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
+    // TODO: can request construction for all branches of this be unified?
     let result = if let Some(function_binding) = caller.data().bindings.functions.get(&request_host) {
         let mut http_builder = http::Request::builder()
             .method(request_method)
@@ -1219,6 +1221,42 @@ pub(super) fn fx_fetch_handler(
         async move {
             response_rx.await.map_err(FetchResultError::from)
         }.boxed_local()
+    } else if request_host == "kv.fx.internal" {
+        let mut http_builder = http::Request::builder()
+            .method(request_method)
+            .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap());
+        for header in request.get_headers().unwrap().into_iter() {
+            let name = header.get_name().unwrap().to_str().unwrap();
+            let value = header.get_value().unwrap().to_str().unwrap();
+            http_builder = http_builder.header(name, value);
+        }
+
+        let body = match request.get_body().unwrap().get_body().which().unwrap() {
+            abi_http_capnp::http_body::body::Which::Empty(_) => HttpBody::for_stream(futures::stream::empty().boxed()),
+            abi_http_capnp::http_body::body::Which::Bytes(v) => HttpBody::for_bytes(v.unwrap().to_vec().into()),
+            abi_http_capnp::http_body::body::Which::HostResource(v) => {
+                let body = caller.data_mut().resource_set.http_bodies.remove(v.into()).unwrap();
+                let stream = BodyStream::new(body)
+                    .filter_map(|result| async {
+                        match result {
+                            Ok(frame) => frame.into_data().ok().map(Ok),
+                            Err(e) => Some(Err(todo!())),
+                        }
+                    });
+                HttpBody::for_stream(stream.boxed())
+            },
+            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => HttpBody::for_function_stream(caller.data_mut().self_instance.upgrade().unwrap(), resource_id.into()),
+        };
+
+        let request = http_builder.body(body).unwrap();
+
+        let response_future = caller.data_mut().runtime_services.kv_service.call(request);
+
+        tokio::task::spawn_local(async move { response_future.map(|v| {
+            let (parts, body) = v.unwrap().into_parts();
+            let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |err| todo!()).boxed());
+            Ok(::http::Response::from_parts(parts, body))
+        }).await }).map(|v| v.unwrap()).boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
