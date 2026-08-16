@@ -153,7 +153,8 @@ impl Stream for KvSubscriptionResource {
 
 pub(crate) fn create_service(sender: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>) -> RouterIntoService<HttpBody> {
     Router::new()
-        .route("/{binding}/get", axum::routing::post(handle_kv_get))
+        .route("/get", axum::routing::post(handle_kv_get))
+        .route("/set", axum::routing::post(handle_kv_set))
         .layer(axum::Extension(sender))
         .layer(axum::Extension(bindings))
         .into_service()
@@ -162,11 +163,18 @@ pub(crate) fn create_service(sender: flume::Sender<KvMessage>, bindings: HashMap
 async fn handle_kv_get(
     axum::Extension(sender): axum::Extension<flume::Sender<KvMessage>>,
     axum::Extension(bindings): axum::Extension<HashMap<String, KvBindingConfig>>,
-    axum::extract::Path(binding): axum::extract::Path<String>,
     body: axum::body::Bytes,
 ) -> impl axum::response::IntoResponse {
-    async fn handler(kv_tx: flume::Sender<KvMessage>, binding: Option<&KvBindingConfig>, key: Vec<u8>) -> Result<Option<Vec<u8>>, KvGetHandlerError> {
-        let namespace = binding.map(|v| v.namespace.clone()).ok_or(KvGetHandlerError::BindingNotFound)?;
+    async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<Option<Vec<u8>>, KvGetHandlerError> {
+        let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
+        let request = request_reader.get_root::<abi_kv_capnp::kv_get_request::Reader>().unwrap();
+
+        let binding = request.get_binding().map_err(|_| KvGetHandlerError::BadRequest)?;
+        let binding = str::from_utf8(&binding.as_bytes()).map_err(|_| KvGetHandlerError::BadRequest)?;
+        let namespace = bindings.get(binding).ok_or(KvGetHandlerError::BindingNotFound)?.namespace.clone();
+
+        let key = request.get_key().map_err(|_| KvGetHandlerError::BadRequest)?.to_vec();
+
         let (result_tx, result_rx) = tokio::sync::oneshot::channel();
 
         kv_tx.send_async(KvMessage {
@@ -177,7 +185,7 @@ async fn handle_kv_get(
         result_rx.await.map_err(|_| KvGetHandlerError::RuntimeShutdown)
     }
 
-    let response = handler(sender, bindings.get(&binding), body.to_vec()).await;
+    let response = handler(sender, &bindings, body.as_ref()).await;
 
     let mut message = capnp::message::Builder::new_default();
     let message_response = message.init_root::<abi_kv_capnp::kv_get_response::Builder>();
@@ -193,4 +201,9 @@ async fn handle_kv_get(
     }
 
     capnp::serialize::write_message_to_words(&message)
+}
+
+async fn handle_kv_set(
+) -> impl axum::response::IntoResponse {
+    ()
 }

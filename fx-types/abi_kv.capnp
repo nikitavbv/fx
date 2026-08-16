@@ -1,5 +1,12 @@
 @0xd04d36b508d09e63;
 
+struct KvSetRequest {
+    binding @0 :Text;
+    key @1 :Data;
+    nx @2 :Int32;
+    px @3 :Int32;
+}
+
 struct KvSetResponse {
     response :union {
         ok @0 :Void;
@@ -9,6 +16,11 @@ struct KvSetResponse {
         failedToReadRequest @4 :Void;
         badRequest @5 :Void;
     }
+}
+
+struct KvGetRequest {
+    binding @0 :Text;
+    key @1 :Data;
 }
 
 struct KvGetResponse {

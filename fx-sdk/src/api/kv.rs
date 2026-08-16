@@ -20,7 +20,6 @@ use {
         fx_bytes_move,
         fx_kv_set,
         fx_kv_set_nx_px,
-        fx_kv_get,
         fx_kv_delex_ifeq,
         fx_kv_subscribe,
         fx_kv_publish,
@@ -79,9 +78,18 @@ impl Kv {
     }
 
     pub async fn get(&self, key: impl AsKey) -> Result<Option<Vec<u8>>, KvGetError> {
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut message_request = message.init_root::<abi_kv_capnp::kv_get_request::Builder>();
+            message_request.set_binding(&self.binding);
+            message_request.set_key(&key.into_bytes());
+
+            capnp::serialize::write_message_to_words(&message)
+        };
+
         let result_vec = crate::api::http::fetch(
-            crate::HttpRequest::post(format!("http://kv.fx.internal/{}/get", self.binding)).unwrap()
-                .with_body(key.into_bytes())
+            crate::HttpRequest::post("http://kv.fx.internal/get").unwrap()
+                .with_body(request)
         ).await.unwrap().bytes().await;
 
         let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
@@ -280,49 +288,6 @@ impl From<u64> for KvGetResponseResourceId {
 impl From<&KvGetResponseResourceId> for u64 {
     fn from(id: &KvGetResponseResourceId) -> u64 {
         id.0
-    }
-}
-
-struct KvGetResponseFuture(KvGetResponseResourceId);
-
-impl KvGetResponseFuture {
-    pub fn new(id: KvGetResponseResourceId) -> Self {
-        Self(id)
-    }
-}
-
-impl Future for KvGetResponseFuture {
-    type Output = Result<Option<Vec<u8>>, KvGetError>;
-
-    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let mut result = std::mem::MaybeUninit::<KvGetResponseFuturePollResult>::zeroed();
-        assert!(unsafe { fx_kv_get_response_future_poll((&self.0).into(), result.as_mut_ptr() as u64) } == 0);
-
-        let result = unsafe { result.assume_init() };
-
-        match result.tag {
-            1 => std::task::Poll::Pending,
-            0 => std::task::Poll::Ready({
-                let mut serialization_result = std::mem::MaybeUninit::<KvGetResponseSerializeResult>::zeroed();
-                assert!(unsafe { fx_kv_get_response_serialize(result.kv_get_response_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
-
-                let result = unsafe { serialization_result.assume_init() };
-                let mut result_vec = vec![0; result.bytes_length as usize];
-                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
-
-                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                let resource = resource_reader.get_root::<abi_kv_capnp::kv_get_response::Reader>().unwrap();
-                match resource.get_response().which().unwrap() {
-                    abi_kv_capnp::kv_get_response::response::Which::KeyNotFound(()) => Ok(None),
-                    abi_kv_capnp::kv_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
-                    abi_kv_capnp::kv_get_response::response::Which::RuntimeShutdown(()) => Err(KvGetError::RuntimeShutdown),
-                    abi_kv_capnp::kv_get_response::response::Which::BindingNotFound(()) => Err(KvGetError::BindingNotFound),
-                    abi_kv_capnp::kv_get_response::response::Which::BadRequest(())
-                    | abi_kv_capnp::kv_get_response::response::Which::FailedToReadRequest(()) => Err(KvGetError::InternalSdkError),
-                }
-            }),
-            _other => std::task::Poll::Ready(Err(KvGetError::InternalSdkError)),
-        }
     }
 }
 

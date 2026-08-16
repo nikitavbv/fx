@@ -65,7 +65,7 @@ use {
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvSetRequest, KvSetHandlerError, KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvSetError, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvSetRequest, KvSetHandlerError, KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
@@ -1240,7 +1240,7 @@ pub(super) fn fx_fetch_handler(
                     .filter_map(|result| async {
                         match result {
                             Ok(frame) => frame.into_data().ok().map(Ok),
-                            Err(e) => Some(Err(todo!())),
+                            Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
                         }
                     });
                 HttpBody::for_stream(stream.boxed())
@@ -1254,7 +1254,7 @@ pub(super) fn fx_fetch_handler(
 
         tokio::task::spawn_local(async move { response_future.map(|v| {
             let (parts, body) = v.unwrap().into_parts();
-            let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |err| todo!()).boxed());
+            let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |_| HttpStreamError::RpcResponseStreamError).boxed());
             Ok(::http::Response::from_parts(parts, body))
         }).await }).map(|v| v.unwrap()).boxed_local()
     } else {
