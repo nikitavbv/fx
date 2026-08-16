@@ -75,8 +75,6 @@ impl FunctionDeployment {
             "fx_metrics_gauge_update" => super::abi::fx_metrics_gauge_update;
             "fx_env_len" => super::abi::fx_env_len_handler;
             "fx_env_get" => super::abi::fx_env_get_handler;
-            "fx_kv_set" => super::abi::fx_kv_set_handler;
-            "fx_kv_set_nx_px" => super::abi::fx_kv_set_nx_px_handler;
             "fx_kv_get" => super::abi::fx_kv_get_handler;
             "fx_kv_delex_ifeq" => super::abi::fx_kv_delex_ifeq_handler;
             "fx_kv_delex_result_future_poll" => super::abi::fx_kv_delex_result_future_poll;
