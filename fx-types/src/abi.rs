@@ -279,6 +279,21 @@ pub struct FunctionResponsePollResult {
 }
 
 #[derive(TryFromPrimitive)]
+#[repr(u64)]
+pub enum EnvLenResultCode {
+    Ok = 0,
+    FailedToReadRequest = 1,
+    BadRequest = 2,
+    NotFound = 3,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Default)]
+pub struct EnvLenResult {
+    pub len: u64,
+}
+
+#[derive(TryFromPrimitive)]
 #[repr(i64)]
 pub enum EnvGetResult {
     Ok = 0,

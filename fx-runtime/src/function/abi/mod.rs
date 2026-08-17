@@ -22,7 +22,6 @@ use {
     tower::Service,
     fx_types::abi::{
         ResourceMoveFromHostResult,
-        KvGetResponseFuturePollResult,
         UnitFuturePollResult,
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
@@ -44,6 +43,8 @@ use {
         ResourceSerializeResult,
         KvSubscriptionStreamPollResult,
         EnvGetResult,
+        EnvLenResult,
+        EnvLenResultCode,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -53,7 +54,6 @@ use {
                 ResourceTable,
                 FunctionResources,
                 FetchRequestHeaderResourceKey,
-                KvGetResponseFutureResourceKey,
                 UnitFutureResourceKey,
                 BlobGetResponseFutureResourceKey,
             },
@@ -215,44 +215,6 @@ pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionIns
             function_memory::FunctionMemoryAccessError::OutOfBounds => ResourceMoveFromHostResult::ArgumentOutOfMemoryBounds,
         }
     }) as u64
-}
-
-pub(super) fn fx_kv_get_response_future_poll_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = {
-        let key: KvGetResponseFutureResourceKey = resource_id.into();
-        let function_state = caller.data_mut();
-
-        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
-        let future = function_state.resource_set.kv_get_response_futures.get_mut(key.clone()).unwrap();
-        match future.poll_unpin(&mut cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(response) => {
-                let _ = function_state.resource_set.kv_get_response_futures.remove(key).unwrap();
-                Poll::Ready(function_state.resource_set.kv_get_responses.insert(response))
-            }
-        }
-    };
-
-    let result = match result {
-        Poll::Pending => KvGetResponseFuturePollResult {
-            tag: 1,
-            _pad: Default::default(),
-            kv_get_response_resource_id: 0,
-        },
-        Poll::Ready(kv_get_response_resource_id) => KvGetResponseFuturePollResult {
-            tag: 0,
-            _pad: Default::default(),
-            kv_get_response_resource_id: kv_get_response_resource_id.into(),
-        },
-    };
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
 }
 
 pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -1297,21 +1259,34 @@ pub(super) fn fx_metrics_gauge_update(mut caller: wasmtime::Caller<'_, FunctionI
     caller.data_mut().metrics.gauge_update(MetricId::from_abi(gauge_id), value);
 }
 
-pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64) -> i64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let key = {
-        let ptr = key_addr as usize;
-        let len = key_len as usize;
-        str::from_utf8(&view[ptr..ptr+len]).unwrap()
+pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, result_addr: u64) -> u64 {
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return EnvLenResultCode::FailedToReadRequest as u64,
     };
 
-    match caller.data().bindings.env.get(key) {
-        Some(value) => value.len() as i64,
-        None => -1,
-    }
+    let context = caller.as_context();
+    let view = memory.view(&context);
+
+    let key = match view.slice(key_addr, key_len) {
+        Ok(v) => v,
+        Err(_) => return EnvLenResultCode::FailedToReadRequest as u64,
+    };
+    let key = match str::from_utf8(key) {
+        Ok(v) => v,
+        Err(_) => return EnvLenResultCode::BadRequest as u64,
+    };
+
+    let len = match caller.data().bindings.env.get(key) {
+        Some(v) => v.len() as u64,
+        None => return EnvLenResultCode::NotFound as u64,
+    };
+
+    write_result(&mut caller, result_addr, EnvLenResult {
+        len,
+    });
+
+    EnvLenResultCode::Ok as u64
 }
 
 pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) -> u64 {
@@ -1319,7 +1294,7 @@ pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         Ok(v) => v,
         Err(_) => return EnvGetResult::FailedToReadRequest as u64,
     };
-    let mut context = caller.as_context();
+    let context = caller.as_context();
     let view = memory.view(&context);
 
     let key = match view.slice(key_addr, key_len) {
@@ -1335,9 +1310,6 @@ pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         Some(value) => value.clone(),
         None => return EnvGetResult::NotFound as u64,
     };
-
-    drop(view);
-    drop(context);
 
     (match memory.view_mut(&mut caller.as_context_mut()).copy_from_slice(value_addr, value.len() as u64, value.as_bytes()) {
         Ok(_) => EnvGetResult::Ok,
