@@ -1536,7 +1536,6 @@ macro_rules! future_poll_handler {
     };
 }
 
-future_poll_handler!(fx_kv_set_response_future_poll, kv_set_response_futures, kv_set_responses);
 future_poll_handler!(fx_kv_publish_result_future_poll, kv_publish_result_futures, kv_publish_results);
 future_poll_handler!(fx_kv_delex_result_future_poll, kv_delex_result_futures, kv_delex_results);
 future_poll_handler!(fx_migration_result_future_poll, sql_migration_result_futures, sql_migration_results);
