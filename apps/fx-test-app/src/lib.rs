@@ -748,15 +748,15 @@ struct Metrics {
 impl Metrics {
     pub fn new() -> Self {
         Self {
-            test_counter: Counter::new("test_counter"),
+            test_counter: Counter::new("test_counter").unwrap(),
             test_counter_with_label1: Counter::new_with_labels(
                 "test_counter_with_label",
                 vec!["label_name".to_owned()]
-            ).with_label_values(vec!["value1".to_owned()]),
+            ).with_label_values(vec!["value1".to_owned()]).unwrap(),
             test_counter_with_label2: Counter::new_with_labels(
                 "test_counter_with_label",
                 vec!["label_name".to_owned()]
-            ).with_label_values(vec!["value2".to_owned()]),
+            ).with_label_values(vec!["value2".to_owned()]).unwrap(),
         }
     }
 }

@@ -302,3 +302,17 @@ pub enum EnvGetResult {
     NotFound = 3,
     FailedToWriteValue = 4,
 }
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Default)]
+pub struct MetricsCounterRegisterResult {
+    pub counter_id: u64,
+}
+
+#[derive(TryFromPrimitive)]
+#[repr(u64)]
+pub enum MetricsCounterRegisterResultCode {
+    Ok = 0,
+    FailedToReadRequest = 1,
+    BadRequest = 2,
+}

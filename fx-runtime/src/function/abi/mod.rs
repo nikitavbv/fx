@@ -45,6 +45,8 @@ use {
         EnvGetResult,
         EnvLenResult,
         EnvLenResultCode,
+        MetricsCounterRegisterResult,
+        MetricsCounterRegisterResultCode,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -1218,7 +1220,7 @@ pub(super) fn fx_fetch_handler(
     result.into()
 }
 
-pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64) -> u64 {
+pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64, result_addr: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let context = caller.as_context();
     let view = memory.data(&context);
@@ -1233,14 +1235,29 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
     let request = request_reader.get_root::<abi_metrics_capnp::counter_register::Reader>().unwrap();
 
     let metric_key = MetricKey {
-        name: request.get_name().unwrap().to_string().unwrap(),
+        name: match request.get_name().ok().and_then(|v| v.to_string().ok()) {
+            Some(v) => v,
+            None => return MetricsCounterRegisterResultCode::BadRequest as u64,
+        },
         labels: {
-            let mut labels = request.get_labels().unwrap().into_iter()
-                .map(|v| (
-                    v.get_name().unwrap().to_string().unwrap(),
-                    v.get_value().unwrap().to_string().unwrap()
-                ))
-                .collect::<Vec<_>>();
+            let request_labels = match request.get_labels() {
+                Ok(v) => v,
+                Err(_) => return MetricsCounterRegisterResultCode::BadRequest as u64,
+            };
+
+            let mut labels = Vec::with_capacity(request_labels.len() as usize);
+            for label in request_labels.into_iter() {
+                let name = match label.get_name().ok().and_then(|v| v.to_string().ok()) {
+                    Some(v) => v,
+                    None => return MetricsCounterRegisterResultCode::BadRequest as u64,
+                };
+                let value = match label.get_value().ok().and_then(|v| v.to_string().ok()) {
+                    Some(v) => v,
+                    None => return MetricsCounterRegisterResultCode::BadRequest as u64,
+                };
+
+                labels.push((name, value));
+            }
 
             labels.sort();
 
@@ -1248,7 +1265,13 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
         },
     };
 
-    caller.data_mut().metrics.counter_register(metric_key).into_abi()
+    let counter_id = caller.data_mut().metrics.counter_register(metric_key);
+
+    write_result(&mut caller, result_addr, MetricsCounterRegisterResult {
+        counter_id: counter_id.into_abi(),
+    });
+
+    MetricsCounterRegisterResultCode::Ok as u64
 }
 
 pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
