@@ -401,9 +401,15 @@ async fn fetch_post() {
 
 #[tokio::test]
 async fn fetch_body_passthrough() {
+    let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
 
-    let result = client.post("/test/fetch/body-passthrough").body("fx test: body passthrough").send().await.unwrap();
+    let result = client.post("/test/fetch/body-passthrough")
+        .header("x-request-id", request_id.to_string())
+        .body("fx test: body passthrough")
+        .send()
+        .await
+        .unwrap();
     let status = result.status();
 
     if !status.is_success() {
