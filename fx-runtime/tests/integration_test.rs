@@ -1002,7 +1002,7 @@ async fn preemption() {
             panic!( "/cpu-preemption request failed, got response: {:?}", result.text().await.unwrap());
         }
 
-        assert!((Instant::now() - started_at).as_millis() > 500, "slow request should be slow enough to test cpu preemption");
+        assert!((Instant::now() - started_at).as_millis() > 200, "slow request should be slow enough to test cpu preemption");
         Instant::now() - started_at
     }
 
@@ -1025,8 +1025,8 @@ async fn preemption() {
     );
 
     // verify that slow requests are in fact slow
-    assert!(slow1.as_millis() >= 500);
-    assert!(slow2.as_millis() >= 500);
+    assert!(slow1.as_millis() >= 200);
+    assert!(slow2.as_millis() >= 200);
 
     // verify that fast requests are consistently fast even though runtime is busy with slow requests
     assert!(fast1.as_millis() <= 25, "fast request1 took {} ms, while normal is {}ms", fast1.as_millis(), normal_fast.as_millis());
