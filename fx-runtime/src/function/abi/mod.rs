@@ -1163,9 +1163,16 @@ pub(super) fn fx_fetch_handler(
 
         *fetch_request.timeout_mut() = Some(Duration::from_secs(3));
 
+        let mut request_id = None;
+
         for header in request.get_headers().unwrap().into_iter() {
             let name = header.get_name().unwrap().to_str().unwrap();
             let value = header.get_value().unwrap().to_str().unwrap();
+
+            if name.eq_ignore_ascii_case("x-request-id") {
+                request_id = Some(value.to_owned());
+            }
+
             fetch_request.headers_mut().insert(name.parse::<http::header::HeaderName>().unwrap(), value.parse::<http::header::HeaderValue>().unwrap());
         }
 
@@ -1211,7 +1218,7 @@ pub(super) fn fx_fetch_handler(
                     Ok(::http::Response::from_parts(parts, body))
                 }
                 Err(err) => {
-                    warn!("fetch: external http request timeout: {err:?}");
+                    warn!("fetch: external http request timeout: {err:?}, request_id: {:?}", request_id);
                     let error = if err.is_timeout() && err.is_connect() {
                         FetchResultError::ConnectionTimeout
                     } else if err.is_timeout() {

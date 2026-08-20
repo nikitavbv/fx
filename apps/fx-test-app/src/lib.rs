@@ -467,7 +467,7 @@ async fn test_fetch_with_header(headers: axum::http::HeaderMap) -> HttpBody {
     fetch(
         HttpRequest::get("https://fxruntime.com/test/headers").unwrap()
             .with_header("x-custom-header".parse().unwrap(), "custom-value".parse().unwrap())
-            .with_header("x-test-request-id".parse().unwrap(), headers.get("x-test-request-id").unwrap().clone())
+            .with_header("x-request-id".parse().unwrap(), headers.get("x-request-id").unwrap().clone())
     ).await.unwrap().into_body()
 }
 

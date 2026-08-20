@@ -433,7 +433,7 @@ async fn fetch_with_header() {
     let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
 
-    let result = client.get("/test/fetch/with-header").header("x-test-request-id", request_id.to_string()).send().await.unwrap();
+    let result = client.get("/test/fetch/with-header").header("x-request-id", request_id.to_string()).send().await.unwrap();
 
     let status = result.status();
     assert!(status.is_success(), "request did not return success status code, instead got: {status:?}, request id={request_id}");
