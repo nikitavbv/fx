@@ -551,6 +551,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
         Err(err) => {
             let mut error_builder = response.init_error().init_error();
             match err {
+                FetchResultError::BodyHostResourceIdNotFound => error_builder.set_body_host_resource_id_not_found(()),
                 FetchResultError::ConnectionFailed => error_builder.set_connection_failed(()),
                 FetchResultError::ConnectionTimeout => error_builder.set_connection_timeout(()),
                 FetchResultError::ResponseTimeout => error_builder.set_response_timeout(()),
@@ -1168,35 +1169,45 @@ pub(super) fn fx_fetch_handler(
             fetch_request.headers_mut().insert(name.parse::<http::header::HeaderName>().unwrap(), value.parse::<http::header::HeaderValue>().unwrap());
         }
 
-        match request.get_body().unwrap().get_body().which().unwrap() {
-            abi_http_capnp::http_body::body::Which::Empty(_) => {},
+        let body_set_result = match request.get_body().unwrap().get_body().which().unwrap() {
+            abi_http_capnp::http_body::body::Which::Empty(_) => Ok(()),
             abi_http_capnp::http_body::body::Which::Bytes(v) => {
                 *fetch_request.body_mut() = Some(reqwest::Body::from(v.unwrap().to_vec()));
+                Ok(())
             },
             abi_http_capnp::http_body::body::Which::HostResource(v) => {
-                let body = caller.data_mut().resource_set.http_bodies.remove(v.into()).unwrap();
-                let stream = BodyStream::new(body)
-                    .filter_map(|result| async {
-                        match result {
-                            Ok(frame) => frame.into_data().ok().map(Ok),
-                            Err(e) => Some(Err(e)),
-                        }
-                    });
-                *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
+                caller.data_mut().resource_set.http_bodies.remove(v.into())
+                    .ok_or(FetchResultError::BodyHostResourceIdNotFound)
+                    .map(|body| {
+                        let stream = BodyStream::new(body)
+                            .filter_map(|result| async {
+                                match result {
+                                    Ok(frame) => frame.into_data().ok().map(Ok),
+                                    Err(e) => Some(Err(e)),
+                                }
+                            });
+                        *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
+                    })
             },
             abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => {
-                let reader = FunctionStreamReader::new(caller.data_mut().self_instance.upgrade().unwrap(), resource_id.into());
-                *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(send_wrapper::SendWrapper::new(reader)));
+                caller.data_mut().self_instance.upgrade()
+                    .ok_or(FetchResultError::InternalRuntimeAssertionError)
+                    .map(|function_instance| {
+                        let reader = FunctionStreamReader::new(function_instance, resource_id.into());
+                        *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(send_wrapper::SendWrapper::new(reader)));
+                    })
             },
-        }
+        };
 
         let client = caller.data().http_client.clone();
         async move {
+            body_set_result?;
+
             match client.execute(fetch_request).await {
                 Ok(result) => {
                     let http_response: ::http::Response<reqwest::Body> = result.into();
                     let (parts, body) = http_response.into_parts();
-                    let body = HttpBody::for_stream(body.into_data_stream().map_err(|err| HttpStreamError::FetchResponseStreamError(err)).boxed());
+                    let body = HttpBody::for_stream(body.into_data_stream().map_err(HttpStreamError::FetchResponseStreamError).boxed());
                     Ok(::http::Response::from_parts(parts, body))
                 }
                 Err(err) => {
@@ -1221,18 +1232,27 @@ pub(super) fn fx_fetch_handler(
 }
 
 pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_ptr: u64, req_len: u64, result_addr: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let mut request = {
-        let ptr = req_ptr as usize;
-        let len = req_len as usize;
-        &view[ptr..ptr+len]
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return MetricsCounterRegisterResultCode::FailedToReadRequest as u64,
     };
 
-    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
-    let request = request_reader.get_root::<abi_metrics_capnp::counter_register::Reader>().unwrap();
+    let context = caller.as_context();
+    let view = memory.view(&context);
+
+    let mut request = match view.slice(req_ptr, req_len) {
+        Ok(v) => v,
+        Err(_) => return MetricsCounterRegisterResultCode::FailedToReadRequest as u64,
+    };
+
+    let request_reader = match capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()) {
+        Ok(v) => v,
+        Err(_) => return MetricsCounterRegisterResultCode::BadRequest as u64,
+    };
+    let request = match request_reader.get_root::<abi_metrics_capnp::counter_register::Reader>() {
+        Ok(v) => v,
+        Err(_) => return MetricsCounterRegisterResultCode::BadRequest as u64,
+    };
 
     let metric_key = MetricKey {
         name: match request.get_name().ok().and_then(|v| v.to_string().ok()) {

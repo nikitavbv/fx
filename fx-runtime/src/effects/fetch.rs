@@ -8,6 +8,9 @@ use {
 
 #[derive(Error, Debug)]
 pub(crate) enum FetchResultError {
+    #[error("bad request: body host resource for this id not found")]
+    BodyHostResourceIdNotFound,
+
     #[error("connection failed")]
     ConnectionFailed,
     #[error("connection timeout")]
