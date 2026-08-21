@@ -76,5 +76,6 @@ struct FetchError {
         runtimeInternalError @9 :Void;
         functionInstantiationError @10 :Void;
         bodyHostResourceIdNotFound @11 :Void;
+        badRequest @12 :Void;
     }
 }

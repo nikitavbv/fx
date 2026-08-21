@@ -479,7 +479,8 @@ impl Future for FetchResultFuture {
                     }
                     abi_http_capnp::fetch_result::result::Which::Error(err) => {
                         Err(match err.unwrap().get_error().which().unwrap() {
-                            abi_http_capnp::fetch_error::error::Which::BodyHostResourceIdNotFound(()) => FetchError::InternalSdkError,
+                            abi_http_capnp::fetch_error::error::Which::BadRequest(())
+                            | abi_http_capnp::fetch_error::error::Which::BodyHostResourceIdNotFound(()) => FetchError::InternalSdkError,
                             abi_http_capnp::fetch_error::error::ConnectionFailed(()) => FetchError::ConnectionFailed,
                             abi_http_capnp::fetch_error::error::ConnectionTimeout(()) => FetchError::ConnectionTimeout,
                             abi_http_capnp::fetch_error::error::ResponseTimeout(()) => FetchError::ResponseTimeout,
