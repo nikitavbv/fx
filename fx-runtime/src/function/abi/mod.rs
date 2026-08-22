@@ -73,7 +73,7 @@ use {
             kv::{KvMessage, KvOperation},
             blob::BlobMessage,
         },
-        triggers::http::{FetchRequestHeader, HttpBody, HttpBodyInner, FunctionStreamReader},
+        triggers::http::{HttpBody, HttpBodyInner, FunctionStreamReader},
     },
 };
 
@@ -186,7 +186,7 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
     }
 
     let mut resource_body = resource.init_body().init_body();
-    match fetch_request_header.body_resource_id {
+    match fetch_request_header.into_body() {
         None => resource_body.set_empty(()),
         Some(resource_id) => resource_body.set_host_resource(resource_id.into()),
     }
@@ -1112,27 +1112,26 @@ pub(super) fn fx_fetch_handler(
             let value = header.get_value().unwrap().to_str().unwrap();
             http_builder = http_builder.header(name, value);
         }
-        let header = FetchRequestHeader::from_http_parts(
-            http_builder.body(()).unwrap().into_parts().0
-        );
-        let response_rx = caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), header).boxed_local();
+        let request = http_builder.body(()).unwrap();
+        let response_rx = caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), request).boxed_local();
 
         async move {
             response_rx.await.map_err(FetchResultError::from)
         }.boxed_local()
     } else if request_host == "kv.fx.internal" {
-        let mut http_builder = http::Request::builder()
-            .method(request_method)
-            .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap());
+        let mut effect_request = http::Request::new(());
+        *effect_request.method_mut() = request_method;
+        *effect_request.uri_mut() = http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap();
+
         for header in request.get_headers().unwrap().into_iter() {
-            let name = header.get_name().unwrap().to_str().unwrap();
+            let name = header.get_name().unwrap().as_bytes();
             let value = header.get_value().unwrap().to_str().unwrap();
-            http_builder = http_builder.header(name, value);
+            effect_request.headers_mut().append(http::HeaderName::from_bytes(name).unwrap(), value.parse().unwrap());
         }
 
         let body = match request.get_body().unwrap().get_body().which().unwrap() {
-            abi_http_capnp::http_body::body::Which::Empty(_) => HttpBody::for_stream(futures::stream::empty().boxed()),
-            abi_http_capnp::http_body::body::Which::Bytes(v) => HttpBody::for_bytes(v.unwrap().to_vec().into()),
+            abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
+            abi_http_capnp::http_body::body::Which::Bytes(v) => Ok(HttpBody::for_bytes(v.unwrap().to_vec().into())),
             abi_http_capnp::http_body::body::Which::HostResource(v) => {
                 let body = caller.data_mut().resource_set.http_bodies.remove(v.into()).unwrap();
                 let stream = BodyStream::new(body)
@@ -1142,20 +1141,25 @@ pub(super) fn fx_fetch_handler(
                             Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
                         }
                     });
-                HttpBody::for_stream(stream.boxed())
+                Ok(HttpBody::for_stream(stream.boxed()))
             },
-            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => HttpBody::for_function_stream(caller.data_mut().self_instance.upgrade().unwrap(), resource_id.into()),
+            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
+                .ok_or(FetchResultError::InternalRuntimeAssertionError)
+                .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
         };
 
-        let request = http_builder.body(body).unwrap();
+        let response_future = match body {
+            Ok(body) => caller.data_mut().runtime_services.kv_service.call(http::Request::from_parts(effect_request.into_parts().0, body))
+                .map(|v| {
+                    let (parts, body) = v.unwrap().into_parts();
+                    let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |_| HttpStreamError::RpcResponseStreamError).boxed());
+                    Ok(::http::Response::from_parts(parts, body))
+                })
+                .boxed_local(),
+            Err(err) => std::future::ready(Err(err)).boxed_local(),
+        };
 
-        let response_future = caller.data_mut().runtime_services.kv_service.call(request);
-
-        tokio::task::spawn_local(async move { response_future.map(|v| {
-            let (parts, body) = v.unwrap().into_parts();
-            let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |_| HttpStreamError::RpcResponseStreamError).boxed());
-            Ok(::http::Response::from_parts(parts, body))
-        }).await }).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
+        tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,

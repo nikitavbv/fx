@@ -5,7 +5,7 @@ use {
     chrono::{DateTime, Utc, TimeDelta},
     futures::{stream::FuturesUnordered, StreamExt, future::LocalBoxFuture, FutureExt},
     crate::{
-        triggers::{cron::CronDatabase, http::FetchRequestHeader},
+        triggers::cron::CronDatabase,
         tasks::worker::WorkersController,
         definitions::triggers::CronTrigger,
         function::FunctionId,
@@ -192,7 +192,7 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
 
             let iteration_delay = Instant::now() - iteration_start_time;
 
-            let request_future = workers_controller.function_invoke(task.function_id.clone(), FetchRequestHeader::from_http_parts({
+            let request_future = workers_controller.function_invoke(task.function_id.clone(), {
                 let mut request = http::Request::new(());
                 *request.method_mut() = http::Method::GET;
                 *request.uri_mut() = match task.endpoint.as_deref().unwrap_or("/_fx/cron").parse() {
@@ -210,9 +210,7 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
                 }
 
                 request
-                    .into_parts()
-                    .0
-            }));
+            });
             let timeout_future = tokio::time::sleep(task.timeout.unwrap_or(Duration::from_secs(60)));
 
             let is_ok = tokio::select! {

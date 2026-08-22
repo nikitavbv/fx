@@ -8,7 +8,6 @@ use {
     send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{
-        resources::resource::HttpBodyResourceKey,
         function::{
             FunctionId,
             FunctionDeploymentId,
@@ -105,7 +104,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
 
             let function_future = target_function_deployment
                 .handle_request(
-                    FetchRequestHeader::from(header),
+                    http::Request::from_parts(header, ()),
                     Some(HttpBody::for_stream(
                         body.into_data_stream()
                             .map(|v| v.map_err(|_| HttpStreamError::RequestBodyStreamError))
@@ -300,38 +299,3 @@ mod function_stream_reader {
     }
 }
 pub(crate) use function_stream_reader::FunctionStreamReader;
-
-pub struct FetchRequestHeader {
-    inner: ::http::request::Parts,
-    pub(crate) body_resource_id: Option<HttpBodyResourceKey>, // TODO: drop body if FetchRequestHeader is dropped without consumption
-}
-
-impl FetchRequestHeader {
-    pub(crate) fn from_http_parts(inner: ::http::request::Parts) -> Self {
-        Self {
-            inner,
-            body_resource_id: None,
-        }
-    }
-
-    pub(crate) fn uri(&self) -> &::http::Uri {
-        &self.inner.uri
-    }
-
-    pub(crate) fn method(&self) -> &::http::Method {
-        &self.inner.method
-    }
-
-    pub(crate) fn headers(&self) -> &::http::HeaderMap {
-        &self.inner.headers
-    }
-}
-
-impl From<::http::request::Parts> for FetchRequestHeader {
-    fn from(value: ::http::request::Parts) -> Self {
-        Self {
-            inner: value,
-            body_resource_id: None,
-        }
-    }
-}

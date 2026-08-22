@@ -6,7 +6,7 @@ use {
     thiserror::Error,
     crate::{
         function::{FunctionId, instance::FunctionInstance},
-        triggers::http::{FetchRequestHeader, HttpBody},
+        triggers::http::HttpBody,
         tasks::worker::messages::FunctionInvokeError,
         resources::FunctionResourceId,
     },
@@ -53,7 +53,7 @@ impl WorkersController {
         }
     }
 
-    pub(crate) async fn function_invoke(&self, function_id: FunctionId, req: FetchRequestHeader) -> Result<(), WorkersControllerFunctionInvokeError> {
+    pub(crate) async fn function_invoke(&self, function_id: FunctionId, req: http::Request<()>) -> Result<(), WorkersControllerFunctionInvokeError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.any_worker_tx.send_async(WorkerMessage::FunctionInvoke(Box::new(FunctionInvokeMessage { function_id, header: req, response_tx }))).await
             .map_err(|_| WorkersControllerFunctionInvokeError::WorkerShutdown)?;
@@ -181,7 +181,7 @@ pub(crate) mod local_worker_controller {
         }
 
         impl LocalWorkerController {
-            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: FetchRequestHeader) -> impl Future<Output = Result<http::Response<HttpBody>, FunctionInvokeError>> + 'static {
+            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: http::Request<()>) -> impl Future<Output = Result<http::Response<HttpBody>, FunctionInvokeError>> + 'static {
                 let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
                 let send_message_result = self.self_tx.send(WorkerLocalMessage::FunctionInvoke(Box::new(LocalFunctionInvokeMessage {

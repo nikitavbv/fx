@@ -5,7 +5,7 @@ use {
     send_wrapper::SendWrapper,
     hyper::body::Bytes,
     crate::{
-        triggers::http::{FetchRequestHeader, HttpBody},
+        triggers::http::HttpBody,
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
             blob::{BlobPutError, BlobGetError, BlobDeleteError},
@@ -67,7 +67,7 @@ impl From<u64> for FunctionResourceId {
 #[derive(Default)]
 pub(crate) struct FunctionResources {
     pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
-    pub(crate) fetch_request_headers: ResourceTable<FetchRequestHeaderResourceKey, FetchRequestHeader>,
+    pub(crate) fetch_request_headers: ResourceTable<FetchRequestHeaderResourceKey, http::Request<Option<HttpBodyResourceKey>>>,
     pub(crate) kv_get_response_futures: ResourceTable<KvGetResponseFutureResourceKey, BoxFuture<'static, Result<Vec<u8>, KvGetHandlerError>>>,
     pub(crate) kv_delex_result_futures: ResourceTable<KvDelexResultFutureResourceKey, BoxFuture<'static, Result<(), KvDelexHandlerError>>>,
     pub(crate) kv_delex_results: ResourceTable<KvDelexResultResourceKey, Result<(), KvDelexHandlerError>>,

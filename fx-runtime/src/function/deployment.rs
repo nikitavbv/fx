@@ -5,7 +5,7 @@ use {
     serde::{Serialize, Deserialize},
     futures::FutureExt,
     crate::{
-        triggers::http::{FetchRequestHeader, HttpBody},
+        triggers::http::HttpBody,
         resources::future::{FunctionBackgroundTask, FunctionResponseFuture},
         function::instance::{RuntimeServices, InstanceBindings, function_response_poll::FunctionResponsePollError},
     },
@@ -164,7 +164,7 @@ impl FunctionDeployment {
         })
     }
 
-    pub(crate) async fn handle_request(&self, header: FetchRequestHeader, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>>>> {
+    pub(crate) async fn handle_request(&self, header: http::Request<()>, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>>>> {
         let instance = self.instance.clone();
 
         let instance = if *instance.borrow().has_panicked.borrow() {
@@ -180,7 +180,6 @@ impl FunctionDeployment {
 
         Box::pin(async move {
             debug!("inside request handling");
-            let mut header = header;
             let resource = {
                 let mut data = match instance.store_lock().await {
                     Ok(v) => v,
@@ -190,10 +189,7 @@ impl FunctionDeployment {
                     }
                 };
                 let data = data.data_mut();
-                if let Some(body) = body {
-                    header.body_resource_id = Some(data.resource_set.http_bodies.insert(body));
-                }
-                data.resource_set.fetch_request_headers.insert(header)
+                data.resource_set.fetch_request_headers.insert(http::Request::from_parts(header.into_parts().0, body.map(|v| data.resource_set.http_bodies.insert(v))))
             };
 
             debug!("resource obtained");

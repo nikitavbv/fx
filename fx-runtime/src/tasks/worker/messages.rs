@@ -13,7 +13,7 @@ use {
             triggers::FunctionHttpListener,
             bindings::{BlobBindingConfig, SqlBindingConfig, FunctionBindingConfig, KvBindingConfig},
         },
-        triggers::http::{FetchRequestHeader, HttpBody},
+        triggers::http::HttpBody,
         resources::FunctionResourceId,
     },
 };
@@ -45,7 +45,7 @@ pub(crate) struct FunctionDeployMessage {
 
 pub(crate) struct FunctionInvokeMessage {
     pub(crate) function_id: FunctionId,
-    pub(crate) header: FetchRequestHeader,
+    pub(crate) header: http::Request<()>,
     pub(crate) response_tx: oneshot::Sender<Result<(), FunctionInvokeError>>,
 }
 
@@ -59,7 +59,7 @@ pub(crate) enum WorkerLocalMessage {
 
 pub(crate) struct LocalFunctionInvokeMessage {
     pub(crate) function_id: FunctionId,
-    pub(crate) header: FetchRequestHeader,
+    pub(crate) header: http::Request<()>,
     pub(crate) response_tx: async_unsync::oneshot::Sender<Result<http::Response<HttpBody>, FunctionInvokeError>>,
 }
 
