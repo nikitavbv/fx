@@ -1155,7 +1155,7 @@ pub(super) fn fx_fetch_handler(
             let (parts, body) = v.unwrap().into_parts();
             let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |_| HttpStreamError::RpcResponseStreamError).boxed());
             Ok(::http::Response::from_parts(parts, body))
-        }).await }).map(|v| v.unwrap()).boxed_local()
+        }).await }).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
     } else {
         let mut fetch_request = reqwest::Request::new(
             request_method,
@@ -1165,33 +1165,52 @@ pub(super) fn fx_fetch_handler(
         *fetch_request.timeout_mut() = Some(Duration::from_secs(3));
 
         let mut request_id = None;
-        let mut request_construction_result = Ok(());
+        let request_construction_result = match request.get_headers() {
+            Ok(v) => {
+                let mut request_construction_result = Ok(());
 
-        for header in request.get_headers().unwrap().into_iter() {
-            let name = header.get_name().unwrap().to_str().unwrap();
-            let value = header.get_value().unwrap().to_str().unwrap();
+                for header in v.into_iter() {
+                    let name = match header.get_name().ok().and_then(|v| v.to_str().ok()) {
+                        Some(v) => v,
+                        None => {
+                            request_construction_result = Err(FetchResultError::BadRequest);
+                            break;
+                        }
+                    };
+                    let value = match header.get_value().ok().and_then(|v| v.to_str().ok()) {
+                        Some(v) => v,
+                        None => {
+                            request_construction_result = Err(FetchResultError::BadRequest);
+                            break;
+                        },
+                    };
 
-            if name.eq_ignore_ascii_case("x-request-id") {
-                request_id = Some(value.to_owned());
-            }
+                    if name.eq_ignore_ascii_case("x-request-id") {
+                        request_id = Some(value.to_owned());
+                    }
 
-            let name = match name.parse::<http::header::HeaderName>() {
-                Ok(v) => v,
-                Err(_) => {
-                    request_construction_result = Err(FetchResultError::BadRequest);
-                    break;
+                    let name = match name.parse::<http::header::HeaderName>() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            request_construction_result = Err(FetchResultError::BadRequest);
+                            break;
+                        }
+                    };
+                    let value = match value.parse::<http::header::HeaderValue>() {
+                        Ok(v) => v,
+                        Err(_) => {
+                            request_construction_result = Err(FetchResultError::BadRequest);
+                            break;
+                        }
+                    };
+
+                    fetch_request.headers_mut().insert(name, value);
                 }
-            };
-            let value = match value.parse::<http::header::HeaderValue>() {
-                Ok(v) => v,
-                Err(_) => {
-                    request_construction_result = Err(FetchResultError::BadRequest);
-                    break;
-                }
-            };
 
-            fetch_request.headers_mut().insert(name, value);
-        }
+                request_construction_result
+            },
+            Err(_) => Err(FetchResultError::BadRequest),
+        };
 
         let request_construction_result = match request_construction_result {
             Err(err) => Err(err),
