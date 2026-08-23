@@ -1102,54 +1102,82 @@ pub(super) fn fx_fetch_handler(
     let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
     let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
 
-    // TODO: can request construction for all branches of this be unified?
-    let result = if let Some(function_binding) = caller.data().bindings.functions.get(&request_host) {
-        let mut http_builder = http::Request::builder()
-            .method(request_method)
-            .uri(http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap());
-        for header in request.get_headers().unwrap().into_iter() {
-            let name = header.get_name().unwrap().to_str().unwrap();
-            let value = header.get_value().unwrap().to_str().unwrap();
-            http_builder = http_builder.header(name, value);
-        }
-        let request = http_builder.body(()).unwrap();
-        let response_rx = caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), request).boxed_local();
+    let mut outgoing_request = http::Request::new(());
+    *outgoing_request.method_mut() = request_method;
+    *outgoing_request.uri_mut() = http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap();
 
-        async move {
-            response_rx.await.map_err(FetchResultError::from)
-        }.boxed_local()
-    } else if request_host == "kv.fx.internal" {
-        let mut effect_request = http::Request::new(());
-        *effect_request.method_mut() = request_method;
-        *effect_request.uri_mut() = http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap();
+    let mut outgoing_request = Ok(outgoing_request);
+    let mut request_id = None;
+    for header in request.get_headers().unwrap().into_iter() {
+        let name = header.get_name().unwrap().as_bytes();
+        let value = header.get_value().unwrap().to_str().unwrap();
 
-        for header in request.get_headers().unwrap().into_iter() {
-            let name = header.get_name().unwrap().as_bytes();
-            let value = header.get_value().unwrap().to_str().unwrap();
-            effect_request.headers_mut().append(http::HeaderName::from_bytes(name).unwrap(), value.parse().unwrap());
+        if str::from_utf8(name).unwrap().eq_ignore_ascii_case("x-request-id") {
+            request_id = Some(value.to_owned());
         }
 
-        let body = match request.get_body().unwrap().get_body().which().unwrap() {
-            abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
-            abi_http_capnp::http_body::body::Which::Bytes(v) => Ok(HttpBody::for_bytes(v.unwrap().to_vec().into())),
-            abi_http_capnp::http_body::body::Which::HostResource(v) => {
-                let body = caller.data_mut().resource_set.http_bodies.remove(v.into()).unwrap();
-                let stream = BodyStream::new(body)
-                    .filter_map(|result| async {
-                        match result {
-                            Ok(frame) => frame.into_data().ok().map(Ok),
-                            Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
-                        }
-                    });
-                Ok(HttpBody::for_stream(stream.boxed()))
-            },
-            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
-                .ok_or(FetchResultError::InternalRuntimeAssertionError)
-                .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
+        let key = match http::HeaderName::from_bytes(name) {
+            Ok(v) => v,
+            Err(_) => {
+                outgoing_request = Err(FetchResultError::BadRequest);
+                break;
+            }
         };
 
-        let response_future = match body {
-            Ok(body) => caller.data_mut().runtime_services.kv_service.call(http::Request::from_parts(effect_request.into_parts().0, body))
+        let value = match value.parse() {
+            Ok(v) => v,
+            Err(_) => {
+                outgoing_request = Err(FetchResultError::BadRequest);
+                break;
+            }
+        };
+
+        let outgoing_request = match outgoing_request.as_mut() {
+            Ok(v) => v,
+            Err(_) => break,
+        };
+
+        outgoing_request.headers_mut().append(key, value);
+    }
+
+    // TODO: can request construction for all branches of this be unified?
+    let result = if let Some(function_binding) = caller.data().bindings.functions.get(&request_host) {
+        let response_rx = match outgoing_request {
+            Err(err) => Err(err),
+            Ok(outgoing_request) => Ok(caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), outgoing_request).boxed_local()),
+        };
+
+        async move { response_rx?.await.map_err(FetchResultError::from) }.boxed_local()
+    } else if request_host == "kv.fx.internal" {
+        let body = request.get_body()
+            .map_err(|_| FetchResultError::BadRequest)
+            .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
+
+        let body = match body {
+            Err(err) => Err(err),
+            Ok(body) => match body {
+                abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
+                abi_http_capnp::http_body::body::Which::Bytes(v) => v.map_err(|_| FetchResultError::BadRequest).map(|v| HttpBody::for_bytes(v.to_vec().into())),
+                abi_http_capnp::http_body::body::Which::HostResource(v) =>
+                    caller.data_mut().resource_set.http_bodies.remove(v.into())
+                        .ok_or(FetchResultError::BodyHostResourceIdNotFound)
+                        .map(|body| HttpBody::for_stream(BodyStream::new(body)
+                            .filter_map(|result| async {
+                                match result {
+                                    Ok(frame) => frame.into_data().ok().map(Ok),
+                                    Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
+                                }
+                            }).boxed())),
+                abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
+                    .ok_or(FetchResultError::InternalRuntimeAssertionError)
+                    .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
+            },
+        };
+
+        let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
+
+        let response_future = match request {
+            Ok(request) => caller.data_mut().runtime_services.kv_service.call(request)
                 .map(|v| {
                     let (parts, body) = v.unwrap().into_parts();
                     let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |_| HttpStreamError::RpcResponseStreamError).boxed());
@@ -1161,108 +1189,57 @@ pub(super) fn fx_fetch_handler(
 
         tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
     } else {
-        let mut fetch_request = reqwest::Request::new(
-            request_method,
-            request_uri
-        );
+        let body = {
+            let body_set_result = request.get_body()
+                .map_err(|_| FetchResultError::BadRequest)
+                .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
 
-        *fetch_request.timeout_mut() = Some(Duration::from_secs(3));
-
-        let mut request_id = None;
-        let request_construction_result = match request.get_headers() {
-            Ok(v) => {
-                let mut request_construction_result = Ok(());
-
-                for header in v.into_iter() {
-                    let name = match header.get_name().ok().and_then(|v| v.to_str().ok()) {
-                        Some(v) => v,
-                        None => {
-                            request_construction_result = Err(FetchResultError::BadRequest);
-                            break;
-                        }
-                    };
-                    let value = match header.get_value().ok().and_then(|v| v.to_str().ok()) {
-                        Some(v) => v,
-                        None => {
-                            request_construction_result = Err(FetchResultError::BadRequest);
-                            break;
-                        },
-                    };
-
-                    if name.eq_ignore_ascii_case("x-request-id") {
-                        request_id = Some(value.to_owned());
-                    }
-
-                    let name = match name.parse::<http::header::HeaderName>() {
-                        Ok(v) => v,
-                        Err(_) => {
-                            request_construction_result = Err(FetchResultError::BadRequest);
-                            break;
-                        }
-                    };
-                    let value = match value.parse::<http::header::HeaderValue>() {
-                        Ok(v) => v,
-                        Err(_) => {
-                            request_construction_result = Err(FetchResultError::BadRequest);
-                            break;
-                        }
-                    };
-
-                    fetch_request.headers_mut().insert(name, value);
+            match body_set_result {
+                Err(err) => Err(err),
+                Ok(v) => match v {
+                    abi_http_capnp::http_body::body::Which::Empty(_) => Ok(reqwest::Body::default()),
+                    abi_http_capnp::http_body::body::Which::Bytes(v) =>
+                        v
+                            .map(|v| {
+                                reqwest::Body::from(v.to_vec())
+                            })
+                            .map_err(|_| FetchResultError::BadRequest),
+                    abi_http_capnp::http_body::body::Which::HostResource(v) =>
+                        caller.data_mut().resource_set.http_bodies.remove(v.into())
+                            .ok_or(FetchResultError::BodyHostResourceIdNotFound)
+                            .map(|body| {
+                                let stream = BodyStream::new(body)
+                                    .filter_map(|result| async {
+                                        match result {
+                                            Ok(frame) => frame.into_data().ok().map(Ok),
+                                            Err(e) => Some(Err(e)),
+                                        }
+                                    });
+                                reqwest::Body::wrap_stream(stream)
+                            }),
+                    abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) =>
+                        caller.data_mut().self_instance.upgrade()
+                            .ok_or(FetchResultError::InternalRuntimeAssertionError)
+                            .map(|function_instance| {
+                                let reader = FunctionStreamReader::new(function_instance, resource_id.into());
+                                reqwest::Body::wrap_stream(send_wrapper::SendWrapper::new(reader))
+                            })
                 }
-
-                request_construction_result
-            },
-            Err(_) => Err(FetchResultError::BadRequest),
+            }
         };
 
-        let request_construction_result = match request_construction_result {
-            Err(err) => Err(err),
-            Ok(()) => {
-                let body_set_result = request.get_body()
-                    .map_err(|_| FetchResultError::BadRequest)
-                    .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
+        let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
-                match body_set_result {
-                    Err(err) => Err(err),
-                    Ok(v) => match v {
-                        abi_http_capnp::http_body::body::Which::Empty(_) => Ok(()),
-                        abi_http_capnp::http_body::body::Which::Bytes(v) =>
-                            v
-                                .map(|v| {
-                                    *fetch_request.body_mut() = Some(reqwest::Body::from(v.to_vec()));
-                                })
-                                .map_err(|_| FetchResultError::BadRequest),
-                        abi_http_capnp::http_body::body::Which::HostResource(v) =>
-                            caller.data_mut().resource_set.http_bodies.remove(v.into())
-                                .ok_or(FetchResultError::BodyHostResourceIdNotFound)
-                                .map(|body| {
-                                    let stream = BodyStream::new(body)
-                                        .filter_map(|result| async {
-                                            match result {
-                                                Ok(frame) => frame.into_data().ok().map(Ok),
-                                                Err(e) => Some(Err(e)),
-                                            }
-                                        });
-                                    *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(stream));
-                                }),
-                        abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) =>
-                            caller.data_mut().self_instance.upgrade()
-                                .ok_or(FetchResultError::InternalRuntimeAssertionError)
-                                .map(|function_instance| {
-                                    let reader = FunctionStreamReader::new(function_instance, resource_id.into());
-                                    *fetch_request.body_mut() = Some(reqwest::Body::wrap_stream(send_wrapper::SendWrapper::new(reader)));
-                                })
-                    }
-                }
-            },
-        };
+        let fetch_request = request
+            .and_then(|request| reqwest::Request::try_from(request).map_err(|_| FetchResultError::InternalRuntimeAssertionError))
+            .map(|mut request| {
+                *request.timeout_mut() = Some(Duration::from_secs(3));
+                request
+            });
 
         let client = caller.data().http_client.clone();
         async move {
-            request_construction_result?;
-
-            match client.execute(fetch_request).await {
+            match client.execute(fetch_request?).await {
                 Ok(result) => {
                     let http_response: ::http::Response<reqwest::Body> = result.into();
                     let (parts, body) = http_response.into_parts();
