@@ -193,19 +193,30 @@ async fn sql_simple_contention() {
 async fn sql_contention_busy() {
     let client = init_fx_server().await;
 
-    let client_ref = &client;
-    let futures: FuturesUnordered<_> = (0..20).map(|n| async move {
-        sleep(Duration::from_millis(n)).await;
-        let result = client_ref.get("/test/sql/contention-busy").send().await.unwrap();
-        let status = result.status();
-        let response = result.text().await.unwrap();
-        assert!(status.is_success(), "expected status success, got: {status:?}, response: {response:?}");
-        response
-    }).collect();
-    let results: Vec<_> = futures.collect().await;
+    // first, check that request passes normally
+    let response = client.get("/test/sql/contention-busy").send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(response.text().await.unwrap(), "ok.\n");
 
-    assert!(results.contains(&"ok.\n".to_owned()));
-    assert!(results.contains(&"busy.\n".to_owned()), "didn't get any busy results: {results:?}");
+    // take the write lock from the test process and hold it across the request
+    let conn = rusqlite::Connection::open("/tmp/fx/sql/contention-busy.sqlite").unwrap();
+    conn.busy_timeout(Duration::from_secs(5)).unwrap();
+    conn.execute_batch("BEGIN IMMEDIATE").unwrap();
+
+    let response = client.get("/test/sql/contention-busy").send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(
+        response.text().await.unwrap(),
+        "busy.\n",
+        "expected DatabaseBusy to propagate to the application while the write lock is held"
+    );
+
+    // release the lock and verify the happy path still works
+    drop(conn);
+
+    let response = client.get("/test/sql/contention-busy").send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!(response.text().await.unwrap(), "ok.\n");
 }
 
 #[tokio::test]

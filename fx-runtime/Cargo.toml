@@ -57,6 +57,9 @@ tower = "0.5.3"
 
 fx-types = { path = "../fx-types" }
 
+[dev-dependencies]
+rusqlite = { version = "0.38.0", features = ["bundled"] }
+
 [target.'cfg(not(target_arch = "aarch64"))'.dependencies]
 tikv-jemallocator = "0.6.0"
 tikv-jemalloc-ctl = { version = "0.6.0", features = ["stats"] }
