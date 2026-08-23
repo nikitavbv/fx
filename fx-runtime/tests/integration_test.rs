@@ -740,7 +740,7 @@ async fn cron_custom_endpoint() {
         .text()
         .await
         .unwrap();
-    assert!(result1.contains("cron with custom endpoint:"));
+    assert!(result1.contains("cron with custom endpoint:"), "didn't get expected response from /test/cron/custom-endpoint, got instead: {result1:?}");
     let result1 = result1
         .replace("cron with custom endpoint: ", "")
         .parse::<u64>()
