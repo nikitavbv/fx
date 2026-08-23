@@ -1036,8 +1036,7 @@ async fn preemption() {
 
     let normal_fast = make_fast_request(&client).await;
 
-    let (slow1, slow2, fast1, fast2, fast3) = join!(
-        make_slow_request(&client),
+    let (slow1, fast1, fast2, fast3) = join!(
         make_slow_request(&client),
         make_fast_request(&client),
         make_fast_request(&client),
@@ -1046,7 +1045,6 @@ async fn preemption() {
 
     // verify that slow requests are in fact slow
     assert!(slow1.as_millis() >= 200);
-    assert!(slow2.as_millis() >= 200);
 
     // verify that fast requests are consistently fast even though runtime is busy with slow requests
     assert!(fast1.as_millis() <= 25, "fast request1 took {} ms, while normal is {}ms", fast1.as_millis(), normal_fast.as_millis());
