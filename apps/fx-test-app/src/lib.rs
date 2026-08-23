@@ -434,8 +434,11 @@ async fn test_blob_wrong_binding_name() -> (StatusCode, String) {
     }
 }
 
-async fn test_fetch() -> impl IntoResponse {
-    fetch(HttpRequest::get("https://fxruntime.com/test/get").unwrap()).await.unwrap().into_body().into_response()
+async fn test_fetch(headers: axum::http::HeaderMap) -> impl IntoResponse {
+    fetch(
+        HttpRequest::get("https://fxruntime.com/test/get").unwrap()
+            .with_header("x-request-id".parse().unwrap(), headers.get("x-request-id").unwrap().clone())
+    ).await.unwrap().into_body().into_response()
 }
 
 async fn test_fetch_post(headers: axum::http::HeaderMap) -> impl IntoResponse {

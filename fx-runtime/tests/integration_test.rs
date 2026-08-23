@@ -371,9 +371,12 @@ async fn blob_wrong_binding_name() {
 
 #[tokio::test]
 async fn fetch() {
+    let request_id = ulid::Ulid::new();
     let client = init_fx_server().await;
 
-    let result = client.get("/test/fetch").send().await.unwrap();
+    let result = client.get("/test/fetch")
+        .header("x-request-id", request_id.to_string())
+        .send().await.unwrap();
     let status = result.status();
 
     assert!(status.is_success(), "expected status = 200, got: {status:?}");
