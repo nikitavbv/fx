@@ -516,7 +516,10 @@ impl FunctionInstanceState {
 
             bindings,
 
-            http_client: reqwest::Client::new(),
+            http_client: reqwest::ClientBuilder::new()
+                .connect_timeout(Duration::from_secs(1))
+                .build()
+                .unwrap(),
             metrics: FunctionMetricsState::new(),
         }
     }
