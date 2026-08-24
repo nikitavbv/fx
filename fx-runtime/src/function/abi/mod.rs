@@ -1099,45 +1099,72 @@ pub(super) fn fx_fetch_handler(
         abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
         abi_http_capnp::HttpMethod::Trace => Method::TRACE,
     };
-    let request_uri = reqwest::Url::parse(request.get_uri().unwrap().to_str().unwrap()).unwrap();
-    let request_host = request_uri.host_str().unwrap().to_owned().to_lowercase();
+    let request_uri = http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap();
+    let request_host = request_uri.host().unwrap().to_owned().to_lowercase();
 
     let mut outgoing_request = http::Request::new(());
     *outgoing_request.method_mut() = request_method;
-    *outgoing_request.uri_mut() = http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap();
+    *outgoing_request.uri_mut() = request_uri;
 
     let mut outgoing_request = Ok(outgoing_request);
     let mut request_id = None;
-    for header in request.get_headers().unwrap().into_iter() {
-        let name = header.get_name().unwrap().as_bytes();
-        let value = header.get_value().unwrap().to_str().unwrap();
 
-        if str::from_utf8(name).unwrap().eq_ignore_ascii_case("x-request-id") {
-            request_id = Some(value.to_owned());
+    match request.get_headers() {
+        Ok(headers) => {
+            for header in headers.into_iter() {
+                let name = header.get_name()
+                    .map_err(|_| FetchResultError::BadRequest)
+                    .and_then(|v| v.to_str().map_err(|_| FetchResultError::BadRequest));
+                let name = match name {
+                    Ok(v) => v,
+                    Err(err) => {
+                        outgoing_request = Err(err);
+                        break;
+                    }
+                };
+
+                let value = header.get_value()
+                    .map_err(|_| FetchResultError::BadRequest)
+                    .and_then(|v| v.to_str().map_err(|_| FetchResultError::BadRequest));
+                let value = match value {
+                    Ok(v) => v,
+                    Err(err) => {
+                        outgoing_request = Err(err);
+                        break;
+                    }
+                };
+
+                if name.eq_ignore_ascii_case("x-request-id") {
+                    request_id = Some(value.to_owned());
+                }
+
+                let key = match http::HeaderName::from_str(name) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        outgoing_request = Err(FetchResultError::BadRequest);
+                        break;
+                    }
+                };
+
+                let value = match value.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        outgoing_request = Err(FetchResultError::BadRequest);
+                        break;
+                    }
+                };
+
+                let outgoing_request = match outgoing_request.as_mut() {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+
+                outgoing_request.headers_mut().append(key, value);
+            }
+        },
+        Err(_) => {
+            outgoing_request = Err(FetchResultError::BadRequest);
         }
-
-        let key = match http::HeaderName::from_bytes(name) {
-            Ok(v) => v,
-            Err(_) => {
-                outgoing_request = Err(FetchResultError::BadRequest);
-                break;
-            }
-        };
-
-        let value = match value.parse() {
-            Ok(v) => v,
-            Err(_) => {
-                outgoing_request = Err(FetchResultError::BadRequest);
-                break;
-            }
-        };
-
-        let outgoing_request = match outgoing_request.as_mut() {
-            Ok(v) => v,
-            Err(_) => break,
-        };
-
-        outgoing_request.headers_mut().append(key, value);
     }
 
     // TODO: can request construction for all branches of this be unified?

@@ -59,7 +59,7 @@ impl FunctionInstance {
             limit_memory_bytes,
             function_id,
             bindings,
-        ));
+        ).map_err(FunctionInstanceInitError::from)?);
         store.limiter(|state| &mut state.limits);
         store.epoch_deadline_callback(|_store_ctx| {
             Ok(wasmtime::UpdateDeadline::YieldCustom(SCHEDULING_YIELD_INTERVALS, async {
@@ -467,6 +467,18 @@ pub(crate) enum FunctionInstanceInitError {
     MissingMemory,
     #[error("failed to create function instance because of unknown error")]
     UnknownError,
+    #[error("failed to create function instance because of internal runtime assertion error")]
+    InternalRuntimeAssertionError,
+}
+
+impl From<function_instance_state_new::InitError> for FunctionInstanceInitError {
+    fn from(err: function_instance_state_new::InitError) -> Self {
+        use function_instance_state_new::InitError as SourceError;
+
+        match err {
+            SourceError::InternalRuntimeAssertionError => Self::InternalRuntimeAssertionError,
+        }
+    }
 }
 
 pub(crate) struct FunctionInstanceState {
@@ -487,40 +499,51 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) metrics: FunctionMetricsState,
 }
 
-impl FunctionInstanceState {
-    pub fn new(
-        runtime_services: RuntimeServices,
-        limit_memory_bytes: Option<usize>,
-        function_id: FunctionId,
-        bindings: InstanceBindings,
-    ) -> Self {
-        let limits = wasmtime::StoreLimitsBuilder::new();
+pub mod function_instance_state_new {
+    use super::*;
 
-        let limits = match limit_memory_bytes {
-            Some(limit_bytes) => limits.memory_size(limit_bytes).memories(1),
-            None => limits,
-        };
+    #[derive(Debug, Error)]
+    pub enum InitError {
+        #[error("failed to init function instance state because of internal runtime error")]
+        InternalRuntimeAssertionError,
+    }
 
-        Self {
-            limits: limits.build(),
+    impl FunctionInstanceState {
+        pub fn new(
+            runtime_services: RuntimeServices,
+            limit_memory_bytes: Option<usize>,
+            function_id: FunctionId,
+            bindings: InstanceBindings,
+        ) -> Result<Self, InitError> {
+            let limits = wasmtime::StoreLimitsBuilder::new();
 
-            self_instance: send_wrapper::SendWrapper::new(Weak::new()),
+            let limits = match limit_memory_bytes {
+                Some(limit_bytes) => limits.memory_size(limit_bytes).memories(1),
+                None => limits,
+            };
 
-            waker: None,
-            runtime_services,
+            Ok(Self {
+                limits: limits.build(),
 
-            function_id,
+                self_instance: send_wrapper::SendWrapper::new(Weak::new()),
 
-            resource_set: FunctionResources::new(),
-            tasks_background: Vec::new(),
+                waker: None,
+                runtime_services,
 
-            bindings,
+                function_id,
 
-            http_client: reqwest::ClientBuilder::new()
-                .connect_timeout(Duration::from_secs(1))
-                .build()
-                .unwrap(),
-            metrics: FunctionMetricsState::new(),
+                resource_set: FunctionResources::new(),
+                tasks_background: Vec::new(),
+
+                bindings,
+
+                http_client: reqwest::ClientBuilder::new()
+                    .connect_timeout(Duration::from_secs(1))
+                    .build()
+                    // all errors are assertion errors because it is not expected for client builder to fail with these basic settings
+                    .map_err(|_| InitError::InternalRuntimeAssertionError)?,
+                metrics: FunctionMetricsState::new(),
+            })
         }
     }
 }

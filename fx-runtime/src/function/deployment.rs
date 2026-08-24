@@ -155,6 +155,7 @@ impl FunctionDeployment {
             FunctionInstanceInitError::MissingExport => DeploymentInitError::MissingExport,
             FunctionInstanceInitError::MissingMemory => DeploymentInitError::MissingMemory,
             FunctionInstanceInitError::UnknownError => DeploymentInitError::UnknownInstantiationError,
+            FunctionInstanceInitError::InternalRuntimeAssertionError => DeploymentInitError::AssertionError,
         })?;
 
         Ok(Self {
