@@ -1086,30 +1086,40 @@ pub(super) fn fx_fetch_handler(
     };
 
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
-    let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().unwrap();
+    let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().map_err(|_| FetchResultError::BadRequest);
 
-    let request_method = match request.get_method().unwrap() {
-        abi_http_capnp::HttpMethod::Get => Method::GET,
-        abi_http_capnp::HttpMethod::Put => Method::PUT,
-        abi_http_capnp::HttpMethod::Post => Method::POST,
-        abi_http_capnp::HttpMethod::Patch => Method::PATCH,
-        abi_http_capnp::HttpMethod::Delete => Method::DELETE,
-        abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
-        abi_http_capnp::HttpMethod::Head => Method::HEAD,
-        abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
-        abi_http_capnp::HttpMethod::Trace => Method::TRACE,
-    };
-    let request_uri = http::Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap();
-    let request_host = request_uri.host().ok_or(FetchResultError::BadRequest).map(|v| v.to_owned().to_lowercase());
+    let request_method = request.as_ref()
+        .map_err(|err| err.clone())
+        .and_then(|v| v.get_method().map_err(|_| FetchResultError::BadRequest))
+        .map(|v| match v {
+            abi_http_capnp::HttpMethod::Get => Method::GET,
+            abi_http_capnp::HttpMethod::Put => Method::PUT,
+            abi_http_capnp::HttpMethod::Post => Method::POST,
+            abi_http_capnp::HttpMethod::Patch => Method::PATCH,
+            abi_http_capnp::HttpMethod::Delete => Method::DELETE,
+            abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
+            abi_http_capnp::HttpMethod::Head => Method::HEAD,
+            abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
+            abi_http_capnp::HttpMethod::Trace => Method::TRACE,
+        });
 
-    let mut outgoing_request = http::Request::new(());
-    *outgoing_request.method_mut() = request_method;
-    *outgoing_request.uri_mut() = request_uri;
+    let request_uri = request
+        .as_ref().map_err(|err| err.clone())
+        .and_then(|v| v.get_uri().map_err(|_| FetchResultError::BadRequest))
+        .and_then(|v| v.to_str().map_err(|_| FetchResultError::BadRequest))
+        .and_then(|v| v.parse().map_err(|_| FetchResultError::BadRequest));
+    let request_host = request_uri.as_ref().map_err(|v| v.clone()).and_then(|v: &http::Uri| v.host().ok_or(FetchResultError::BadRequest).map(|v| v.to_owned().to_lowercase()));
 
-    let mut outgoing_request = Ok(outgoing_request);
+    let mut outgoing_request = request_uri.and_then(|v| request_method.map(|t| (v, t))).map(|(request_uri, request_method)| {
+        let mut outgoing_request = http::Request::new(());
+        *outgoing_request.method_mut() = request_method;
+        *outgoing_request.uri_mut() = request_uri;
+        outgoing_request
+    });
+
     let mut request_id = None;
 
-    match request.get_headers() {
+    match request.as_ref().map_err(|err| err.clone()).and_then(|v| v.get_headers().map_err(|_| FetchResultError::BadRequest)) {
         Ok(headers) => {
             for header in headers.into_iter() {
                 let name = header.get_name()
@@ -1178,8 +1188,8 @@ pub(super) fn fx_fetch_handler(
 
                 async move { response_rx?.await.map_err(FetchResultError::from) }.boxed_local()
             } else if request_host == "kv.fx.internal" {
-                let body = request.get_body()
-                    .map_err(|_| FetchResultError::BadRequest)
+                let body = request
+                    .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
                     .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
 
                 let body = match body {
@@ -1219,7 +1229,10 @@ pub(super) fn fx_fetch_handler(
                 tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
             } else {
                 let body = {
-                    let body_set_result = request.get_body()
+                    let body_set_result = request
+                        .as_ref()
+                        .map_err(|err| err.clone())
+                        .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
                         .map_err(|_| FetchResultError::BadRequest)
                         .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
 

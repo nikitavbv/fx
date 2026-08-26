@@ -6,7 +6,7 @@ use {
     },
 };
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub(crate) enum FetchResultError {
     #[error("bad request")]
     BadRequest,
