@@ -551,6 +551,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
         Err(err) => {
             let mut error_builder = response.init_error().init_error();
             match err {
+                FetchResultError::FailedToReadRequest => error_builder.set_failed_to_read_request(()),
                 FetchResultError::BadRequest => error_builder.set_bad_request(()),
                 FetchResultError::BodyHostResourceIdNotFound => error_builder.set_body_host_resource_id_not_found(()),
                 FetchResultError::ConnectionFailed => error_builder.set_connection_failed(()),
@@ -1075,18 +1076,23 @@ pub(super) fn fx_fetch_handler(
 ) -> u64 {
     debug!("fx_fetch_handler - enter");
 
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = function_memory::FunctionMemory::from_caller(&mut caller).map_err(|_| FetchResultError::FailedToReadRequest);
     let context = caller.as_context();
-    let view = memory.data(&context);
+    let view = memory.as_ref()
+        .map_err(|err| (*err).clone())
+        .map(|memory| memory.view(&context));
 
-    let mut request = {
-        let ptr = req_ptr as usize;
-        let len = req_len as usize;
-        &view[ptr..ptr+len]
+    let request = view.as_ref().map_err(|err| (*err).clone())
+        .and_then(|view| view.slice(req_ptr, req_len).map_err(|_| FetchResultError::FailedToReadRequest));
+
+    let request_reader = request
+        .and_then(|mut request| capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default())
+        .map_err(|_| FetchResultError::BadRequest));
+
+    let request = match request_reader.as_ref() {
+        Err(err) => Err(err.clone()),
+        Ok(v) => v.get_root::<abi_http_capnp::http_request::Reader>().map_err(|_| FetchResultError::BadRequest),
     };
-
-    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
-    let request = request_reader.get_root::<abi_http_capnp::http_request::Reader>().map_err(|_| FetchResultError::BadRequest);
 
     let request_method = request.as_ref()
         .map_err(|err| err.clone())
