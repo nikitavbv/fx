@@ -297,7 +297,7 @@ async fn worker_handle_message(
                 }
             };
 
-            let function_future = deployment.handle_request(header, None).await;
+            let function_future = deployment.handle_request(header, None);
             tokio::task::spawn_local(async move {
                 tokio::select! {
                     result = function_future => {
@@ -347,7 +347,7 @@ async fn worker_handle_local_message(
                     return;
                 },
             };
-            let function_future = deployment.handle_request(header, None).await;
+            let function_future = deployment.handle_request(header, None);
             tokio::task::spawn_local(async move {
                 tokio::select! {
                     response = function_future => {

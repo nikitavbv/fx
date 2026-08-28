@@ -102,7 +102,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 return Ok(response);
             }
 
-            let function_future = target_function_deployment
+            let mut function_future = target_function_deployment
                 .handle_request(
                     http::Request::from_parts(header, ()),
                     Some(HttpBody::for_stream(
@@ -110,13 +110,13 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                             .map(|v| v.map_err(|_| HttpStreamError::RequestBodyStreamError))
                             .boxed()
                     ))
-                ).await;
+                );
             let timeout_future = tokio::time::sleep(std::time::Duration::from_secs(20));
 
             let response = tokio::select! {
-                result = function_future => result,
+                result = &mut function_future => result,
                 _ = timeout_future => {
-                    warn!("function timed out while handling request: {target_function:?}");
+                    warn!("function timed out while handling request: {target_function:?}, state: {:?}", function_future.progress);
                     let mut response = Response::new(HttpBody::for_bytes(Bytes::from("function timed out while handling request.\n")));
                     *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
                     return Ok(response);

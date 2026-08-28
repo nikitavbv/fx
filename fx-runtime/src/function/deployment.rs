@@ -3,7 +3,6 @@ use {
     tracing::{debug, warn, error},
     thiserror::Error,
     serde::{Serialize, Deserialize},
-    futures::FutureExt,
     crate::{
         triggers::http::HttpBody,
         resources::future::{FunctionBackgroundTask, FunctionResponseFuture},
@@ -164,72 +163,124 @@ impl FunctionDeployment {
             instance: RefCell::new(instance),
         })
     }
+}
 
-    pub(crate) async fn handle_request(&self, header: http::Request<()>, body: Option<HttpBody>) -> Pin<Box<dyn Future<Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>>>> {
-        let instance = self.instance.clone();
+pub(crate) mod handle_request {
+    use super::*;
 
-        let instance = if *instance.borrow().has_panicked.borrow() {
-            let instance = match self.template.instantiate().await.map_err(FunctionDeploymentHandleRequestError::from) {
-                Ok(v) => v,
-                Err(err) => return std::future::ready(Err(err)).boxed(),
-            };
-            *self.instance.borrow_mut() = instance.clone();
-            instance
-        } else {
-            instance.borrow().clone()
-        };
+    pub(crate) struct RequestHandleFuture {
+        inner: Pin<Box<dyn Future<Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>>>>,
+        pub(crate) progress: Rc<RefCell<RequestHandleProgress>>,
+    }
 
-        Box::pin(async move {
-            debug!("inside request handling");
-            let resource = {
-                let mut data = match instance.store_lock().await {
-                    Ok(v) => v,
-                    Err(_) => {
-                        warn!("timeout when acquiring lock to insert http body resource");
-                        return Err(FunctionDeploymentHandleRequestError::RuntimeTimeout);
+    impl RequestHandleFuture {
+        fn new(deployment: Rc<FunctionDeployment>, header: http::Request<()>, body: Option<HttpBody>) -> Self {
+            let instance = deployment.instance.clone();
+            let progress = Rc::new(RefCell::new(RequestHandleProgress::Init));
+
+            let inner = {
+                let progress = progress.clone();
+
+                Box::pin(async move {
+                    let instance = if *instance.borrow().has_panicked.borrow() {
+                        let instance = match deployment.template.instantiate().await.map_err(FunctionDeploymentHandleRequestError::from) {
+                            Ok(v) => v,
+                            Err(err) => return Err(err),
+                        };
+                        *deployment.instance.borrow_mut() = instance.clone();
+                        instance
+                    } else {
+                        instance.borrow().clone()
+                    };
+                    *progress.borrow_mut() = RequestHandleProgress::InstanceReady;
+
+                    debug!("inside request handling");
+                    let resource = {
+                        let mut data = match instance.store_lock().await {
+                            Ok(v) => v,
+                            Err(_) => {
+                                warn!("timeout when acquiring lock to insert http body resource");
+                                return Err(FunctionDeploymentHandleRequestError::RuntimeTimeout);
+                            }
+                        };
+                        let data = data.data_mut();
+                        data.resource_set.fetch_request_headers.insert(http::Request::from_parts(header.into_parts().0, body.map(|v| data.resource_set.http_bodies.insert(v))))
+                    };
+                    *progress.borrow_mut() = RequestHandleProgress::HttpBodyReady;
+
+                    debug!("resource obtained");
+                    let result = FunctionResponseFuture::new(
+                        instance.clone(),
+                        match instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from) {
+                            Ok(v) => v,
+                            Err(FunctionDeploymentHandleRequestError::FunctionPanicked) => {
+                                *instance.has_panicked.borrow_mut() = true;
+                                return Err(FunctionDeploymentHandleRequestError::FunctionPanicked);
+                            },
+                            Err(err) => return Err(err),
+                        },
+                    ).await;
+                    *progress.borrow_mut() = RequestHandleProgress::HttpTriggerInvoked;
+
+                    debug!("invoke_http_trigger called");
+                    {
+                        let mut function_state = instance.store.lock().await;
+                        let function_state = function_state.data_mut();
+                        debug!("draining background tasks");
+                        for background_task in function_state.tasks_background.drain(..) {
+                            tokio::task::spawn_local(FunctionBackgroundTask::new(instance.clone(), background_task));
+                        }
+                        debug!("drained background tasks");
                     }
-                };
-                let data = data.data_mut();
-                data.resource_set.fetch_request_headers.insert(http::Request::from_parts(header.into_parts().0, body.map(|v| data.resource_set.http_bodies.insert(v))))
+                    *progress.borrow_mut() = RequestHandleProgress::BackgroundTasksSpawned;
+
+                    debug!("function future created");
+                    let result = result
+                        .map_err(|err| match err {
+                            FunctionResponsePollError::AssertionError => FunctionDeploymentHandleRequestError::AssertionError,
+                            FunctionResponsePollError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
+                            FunctionResponsePollError::FunctionCrashed => FunctionDeploymentHandleRequestError::FunctionCrashed,
+                            FunctionResponsePollError::AbiError
+                            | FunctionResponsePollError::FailedToDeserialize
+                            | FunctionResponsePollError::HostResourceNotFound
+                            | FunctionResponsePollError::InvalidStatusCode
+                            | FunctionResponsePollError::InvalidHeaders => FunctionDeploymentHandleRequestError::FunctionIncorrectResponse,
+                        });
+                    *progress.borrow_mut() = RequestHandleProgress::ResultFutureCreated;
+
+                    result
+                })
             };
 
-            debug!("resource obtained");
-            let result = FunctionResponseFuture::new(
-                instance.clone(),
-                match instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from) {
-                    Ok(v) => v,
-                    Err(FunctionDeploymentHandleRequestError::FunctionPanicked) => {
-                        *instance.has_panicked.borrow_mut() = true;
-                        return Err(FunctionDeploymentHandleRequestError::FunctionPanicked);
-                    },
-                    Err(err) => return Err(err),
-                },
-            ).await;
-
-            debug!("invoke_http_trigger called");
-            {
-                let mut function_state = instance.store.lock().await;
-                let function_state = function_state.data_mut();
-                debug!("draining background tasks");
-                for background_task in function_state.tasks_background.drain(..) {
-                    tokio::task::spawn_local(FunctionBackgroundTask::new(instance.clone(), background_task));
-                }
-                debug!("drained background tasks");
+            Self {
+                inner,
+                progress,
             }
+        }
+    }
 
-            debug!("function future created");
-            result
-                .map_err(|err| match err {
-                    FunctionResponsePollError::AssertionError => FunctionDeploymentHandleRequestError::AssertionError,
-                    FunctionResponsePollError::FunctionPanicked => FunctionDeploymentHandleRequestError::FunctionPanicked,
-                    FunctionResponsePollError::FunctionCrashed => FunctionDeploymentHandleRequestError::FunctionCrashed,
-                    FunctionResponsePollError::AbiError
-                    | FunctionResponsePollError::FailedToDeserialize
-                    | FunctionResponsePollError::HostResourceNotFound
-                    | FunctionResponsePollError::InvalidStatusCode
-                    | FunctionResponsePollError::InvalidHeaders => FunctionDeploymentHandleRequestError::FunctionIncorrectResponse,
-                })
-        })
+    impl Future for RequestHandleFuture {
+        type Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>;
+
+        fn poll(mut self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+            self.inner.as_mut().poll(cx)
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub(crate) enum RequestHandleProgress {
+        Init,
+        InstanceReady,
+        HttpBodyReady,
+        HttpTriggerInvoked,
+        BackgroundTasksSpawned,
+        ResultFutureCreated,
+    }
+
+    impl FunctionDeployment {
+        pub(crate) fn handle_request(self: &Rc<Self>, header: http::Request<()>, body: Option<HttpBody>) -> RequestHandleFuture {
+            RequestHandleFuture::new(self.clone(), header, body)
+        }
     }
 }
 
