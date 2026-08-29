@@ -1,6 +1,11 @@
 use {
+    std::convert::Infallible,
     thiserror::Error,
-    crate::function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
+    hyper::service::service_fn,
+    crate::{
+        function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
+        triggers::http::HttpBody,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -72,4 +77,10 @@ impl From<crate::tasks::blob::DeleteError> for BlobDeleteError {
             SourceError::BlobStorageError => Self::StorageError,
         }
     }
+}
+
+pub(crate) fn create_service() -> impl hyper::service::Service<http::Request<HttpBody>, Response = http::Response<HttpBody>, Error = Infallible> {
+    service_fn(|req: http::Request<HttpBody>| async move {
+        panic!("received request: {:?}", req.uri());
+    })
 }
