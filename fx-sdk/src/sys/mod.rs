@@ -203,7 +203,6 @@ unsafe extern "C" {
     pub(crate) fn fx_random(ptr: u64, len: u64);
     pub(crate) fn fx_time() -> u64;
     pub(crate) fn fx_blob_put(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, value_ptr: u64, value_len: u64) -> u64;
-    pub(crate) fn fx_blob_get(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64) -> u64;
     pub(crate) fn fx_fetch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_metrics_counter_register(req_addr: u64, req_len: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_metrics_counter_increment(metric_id: u64, delta: u64);
@@ -234,8 +233,6 @@ unsafe extern "C" {
     pub(crate) fn fx_http_frame_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_blob_put_result_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_blob_put_result_serialize(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_blob_get_result_poll(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_blob_get_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_blob_delete_result_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_blob_delete_result_serialize(resource_id: u64, result_addr: u64) -> u64;
 }

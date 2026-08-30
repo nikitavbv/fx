@@ -7,6 +7,11 @@ struct BlobPutResult {
     }
 }
 
+struct BlobGetRequest {
+    binding @0 :Text;
+    key @1 :Data;
+}
+
 struct BlobGetResponse {
     response :union {
         notFound @0 :Void;

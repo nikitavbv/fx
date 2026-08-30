@@ -66,7 +66,6 @@ impl FunctionDeployment {
             "fx_random" => super::abi::fx_random_handler;
             "fx_time" => super::abi::fx_time_handler;
             "fx_blob_put" => super::abi::fx_blob_put_handler;
-            "fx_blob_get" => super::abi::fx_blob_get_handler;
             "fx_fetch" => super::abi::fx_fetch_handler;
             "fx_metrics_counter_register" => super::abi::fx_metrics_counter_register_handler;
             "fx_metrics_counter_increment" => super::abi::fx_metrics_counter_increment_handler;
@@ -99,10 +98,6 @@ impl FunctionDeployment {
             "fx_http_frame_serialize" => super::abi::fx_http_frame_serialize;
             "fx_blob_put_result_poll" => super::abi::fx_blob_put_result_poll;
             "fx_blob_put_result_serialize" => super::abi::fx_blob_put_result_serialize;
-            "fx_blob_get_result_poll" => super::abi::fx_blob_get_result_poll;
-            "fx_blob_get_result_serialize" => super::abi::fx_blob_get_result_serialize;
-            "fx_blob_delete_result_poll" => super::abi::fx_blob_delete_result_poll;
-            "fx_blob_delete_result_serialize" => super::abi::fx_blob_delete_result_serialize;
         );
 
         for import in module.imports() {

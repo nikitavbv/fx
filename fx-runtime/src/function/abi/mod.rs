@@ -675,73 +675,6 @@ pub(super) fn fx_blob_put_result_serialize(mut caller: wasmtime::Caller<'_, Func
     BlobPutResultSerializeResultCode::Ok as u64
 }
 
-pub(super) fn fx_blob_get_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let blob_get_result = match caller.data_mut().resource_set.blob_get_responses.remove(resource_id.into()) {
-        Some(v) => v,
-        None => return BlobGetResultSerializeResultCode::NotFound as u64,
-    };
-
-    let mut message = capnp::message::Builder::new_default();
-    let blob_get_response = message.init_root::<abi_blob_capnp::blob_get_response::Builder>();
-    let mut response = blob_get_response.init_response();
-
-    match blob_get_result {
-        Ok(None) => response.set_not_found(()),
-        Ok(Some(v)) => response.set_value(&v),
-        Err(BlobGetError::BadRequestFailedToAccessMemory) => response.set_bad_request_failed_to_access_memory(()),
-        Err(BlobGetError::BadRequestArgumentOutOfBounds) => response.set_bad_request_argument_out_of_bounds(()),
-        Err(BlobGetError::BadRequestArgumentFailedToDecode) => response.set_bad_request_argument_failed_to_decode(()),
-        Err(BlobGetError::BindingNotExists) => response.set_binding_not_exists(()),
-        Err(BlobGetError::StorageError) => response.set_storage_error(()),
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-
-    write_result(
-        &mut caller,
-        result_addr,
-        BlobGetResultSerializeResult {
-            bytes_resource_id: bytes_resource_id.into(),
-            bytes_length: bytes_length as u64,
-        },
-    );
-
-    BlobGetResultSerializeResultCode::Ok as u64
-}
-
-pub(super) fn fx_blob_delete_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let blob_delete_result = match caller.data_mut().resource_set.blob_delete_results.remove(resource_id.into()) {
-        Some(v) => v,
-        None => return BlobDeleteResultSerializeResultCode::NotFound as u64,
-    };
-
-    let mut message = capnp::message::Builder::new_default();
-    let blob_delete_response = message.init_root::<abi_blob_capnp::blob_delete_response::Builder>();
-    let mut response = blob_delete_response.init_response();
-
-    match blob_delete_result {
-        Ok(()) => response.set_ok(()),
-        Err(BlobDeleteError::StorageError) => response.set_storage_error(()),
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-
-    write_result(
-        &mut caller,
-        result_addr,
-        BlobDeleteResultSerializeResult {
-            bytes_resource_id: bytes_resource_id.into(),
-            bytes_length: bytes_length as u64,
-        }
-    );
-
-    BlobDeleteResultSerializeResultCode::Ok as u64
-}
-
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
     caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
     resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T, F>,
@@ -984,58 +917,6 @@ pub(super) fn fx_blob_put_handler(
     }.boxed()).into()
 }
 
-pub(super) fn fx_blob_get_handler(
-    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
-    binding_ptr: u64,
-    binding_len: u64,
-    key_ptr: u64,
-    key_len: u64,
-) -> u64 {
-    fn handle_ready_resource(caller: &mut wasmtime::Caller<'_, FunctionInstanceState>, resource: Result<Option<Vec<u8>>, BlobGetError>) -> BlobGetResponseFutureResourceKey {
-        caller.data_mut().resource_set.blob_get_response_futures.insert(std::future::ready(resource).boxed())
-    }
-
-    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
-        Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
-    };
-    let context = caller.as_context();
-    let memory = memory.view(&context);
-
-    let binding = match memory.str_ref(binding_ptr, binding_len) {
-        Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
-    };
-    let bucket = caller.data().bindings.blob.get(binding).map(|v| v.bucket.clone());
-
-    let key = match memory.vec_clone(key_ptr, key_len) {
-        Ok(v) => v,
-        Err(err) => return handle_ready_resource(&mut caller, err.into()).into(),
-    };
-
-    let blob_tx = caller.data().runtime_services.blob.clone();
-
-    caller.data_mut().resource_set.blob_get_response_futures.insert(async move {
-        match bucket {
-            Some(bucket) => {
-                let (result, result_rx) = oneshot::channel();
-
-                blob_tx.send(BlobMessage::Get {
-                    bucket,
-                    key,
-                    result
-                }).unwrap();
-
-                match result_rx.await.unwrap() {
-                    Ok(v) => Ok(v),
-                    Err(crate::tasks::blob::GetError::BlobStorageError) => Err(BlobGetError::StorageError),
-                }
-            },
-            None => Err(BlobGetError::BindingNotExists),
-        }
-    }.boxed()).into()
-}
-
 pub(super) fn fx_fetch_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     req_ptr: u64,
@@ -1189,7 +1070,7 @@ pub(super) fn fx_fetch_handler(
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
                 let response_future = match request {
-                    Ok(request) => handle_blob_request(caller.data(), request).map(|v| Ok(v)).boxed_local(),
+                    Ok(request) => handle_blob_request(caller.data(), request).map(Ok).boxed_local(),
                     Err(err) => std::future::ready(Err(err)).boxed_local(),
                 };
 
@@ -1670,5 +1551,3 @@ future_poll_handler!(fx_kv_publish_result_future_poll, kv_publish_result_futures
 future_poll_handler!(fx_kv_delex_result_future_poll, kv_delex_result_futures, kv_delex_results);
 future_poll_handler!(fx_migration_result_future_poll, sql_migration_result_futures, sql_migration_results);
 future_poll_handler!(fx_blob_put_result_poll, blob_put_result_futures, blob_put_results);
-future_poll_handler!(fx_blob_get_result_poll, blob_get_response_futures, blob_get_responses);
-future_poll_handler!(fx_blob_delete_result_poll, blob_delete_result_futures, blob_delete_results);

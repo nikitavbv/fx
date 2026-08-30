@@ -1,9 +1,9 @@
 use {
-    std::convert::Infallible,
     thiserror::Error,
     futures::FutureExt,
     http_body_util::BodyExt,
     bytes::Bytes,
+    tokio::sync::oneshot,
     fx_types::{capnp, abi_blob_capnp},
     crate::{
         function::{
@@ -88,6 +88,58 @@ impl From<crate::tasks::blob::DeleteError> for BlobDeleteError {
 
 pub(crate) fn handle_blob_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
     match req.uri().path() {
+        "/get" => {
+            let bindings = state.bindings.blob.clone();
+            let blob_tx = state.runtime_services.blob.clone();
+
+            async move {
+                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let request = request_reader.get_root::<abi_blob_capnp::blob_get_request::Reader>().unwrap();
+
+                let binding = request.get_binding().unwrap().to_str().unwrap();
+                let bucket = bindings.get(binding).map(|v| v.bucket.clone());
+
+                let key = request.get_key().unwrap().to_vec();
+
+                let blob_get_result = match bucket {
+                    Some(bucket) => {
+                        let (result, result_rx) = oneshot::channel();
+
+                        blob_tx.send(BlobMessage::Get {
+                            bucket,
+                            key,
+                            result
+                        }).unwrap();
+
+                        match result_rx.await.unwrap() {
+                            Ok(v) => Ok(v),
+                            Err(crate::tasks::blob::GetError::BlobStorageError) => Err(BlobGetError::StorageError),
+                        }
+                    },
+                    None => Err(BlobGetError::BindingNotExists),
+                };
+
+                let mut message = capnp::message::Builder::new_default();
+                let blob_get_response = message.init_root::<abi_blob_capnp::blob_get_response::Builder>();
+                let mut response = blob_get_response.init_response();
+
+                match blob_get_result {
+                    Ok(None) => response.set_not_found(()),
+                    Ok(Some(v)) => response.set_value(&v),
+                    Err(BlobGetError::BadRequestFailedToAccessMemory) => response.set_bad_request_failed_to_access_memory(()),
+                    Err(BlobGetError::BadRequestArgumentOutOfBounds) => response.set_bad_request_argument_out_of_bounds(()),
+                    Err(BlobGetError::BadRequestArgumentFailedToDecode) => response.set_bad_request_argument_failed_to_decode(()),
+                    Err(BlobGetError::BindingNotExists) => response.set_binding_not_exists(()),
+                    Err(BlobGetError::StorageError) => response.set_storage_error(()),
+                }
+
+                let bytes = capnp::serialize::write_message_to_words(&message);
+
+                http::Response::new(HttpBody::for_bytes(bytes.into()))
+            }.boxed_local()
+        },
         "/delete" => {
             let bindings = state.bindings.blob.clone();
             let blob_tx = state.runtime_services.blob.clone();
