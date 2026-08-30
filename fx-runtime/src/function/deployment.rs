@@ -67,7 +67,6 @@ impl FunctionDeployment {
             "fx_time" => super::abi::fx_time_handler;
             "fx_blob_put" => super::abi::fx_blob_put_handler;
             "fx_blob_get" => super::abi::fx_blob_get_handler;
-            "fx_blob_delete" => super::abi::fx_blob_delete_handler;
             "fx_fetch" => super::abi::fx_fetch_handler;
             "fx_metrics_counter_register" => super::abi::fx_metrics_counter_register_handler;
             "fx_metrics_counter_increment" => super::abi::fx_metrics_counter_increment_handler;

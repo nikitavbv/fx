@@ -1,5 +1,5 @@
 use {
-    std::{collections::HashMap, task::Poll, cell::RefCell, rc::{Rc, Weak}, time::Duration},
+    std::{collections::HashMap, task::Poll, cell::RefCell, rc::{Rc, Weak}, time::Duration, convert::Infallible},
     tracing::{error, warn},
     thiserror::Error,
     futures_intrusive::sync::LocalMutex,

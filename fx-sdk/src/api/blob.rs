@@ -13,7 +13,6 @@ use {
     crate::sys::{
         fx_blob_put,
         fx_blob_get,
-        fx_blob_delete,
         fx_blob_put_result_poll,
         fx_blob_put_result_serialize,
         fx_blob_get_result_poll,
@@ -60,12 +59,26 @@ impl BlobBucket {
     }
 
     pub async fn delete(&self, key: String) -> Result<(), BlobDeleteError> {
-        BlobDeleteResponseFuture(unsafe { fx_blob_delete(
-            self.binding.as_ptr() as u64,
-            self.binding.len() as u64,
-            key.as_ptr() as u64,
-            key.len() as u64,
-        ) }).await
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut message_request = message.init_root::<abi_blob_capnp::blob_delete_request::Builder>();
+            message_request.set_binding(&self.binding);
+            message_request.set_key(key.as_bytes());
+
+            capnp::serialize::write_message_to_words(&message)
+        };
+
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://blob.fx.internal/delete").unwrap()
+                .with_body(request)
+        ).await.unwrap().bytes().await;
+
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let request = resource_reader.get_root::<abi_blob_capnp::blob_delete_response::Reader>().unwrap();
+        match request.get_response().which().unwrap() {
+            abi_blob_capnp::blob_delete_response::response::Which::Ok(()) => Ok(()),
+            abi_blob_capnp::blob_delete_response::response::Which::StorageError(()) => Err(BlobDeleteError::StorageError),
+        }
     }
 }
 

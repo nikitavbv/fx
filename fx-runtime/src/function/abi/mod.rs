@@ -63,7 +63,7 @@ use {
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
-            blob::{BlobPutError, BlobGetError, BlobDeleteError},
+            blob::{BlobPutError, BlobGetError, BlobDeleteError, handle_blob_request},
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
@@ -1036,39 +1036,6 @@ pub(super) fn fx_blob_get_handler(
     }.boxed()).into()
 }
 
-pub(super) fn fx_blob_delete_handler(
-    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
-    binding_ptr: u64,
-    binding_len: u64,
-    key_ptr: u64,
-    key_len: u64,
-) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let binding = {
-        let ptr = binding_ptr as usize;
-        let len = binding_len as usize;
-        str::from_utf8(&view[ptr..ptr+len]).unwrap()
-    };
-    let bucket = caller.data().bindings.blob.get(binding).unwrap().bucket.clone();
-
-    let key = {
-        let ptr = key_ptr as usize;
-        let len = key_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
-    let blob_tx = caller.data().runtime_services.blob.clone();
-
-    caller.data_mut().resource_set.blob_delete_result_futures.insert(async move {
-        let (result, result_rx) = oneshot::channel();
-        blob_tx.send_async(BlobMessage::Delete { bucket, key, result }).await.unwrap();
-        result_rx.await.unwrap().map_err(BlobDeleteError::from)
-    }.boxed()).into()
-}
-
 pub(super) fn fx_fetch_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     req_ptr: u64,
@@ -1193,6 +1160,40 @@ pub(super) fn fx_fetch_handler(
                 };
 
                 async move { response_rx?.await.map_err(FetchResultError::from) }.boxed_local()
+            } else if request_host == "blob.fx.internal" {
+                let body = request
+                    .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
+                    .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
+
+                let body = match body {
+                    Err(err) => Err(err),
+                    Ok(body) => match body {
+                        abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
+                        abi_http_capnp::http_body::body::Which::Bytes(v) => v.map_err(|_| FetchResultError::BadRequest).map(|v| HttpBody::for_bytes(v.to_vec().into())),
+                        abi_http_capnp::http_body::body::Which::HostResource(v) =>
+                            caller.data_mut().resource_set.http_bodies.remove(v.into())
+                                .ok_or(FetchResultError::BodyHostResourceIdNotFound)
+                                .map(|body| HttpBody::for_stream(BodyStream::new(body)
+                                    .filter_map(|result| async {
+                                        match result {
+                                            Ok(frame) => frame.into_data().ok().map(Ok),
+                                            Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
+                                        }
+                                    }).boxed())),
+                        abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
+                            .ok_or(FetchResultError::InternalRuntimeAssertionError)
+                            .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
+                    },
+                };
+
+                let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
+
+                let response_future = match request {
+                    Ok(request) => handle_blob_request(caller.data(), request).map(|v| Ok(v)).boxed_local(),
+                    Err(err) => std::future::ready(Err(err)).boxed_local(),
+                };
+
+                tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
             } else if request_host == "kv.fx.internal" {
                 let body = request
                     .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))

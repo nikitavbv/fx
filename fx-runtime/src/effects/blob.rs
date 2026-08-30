@@ -1,10 +1,17 @@
 use {
     std::convert::Infallible,
     thiserror::Error,
-    hyper::service::service_fn,
+    futures::FutureExt,
+    http_body_util::BodyExt,
+    bytes::Bytes,
+    fx_types::{capnp, abi_blob_capnp},
     crate::{
-        function::abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
+        function::{
+            abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
+            instance::FunctionInstanceState,
+        },
         triggers::http::HttpBody,
+        tasks::blob::BlobMessage,
     },
 };
 
@@ -79,8 +86,45 @@ impl From<crate::tasks::blob::DeleteError> for BlobDeleteError {
     }
 }
 
-pub(crate) fn create_service() -> impl hyper::service::Service<http::Request<HttpBody>, Response = http::Response<HttpBody>, Error = Infallible> {
-    service_fn(|req: http::Request<HttpBody>| async move {
-        panic!("received request: {:?}", req.uri());
-    })
+pub(crate) fn handle_blob_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
+    match req.uri().path() {
+        "/delete" => {
+            let bindings = state.bindings.blob.clone();
+            let blob_tx = state.runtime_services.blob.clone();
+
+            async move {
+                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let request = request_reader.get_root::<abi_blob_capnp::blob_delete_request::Reader>().unwrap();
+
+                let binding = request.get_binding().unwrap().to_str().unwrap();
+                let bucket = bindings.get(binding).unwrap().bucket.clone();
+
+                let key = request.get_key().unwrap().to_vec();
+
+                let (result, result_rx) = tokio::sync::oneshot::channel();
+                blob_tx.send_async(BlobMessage::Delete { bucket, key, result }).await.unwrap();
+                let result = result_rx.await.unwrap().map_err(BlobDeleteError::from);
+
+                let mut message = capnp::message::Builder::new_default();
+                let blob_delete_response = message.init_root::<abi_blob_capnp::blob_delete_response::Builder>();
+                let mut response = blob_delete_response.init_response();
+
+                match result {
+                    Ok(()) => response.set_ok(()),
+                    Err(BlobDeleteError::StorageError) => response.set_storage_error(()),
+                }
+
+                let bytes = capnp::serialize::write_message_to_words(&message);
+
+                http::Response::new(HttpBody::for_bytes(bytes.into()))
+            }.boxed_local()
+        },
+        _other => {
+            let mut response = http::Response::new(HttpBody::for_bytes("not found.\n".into()));
+            *response.status_mut() = http::StatusCode::NOT_FOUND;
+            std::future::ready(response).boxed_local()
+        },
+    }
 }

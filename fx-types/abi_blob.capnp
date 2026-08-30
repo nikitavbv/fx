@@ -19,6 +19,11 @@ struct BlobGetResponse {
     }
 }
 
+struct BlobDeleteRequest {
+    binding @0 :Text;
+    key @1 :Data;
+}
+
 struct BlobDeleteResponse {
     response :union {
         ok @0 :Void;
