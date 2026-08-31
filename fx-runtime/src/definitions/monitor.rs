@@ -38,6 +38,7 @@ pub(crate) struct DefinitionsMonitor {
 
     // DefinitionsMonitor requests FunctionDeployment creation and assigns IDs to them.
     deployment_id_counter: RefCell<u64>,
+    deployed_state: RefCell<HashMap<FunctionId, FunctionConfig>>,
 }
 
 impl DefinitionsMonitor {
@@ -56,6 +57,7 @@ impl DefinitionsMonitor {
             cron_tx,
             runtime_state,
             deployment_id_counter: RefCell::new(0),
+            deployed_state: RefCell::new(HashMap::new()),
         }
     }
 
@@ -63,45 +65,10 @@ impl DefinitionsMonitor {
         info!("will scan definitions in: {:?}", self.functions_directory);
 
         let root = self.functions_directory.clone();
-        for entry in WalkDir::new(&root) {
-            let entry = match entry {
-                Ok(v) => v,
-                Err(err) => {
-                    warn!("failed to scan definitions in dir: {err:?}");
-                    continue;
-                }
-            };
-
-            if !entry.file_type().is_file() {
-                continue;
-            }
-
-            let entry_path = entry.path();
-            let function_id = match self.path_to_function_id(entry_path) {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-
-            let function_config = match FunctionConfig::load(entry_path.to_path_buf()).await {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("failed to load function config: {err:?}");
-                    continue;
-                }
-            };
-
-            match self.apply_config(function_id, function_config).await {
-                Ok(()) => continue,
-                Err(ApplyConfigError::CronTaskShutdown) => {
-                    info!("shutting down definitions monitor because cron task shutdown.");
-                    return;
-                },
-                Err(ApplyConfigError::CompilerError) => continue,
-            };
-        }
+        self.reconcile_definitions().await;
 
         info!("listening for definition changes");
-        let (tx, rx) = flume::unbounded();
+        let (dirty_tx, mut dirty_rx) = tokio::sync::watch::channel(());
         let event_fn = {
             move |res: notify::Result<notify::Event>| {
                 let res = res.unwrap();
@@ -109,9 +76,7 @@ impl DefinitionsMonitor {
                 match res.kind {
                     notify::EventKind::Access(_) => {},
                     _other => {
-                        for changed_path in res.paths {
-                            tx.send(changed_path).unwrap();
-                        }
+                        dirty_tx.send(()).unwrap();
                     }
                 }
             }
@@ -122,10 +87,17 @@ impl DefinitionsMonitor {
             return;
         }
 
-        while let Ok(path) = rx.recv_async().await {
-            let function_id = match self.path_to_function_id(&path) {
+        loop {
+            dirty_rx.changed().await.unwrap();
+            dirty_rx.borrow_and_update();
+            self.reconcile_definitions().await;
+
+            /*let function_id = match self.path_to_function_id(&path) {
                 Ok(v) => v,
-                Err(_) => continue,
+                Err(err) => {
+                    warn!("skipping processing function for path: {path:?} because {err:?}");
+                    continue;
+                },
             };
             if !fs::try_exists(&path).await.unwrap() {
                 self.remove_function(function_id);
@@ -152,12 +124,64 @@ impl DefinitionsMonitor {
                     return;
                 },
                 Err(ApplyConfigError::CompilerError) => continue,
-            }
+            }*/
         }
     }
 
+    async fn reconcile_definitions(&self) {
+        let root = self.functions_directory.clone();
+        let prev_state = self.deployed_state.borrow().clone();
+
+        for entry in WalkDir::new(&root) {
+            let entry = match entry {
+                Ok(v) => v,
+                Err(err) => {
+                    warn!("failed to scan definitions in dir: {err:?}");
+                    continue;
+                }
+            };
+
+            if !entry.file_type().is_file() {
+                continue;
+            }
+
+            let entry_path = entry.path();
+            let function_id = match self.path_to_function_id(entry_path) {
+                Ok(v) => v,
+                Err(err) => {
+                    warn!("failed to detect function id for path: {entry_path:?}, error: {err:?}");
+                    continue;
+                },
+            };
+
+            let function_config = match FunctionConfig::load(entry_path.to_path_buf()).await {
+                Ok(v) => v,
+                Err(err) => {
+                    error!("failed to load function config: {err:?}");
+                    continue;
+                }
+            };
+
+            // TODO: compare config against prev config and skip if nothing changed
+
+            match self.apply_config(function_id, function_config).await {
+                Ok(()) => continue,
+                Err(ApplyConfigError::CronTaskShutdown) => {
+                    info!("shutting down definitions monitor because cron task shutdown.");
+                    return;
+                },
+                Err(ApplyConfigError::CompilerError) => continue,
+            };
+        }
+
+        // TODO: remove functions in prev state, but not in new state
+    }
+
     fn path_to_function_id(&self, path: &Path) -> Result<FunctionId, FunctionIdDetectionError> {
-        let function_id = path.strip_prefix(&self.functions_directory).unwrap().to_str().unwrap();
+        let path = path.canonicalize().map_err(|_| FunctionIdDetectionError::FunctionPathResolutionFailed)?;
+        let function_id = path.strip_prefix(&self.functions_directory.canonicalize().map_err(|_| FunctionIdDetectionError::FunctionsDirectoryPathResolutionFailed)?)
+            .map_err(|_| FunctionIdDetectionError::OutsideOfFunctionsDirectory)?
+            .to_str().unwrap();
         if !function_id.ends_with(DEFINITION_FILE_SUFFIX) {
             return Err(FunctionIdDetectionError::PathMissingExtension);
         }
@@ -337,6 +361,12 @@ impl DefinitionsMonitor {
 enum FunctionIdDetectionError {
     #[error("config path missing .fx.yaml extension")]
     PathMissingExtension,
+    #[error("expected function path to be inside functions directory")]
+    OutsideOfFunctionsDirectory,
+    #[error("failed to resolve path of functions directory")]
+    FunctionsDirectoryPathResolutionFailed,
+    #[error("failed to resolve path of function")]
+    FunctionPathResolutionFailed,
 }
 
 #[derive(Error, Debug)]
