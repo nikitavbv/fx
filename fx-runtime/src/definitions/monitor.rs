@@ -91,40 +91,6 @@ impl DefinitionsMonitor {
             dirty_rx.changed().await.unwrap();
             dirty_rx.borrow_and_update();
             self.reconcile_definitions().await;
-
-            /*let function_id = match self.path_to_function_id(&path) {
-                Ok(v) => v,
-                Err(err) => {
-                    warn!("skipping processing function for path: {path:?} because {err:?}");
-                    continue;
-                },
-            };
-            if !fs::try_exists(&path).await.unwrap() {
-                self.remove_function(function_id);
-                continue;
-            }
-
-            let metadata = fs::metadata(&path).await.unwrap();
-            if !metadata.is_file() {
-                continue;
-            }
-
-            let function_config = match FunctionConfig::load(path).await {
-                Ok(v) => v,
-                Err(err) => {
-                    error!("failed to load function config: {err:?}");
-                    continue
-                }
-            };
-
-            match self.apply_config(function_id, function_config).await {
-                Ok(()) => continue,
-                Err(ApplyConfigError::CronTaskShutdown) => {
-                    info!("shutting down definitions monitor because cron task shutdown.");
-                    return;
-                },
-                Err(ApplyConfigError::CompilerError) => continue,
-            }*/
         }
     }
 
@@ -162,10 +128,16 @@ impl DefinitionsMonitor {
                 }
             };
 
-            // TODO: compare config against prev config and skip if nothing changed
+            if prev_state.get(&function_id) == Some(&function_config) {
+                // identical config, skip.
+                continue;
+            }
 
-            match self.apply_config(function_id, function_config).await {
-                Ok(()) => continue,
+            match self.apply_config(function_id.clone(), function_config.clone()).await {
+                Ok(()) => {
+                    self.deployed_state.borrow_mut().insert(function_id, function_config);
+                    continue;
+                },
                 Err(ApplyConfigError::CronTaskShutdown) => {
                     info!("shutting down definitions monitor because cron task shutdown.");
                     return;
@@ -174,7 +146,16 @@ impl DefinitionsMonitor {
             };
         }
 
-        // TODO: remove functions in prev state, but not in new state
+        {
+            let current_state = self.deployed_state.borrow();
+            for (function_id, _function_config) in prev_state {
+                if current_state.contains_key(&function_id) {
+                    continue;
+                }
+
+                self.remove_function(function_id);
+            }
+        }
     }
 
     fn path_to_function_id(&self, path: &Path) -> Result<FunctionId, FunctionIdDetectionError> {

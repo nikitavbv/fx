@@ -97,6 +97,20 @@ pub enum LoggerConfig {
     Custom(Arc<BoxLogger>),
 }
 
+impl PartialEq for LoggerConfig {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Stdout, Self::Stdout) => true,
+            (Self::Noop, Self::Noop) => true,
+            (Self::HttpLogger { endpoint }, Self::HttpLogger { endpoint: other_endpoint }) => endpoint == other_endpoint,
+            (Self::Custom(_), Self::Custom(_)) => true,
+            _other => false,
+        }
+    }
+}
+
+impl Eq for LoggerConfig {}
+
 #[derive(Deserialize, Clone)]
 pub struct IntrospectionConfig {
     pub enabled: bool,
@@ -108,7 +122,7 @@ fn default_introspection_port() -> u16 {
     9000
 }
 
-#[derive(Deserialize, Clone)]
+#[derive(Deserialize, Clone, Eq, PartialEq)]
 pub struct FunctionConfig {
     #[serde(skip_deserializing)]
     pub config_path: Option<PathBuf>,
