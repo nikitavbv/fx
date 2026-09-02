@@ -1,5 +1,11 @@
 @0xa397c31dc0b3ff8c;
 
+struct BlobPutRequest {
+    binding @0 :Text;
+    key @1 :Data;
+    value @2 :Data;
+}
+
 struct BlobPutResult {
     result :union {
         ok @0 :Void;
@@ -18,9 +24,8 @@ struct BlobGetResponse {
         value @1 :Data;
         bindingNotExists @2 :Void;
         badRequestArgumentOutOfBounds @3 :Void;
-        badRequestArgumentFailedToDecode @4 :Void;
-        badRequestFailedToAccessMemory @5 :Void;
-        storageError @6 :Void;
+        badRequestFailedToAccessMemory @4 :Void;
+        storageError @5 :Void;
     }
 }
 

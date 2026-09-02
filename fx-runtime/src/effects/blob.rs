@@ -7,7 +7,7 @@ use {
     fx_types::{capnp, abi_blob_capnp},
     crate::{
         function::{
-            abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError, FunctionMemoryGetStringError}},
+            abi::{function_memory::{FunctionMemoryError, FunctionMemoryAccessError}},
             instance::FunctionInstanceState,
         },
         triggers::http::HttpBody,
@@ -36,8 +36,6 @@ pub(crate) enum BlobGetError {
     BadRequestFailedToAccessMemory,
     #[error("bad request: argument out of bounds")]
     BadRequestArgumentOutOfBounds,
-    #[error("bad request: argument failed to decode")]
-    BadRequestArgumentFailedToDecode,
 
     #[error("binding does not exist")]
     BindingNotExists,
@@ -58,15 +56,6 @@ impl From<FunctionMemoryAccessError> for Result<Option<Vec<u8>>, BlobGetError> {
     fn from(value: FunctionMemoryAccessError) -> Self {
         match value {
             FunctionMemoryAccessError::OutOfBounds => Err(BlobGetError::BadRequestArgumentOutOfBounds),
-        }
-    }
-}
-
-impl From<FunctionMemoryGetStringError> for Result<Option<Vec<u8>>, BlobGetError> {
-    fn from(value: FunctionMemoryGetStringError) -> Self {
-        match value {
-            FunctionMemoryGetStringError::OutOfBounds => Err(BlobGetError::BadRequestArgumentOutOfBounds),
-            FunctionMemoryGetStringError::FailedToDecode => Err(BlobGetError::BadRequestArgumentFailedToDecode),
         }
     }
 }
@@ -130,7 +119,6 @@ pub(crate) fn handle_blob_request(state: &FunctionInstanceState, req: http::Requ
                     Ok(Some(v)) => response.set_value(&v),
                     Err(BlobGetError::BadRequestFailedToAccessMemory) => response.set_bad_request_failed_to_access_memory(()),
                     Err(BlobGetError::BadRequestArgumentOutOfBounds) => response.set_bad_request_argument_out_of_bounds(()),
-                    Err(BlobGetError::BadRequestArgumentFailedToDecode) => response.set_bad_request_argument_failed_to_decode(()),
                     Err(BlobGetError::BindingNotExists) => response.set_binding_not_exists(()),
                     Err(BlobGetError::StorageError) => response.set_storage_error(()),
                 }
@@ -138,6 +126,43 @@ pub(crate) fn handle_blob_request(state: &FunctionInstanceState, req: http::Requ
                 let bytes = capnp::serialize::write_message_to_words(&message);
 
                 http::Response::new(HttpBody::for_bytes(bytes.into()))
+            }.boxed_local()
+        },
+        "/put" => {
+            let bindings = state.bindings.blob.clone();
+            let blob_tx = state.runtime_services.blob.clone();
+
+            async move {
+                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let request = request_reader.get_root::<abi_blob_capnp::blob_put_request::Reader>().unwrap();
+
+                let binding = request.get_binding().unwrap().to_str().unwrap();
+                let bucket = bindings.get(binding).map(|v| v.bucket.clone()).unwrap();
+
+                let key = request.get_key().unwrap().to_vec();
+                let value = request.get_value().unwrap().to_vec();
+
+                let (result, result_rx) = oneshot::channel();
+
+                blob_tx.send_async(BlobMessage::Put {
+                    bucket,
+                    key,
+                    value,
+                    result
+                }).await.unwrap();
+
+                let blob_put_result = result_rx.await.unwrap().map_err(BlobPutError::from);
+                let mut message = capnp::message::Builder::new_default();
+                let blob_put_response = message.init_root::<abi_blob_capnp::blob_put_result::Builder>();
+                let mut response = blob_put_response.init_result();
+
+                match blob_put_result {
+                    Ok(()) => response.set_ok(()),
+                    Err(BlobPutError::StorageError) => response.set_storage_error(()),
+                }
+
+                http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
             }.boxed_local()
         },
         "/delete" => {

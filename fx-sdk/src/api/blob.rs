@@ -10,12 +10,7 @@ use {
         },
     },
     thiserror::Error,
-    crate::sys::{
-        fx_blob_put,
-        fx_blob_put_result_poll,
-        fx_blob_put_result_serialize,
-        fx_bytes_move,
-    },
+    crate::sys::fx_bytes_move,
 };
 
 pub struct BlobBucket {
@@ -28,14 +23,27 @@ impl BlobBucket {
     }
 
     pub async fn put(&self, key: String, value: Vec<u8>) -> Result<(), BlobPutError> {
-        BlobPutResultFuture(unsafe { fx_blob_put(
-            self.binding.as_ptr() as u64,
-            self.binding.len() as u64,
-            key.as_ptr() as u64,
-            key.len() as u64,
-            value.as_ptr() as u64,
-            value.len() as u64,
-        ) }).await
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut message_request = message.init_root::<abi_blob_capnp::blob_put_request::Builder>();
+            message_request.set_binding(&self.binding);
+            message_request.set_key(key.as_bytes());
+            message_request.set_value(&value);
+
+            capnp::serialize::write_message_to_words(&message)
+        };
+
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://blob.fx.internal/put").unwrap()
+                .with_body(request)
+        ).await.unwrap().bytes().await;
+
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let request = resource_reader.get_root::<abi_blob_capnp::blob_put_result::Reader>().unwrap();
+        match request.get_result().which().unwrap() {
+            abi_blob_capnp::blob_put_result::result::Which::Ok(()) => Ok(()),
+            abi_blob_capnp::blob_put_result::result::Which::StorageError(()) => Err(BlobPutError::StorageError),
+        }
     }
 
     pub async fn get(&self, key: String) -> Result<Option<Vec<u8>>, BlobGetError> {
@@ -60,7 +68,6 @@ impl BlobBucket {
             abi_blob_capnp::blob_get_response::response::Which::Value(v) => Ok(Some(v.unwrap().to_vec())),
             abi_blob_capnp::blob_get_response::response::Which::BindingNotExists(_) => Err(BlobGetError::BindingNotExists),
             abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentOutOfBounds(_)
-            | abi_blob_capnp::blob_get_response::response::Which::BadRequestArgumentFailedToDecode(_)
             | abi_blob_capnp::blob_get_response::response::Which::BadRequestFailedToAccessMemory(_) => Err(BlobGetError::InternalSdkError),
             abi_blob_capnp::blob_get_response::response::Which::StorageError(()) => Err(BlobGetError::StorageError),
         }
@@ -100,39 +107,6 @@ pub enum BlobPutError {
     StorageError,
     #[error("failed to read blob because of internal error in fx sdk")]
     InternalSdkError,
-}
-
-struct BlobPutResultFuture(u64);
-
-impl Future for BlobPutResultFuture {
-    type Output = Result<(), BlobPutError>;
-
-    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
-        assert!(unsafe { fx_blob_put_result_poll(self.0, result.as_mut_ptr() as u64) } == 0);
-
-        let result = unsafe { result.assume_init() };
-
-        match result.tag {
-            1 => std::task::Poll::Pending,
-            0 => std::task::Poll::Ready({
-                let mut serialization_result = std::mem::MaybeUninit::<BlobPutResultSerializeResult>::zeroed();
-                assert!(unsafe { fx_blob_put_result_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
-
-                let result = unsafe { serialization_result.assume_init() };
-                let mut result_vec = vec![0; result.bytes_length as usize];
-                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
-
-                let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                let request = resource_reader.get_root::<abi_blob_capnp::blob_put_result::Reader>().unwrap();
-                match request.get_result().which().unwrap() {
-                    abi_blob_capnp::blob_put_result::result::Which::Ok(()) => Ok(()),
-                    abi_blob_capnp::blob_put_result::result::Which::StorageError(()) => Err(BlobPutError::StorageError),
-                }
-            }),
-            _ => std::task::Poll::Ready(Err(BlobPutError::InternalSdkError)),
-        }
-    }
 }
 
 #[derive(Debug, Error)]

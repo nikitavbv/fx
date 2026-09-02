@@ -869,54 +869,6 @@ pub(super) fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceStat
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
-pub(super) fn fx_blob_put_handler(
-    mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
-    binding_ptr: u64,
-    binding_len: u64,
-    key_ptr: u64,
-    key_len: u64,
-    value_ptr: u64,
-    value_len: u64
-) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let binding = {
-        let ptr = binding_ptr as usize;
-        let len = binding_len as usize;
-        str::from_utf8(&view[ptr..ptr+len]).unwrap()
-    };
-    let bucket = caller.data().bindings.blob.get(binding).unwrap().bucket.clone();
-
-    let key = {
-        let ptr = key_ptr as usize;
-        let len = key_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
-    let value = {
-        let ptr = value_ptr as usize;
-        let len = value_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
-    let blob_tx = caller.data().runtime_services.blob.clone();
-
-    caller.data_mut().resource_set.blob_put_result_futures.insert(async move {
-        let (result, result_rx) = oneshot::channel();
-
-        blob_tx.send_async(BlobMessage::Put {
-            bucket,
-            key,
-            value,
-            result,
-        }).await.unwrap();
-
-        result_rx.await.unwrap().map_err(BlobPutError::from)
-    }.boxed()).into()
-}
-
 pub(super) fn fx_fetch_handler(
     mut caller: wasmtime::Caller<'_, FunctionInstanceState>,
     req_ptr: u64,

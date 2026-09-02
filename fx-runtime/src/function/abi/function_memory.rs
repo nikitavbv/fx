@@ -42,12 +42,6 @@ impl<'a> FunctionMemoryView<'a> {
     pub(crate) fn vec_clone(&self, ptr: u64, len: u64) -> Result<Vec<u8>, FunctionMemoryAccessError> {
         self.slice(ptr, len).map(|v| v.to_vec())
     }
-
-    pub(crate) fn str_ref(&self, ptr: u64, len: u64) -> Result<&str, FunctionMemoryGetStringError> {
-        self.slice(ptr, len)
-            .map_err(FunctionMemoryGetStringError::from)
-            .and_then(|v| str::from_utf8(v).map_err(|_| FunctionMemoryGetStringError::FailedToDecode))
-    }
 }
 
 pub(crate) struct FunctionMemoryViewMut<'a> {
@@ -76,21 +70,4 @@ pub(crate) enum FunctionMemoryError {
 pub(crate) enum FunctionMemoryAccessError {
     #[error("index into function memory is out of bounds of memory view")]
     OutOfBounds,
-}
-
-#[derive(Debug, Error)]
-pub(crate) enum FunctionMemoryGetStringError {
-    #[error("index into function memory is out of bounds of memory view")]
-    OutOfBounds,
-
-    #[error("failed to decode string as utf8")]
-    FailedToDecode,
-}
-
-impl From<FunctionMemoryAccessError> for FunctionMemoryGetStringError {
-    fn from(err: FunctionMemoryAccessError) -> Self {
-        match err {
-            FunctionMemoryAccessError::OutOfBounds => Self::OutOfBounds,
-        }
-    }
 }
