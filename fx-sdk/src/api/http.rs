@@ -345,9 +345,10 @@ impl Stream for HttpBody {
                         let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
                         let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();
 
-                        match frame.get_frame().which().unwrap() {
-                            abi_http_capnp::http_body_frame::frame::Which::StreamEnd(_) => None,
-                            abi_http_capnp::http_body_frame::frame::Which::Bytes(v) => Some(Ok(Bytes::from(v.unwrap().to_vec()))),
+                        match frame.get_result().which().unwrap() {
+                            abi_http_capnp::http_body_frame::result::Which::StreamEnd(_) => None,
+                            abi_http_capnp::http_body_frame::result::Which::Bytes(v) => Some(Ok(Bytes::from(v.unwrap().to_vec()))),
+                            abi_http_capnp::http_body_frame::result::Which::ResponseStreamReadError(()) => Some(Err(HttpBodyStreamError::FailedToRead)),
                         }
                     }),
                     1 => std::task::Poll::Pending,
@@ -375,6 +376,8 @@ impl http_body::Body for HttpBody {
 pub enum HttpBodyStreamError {
     #[error("assertion failed during abi call")]
     AbiAssertionError,
+    #[error("failed to read http stream")]
+    FailedToRead,
 }
 
 impl axum::response::IntoResponse for HttpBody {

@@ -1,16 +1,6 @@
 use {
-    fx_types::{
-        capnp,
-        abi_blob_capnp,
-        abi::{
-            AsyncResourcePollResult,
-            BlobPutResultSerializeResult,
-            BlobGetResultSerializeResult,
-            BlobDeleteResultSerializeResult,
-        },
-    },
+    fx_types::{capnp, abi_blob_capnp},
     thiserror::Error,
-    crate::sys::fx_bytes_move,
 };
 
 pub struct BlobBucket {

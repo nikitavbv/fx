@@ -34,9 +34,10 @@ struct HttpBody {
 }
 
 struct HttpBodyFrame {
-    frame :union {
+    result :union {
         streamEnd @0 :Void;
         bytes @1 :Data;
+        responseStreamReadError @2 :Void;
     }
 }
 

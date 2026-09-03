@@ -34,12 +34,6 @@ use {
         HttpFrameSerializeResult,
         HttpFrameSerializeResultCode,
         AsyncResourcePollResult,
-        BlobPutResultSerializeResult,
-        BlobPutResultSerializeResultCode,
-        BlobGetResultSerializeResult,
-        BlobGetResultSerializeResultCode,
-        BlobDeleteResultSerializeResult,
-        BlobDeleteResultSerializeResultCode,
         ResourceSerializeResult,
         KvSubscriptionStreamPollResult,
         EnvGetResult,
@@ -57,13 +51,12 @@ use {
                 FunctionResources,
                 FetchRequestHeaderResourceKey,
                 UnitFutureResourceKey,
-                BlobGetResponseFutureResourceKey,
             },
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
-            blob::{BlobPutError, BlobGetError, BlobDeleteError, handle_blob_request},
+            blob::handle_blob_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
@@ -71,7 +64,6 @@ use {
         tasks::{
             sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
             kv::{KvMessage, KvOperation},
-            blob::BlobMessage,
         },
         triggers::http::{HttpBody, HttpBodyInner, FunctionStreamReader},
     },
@@ -621,10 +613,14 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
 
     let mut message = capnp::message::Builder::new_default();
     let serialized_frame = message.init_root::<abi_http_capnp::http_body_frame::Builder>();
-    let mut serialized_frame = serialized_frame.init_frame();
+    let mut serialized_frame = serialized_frame.init_result();
 
     match http_frame {
-        Some(v) => serialized_frame.set_bytes(&v.unwrap().to_vec()),
+        Some(Err(HttpStreamError::FetchResponseStreamError(_))) // failed to read response stream from http call to external host
+        | Some(Err(HttpStreamError::RequestBodyStreamError)) // failed to read http stream that request body for http trigger of this function
+        | Some(Err(HttpStreamError::RpcResponseStreamError)) // failed to read http stream from internal rpc service (e.g, kv/blob)
+        | Some(Err(HttpStreamError::FunctionRequestBodyStreamError)) => serialized_frame.set_response_stream_read_error(()), // failed to read response stream because failed to read it from function that generated it
+        Some(Ok(bytes)) => serialized_frame.set_bytes(bytes.as_ref()),
         None => serialized_frame.set_stream_end(()),
     }
 
@@ -642,37 +638,6 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
     );
 
     0
-}
-
-pub(super) fn fx_blob_put_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let blob_put_result = match caller.data_mut().resource_set.blob_put_results.remove(resource_id.into()) {
-        Some(v) => v,
-        None => return BlobPutResultSerializeResultCode::NotFound as u64,
-    };
-
-    let mut message = capnp::message::Builder::new_default();
-    let blob_put_response = message.init_root::<abi_blob_capnp::blob_put_result::Builder>();
-    let mut response = blob_put_response.init_result();
-
-    match blob_put_result {
-        Ok(()) => response.set_ok(()),
-        Err(BlobPutError::StorageError) => response.set_storage_error(()),
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-
-    write_result(
-        &mut caller,
-        result_addr,
-        BlobPutResultSerializeResult {
-            bytes_resource_id: bytes_resource_id.into(),
-            bytes_length: bytes_length as u64,
-        },
-    );
-
-    BlobPutResultSerializeResultCode::Ok as u64
 }
 
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
