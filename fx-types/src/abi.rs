@@ -274,3 +274,10 @@ pub enum MetricsCounterRegisterResultCode {
     FailedToReadRequest = 1,
     BadRequest = 2,
 }
+
+#[derive(TryFromPrimitive)]
+#[repr(u64)]
+pub enum RandomResultCode {
+    Ok = 0,
+    FailedToGenerate = 1,
+}

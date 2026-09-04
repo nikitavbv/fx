@@ -200,7 +200,7 @@ unsafe extern "C" {
     pub(crate) fn fx_sql_batch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_sql_migrate(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
-    pub(crate) fn fx_random(ptr: u64, len: u64);
+    pub(crate) fn fx_random(ptr: u64, len: u64) -> u64;
     pub(crate) fn fx_time() -> u64;
     pub(crate) fn fx_fetch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_metrics_counter_register(req_addr: u64, req_len: u64, result_addr: u64) -> u64;

@@ -4,7 +4,6 @@ pub(crate) use fx_types::{
     abi_sql_capnp,
     abi_http_capnp,
     abi_metrics_capnp,
-    abi_blob_capnp,
     abi_kv_capnp,
 };
 
@@ -41,6 +40,7 @@ use {
         EnvLenResultCode,
         MetricsCounterRegisterResult,
         MetricsCounterRegisterResultCode,
+        RandomResultCode,
     },
     crate::{
         function::instance::FunctionInstanceState,
@@ -820,18 +820,30 @@ pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstance
     }.boxed()).into()
 }
 
-pub(super) fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) {
+pub(super) fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) -> u64 {
     let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
     let mut context = caller.as_context_mut();
     let view = memory.data_mut(&mut context);
     let ptr = ptr as usize;
     let len = len as usize;
 
-    rand::rngs::OsRng.try_fill_bytes(&mut view[ptr..ptr+len]).unwrap();
+    (match rand::rngs::OsRng.try_fill_bytes(&mut view[ptr..ptr+len]) {
+        Ok(()) => RandomResultCode::Ok,
+        Err(err) => {
+            error!("random: failed to fill random bytes: {err:?}");
+            RandomResultCode::FailedToGenerate
+        }
+    }) as u64
 }
 
 pub(super) fn fx_time_handler(_caller: wasmtime::Caller<'_, FunctionInstanceState>) -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(v) => v.as_millis() as u64,
+        Err(err) => {
+            error!("time: failed to get current time: {err:?}");
+            0
+        }
+    }
 }
 
 pub(super) fn fx_fetch_handler(
@@ -1467,4 +1479,3 @@ macro_rules! future_poll_handler {
 future_poll_handler!(fx_kv_publish_result_future_poll, kv_publish_result_futures, kv_publish_results);
 future_poll_handler!(fx_kv_delex_result_future_poll, kv_delex_result_futures, kv_delex_results);
 future_poll_handler!(fx_migration_result_future_poll, sql_migration_result_futures, sql_migration_results);
-future_poll_handler!(fx_blob_put_result_poll, blob_put_result_futures, blob_put_results);

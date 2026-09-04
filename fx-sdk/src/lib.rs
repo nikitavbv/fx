@@ -16,7 +16,7 @@ use {
     std::{time::Duration, ops::Sub, result::Result as StdResult},
     thiserror::Error,
     chrono::{DateTime, Utc, TimeZone},
-    fx_types::{capnp, abi_sql_capnp},
+    fx_types::{capnp, abi_sql_capnp, abi::RandomResultCode},
     crate::{
         api::sql::{SqlQueryResultFuture, SqlBatchResultFuture},
         sys::{
@@ -47,10 +47,22 @@ mod error;
 
 pub type FxResult<T> = anyhow::Result<T>;
 
-pub fn random(len: u64) -> Vec<u8> {
+#[derive(Debug, Error)]
+pub enum RandomError {
+    #[error("host system failed to generate random bytes")]
+    FailedToGenerate,
+    #[error("internal sdk error")]
+    InternalSdkError,
+}
+
+pub fn random(len: u64) -> StdResult<Vec<u8>, RandomError> {
     let random_data = vec![0; len as usize];
-    unsafe { fx_random(random_data.as_ptr() as u64, len); }
-    random_data
+    RandomResultCode::try_from(unsafe { fx_random(random_data.as_ptr() as u64, len) })
+        .map_err(|_| RandomError::InternalSdkError)
+        .and_then(|v| match v {
+            RandomResultCode::Ok => Ok(random_data),
+            RandomResultCode::FailedToGenerate => Err(RandomError::FailedToGenerate),
+        })
 }
 
 pub fn now() -> FxInstant {
