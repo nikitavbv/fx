@@ -49,6 +49,13 @@ pub(crate) struct FunctionMemoryViewMut<'a> {
 }
 
 impl<'a> FunctionMemoryViewMut<'a> {
+    pub(crate) fn slice_mut(&mut self, ptr: u64, len: u64) -> Result<&mut [u8], FunctionMemoryAccessError> {
+        let ptr = ptr as usize;
+        let len = len as usize;
+        self.view.get_mut(ptr..ptr+len).ok_or(FunctionMemoryAccessError::OutOfBounds)
+    }
+
+
     pub(crate) fn copy_from_slice(&mut self, ptr: u64, len: u64, copy_from: &[u8]) -> Result<(), FunctionMemoryAccessError> {
         let ptr = ptr as usize;
         let len = len as usize;

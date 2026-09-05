@@ -1,7 +1,16 @@
 use {
     thiserror::Error,
+    futures::FutureExt,
     rusqlite::{Connection, params_from_iter, types::{ValueRef, ToSqlOutput}, ToSql},
-    crate::tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError},
+    bytes::Bytes,
+    http_body_util::BodyExt,
+    tokio::sync::oneshot,
+    fx_types::{capnp, abi_sql_capnp},
+    crate::{
+        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlBatchMessage},
+        function::instance::FunctionInstanceState,
+        triggers::http::HttpBody,
+    },
 };
 
 #[derive(Debug)]
@@ -290,4 +299,83 @@ pub(crate) enum SqlQueryExecutionError {
     UnknownError,
     #[error("error in implementation of sql task")]
     RuntimeError,
+}
+
+pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
+    match req.uri().path() {
+        "/batch" => {
+            let bindings = state.bindings.sql.clone();
+            let sql_tx = state.runtime_services.sql.clone();
+
+            async move {
+                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+                let mut request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let message = request_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
+
+                let binding = message.get_binding().unwrap().to_str().unwrap();
+                let binding = bindings.get(binding);
+
+                let queries: Vec<(String, Vec<SqlValue>)> = message.get_queries().unwrap().into_iter()
+                    .map(|query| {
+                        let statement = query.get_statement().unwrap().to_string().unwrap();
+                        let params = query.get_params().unwrap().into_iter()
+                            .map(|v| match v.get_value().which().unwrap() {
+                                abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
+                                abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
+                                abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
+                                abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
+                                abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+                            })
+                            .collect();
+                        (statement, params)
+                    })
+                    .collect();
+
+                let sql_batch_result = match binding {
+                    Some(binding) => {
+                        let (response_tx, response_rx) = oneshot::channel();
+                        sql_tx.send_message(SqlMessage::Batch(SqlBatchMessage {
+                            binding: binding.clone(),
+                            queries,
+                            response: response_tx
+                        })).unwrap();
+
+                        response_rx.await.unwrap().map_err(SqlBatchError::from)
+                    },
+                    None => Err(SqlBatchError::BindingNotFound),
+                };
+
+                let mut message = capnp::message::Builder::new_default();
+                let sql_batch_result_message = message.init_root::<abi_sql_capnp::sql_batch_result::Builder>();
+                let mut sql_batch_result_message = sql_batch_result_message.init_result();
+
+                match sql_batch_result {
+                    Ok(_) => {
+                        sql_batch_result_message.set_ok(());
+                    },
+                    Err(err) => {
+                        let mut response_error = sql_batch_result_message.init_error().init_error();
+                        match err {
+                            SqlBatchError::DatabaseBusy => response_error.set_database_busy(()),
+                            SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
+                            SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
+                            SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                            SqlBatchError::UnknownError => response_error.set_unknown_error(()),
+                            SqlBatchError::RuntimeError => response_error.set_runtime_error(()),
+                        }
+                    }
+                }
+
+                let bytes = capnp::serialize::write_message_to_words(&message);
+
+                http::Response::new(HttpBody::for_bytes(bytes.into()))
+            }.boxed_local()
+        },
+        _other => {
+            let mut response = http::Response::new(HttpBody::for_bytes("not found.\n".into()));
+            *response.status_mut() = http::StatusCode::NOT_FOUND;
+            std::future::ready(response).boxed_local()
+        }
+    }
 }

@@ -280,4 +280,6 @@ pub enum MetricsCounterRegisterResultCode {
 pub enum RandomResultCode {
     Ok = 0,
     FailedToGenerate = 1,
+    FailedToReadRequest = 2,
+    BadRequest = 3,
 }

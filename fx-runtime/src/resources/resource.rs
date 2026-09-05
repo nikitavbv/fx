@@ -8,7 +8,6 @@ use {
         triggers::http::HttpBody,
         effects::{
             sql::{SqlRow, SqlQueryError, SqlBatchError, SqlMigrationError},
-            blob::BlobGetError,
             fetch::{FetchResultError, HttpStreamError},
             kv::{KvGetHandlerError, KvDelexHandlerError, KvSubscriptionResource, KvPublishHandlerError, KvSubscriptionHandlerError},
         },

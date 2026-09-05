@@ -197,7 +197,6 @@ pub extern "C" fn _fx_function_response_poll(resource_id: u64) -> u64 {
 unsafe extern "C" {
     pub(crate) fn fx_log(req_addr: i64, req_len: i64);
     pub(crate) fn fx_sql_exec(req_addr: u64, req_len: u64) -> u64;
-    pub(crate) fn fx_sql_batch(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_sql_migrate(req_addr: u64, req_len: u64) -> u64;
     pub(crate) fn fx_sleep(sleep_millis: u64) -> u64;
     pub(crate) fn fx_random(ptr: u64, len: u64) -> u64;
@@ -222,8 +221,6 @@ unsafe extern "C" {
     pub(crate) fn fx_unit_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_sql_query_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_sql_query_result_serialize(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_sql_batch_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_sql_batch_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_migration_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_migration_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_future_poll(resource_id: u64, result_addr: u64) -> u64;

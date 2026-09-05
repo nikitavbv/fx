@@ -55,7 +55,7 @@ use {
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError},
+            sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError, handle_sql_request},
             blob::handle_blob_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
@@ -385,67 +385,6 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
     0
 }
 
-pub(super) fn fx_sql_batch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.sql_batch_result_futures,
-        |s| &mut s.sql_batch_results,
-        resource_id
-    );
-
-    write_result(&mut caller, result_addr, match result {
-        Poll::Pending => SqlBatchResultFuturePollResult {
-            tag: 1,
-            _pad: Default::default(),
-            sql_batch_result_resource_id: 0,
-        },
-        Poll::Ready(sql_batch_result_resource_id) => SqlBatchResultFuturePollResult {
-            tag: 0,
-            _pad: Default::default(),
-            sql_batch_result_resource_id: sql_batch_result_resource_id.into(),
-        },
-    });
-
-    0
-}
-
-pub(super) fn fx_sql_batch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let resource = caller.data_mut().resource_set.sql_batch_results.remove(resource_id.into()).unwrap();
-
-    let mut message = capnp::message::Builder::new_default();
-
-    let sql_batch_result = message.init_root::<abi_sql_capnp::sql_batch_result::Builder>();
-    let mut sql_batch_result = sql_batch_result.init_result();
-
-    match resource {
-        Ok(_) => {
-            sql_batch_result.set_ok(());
-        },
-        Err(err) => {
-            let mut response_error = sql_batch_result.init_error().init_error();
-            match err {
-                SqlBatchError::DatabaseBusy => response_error.set_database_busy(()),
-                SqlBatchError::BindingNotFound => response_error.set_binding_not_found(()),
-                SqlBatchError::StatementFailed { reason } => response_error.set_statement_failed(&reason),
-                SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                SqlBatchError::UnknownError => response_error.set_unknown_error(()),
-                SqlBatchError::RuntimeError => response_error.set_runtime_error(()),
-            }
-        }
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-
-    write_result(&mut caller, result_addr, SqlBatchResultSerializeResult {
-        bytes_resource_id: bytes_resource_id.into(),
-        bytes_length: bytes_length as u64,
-    });
-
-    0
-}
-
 pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let resource = caller.data_mut().resource_set.sql_migration_results.remove(resource_id.into()).unwrap();
 
@@ -764,56 +703,6 @@ pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionIn
     }.boxed()).into()
 }
 
-pub(super) fn fx_sql_batch_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let mut message_bytes = {
-        let ptr = req_addr as usize;
-        let len = req_len as usize;
-        &view[ptr..ptr+len]
-    };
-    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
-    let message = message_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
-
-    let binding = message.get_binding().unwrap().to_str().unwrap();
-    let binding = match caller.data().bindings.sql.get(binding) {
-        Some(v) => v,
-        None => return caller.data_mut().resource_set.sql_batch_result_futures.insert(std::future::ready(Err(SqlBatchError::BindingNotFound)).boxed()).into(),
-    };
-
-    let queries: Vec<(String, Vec<SqlValue>)> = message.get_queries().unwrap().into_iter()
-        .map(|query| {
-            let statement = query.get_statement().unwrap().to_string().unwrap();
-            let params = query.get_params().unwrap().into_iter()
-                .map(|v| match v.get_value().which().unwrap() {
-                    abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
-                    abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
-                    abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
-                    abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
-                    abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
-                })
-                .collect();
-            (statement, params)
-        })
-        .collect();
-
-    let (response_tx, response_rx) = oneshot::channel();
-    caller.data().runtime_services.sql.send_message(SqlMessage::Batch(SqlBatchMessage {
-        binding: binding.clone(),
-        queries,
-        response: response_tx,
-    })).unwrap();
-
-    caller.data_mut().resource_set.sql_batch_result_futures.insert(async move {
-        match response_rx.await {
-            Ok(v) => v.map_err(SqlBatchError::from),
-            Err(_) => Err(SqlBatchError::RuntimeShutdown),
-        }
-    }.boxed()).into()
-}
-
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
     caller.data_mut().resource_set.unit_futures.insert(async move {
         tokio::time::sleep(Duration::from_millis(sleep_millis)).await;
@@ -821,13 +710,22 @@ pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstance
 }
 
 pub(super) fn fx_random_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, ptr: u64, len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(err) => match err {
+            function_memory::FunctionMemoryError::MemoryNotFound
+            | function_memory::FunctionMemoryError::MemoryNotMemory => return RandomResultCode::FailedToReadRequest as u64,
+        },
+    };
     let mut context = caller.as_context_mut();
-    let view = memory.data_mut(&mut context);
-    let ptr = ptr as usize;
-    let len = len as usize;
+    let mut view = memory.view_mut(&mut context);
 
-    (match rand::rngs::OsRng.try_fill_bytes(&mut view[ptr..ptr+len]) {
+    let view = match view.slice_mut(ptr, len) {
+        Ok(v) => v,
+        Err(_) => return RandomResultCode::BadRequest as u64,
+    };
+
+    (match rand::rngs::OsRng.try_fill_bytes(view) {
         Ok(()) => RandomResultCode::Ok,
         Err(err) => {
             error!("random: failed to fill random bytes: {err:?}");
@@ -960,6 +858,31 @@ pub(super) fn fx_fetch_handler(
         }
     }
 
+    let body = request
+        .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
+        .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
+
+    let body = match body {
+        Err(err) => Err(err),
+        Ok(body) => match body {
+            abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
+            abi_http_capnp::http_body::body::Which::Bytes(v) => v.map_err(|_| FetchResultError::BadRequest).map(|v| HttpBody::for_bytes(v.to_vec().into())),
+            abi_http_capnp::http_body::body::Which::HostResource(v) =>
+                caller.data_mut().resource_set.http_bodies.remove(v.into())
+                    .ok_or(FetchResultError::BodyHostResourceIdNotFound)
+                    .map(|body| HttpBody::for_stream(BodyStream::new(body)
+                        .filter_map(|result| async {
+                            match result {
+                                Ok(frame) => frame.into_data().ok().map(Ok),
+                                Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
+                            }
+                        }).boxed())),
+            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
+                .ok_or(FetchResultError::InternalRuntimeAssertionError)
+                .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
+        },
+    };
+
     let result = match request_host {
         Err(err) => std::future::ready(Err(err)).boxed_local(),
         Ok(request_host) => {
@@ -971,31 +894,6 @@ pub(super) fn fx_fetch_handler(
 
                 async move { response_rx?.await.map_err(FetchResultError::from) }.boxed_local()
             } else if request_host == "blob.fx.internal" {
-                let body = request
-                    .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
-                    .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
-
-                let body = match body {
-                    Err(err) => Err(err),
-                    Ok(body) => match body {
-                        abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
-                        abi_http_capnp::http_body::body::Which::Bytes(v) => v.map_err(|_| FetchResultError::BadRequest).map(|v| HttpBody::for_bytes(v.to_vec().into())),
-                        abi_http_capnp::http_body::body::Which::HostResource(v) =>
-                            caller.data_mut().resource_set.http_bodies.remove(v.into())
-                                .ok_or(FetchResultError::BodyHostResourceIdNotFound)
-                                .map(|body| HttpBody::for_stream(BodyStream::new(body)
-                                    .filter_map(|result| async {
-                                        match result {
-                                            Ok(frame) => frame.into_data().ok().map(Ok),
-                                            Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
-                                        }
-                                    }).boxed())),
-                        abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
-                            .ok_or(FetchResultError::InternalRuntimeAssertionError)
-                            .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
-                    },
-                };
-
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
                 let response_future = match request {
@@ -1005,31 +903,6 @@ pub(super) fn fx_fetch_handler(
 
                 tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
             } else if request_host == "kv.fx.internal" {
-                let body = request
-                    .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
-                    .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
-
-                let body = match body {
-                    Err(err) => Err(err),
-                    Ok(body) => match body {
-                        abi_http_capnp::http_body::body::Which::Empty(_) => Ok(HttpBody::for_stream(futures::stream::empty().boxed())),
-                        abi_http_capnp::http_body::body::Which::Bytes(v) => v.map_err(|_| FetchResultError::BadRequest).map(|v| HttpBody::for_bytes(v.to_vec().into())),
-                        abi_http_capnp::http_body::body::Which::HostResource(v) =>
-                            caller.data_mut().resource_set.http_bodies.remove(v.into())
-                                .ok_or(FetchResultError::BodyHostResourceIdNotFound)
-                                .map(|body| HttpBody::for_stream(BodyStream::new(body)
-                                    .filter_map(|result| async {
-                                        match result {
-                                            Ok(frame) => frame.into_data().ok().map(Ok),
-                                            Err(_) => Some(Err(HttpStreamError::FunctionRequestBodyStreamError)),
-                                        }
-                                    }).boxed())),
-                        abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) => caller.data_mut().self_instance.upgrade()
-                            .ok_or(FetchResultError::InternalRuntimeAssertionError)
-                            .map(|instance | HttpBody::for_function_stream(instance, resource_id.into())),
-                    },
-                };
-
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
                 let response_future = match request {
@@ -1044,53 +917,24 @@ pub(super) fn fx_fetch_handler(
                 };
 
                 tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
-            } else {
-                let body = {
-                    let body_set_result = request
-                        .as_ref()
-                        .map_err(|err| err.clone())
-                        .and_then(|v| v.get_body().map_err(|_| FetchResultError::BadRequest))
-                        .map_err(|_| FetchResultError::BadRequest)
-                        .and_then(|v| v.get_body().which().map_err(|_| FetchResultError::BadRequest));
+            } else if request_host == "sql.fx.internal" {
+                let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
-                    match body_set_result {
-                        Err(err) => Err(err),
-                        Ok(v) => match v {
-                            abi_http_capnp::http_body::body::Which::Empty(_) => Ok(reqwest::Body::default()),
-                            abi_http_capnp::http_body::body::Which::Bytes(v) =>
-                                v
-                                    .map(|v| {
-                                        reqwest::Body::from(v.to_vec())
-                                    })
-                                    .map_err(|_| FetchResultError::BadRequest),
-                            abi_http_capnp::http_body::body::Which::HostResource(v) =>
-                                caller.data_mut().resource_set.http_bodies.remove(v.into())
-                                    .ok_or(FetchResultError::BodyHostResourceIdNotFound)
-                                    .map(|body| {
-                                        let stream = BodyStream::new(body)
-                                            .filter_map(|result| async {
-                                                match result {
-                                                    Ok(frame) => frame.into_data().ok().map(Ok),
-                                                    Err(e) => Some(Err(e)),
-                                                }
-                                            });
-                                        reqwest::Body::wrap_stream(stream)
-                                    }),
-                            abi_http_capnp::http_body::body::Which::FunctionStream(resource_id) =>
-                                caller.data_mut().self_instance.upgrade()
-                                    .ok_or(FetchResultError::InternalRuntimeAssertionError)
-                                    .map(|function_instance| {
-                                        let reader = FunctionStreamReader::new(function_instance, resource_id.into());
-                                        reqwest::Body::wrap_stream(send_wrapper::SendWrapper::new(reader))
-                                    })
-                        }
-                    }
+                let response_future = match request {
+                    Ok(request) => handle_sql_request(caller.data(), request).map(Ok).boxed_local(),
+                    Err(err) => std::future::ready(Err(err)).boxed_local(),
                 };
 
+                tokio::task::spawn_local(response_future).map(|v| v.map_err(|_| FetchResultError::InternalRuntimeAssertionError).flatten()).boxed_local()
+            } else {
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
                 let fetch_request = request
-                    .and_then(|request| reqwest::Request::try_from(request).map_err(|_| FetchResultError::InternalRuntimeAssertionError))
+                    .and_then(|request| {
+                        let (parts, body) = request.into_parts();
+                        let request = http::Request::from_parts(parts, reqwest::Body::wrap_stream(body.into_data_stream()));
+                        reqwest::Request::try_from(request).map_err(|_| FetchResultError::InternalRuntimeAssertionError)
+                    })
                     .map(|mut request| {
                         *request.timeout_mut() = Some(Duration::from_secs(3));
                         request

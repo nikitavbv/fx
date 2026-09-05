@@ -18,10 +18,9 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_sql_capnp, abi::RandomResultCode},
     crate::{
-        api::sql::{SqlQueryResultFuture, SqlBatchResultFuture},
+        api::sql::SqlQueryResultFuture,
         sys::{
             fx_sql_exec,
-            fx_sql_batch,
             fx_sleep,
             HostUnitFuture,
             fx_random,
@@ -62,6 +61,7 @@ pub fn random(len: u64) -> StdResult<Vec<u8>, RandomError> {
         .and_then(|v| match v {
             RandomResultCode::Ok => Ok(random_data),
             RandomResultCode::FailedToGenerate => Err(RandomError::FailedToGenerate),
+            RandomResultCode::BadRequest | RandomResultCode::FailedToReadRequest => Err(RandomError::InternalSdkError),
         })
 }
 
@@ -146,7 +146,25 @@ impl SqlDatabase {
             capnp::serialize::write_message_segments_to_words(&message)
         };
 
-        SqlBatchResultFuture::new(unsafe { fx_sql_batch(message.as_ptr() as u64, message.len() as u64) }).await
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://sql.fx.internal/batch").unwrap()
+                .with_body(message)
+        ).await.unwrap().bytes().await;
+
+        let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let request = resource_reader.get_root::<fx_types::abi_sql_capnp::sql_batch_result::Reader>().unwrap();
+
+        match request.get_result().which().unwrap() {
+            abi_sql_capnp::sql_batch_result::result::Which::Ok(_) => Ok(()),
+            abi_sql_capnp::sql_batch_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                abi_sql_capnp::sql_batch_error::error::Which::BindingNotFound(_) => SqlBatchError::BindingNotFound,
+                abi_sql_capnp::sql_batch_error::error::Which::DatabaseBusy(_) => SqlBatchError::DatabaseBusy,
+                abi_sql_capnp::sql_batch_error::error::Which::StatementFailed(err) => SqlBatchError::StatementFailed { reason: err.unwrap().to_string().unwrap() },
+                abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
+                abi_sql_capnp::sql_batch_error::error::Which::UnknownError(_) => SqlBatchError::UnknownError,
+                abi_sql_capnp::sql_batch_error::error::Which::RuntimeError(_) => SqlBatchError::RuntimeError,
+            }),
+        }
     }
 }
 
