@@ -38,10 +38,6 @@ impl<'a> FunctionMemoryView<'a> {
         let len = len as usize;
         self.view.get(ptr..ptr+len).ok_or(FunctionMemoryAccessError::OutOfBounds)
     }
-
-    pub(crate) fn vec_clone(&self, ptr: u64, len: u64) -> Result<Vec<u8>, FunctionMemoryAccessError> {
-        self.slice(ptr, len).map(|v| v.to_vec())
-    }
 }
 
 pub(crate) struct FunctionMemoryViewMut<'a> {

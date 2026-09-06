@@ -71,16 +71,12 @@ impl From<KvSetError> for KvSetHandlerError {
 
 #[derive(Debug, Error)]
 pub(crate) enum KvGetHandlerError {
-    #[error("key not found")]
-    KeyNotFound,
     #[error("runtime is being shut down")]
     RuntimeShutdown,
     #[error("binding with requested name is not found")]
     BindingNotFound,
     #[error("invalid kv get request")]
     BadRequest,
-    #[error("failed to read request")]
-    FailedToReadRequest,
 }
 
 pub(crate) struct KvDelexRequest {
@@ -168,11 +164,10 @@ async fn handle_kv_get(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<String
 
     match kv_get_response {
         Ok(Some(v)) => message_response.set_value(&v),
-        Ok(None) | Err(KvGetHandlerError::KeyNotFound) => message_response.set_key_not_found(()),
+        Ok(None) => message_response.set_key_not_found(()),
         Err(KvGetHandlerError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
         Err(KvGetHandlerError::BindingNotFound) => message_response.set_binding_not_found(()),
         Err(KvGetHandlerError::BadRequest) => message_response.set_bad_request(()),
-        Err(KvGetHandlerError::FailedToReadRequest) => message_response.set_failed_to_read_request(()),
     }
 
     http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))

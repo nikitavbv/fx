@@ -6,8 +6,8 @@ pub(crate) use fx_types::{
 };
 
 use {
-    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap, future::ready},
-    tokio::{sync::oneshot, time::Duration},
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap},
+    tokio::time::Duration,
     tracing::{debug, error, warn},
     http::Method,
     http_body_util::{BodyStream, BodyExt},
@@ -49,10 +49,6 @@ use {
             kv::handle_kv_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::KvGetHandlerError,
-        },
-        tasks::{
-            kv::{KvMessage, KvOperation},
         },
         triggers::http::{HttpBody, HttpBodyInner},
     },
@@ -808,41 +804,6 @@ pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         Ok(_) => EnvGetResult::Ok,
         Err(_) => EnvGetResult::FailedToWriteValue,
     }) as u64
-}
-
-pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, key_addr: u64, key_len: u64) -> u64 {
-    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
-        Ok(v) => v,
-        Err(_) => return caller.data_mut().resource_set.kv_get_response_futures.insert(ready(Err(KvGetHandlerError::FailedToReadRequest)).boxed()).into(),
-    };
-
-    let context = caller.as_context();
-    let view = memory.view(&context);
-
-    let binding = view.slice(binding_addr, binding_len).map_err(|_| KvGetHandlerError::FailedToReadRequest)
-        .and_then(|binding| str::from_utf8(binding).map_err(|_| KvGetHandlerError::BadRequest));
-    let namespace = binding
-        .map(|binding| caller.data().bindings.kv.get(binding).map(|v| v.namespace.clone()));
-
-    let key = view.vec_clone(key_addr, key_len).map_err(|_| KvGetHandlerError::FailedToReadRequest);
-    let kv_tx = caller.data_mut().runtime_services.kv.clone();
-
-    caller.data_mut().resource_set.kv_get_response_futures.insert(async move {
-        let namespace = namespace?.ok_or(KvGetHandlerError::BindingNotFound)?;
-        let key = key?;
-
-        let (result_tx, result_rx) = oneshot::channel();
-
-        kv_tx.send_async(KvMessage {
-            namespace,
-            operation: KvOperation::Get { key, result: result_tx },
-        }).await.map_err(|_| KvGetHandlerError::RuntimeShutdown)?;
-
-        match result_rx.await.map_err(|_| KvGetHandlerError::RuntimeShutdown)? {
-            None => Err(KvGetHandlerError::KeyNotFound),
-            Some(v) => Ok(v),
-        }
-    }.boxed()).into()
 }
 
 pub(super) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {
