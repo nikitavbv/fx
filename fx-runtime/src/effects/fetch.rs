@@ -93,6 +93,4 @@ pub enum HttpStreamError {
     RequestBodyStreamError,
     #[error("failed to read http request body stream owned by function")]
     FunctionRequestBodyStreamError,
-    #[error("failed to read rpc response stream")]
-    RpcResponseStreamError,
 }

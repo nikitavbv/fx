@@ -7,14 +7,12 @@ use {
     wasmtime::{AsContextMut, AsContext},
     zerocopy::FromBytes,
     send_wrapper::SendWrapper,
-    axum::routing::RouterIntoService,
     fx_types::{abi::{FunctionHttpBodyFramePollResult, FunctionResponsePollResult}, capnp, abi_http_capnp},
     crate::{
         function::resource::FunctionStreamResourceId,
         effects::{
             logs::LogMessageEvent,
             metrics::FunctionMetricsState,
-            kv,
         },
         tasks::{sql::SqlController, worker::LocalWorkerController, kv::KvMessage, blob::BlobMessage},
         definitions::bindings::{SqlBindingConfig, BlobBindingConfig, FunctionBindingConfig, KvBindingConfig},
@@ -555,8 +553,6 @@ pub(crate) struct RuntimeServices {
     pub(crate) sql: SqlController,
     pub(crate) kv: flume::Sender<KvMessage>,
     pub(crate) blob: flume::Sender<BlobMessage>,
-
-    pub(crate) kv_service: RouterIntoService<HttpBody>,
 }
 
 impl RuntimeServices {
@@ -566,11 +562,8 @@ impl RuntimeServices {
         sql: SqlController,
         kv: flume::Sender<KvMessage>,
         blob: flume::Sender<BlobMessage>,
-        bindings_kv: HashMap<String, KvBindingConfig>,
     ) -> Self {
         Self {
-            kv_service: kv::create_service(kv.clone(), bindings_kv),
-
             local_worker,
             logger,
             sql,

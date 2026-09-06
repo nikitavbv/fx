@@ -17,7 +17,6 @@ use {
     rand::TryRngCore,
     send_wrapper::SendWrapper,
     zerocopy::IntoBytes,
-    tower::Service,
     fx_types::abi::{
         ResourceMoveFromHostResult,
         UnitFuturePollResult,
@@ -51,6 +50,7 @@ use {
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
             sql::handle_sql_request,
             blob::handle_blob_request,
+            kv::handle_kv_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvSubscriptionHandlerError},
@@ -401,7 +401,6 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
     match http_frame {
         Some(Err(HttpStreamError::FetchResponseStreamError(_))) // failed to read response stream from http call to external host
         | Some(Err(HttpStreamError::RequestBodyStreamError)) // failed to read http stream that request body for http trigger of this function
-        | Some(Err(HttpStreamError::RpcResponseStreamError)) // failed to read http stream from internal rpc service (e.g, kv/blob)
         | Some(Err(HttpStreamError::FunctionRequestBodyStreamError)) => serialized_frame.set_response_stream_read_error(()), // failed to read response stream because failed to read it from function that generated it
         Some(Ok(bytes)) => serialized_frame.set_bytes(bytes.as_ref()),
         None => serialized_frame.set_stream_end(()),
@@ -664,13 +663,7 @@ pub(super) fn fx_fetch_handler(
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
                 let response_future = match request {
-                    Ok(request) => caller.data_mut().runtime_services.kv_service.call(request)
-                        .map(|v| {
-                            let (parts, body) = v.unwrap().into_parts();
-                            let body = HttpBody::for_stream(TryStreamExt::map_err(body.into_data_stream(), |_| HttpStreamError::RpcResponseStreamError).boxed());
-                            Ok(::http::Response::from_parts(parts, body))
-                        })
-                        .boxed_local(),
+                    Ok(request) => handle_kv_request(caller.data(), request).map(Ok).boxed_local(),
                     Err(err) => std::future::ready(Err(err)).boxed_local(),
                 };
 

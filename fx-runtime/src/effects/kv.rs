@@ -3,9 +3,11 @@ use {
     tokio::sync::oneshot,
     thiserror::Error,
     futures::{stream::{BoxStream, Stream}, FutureExt, StreamExt},
-    axum::{routing::RouterIntoService, Router, Extension},
+    bytes::Bytes,
+    http_body_util::BodyExt,
     fx_types::{capnp, abi_kv_capnp},
     crate::{
+        function::instance::FunctionInstanceState,
         tasks::kv::{KvMessage, KvOperation},
         triggers::http::HttpBody,
         definitions::bindings::KvBindingConfig,
@@ -148,21 +150,20 @@ impl Stream for KvSubscriptionResource {
     }
 }
 
-pub(crate) fn create_service(sender: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>) -> RouterIntoService<HttpBody> {
-    Router::new()
-        .route("/get", axum::routing::post(handle_kv_get))
-        .route("/set", axum::routing::post(handle_kv_set))
-        .route("/publish", axum::routing::post(handle_kv_publish))
-        .layer(Extension(sender))
-        .layer(Extension(bindings))
-        .into_service()
+pub(crate) fn handle_kv_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
+    match req.uri().path() {
+        "/get" => handle_kv_get(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
+        "/set" => handle_kv_set(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
+        "/publish" => handle_kv_publish(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
+        _other => {
+            let mut response = http::Response::new(HttpBody::for_bytes("not found.\n".into()));
+            *response.status_mut() = http::StatusCode::NOT_FOUND;
+            std::future::ready(response).boxed_local()
+        },
+    }
 }
 
-async fn handle_kv_get(
-    Extension(sender): Extension<flume::Sender<KvMessage>>,
-    Extension(bindings): Extension<HashMap<String, KvBindingConfig>>,
-    body: axum::body::Bytes,
-) -> impl axum::response::IntoResponse {
+async fn handle_kv_get(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>, req: http::Request<HttpBody>) -> http::Response<HttpBody> {
     async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<Option<Vec<u8>>, KvGetHandlerError> {
         let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
         let request = request_reader.get_root::<abi_kv_capnp::kv_get_request::Reader>().unwrap();
@@ -177,19 +178,20 @@ async fn handle_kv_get(
 
         kv_tx.send_async(KvMessage {
             namespace,
-            operation: crate::tasks::kv::KvOperation::Get { key, result: result_tx },
+            operation: KvOperation::Get { key, result: result_tx },
         }).await.map_err(|_| KvGetHandlerError::RuntimeShutdown)?;
 
         result_rx.await.map_err(|_| KvGetHandlerError::RuntimeShutdown)
     }
 
-    let response = handler(sender, &bindings, body.as_ref()).await;
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let kv_get_response = handler(kv_tx, &bindings, bytes.as_ref()).await;
 
     let mut message = capnp::message::Builder::new_default();
     let message_response = message.init_root::<abi_kv_capnp::kv_get_response::Builder>();
     let mut message_response = message_response.init_response();
 
-    match response {
+    match kv_get_response {
         Ok(Some(v)) => message_response.set_value(&v),
         Ok(None) | Err(KvGetHandlerError::KeyNotFound) => message_response.set_key_not_found(()),
         Err(KvGetHandlerError::RuntimeShutdown) => message_response.set_runtime_shutdown(()),
@@ -198,14 +200,10 @@ async fn handle_kv_get(
         Err(KvGetHandlerError::FailedToReadRequest) => message_response.set_failed_to_read_request(()),
     }
 
-    capnp::serialize::write_message_to_words(&message)
+    http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
 }
 
-async fn handle_kv_set(
-    Extension(kv_tx): axum::Extension<flume::Sender<KvMessage>>,
-    Extension(bindings): Extension<HashMap<String, KvBindingConfig>>,
-    body: axum::body::Bytes,
-) -> impl axum::response::IntoResponse {
+async fn handle_kv_set(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>, req: http::Request<HttpBody>) -> http::Response<HttpBody> {
     async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<(), KvSetHandlerError> {
         let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
         let request = request_reader.get_root::<abi_kv_capnp::kv_set_request::Reader>().unwrap();
@@ -233,7 +231,8 @@ async fn handle_kv_set(
         on_done_rx.await.map_err(|_| KvSetHandlerError::RuntimeShutdown)?.map_err(KvSetHandlerError::from)
     }
 
-    let kv_set_response = handler(kv_tx, &bindings, body.as_ref()).await;
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let kv_set_response = handler(kv_tx, &bindings, bytes.as_ref()).await;
 
     let mut message = capnp::message::Builder::new_default();
     let response = message.init_root::<abi_kv_capnp::kv_set_response::Builder>();
@@ -247,14 +246,10 @@ async fn handle_kv_set(
         Err(KvSetHandlerError::BadRequest) => response.set_bad_request(()),
     }
 
-    capnp::serialize::write_message_segments_to_words(&message)
+    http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
 }
 
-async fn handle_kv_publish(
-    Extension(kv_tx): axum::Extension<flume::Sender<KvMessage>>,
-    Extension(bindings): Extension<HashMap<String, KvBindingConfig>>,
-    body: axum::body::Bytes,
-) -> impl axum::response::IntoResponse {
+async fn handle_kv_publish(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>, req: http::Request<HttpBody>) -> http::Response<HttpBody> {
     async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<(), KvPublishHandlerError> {
         let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
         let request = request_reader.get_root::<abi_kv_capnp::kv_publish_request::Reader>().unwrap();
@@ -276,7 +271,8 @@ async fn handle_kv_publish(
         result_rx.await.map_err(|_| KvPublishHandlerError::RuntimeShutdown)
     }
 
-    let kv_publish_response = handler(kv_tx, &bindings, body.as_ref()).await;
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let kv_publish_response = handler(kv_tx, &bindings, bytes.as_ref()).await;
 
     let mut message = capnp::message::Builder::new_default();
     let response = message.init_root::<abi_kv_capnp::kv_publish_result::Builder>();
@@ -289,5 +285,5 @@ async fn handle_kv_publish(
         Err(KvPublishHandlerError::BadRequest) => response.set_bad_request(()),
     }
 
-    capnp::serialize::write_message_to_words(&message)
+    http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
 }

@@ -206,7 +206,6 @@ async fn worker_handle_message(
                     worker.sql_controller.clone(),
                     worker.kv_tx.clone(),
                     worker.blob_tx.clone(),
-                    bindings_kv.clone(),
                 ),
                 limit_memory_bytes,
                 function_id.clone(),
