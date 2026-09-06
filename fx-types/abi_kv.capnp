@@ -58,6 +58,12 @@ struct KvPublishResult {
     }
 }
 
+struct KvDelexRequest {
+    binding @0 :Text;
+    key @1 :Data;
+    ifeq @2 :Data;
+}
+
 struct KvDelexResult {
     result :union {
         ok @0 :Void;

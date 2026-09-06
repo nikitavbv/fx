@@ -69,9 +69,6 @@ impl FunctionDeployment {
             "fx_env_len" => super::abi::fx_env_len_handler;
             "fx_env_get" => super::abi::fx_env_get_handler;
             "fx_kv_get" => super::abi::fx_kv_get_handler;
-            "fx_kv_delex_ifeq" => super::abi::fx_kv_delex_ifeq_handler;
-            "fx_kv_delex_result_future_poll" => super::abi::fx_kv_delex_result_future_poll;
-            "fx_kv_delex_result_serialize" => super::abi::fx_kv_delex_result_serialize;
             "fx_kv_subscribe" => super::abi::fx_kv_subscribe_handler;
             "fx_tasks_background_spawn" => super::abi::fx_tasks_background_spawn_handler;
             "fx_fetch_request_header_serialize" => super::abi::fx_fetch_request_header_serialize_handler;

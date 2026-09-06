@@ -91,8 +91,6 @@ pub(crate) struct KvDelexRequest {
 pub(crate) enum KvDelexHandlerError {
     #[error("runtime is being shut down")]
     RuntimeShutdown,
-    #[error("failed to read request")]
-    FailedToReadRequest,
     #[error("invalid kv delex request")]
     BadRequest,
     #[error("binding with requested name is not found")]
@@ -155,6 +153,7 @@ pub(crate) fn handle_kv_request(state: &FunctionInstanceState, req: http::Reques
         "/get" => handle_kv_get(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
         "/set" => handle_kv_set(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
         "/publish" => handle_kv_publish(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
+        "/delex_ifeq" => handle_kv_delex_ifeq(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
         _other => {
             let mut response = http::Response::new(HttpBody::for_bytes("not found.\n".into()));
             *response.status_mut() = http::StatusCode::NOT_FOUND;
@@ -283,6 +282,45 @@ async fn handle_kv_publish(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<St
         Err(KvPublishHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
         Err(KvPublishHandlerError::BindingNotFound) => response.set_binding_not_found(()),
         Err(KvPublishHandlerError::BadRequest) => response.set_bad_request(()),
+    }
+
+    http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
+}
+
+async fn handle_kv_delex_ifeq(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>, req: http::Request<HttpBody>) -> http::Response<HttpBody> {
+    async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<(), KvDelexHandlerError> {
+        let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
+        let request = request_reader.get_root::<abi_kv_capnp::kv_delex_request::Reader>().unwrap();
+
+        let binding = request.get_binding().map_err(|_| KvDelexHandlerError::BadRequest)?;
+        let binding = str::from_utf8(&binding.as_bytes()).map_err(|_| KvDelexHandlerError::BadRequest)?;
+        let namespace = bindings.get(binding).ok_or(KvDelexHandlerError::BindingNotFound)?.namespace.clone();
+
+        let key = request.get_key().map_err(|_| KvDelexHandlerError::BadRequest)?.to_vec();
+        let ifeq = request.get_ifeq().map_err(|_| KvDelexHandlerError::BadRequest)?.to_vec();
+
+        let (result_tx, result_rx) = oneshot::channel();
+
+        kv_tx.send_async(KvMessage {
+            namespace,
+            operation: KvOperation::Delex(KvDelexRequest { key, ifeq }, result_tx),
+        }).await.map_err(|_| KvDelexHandlerError::RuntimeShutdown)?;
+
+        result_rx.await.map_err(|_| KvDelexHandlerError::RuntimeShutdown)
+    }
+
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let kv_delex_response = handler(kv_tx, &bindings, bytes.as_ref()).await;
+
+    let mut message = capnp::message::Builder::new_default();
+    let response = message.init_root::<abi_kv_capnp::kv_delex_result::Builder>();
+    let mut response = response.init_result();
+
+    match kv_delex_response {
+        Ok(()) => response.set_ok(()),
+        Err(KvDelexHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+        Err(KvDelexHandlerError::BindingNotFound) => response.set_binding_not_found(()),
+        Err(KvDelexHandlerError::BadRequest) => response.set_bad_request(()),
     }
 
     http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
