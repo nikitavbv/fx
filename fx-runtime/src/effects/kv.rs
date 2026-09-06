@@ -2,11 +2,12 @@ use {
     std::{time::Duration, collections::HashMap},
     tokio::sync::oneshot,
     thiserror::Error,
-    futures::{stream::{BoxStream, Stream}, FutureExt, StreamExt},
+    futures::{FutureExt, StreamExt},
     bytes::Bytes,
     http_body_util::BodyExt,
     fx_types::{capnp, abi_kv_capnp},
     crate::{
+        effects::fetch::HttpStreamError,
         function::instance::FunctionInstanceState,
         tasks::kv::{KvMessage, KvOperation},
         triggers::http::HttpBody,
@@ -120,32 +121,6 @@ pub(crate) enum KvSubscriptionHandlerError {
     BindingNotFound,
     #[error("invalid kv subscription request")]
     BadRequest,
-    #[error("failed to read request")]
-    FailedToReadRequest,
-}
-
-pub(crate) enum KvSubscriptionResource {
-    Init(tokio::sync::oneshot::Receiver<flume::Receiver<Vec<u8>>>),
-    Stream(BoxStream<'static, Vec<u8>>),
-}
-
-impl Stream for KvSubscriptionResource {
-    type Item = Vec<u8>;
-
-    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        let subscription = self.get_mut();
-        match subscription {
-            Self::Init(v) => match v.poll_unpin(cx) {
-                std::task::Poll::Pending => return std::task::Poll::Pending,
-                std::task::Poll::Ready(v) => {
-                    let v = v.unwrap().into_stream();
-                    *subscription = KvSubscriptionResource::Stream(v.boxed());
-                    subscription.poll_next_unpin(cx)
-                }
-            },
-            Self::Stream(v) => v.poll_next_unpin(cx)
-        }
-    }
 }
 
 pub(crate) fn handle_kv_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
@@ -154,6 +129,7 @@ pub(crate) fn handle_kv_request(state: &FunctionInstanceState, req: http::Reques
         "/set" => handle_kv_set(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
         "/publish" => handle_kv_publish(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
         "/delex_ifeq" => handle_kv_delex_ifeq(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
+        "/subscribe" => handle_kv_subscribe(state.runtime_services.kv.clone(), state.bindings.kv.clone(), req).boxed_local(),
         _other => {
             let mut response = http::Response::new(HttpBody::for_bytes("not found.\n".into()));
             *response.status_mut() = http::StatusCode::NOT_FOUND;
@@ -324,4 +300,56 @@ async fn handle_kv_delex_ifeq(kv_tx: flume::Sender<KvMessage>, bindings: HashMap
     }
 
     http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()))
+}
+
+async fn handle_kv_subscribe(kv_tx: flume::Sender<KvMessage>, bindings: HashMap<String, KvBindingConfig>, req: http::Request<HttpBody>) -> http::Response<HttpBody> {
+    async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<flume::Receiver<Vec<u8>>, KvSubscriptionHandlerError> {
+        let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
+        let request = request_reader.get_root::<abi_kv_capnp::kv_subscribe_request::Reader>().unwrap();
+
+        let binding = request.get_binding().map_err(|_| KvSubscriptionHandlerError::BadRequest)?;
+        let binding = str::from_utf8(&binding.as_bytes()).map_err(|_| KvSubscriptionHandlerError::BadRequest)?;
+        let namespace = bindings.get(binding).ok_or(KvSubscriptionHandlerError::BindingNotFound)?.namespace.clone();
+
+        let channel = request.get_channel().map_err(|_| KvSubscriptionHandlerError::BadRequest)?.to_vec();
+
+        let (result_tx, result_rx) = oneshot::channel();
+
+        kv_tx.send_async(KvMessage {
+            namespace,
+            operation: KvOperation::Subscribe { channel, result: result_tx },
+        }).await.map_err(|_| KvSubscriptionHandlerError::RuntimeShutdown)?;
+
+        result_rx.await.map_err(|_| KvSubscriptionHandlerError::RuntimeShutdown)
+    }
+
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let subscription = handler(kv_tx, &bindings, bytes.as_ref()).await;
+
+    match subscription {
+        Ok(receiver) => http::Response::new(HttpBody::for_stream(
+            receiver.into_stream()
+                .map(|v| Ok::<_, HttpStreamError>(Bytes::from(v)))
+                .boxed()
+        )),
+        Err(err) => {
+            let mut message = capnp::message::Builder::new_default();
+            let response = message.init_root::<abi_kv_capnp::kv_subscribe_error::Builder>();
+            let mut response = response.init_error();
+
+            match &err {
+                KvSubscriptionHandlerError::RuntimeShutdown => response.set_runtime_shutdown(()),
+                KvSubscriptionHandlerError::BindingNotFound => response.set_binding_not_found(()),
+                KvSubscriptionHandlerError::BadRequest => response.set_bad_request(()),
+            }
+
+            let mut response = http::Response::new(HttpBody::for_bytes(capnp::serialize::write_message_to_words(&message).into()));
+            *response.status_mut() = match err {
+                KvSubscriptionHandlerError::RuntimeShutdown => http::StatusCode::SERVICE_UNAVAILABLE,
+                KvSubscriptionHandlerError::BindingNotFound => http::StatusCode::NOT_FOUND,
+                KvSubscriptionHandlerError::BadRequest => http::StatusCode::BAD_REQUEST,
+            };
+            response
+        },
+    }
 }

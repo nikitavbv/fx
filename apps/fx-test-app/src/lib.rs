@@ -684,7 +684,7 @@ async fn kv_distributed_lock() -> &'static str {
 async fn kv_pubsub_subscribe() -> String {
     let kv = kv::Kv::new("test-namespace");
 
-    let sum = kv.subscribe("test-channel").await
+    let sum = kv.subscribe("test-channel").await.unwrap()
         .take(3)
         .map(|v| String::from_utf8(v.unwrap()).unwrap().parse::<u64>().unwrap())
         .reduce(|a, b| async move { a + b}).await

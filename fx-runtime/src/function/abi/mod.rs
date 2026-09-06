@@ -24,7 +24,6 @@ use {
         HttpBodyPollFrameResult,
         HttpFrameSerializeResult,
         HttpFrameSerializeResultCode,
-        KvSubscriptionStreamPollResult,
         EnvGetResult,
         EnvLenResult,
         EnvLenResultCode,
@@ -50,7 +49,7 @@ use {
             kv::handle_kv_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvGetHandlerError, KvSubscriptionResource, KvSubscriptionHandlerError},
+            kv::KvGetHandlerError,
         },
         tasks::{
             kv::{KvMessage, KvOperation},
@@ -227,44 +226,6 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
     view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
-}
-
-pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let data = caller.data_mut();
-    let subscription_stream = data.resource_set.kv_subscriptions.get_mut(resource_id.into()).unwrap();
-
-    let result = match subscription_stream {
-        Ok(subscription_stream) => {
-            let waker = data.waker.clone().unwrap();
-            let mut cx = std::task::Context::from_waker(&waker);
-
-            let result = subscription_stream.poll_next_unpin(&mut cx);
-
-            match result {
-                Poll::Ready(Some(v)) => KvSubscriptionStreamPollResult {
-                    tag: 1,
-                    _pad: Default::default(),
-                    resolved_resource_id: data.resource_set.bytes.insert(v).into(),
-                },
-                Poll::Ready(None) => KvSubscriptionStreamPollResult {
-                    tag: 0,
-                    ..Default::default()
-                },
-                Poll::Pending => KvSubscriptionStreamPollResult {
-                    tag: 2,
-                    ..Default::default()
-                },
-            }
-        },
-        Err(KvSubscriptionHandlerError::RuntimeShutdown) => KvSubscriptionStreamPollResult { tag: 3, ..Default::default() },
-        Err(KvSubscriptionHandlerError::BindingNotFound) => KvSubscriptionStreamPollResult { tag: 4, ..Default::default() },
-        Err(KvSubscriptionHandlerError::BadRequest) => KvSubscriptionStreamPollResult { tag: 5, ..Default::default() },
-        Err(KvSubscriptionHandlerError::FailedToReadRequest) => KvSubscriptionStreamPollResult { tag: 6, ..Default::default() },
-    };
-
-    write_result(&mut caller, result_addr, result);
 
     0
 }
@@ -882,42 +843,6 @@ pub(crate) fn fx_kv_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanc
             Some(v) => Ok(v),
         }
     }.boxed()).into()
-}
-
-pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64 {
-    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
-        Ok(v) => v,
-        Err(_) => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::FailedToReadRequest)).into(),
-    };
-    let context = caller.as_context();
-    let view = memory.view(&context);
-
-    let binding = {
-        let binding = match view.slice(binding_addr, binding_len) {
-            Ok(v) => v,
-            Err(_) => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::FailedToReadRequest)).into(),
-        };
-        match str::from_utf8(binding) {
-            Ok(v) => v,
-            Err(_) => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::BadRequest)).into(),
-        }
-    };
-    let namespace = match caller.data().bindings.kv.get(binding) {
-        Some(v) => v.namespace.clone(),
-        None => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::BindingNotFound)).into(),
-    };
-
-    let channel = match view.vec_clone(channel_addr, channel_len) {
-        Ok(v) => v,
-        Err(_)  => return caller.data_mut().resource_set.kv_subscriptions.insert(Err(KvSubscriptionHandlerError::FailedToReadRequest)).into(),
-    };
-
-    let (result_tx, result_rx) = oneshot::channel();
-    let result = caller.data_mut().runtime_services.kv.send(KvMessage {
-        namespace,
-        operation: KvOperation::Subscribe { channel, result: result_tx },
-    }).map(|()| KvSubscriptionResource::Init(result_rx)).map_err(|_| KvSubscriptionHandlerError::RuntimeShutdown);
-    caller.data_mut().resource_set.kv_subscriptions.insert(result).into()
 }
 
 pub(super) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {

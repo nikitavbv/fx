@@ -204,12 +204,10 @@ unsafe extern "C" {
     pub(crate) fn fx_metrics_counter_increment(metric_id: u64, delta: u64);
     pub(crate) fn fx_env_len(key_ptr: u64, key_len: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_env_get(key_ptr: u64, key_len: u64, value_ptr: u64) -> u64;
-    pub(crate) fn fx_kv_subscribe(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64;
     pub(crate) fn fx_tasks_background_spawn(function_resource_id: u64);
     pub(crate) fn fx_fetch_request_header_serialize(resource_id: u64) -> u64;
     pub(crate) fn fx_bytes_len(resource_id: u64) -> u64;
     pub(crate) fn fx_bytes_move(resource_id: u64, ptr: u64) -> u64;
-    pub(crate) fn fx_kv_subscription_stream_poll_next(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_unit_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_serialize(resource_id: u64, result_addr: u64) -> u64;

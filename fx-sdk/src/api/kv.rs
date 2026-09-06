@@ -1,22 +1,12 @@
 use {
     std::{time::Duration, task::Poll},
     thiserror::Error,
-    futures::Stream,
+    futures::{Stream, StreamExt},
     fx_types::{
-        abi::{
-            KvSubscriptionStreamPollResult,
-            AsyncResourcePollResult,
-            ResourceSerializeResult,
-        },
         capnp,
         abi_kv_capnp,
     },
-    crate::sys::{
-        fx_bytes_len,
-        fx_bytes_move,
-        fx_kv_subscribe,
-        fx_kv_subscription_stream_poll_next,
-    },
+    crate::api::http::{FetchError, HttpBody},
 };
 
 #[derive(Clone, Debug)]
@@ -151,15 +141,36 @@ impl Kv {
         result.unwrap()
     }
 
-    pub async fn subscribe(&self, channel: impl AsKey) -> KvSubscriptionStream {
-        let (channel_ptr, channel_len) = channel.as_key();
+    pub async fn subscribe(&self, channel: impl AsKey) -> Result<KvSubscriptionStream, KvSubscriptionStreamError> {
+        let request = {
+            let mut message = capnp::message::Builder::new_default();
+            let mut message_request = message.init_root::<abi_kv_capnp::kv_subscribe_request::Builder>();
+            message_request.set_binding(&self.binding);
+            message_request.set_channel(&channel.into_bytes());
 
-        KvSubscriptionStream::new(unsafe { fx_kv_subscribe(
-            self.binding.as_ptr() as u64,
-            self.binding.len() as u64,
-            channel_ptr,
-            channel_len,
-        ) })
+            capnp::serialize::write_message_to_words(&message)
+        };
+
+        let response = crate::api::http::fetch(
+            crate::HttpRequest::post("http://kv.fx.internal/subscribe").unwrap()
+                .with_body(request)
+        ).await.map_err(|err| match err {
+            FetchError::RuntimeShutdown => KvSubscriptionStreamError::RuntimeShutdown,
+            _other => KvSubscriptionStreamError::InternalSdkError,
+        })?;
+
+        if response.status() != &http::StatusCode::OK {
+            let error_bytes = response.bytes().await;
+            let error_reader = capnp::serialize::read_message_from_flat_slice(&mut error_bytes.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+            let error = error_reader.get_root::<abi_kv_capnp::kv_subscribe_error::Reader>().unwrap();
+            return Err(match error.get_error().which().unwrap() {
+                abi_kv_capnp::kv_subscribe_error::error::Which::RuntimeShutdown(()) => KvSubscriptionStreamError::RuntimeShutdown,
+                abi_kv_capnp::kv_subscribe_error::error::Which::BindingNotFound(()) => KvSubscriptionStreamError::BindingNotFound,
+                abi_kv_capnp::kv_subscribe_error::error::Which::BadRequest(()) => KvSubscriptionStreamError::InternalSdkError,
+            });
+        }
+
+        Ok(KvSubscriptionStream::new(response.into_body()))
     }
 
     pub async fn publish(&self, channel: impl AsKey, data: impl AsValue) -> Result<(), KvPublishError> {
@@ -191,42 +202,23 @@ impl Kv {
     }
 }
 
-pub struct KvSubscriptionStream {
-    resource_id: u64,
-}
+pub struct KvSubscriptionStream(HttpBody);
 
 impl KvSubscriptionStream {
-    pub fn new(resource_id: u64) -> Self {
-        Self {
-            resource_id,
-        }
+    pub(crate) fn new(body: HttpBody) -> Self {
+        Self(body)
     }
 }
 
 impl Stream for KvSubscriptionStream {
     type Item = Result<Vec<u8>, KvSubscriptionStreamError>;
 
-    fn poll_next(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-        let mut result = std::mem::MaybeUninit::<KvSubscriptionStreamPollResult>::zeroed();
-        assert!(unsafe { fx_kv_subscription_stream_poll_next(self.resource_id, result.as_mut_ptr() as u64) } == 0);
-
-        let result = unsafe { result.assume_init() };
-
-        match result.tag {
-            0 => Poll::Ready(None),
-            1 => Poll::Ready(Some({
-                let bytes_len = unsafe { fx_bytes_len(result.resolved_resource_id) };
-
-                let mut result_vec = vec![0; bytes_len as usize];
-                unsafe { fx_bytes_move(result.resolved_resource_id, result_vec.as_mut_ptr() as u64) };
-                Ok(result_vec)
-            })),
-            2 => Poll::Pending,
-            3 => Poll::Ready(Some(Err(KvSubscriptionStreamError::RuntimeShutdown))),
-            4 => Poll::Ready(Some(Err(KvSubscriptionStreamError::BindingNotFound))),
-            5 => Poll::Ready(Some(Err(KvSubscriptionStreamError::InternalSdkError))),
-            _other => std::task::Poll::Ready(Some(Err(KvSubscriptionStreamError::InternalSdkError))),
-        }
+    fn poll_next(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Option<Self::Item>> {
+        self.get_mut().0.poll_next_unpin(cx)
+            .map(|v| v.map(|frame| frame
+                .map(|bytes| bytes.to_vec())
+                .map_err(|_| KvSubscriptionStreamError::InternalSdkError)
+            ))
     }
 }
 

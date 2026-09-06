@@ -35,6 +35,19 @@ struct KvGetResponse {
     }
 }
 
+struct KvSubscribeRequest {
+    binding @0 :Text;
+    channel @1 :Data;
+}
+
+struct KvSubscribeError {
+    error :union {
+        runtimeShutdown @0 :Void;
+        bindingNotFound @1 :Void;
+        badRequest @2 :Void;
+    }
+}
+
 struct KvSubscriptionFrame {
     frame :union {
         streamEnd @0 :Void;
