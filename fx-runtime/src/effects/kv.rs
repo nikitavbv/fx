@@ -110,8 +110,6 @@ pub(crate) enum KvPublishHandlerError {
     RuntimeShutdown,
     #[error("invalid kv publish request")]
     BadRequest,
-    #[error("failed to read request")]
-    FailedToReadRequest,
 }
 
 #[derive(Debug, Error)]
@@ -154,6 +152,7 @@ pub(crate) fn create_service(sender: flume::Sender<KvMessage>, bindings: HashMap
     Router::new()
         .route("/get", axum::routing::post(handle_kv_get))
         .route("/set", axum::routing::post(handle_kv_set))
+        .route("/publish", axum::routing::post(handle_kv_publish))
         .layer(Extension(sender))
         .layer(Extension(bindings))
         .into_service()
@@ -249,4 +248,46 @@ async fn handle_kv_set(
     }
 
     capnp::serialize::write_message_segments_to_words(&message)
+}
+
+async fn handle_kv_publish(
+    Extension(kv_tx): axum::Extension<flume::Sender<KvMessage>>,
+    Extension(bindings): Extension<HashMap<String, KvBindingConfig>>,
+    body: axum::body::Bytes,
+) -> impl axum::response::IntoResponse {
+    async fn handler(kv_tx: flume::Sender<KvMessage>, bindings: &HashMap<String, KvBindingConfig>, mut request: &[u8]) -> Result<(), KvPublishHandlerError> {
+        let request_reader = capnp::serialize::read_message_from_flat_slice(&mut request, capnp::message::ReaderOptions::default()).unwrap();
+        let request = request_reader.get_root::<abi_kv_capnp::kv_publish_request::Reader>().unwrap();
+
+        let binding = request.get_binding().map_err(|_| KvPublishHandlerError::BadRequest)?;
+        let binding = str::from_utf8(&binding.as_bytes()).map_err(|_| KvPublishHandlerError::BadRequest)?;
+        let namespace = bindings.get(binding).ok_or(KvPublishHandlerError::BindingNotFound)?.namespace.clone();
+
+        let channel = request.get_channel().map_err(|_| KvPublishHandlerError::BadRequest)?.to_vec();
+        let data = request.get_data().map_err(|_| KvPublishHandlerError::BadRequest)?.to_vec();
+
+        let (result_tx, result_rx) = oneshot::channel();
+
+        kv_tx.send_async(KvMessage {
+            namespace,
+            operation: KvOperation::Publish(KvPublishRequest { channel, data }, result_tx),
+        }).await.map_err(|_| KvPublishHandlerError::RuntimeShutdown)?;
+
+        result_rx.await.map_err(|_| KvPublishHandlerError::RuntimeShutdown)
+    }
+
+    let kv_publish_response = handler(kv_tx, &bindings, body.as_ref()).await;
+
+    let mut message = capnp::message::Builder::new_default();
+    let response = message.init_root::<abi_kv_capnp::kv_publish_result::Builder>();
+    let mut response = response.init_result();
+
+    match kv_publish_response {
+        Ok(()) => response.set_ok(()),
+        Err(KvPublishHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
+        Err(KvPublishHandlerError::BindingNotFound) => response.set_binding_not_found(()),
+        Err(KvPublishHandlerError::BadRequest) => response.set_bad_request(()),
+    }
+
+    capnp::serialize::write_message_to_words(&message)
 }

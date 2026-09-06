@@ -53,7 +53,7 @@ use {
             blob::handle_blob_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
-            kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvSubscriptionHandlerError},
         },
         tasks::{
             kv::{KvMessage, KvOperation},
@@ -268,33 +268,6 @@ pub(super) fn fx_kv_subscription_stream_poll_next(mut caller: wasmtime::Caller<'
     };
 
     write_result(&mut caller, result_addr, result);
-
-    0
-}
-
-pub(super) fn fx_kv_publish_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let kv_publish_response = caller.data_mut().resource_set.kv_publish_results.remove(resource_id.into()).unwrap();
-
-    let mut message = capnp::message::Builder::new_default();
-    let response = message.init_root::<abi_kv_capnp::kv_publish_result::Builder>();
-    let mut response = response.init_result();
-
-    match kv_publish_response {
-        Ok(()) => response.set_ok(()),
-        Err(KvPublishHandlerError::RuntimeShutdown) => response.set_runtime_shutdown(()),
-        Err(KvPublishHandlerError::BindingNotFound) => response.set_binding_not_found(()),
-        Err(KvPublishHandlerError::BadRequest) => response.set_bad_request(()),
-        Err(KvPublishHandlerError::FailedToReadRequest) => response.set_failed_to_read_request(()),
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-
-    write_result(&mut caller, result_addr, ResourceSerializeResult {
-        bytes_resource_id: bytes_resource_id.into(),
-        bytes_length: bytes_length as u64,
-    });
 
     0
 }
@@ -1033,57 +1006,7 @@ pub(crate) fn fx_kv_subscribe_handler(mut caller: wasmtime::Caller<'_, FunctionI
     caller.data_mut().resource_set.kv_subscriptions.insert(result).into()
 }
 
-pub(crate) fn fx_kv_publish_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, binding_addr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64 {
-    let memory = match caller.get_export("memory").and_then(|v| v.into_memory()) {
-        Some(v) => v,
-        None => return caller.data_mut().resource_set.kv_publish_result_futures.insert(std::future::ready(Err(KvPublishHandlerError::FailedToReadRequest)).boxed()).into(),
-    };
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let binding = {
-        let ptr = binding_addr as usize;
-        let len = binding_len as usize;
-        let binding = &view[ptr..ptr+len];
-        match str::from_utf8(binding) {
-            Ok(v) => v,
-            Err(_) => return caller.data_mut().resource_set.kv_publish_result_futures.insert(std::future::ready(Err(KvPublishHandlerError::BadRequest)).boxed()).into(),
-        }
-    };
-
-    let namespace = match caller.data().bindings.kv.get(binding) {
-        Some(v) => v.namespace.clone(),
-        None => return caller.data_mut().resource_set.kv_publish_result_futures.insert(std::future::ready(Err(KvPublishHandlerError::BindingNotFound)).boxed()).into(),
-    };
-
-    let channel = {
-        let ptr = channel_addr as usize;
-        let len = channel_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
-    let data = {
-        let ptr = data_addr as usize;
-        let len = data_len as usize;
-        view[ptr..ptr+len].to_vec()
-    };
-
-    let (result_tx, result_rx) = oneshot::channel();
-    let result = caller.data().runtime_services.kv.send(KvMessage {
-        namespace,
-        operation: KvOperation::Publish(KvPublishRequest {
-            channel,
-            data
-        }, result_tx),
-    }).map_err(|_| KvPublishHandlerError::RuntimeShutdown);
-
-    caller.data_mut().resource_set.kv_publish_result_futures.insert(match result {
-        Ok(()) => result_rx.map(|v| v.map_err(|_| KvPublishHandlerError::RuntimeShutdown)).boxed(),
-        Err(err) => std::future::ready(Err(err)).boxed(),
-    }).into()
-}
-
-pub(crate) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {
+pub(super) fn fx_tasks_background_spawn_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, function_resource_id: u64) {
     let resource = FunctionResourceId::new(function_resource_id);
     caller.data_mut().tasks_background.push(resource);
 }
@@ -1105,5 +1028,4 @@ macro_rules! future_poll_handler {
     };
 }
 
-future_poll_handler!(fx_kv_publish_result_future_poll, kv_publish_result_futures, kv_publish_results);
 future_poll_handler!(fx_kv_delex_result_future_poll, kv_delex_result_futures, kv_delex_results);

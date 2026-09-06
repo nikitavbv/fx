@@ -73,14 +73,11 @@ impl FunctionDeployment {
             "fx_kv_delex_result_future_poll" => super::abi::fx_kv_delex_result_future_poll;
             "fx_kv_delex_result_serialize" => super::abi::fx_kv_delex_result_serialize;
             "fx_kv_subscribe" => super::abi::fx_kv_subscribe_handler;
-            "fx_kv_publish" => super::abi::fx_kv_publish_handler;
             "fx_tasks_background_spawn" => super::abi::fx_tasks_background_spawn_handler;
             "fx_fetch_request_header_serialize" => super::abi::fx_fetch_request_header_serialize_handler;
             "fx_bytes_len" => super::abi::fx_bytes_len_handler;
             "fx_bytes_move" => super::abi::fx_bytes_move_handler;
             "fx_kv_subscription_stream_poll_next" => super::abi::fx_kv_subscription_stream_poll_next;
-            "fx_kv_publish_result_future_poll" => super::abi::fx_kv_publish_result_future_poll;
-            "fx_kv_publish_result_serialize" => super::abi::fx_kv_publish_result_serialize;
             "fx_unit_future_poll" => super::abi::fx_unit_future_poll;
             "fx_fetch_result_future_poll" => super::abi::fx_fetch_result_future_poll;
             "fx_fetch_result_serialize" => super::abi::fx_fetch_result_serialize;

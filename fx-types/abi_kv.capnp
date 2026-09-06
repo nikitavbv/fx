@@ -42,6 +42,12 @@ struct KvSubscriptionFrame {
     }
 }
 
+struct KvPublishRequest {
+    binding @0 :Text;
+    channel @1 :Data;
+    data @2 :Data;
+}
+
 struct KvPublishResult {
     result :union {
         ok @0 :Void;

@@ -8,7 +8,7 @@ use {
         triggers::http::HttpBody,
         effects::{
             fetch::{FetchResultError, HttpStreamError},
-            kv::{KvGetHandlerError, KvDelexHandlerError, KvSubscriptionResource, KvPublishHandlerError, KvSubscriptionHandlerError},
+            kv::{KvGetHandlerError, KvDelexHandlerError, KvSubscriptionResource, KvSubscriptionHandlerError},
         },
     },
 };
@@ -69,8 +69,6 @@ pub(crate) struct FunctionResources {
     pub(crate) kv_get_response_futures: ResourceTable<KvGetResponseFutureResourceKey, BoxFuture<'static, Result<Vec<u8>, KvGetHandlerError>>>,
     pub(crate) kv_delex_result_futures: ResourceTable<KvDelexResultFutureResourceKey, BoxFuture<'static, Result<(), KvDelexHandlerError>>>,
     pub(crate) kv_delex_results: ResourceTable<KvDelexResultResourceKey, Result<(), KvDelexHandlerError>>,
-    pub(crate) kv_publish_result_futures: ResourceTable<KvPublishResultFutureResourceKey, BoxFuture<'static, Result<(), KvPublishHandlerError>>>,
-    pub(crate) kv_publish_results: ResourceTable<KvPublishResultResourceKey, Result<(), KvPublishHandlerError>>,
     pub(crate) kv_subscriptions: ResourceTable<KvSubscriptionResourceKey, Result<KvSubscriptionResource, KvSubscriptionHandlerError>>,
     pub(crate) unit_futures: ResourceTable<UnitFutureResourceKey, BoxFuture<'static, ()>>,
     pub(crate) fetch_result_futures: ResourceTable<FetchResultFutureResourceKey, SendWrapper<LocalBoxFuture<'static, FetchResultResource>>>,
@@ -169,8 +167,6 @@ key!(pub(crate) struct KvGetResponseKey);
 key!(pub(crate) struct FetchRequestHeaderResourceKey);
 key!(pub(crate) struct KvDelexResultFutureResourceKey);
 key!(pub(crate) struct KvDelexResultResourceKey);
-key!(pub(crate) struct KvPublishResultFutureResourceKey);
-key!(pub(crate) struct KvPublishResultResourceKey);
 key!(pub(crate) struct UnitFutureResourceKey);
 key!(pub(crate) struct SqlBatchResultFutureResourceKey);
 key!(pub(crate) struct SqlBatchResultResourceKey);

@@ -206,7 +206,6 @@ unsafe extern "C" {
     pub(crate) fn fx_env_get(key_ptr: u64, key_len: u64, value_ptr: u64) -> u64;
     pub(crate) fn fx_kv_delex_ifeq(binding_ptr: u64, binding_len: u64, key_ptr: u64, key_len: u64, ifeq_ptr: u64, ifeq_len: u64) -> u64;
     pub(crate) fn fx_kv_subscribe(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64) -> u64;
-    pub(crate) fn fx_kv_publish(binding_ptr: u64, binding_len: u64, channel_addr: u64, channel_len: u64, data_addr: u64, data_len: u64) -> u64;
     pub(crate) fn fx_tasks_background_spawn(function_resource_id: u64);
     pub(crate) fn fx_fetch_request_header_serialize(resource_id: u64) -> u64;
     pub(crate) fn fx_bytes_len(resource_id: u64) -> u64;
@@ -214,8 +213,6 @@ unsafe extern "C" {
     pub(crate) fn fx_kv_delex_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_delex_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_kv_subscription_stream_poll_next(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_kv_publish_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
-    pub(crate) fn fx_kv_publish_result_serialize(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_unit_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_future_poll(resource_id: u64, result_addr: u64) -> u64;
     pub(crate) fn fx_fetch_result_serialize(resource_id: u64, result_addr: u64) -> u64;
