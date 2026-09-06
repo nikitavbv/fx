@@ -224,7 +224,7 @@ async fn worker_handle_message(
                 Err(err) => {
                     match err {
                         // TODO: report issues with user function somewhere
-                        DeploymentInitError::MissingImport => warn!(function_id=function_id.as_str(), "failed to deploy because of function requested import that fx runtime does not provide"),
+                        DeploymentInitError::MissingImport { requested_import_name } => warn!(function_id=function_id.as_str(), requested_import_name, "failed to deploy because of function requested import that fx runtime does not provide"),
                         DeploymentInitError::IncompatibleImport { details } => warn!(function_id=function_id.as_str(), details=details, "failed to deploy because of incompatible import type - function may have been compiled with a different fx SDK version"),
                         DeploymentInitError::MissingExport => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide export that fx runtime expects"),
                         DeploymentInitError::MissingMemory => warn!(function_id=function_id.as_str(), "failed to deploy because function does not provide memory export that fx runtime expects"),
