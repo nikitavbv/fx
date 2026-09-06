@@ -217,7 +217,7 @@ async fn run_tasks<'a>(database: Rc<CronDatabase>, workers_controller: Rc<Worker
                 result = request_future => match result {
                     Ok(_) => true,
                     Err(err) => {
-                        error!("failed to run function when executing cron task: {err:?}");
+                        error!(function_id=task.function_id.as_str(), "failed to run function when executing cron task: {err:?}");
                         false
                     },
                 },
