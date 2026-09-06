@@ -59,7 +59,6 @@ impl FunctionDeployment {
 
         add_imported_functions!(&mut linker,
             "fx_log" => super::abi::fx_log_handler;
-            "fx_sql_exec" => super::abi::fx_sql_exec_handler;
             "fx_sleep" => super::abi::fx_sleep_handler;
             "fx_random" => super::abi::fx_random_handler;
             "fx_time" => super::abi::fx_time_handler;
@@ -83,8 +82,6 @@ impl FunctionDeployment {
             "fx_kv_publish_result_future_poll" => super::abi::fx_kv_publish_result_future_poll;
             "fx_kv_publish_result_serialize" => super::abi::fx_kv_publish_result_serialize;
             "fx_unit_future_poll" => super::abi::fx_unit_future_poll;
-            "fx_sql_query_result_future_poll" => super::abi::fx_sql_query_result_future_poll;
-            "fx_sql_query_result_serialize" => super::abi::fx_sql_query_result_serialize;
             "fx_fetch_result_future_poll" => super::abi::fx_fetch_result_future_poll;
             "fx_fetch_result_serialize" => super::abi::fx_fetch_result_serialize;
             "fx_http_body_poll_frame" => super::abi::fx_http_body_poll_frame;

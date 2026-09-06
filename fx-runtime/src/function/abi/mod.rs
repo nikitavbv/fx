@@ -1,7 +1,6 @@
 pub(crate) use fx_types::{
     capnp,
     abi_log_capnp,
-    abi_sql_capnp,
     abi_http_capnp,
     abi_metrics_capnp,
     abi_kv_capnp,
@@ -22,9 +21,6 @@ use {
     fx_types::abi::{
         ResourceMoveFromHostResult,
         UnitFuturePollResult,
-        SqlQueryResultFuturePollResult,
-        SqlQueryResultSerializeResult,
-        SqlMigrationResultSerializeResult,
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
         HttpBodyPollFrameResult,
@@ -53,14 +49,13 @@ use {
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::{SqlValue, SqlMigrationError, SqlQueryError, handle_sql_request},
+            sql::handle_sql_request,
             blob::handle_blob_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
-            sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
             kv::{KvMessage, KvOperation},
         },
         triggers::http::{HttpBody, HttpBodyInner},
@@ -304,85 +299,6 @@ pub(super) fn fx_kv_publish_result_serialize(mut caller: wasmtime::Caller<'_, Fu
     0
 }
 
-pub(super) fn fx_sql_query_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.sql_query_result_futures,
-        |s| &mut s.sql_query_results,
-        resource_id
-    );
-
-    write_result(&mut caller, result_addr, match result {
-        Poll::Pending => SqlQueryResultFuturePollResult {
-            tag: 1,
-            _pad: Default::default(),
-            sql_query_result_resource_id: 0,
-        },
-        Poll::Ready(sql_query_result_resource_id) => SqlQueryResultFuturePollResult {
-            tag: 0,
-            _pad: Default::default(),
-            sql_query_result_resource_id: sql_query_result_resource_id.into(),
-        },
-    });
-
-    0
-}
-
-pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let sql_query_result = caller.data_mut().resource_set.sql_query_results.remove(resource_id.into()).unwrap();
-
-    let mut message = capnp::message::Builder::new_default();
-    let sql_exec_response = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
-    let sql_exec_response = sql_exec_response.init_result();
-
-    match sql_query_result {
-        Ok(rows) => {
-            let mut response_rows = sql_exec_response.init_rows(rows.len() as u32);
-            for (index, result_row) in rows.into_iter().enumerate() {
-                let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
-                for (column_index, value) in result_row.columns.into_iter().enumerate() {
-                    let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
-                    match value {
-                        SqlValue::Null => response_value.set_null(()),
-                        SqlValue::Integer(v) => response_value.set_integer(v),
-                        SqlValue::Real(v) => response_value.set_real(v),
-                        SqlValue::Text(v) => response_value.set_text(v),
-                        SqlValue::Blob(v) => response_value.set_blob(&v),
-                    }
-                }
-            }
-        },
-        Err(err) => {
-            let mut response_error = sql_exec_response.init_error().init_error();
-            match err {
-                SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
-                SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
-                SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
-                SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
-                SqlQueryError::UnknownError => response_error.set_unknown_error(()),
-                SqlQueryError::RuntimeError => response_error.set_runtime_error(()),
-            }
-        }
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-    let result = SqlQueryResultSerializeResult {
-        bytes_resource_id: bytes_resource_id.into(),
-        bytes_length: bytes_length as u64,
-    };
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
-}
-
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let result = resource_poll(
         &mut caller,
@@ -570,52 +486,6 @@ fn write_result(
     let mut view = memory.view_mut(&mut context);
 
     view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-}
-
-// TODO: refactor below
-pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let mut message_bytes = {
-        let ptr = req_addr as usize;
-        let len = req_len as usize;
-        &view[ptr..ptr+len]
-    };
-    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
-    let message = message_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
-
-    let binding = message.get_binding().unwrap().to_str().unwrap();
-    let binding = match caller.data().bindings.sql.get(binding) {
-        Some(v) => v,
-        None => {
-            return caller.data_mut().resource_set.sql_query_result_futures.insert(std::future::ready(Err(SqlQueryError::BindingNotFound)).boxed()).into();
-        }
-    };
-
-    let (response_tx, response_rx) = oneshot::channel();
-    caller.data().runtime_services.sql.send_message(SqlMessage::Exec(SqlExecMessage {
-        binding: binding.clone(),
-        statement: message.get_statement().unwrap().to_string().unwrap(),
-        params: message.get_params().unwrap().into_iter()
-            .map(|v| match v.get_value().which().unwrap() {
-                abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
-                abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
-                abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
-                abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
-                abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
-            })
-            .collect(),
-        response: response_tx,
-    })).unwrap();
-
-    caller.data_mut().resource_set.sql_query_result_futures.insert(async move {
-        match response_rx.await {
-            Ok(v) => v.map_err(|v| v.into()),
-            Err(_) => Err(SqlQueryError::RuntimeShutdown),
-        }
-    }.boxed()).into()
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {

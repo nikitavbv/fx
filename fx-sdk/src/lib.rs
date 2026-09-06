@@ -18,9 +18,7 @@ use {
     chrono::{DateTime, Utc, TimeZone},
     fx_types::{capnp, abi_sql_capnp, abi::RandomResultCode},
     crate::{
-        api::sql::SqlQueryResultFuture,
         sys::{
-            fx_sql_exec,
             fx_sleep,
             HostUnitFuture,
             fx_random,
@@ -115,7 +113,26 @@ impl SqlDatabase {
             capnp::serialize::write_message_segments_to_words(&message)
         };
 
-        SqlQueryResultFuture::new(unsafe { fx_sql_exec(message.as_ptr() as u64, message.len() as u64) }).await
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://sql.fx.internal/exec").unwrap()
+                .with_body(message)
+        ).await.unwrap().bytes().await;
+
+        let result_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let result = result_reader.get_root::<abi_sql_capnp::sql_exec_result::Reader>().unwrap();
+
+        match result.get_result().which().unwrap() {
+            abi_sql_capnp::sql_exec_result::result::Which::Rows(v) => Ok(sql::SqlResult::from(v.unwrap())),
+            abi_sql_capnp::sql_exec_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                abi_sql_capnp::sql_exec_error::error::Which::BindingNotFound(_) => SqlError::BindingNotFound,
+                abi_sql_capnp::sql_exec_error::error::Which::DatabaseBusy(_) => SqlError::DatabaseBusy,
+                abi_sql_capnp::sql_exec_error::error::Which::RuntimeShutdown(_) => SqlError::RuntimeShutdown,
+                abi_sql_capnp::sql_exec_error::error::Which::StatementError(reason) => SqlError::StatementError(reason.unwrap().to_string().unwrap()),
+                abi_sql_capnp::sql_exec_error::error::Which::TextValueDecodeError(_) => SqlError::TextValueDecodeError,
+                abi_sql_capnp::sql_exec_error::error::Which::UnknownError(_) => SqlError::UnknownError,
+                abi_sql_capnp::sql_exec_error::error::Which::RuntimeError(_) => SqlError::RuntimeError,
+            }),
+        }
     }
 
     pub async fn batch(&self, queries: Vec<SqlQuery>) -> StdResult<(), SqlBatchError> {

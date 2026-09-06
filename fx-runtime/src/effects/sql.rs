@@ -7,7 +7,7 @@ use {
     tokio::sync::oneshot,
     fx_types::{capnp, abi_sql_capnp},
     crate::{
-        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlBatchMessage, SqlMigrateMessage},
+        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
         function::instance::FunctionInstanceState,
         triggers::http::HttpBody,
     },
@@ -303,6 +303,86 @@ pub(crate) enum SqlQueryExecutionError {
 
 pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
     match req.uri().path() {
+        "/exec" => {
+            let bindings = state.bindings.sql.clone();
+            let sql_tx = state.runtime_services.sql.clone();
+
+            async move {
+                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let message = request_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
+
+                let binding = message.get_binding().unwrap().to_str().unwrap();
+                let binding = bindings.get(binding);
+
+                let params: Vec<SqlValue> = message.get_params().unwrap().into_iter()
+                    .map(|v| match v.get_value().which().unwrap() {
+                        abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
+                        abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
+                        abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
+                        abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
+                        abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+                    })
+                    .collect();
+
+                let exec_result = match binding {
+                    Some(binding) => {
+                        let (response_tx, response_rx) = oneshot::channel();
+                        sql_tx.send_message(SqlMessage::Exec(SqlExecMessage {
+                            binding: binding.clone(),
+                            statement: message.get_statement().unwrap().to_string().unwrap(),
+                            params,
+                            response: response_tx,
+                        })).unwrap();
+
+                        response_rx.await
+                            .map_err(|_| SqlQueryError::RuntimeShutdown)
+                            .and_then(|v| v.map_err(SqlQueryError::from))
+                    },
+                    None => Err(SqlQueryError::BindingNotFound),
+                };
+
+                let mut message = capnp::message::Builder::new_default();
+                let sql_exec_result_message = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
+                let sql_exec_result_message = sql_exec_result_message.init_result();
+
+                match exec_result {
+                    Ok(rows) => {
+                        let mut response_rows = sql_exec_result_message.init_rows(rows.len() as u32);
+                        for (index, result_row) in rows.into_iter().enumerate() {
+                            let mut response_row_columns = response_rows.reborrow().get(index as u32).init_columns(result_row.columns.len() as u32);
+                            for (column_index, value) in result_row.columns.into_iter().enumerate() {
+                                let mut response_value = response_row_columns.reborrow().get(column_index as u32).init_value();
+                                match value {
+                                    SqlValue::Null => response_value.set_null(()),
+                                    SqlValue::Integer(v) => response_value.set_integer(v),
+                                    SqlValue::Real(v) => response_value.set_real(v),
+                                    SqlValue::Text(v) => response_value.set_text(v),
+                                    SqlValue::Blob(v) => response_value.set_blob(&v),
+                                }
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        let mut response_error = sql_exec_result_message.init_error().init_error();
+                        match err {
+                            SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
+                            SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
+                            SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                            SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
+                            SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
+                            SqlQueryError::UnknownError => response_error.set_unknown_error(()),
+                            SqlQueryError::RuntimeError => response_error.set_runtime_error(()),
+                        }
+                    }
+                }
+
+                let bytes = capnp::serialize::write_message_to_words(&message);
+
+                http::Response::new(HttpBody::for_bytes(bytes.into()))
+            }.boxed_local()
+        },
         "/migrate" => {
             let bindings = state.bindings.sql.clone();
             let sql_controller = state.runtime_services.sql.clone();
