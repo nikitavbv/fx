@@ -24,8 +24,6 @@ use {
         UnitFuturePollResult,
         SqlQueryResultFuturePollResult,
         SqlQueryResultSerializeResult,
-        SqlBatchResultFuturePollResult,
-        SqlBatchResultSerializeResult,
         SqlMigrationResultSerializeResult,
         FetchResultFuturePollResult,
         FetchResultSerializeResult,
@@ -55,17 +53,17 @@ use {
         },
         effects::{
             logs::{LogMessageEvent, LogSource, LogEventType, LogEventLevel, EventFieldValue},
-            sql::{SqlValue, SqlBatchError, SqlMigrationError, SqlQueryError, handle_sql_request},
+            sql::{SqlValue, SqlMigrationError, SqlQueryError, handle_sql_request},
             blob::handle_blob_request,
             fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
             metrics::{MetricKey, MetricId},
             kv::{KvGetHandlerError, KvDelexRequest, KvDelexHandlerError, KvSubscriptionResource, KvPublishRequest, KvPublishHandlerError, KvSubscriptionHandlerError},
         },
         tasks::{
-            sql::{SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
+            sql::{SqlMessage, SqlExecMessage, SqlMigrateMessage},
             kv::{KvMessage, KvOperation},
         },
-        triggers::http::{HttpBody, HttpBodyInner, FunctionStreamReader},
+        triggers::http::{HttpBody, HttpBodyInner},
     },
 };
 
@@ -385,49 +383,6 @@ pub(super) fn fx_sql_query_result_serialize(mut caller: wasmtime::Caller<'_, Fun
     0
 }
 
-pub(super) fn fx_migration_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let resource = caller.data_mut().resource_set.sql_migration_results.remove(resource_id.into()).unwrap();
-
-    let mut message = capnp::message::Builder::new_default();
-
-    let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
-    let mut sql_migrate_result = sql_migrate_result.init_result();
-
-    match resource {
-        Ok(_) => {
-            sql_migrate_result.set_ok(());
-        },
-        Err(err) => {
-            let mut response_error = sql_migrate_result.init_error().init_error();
-            match err {
-                SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
-                SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
-                SqlMigrationError::MigrationExecutionError { message } => {
-                    let mut execution_error = response_error.init_execution_error();
-                    if let Some(message) = message {
-                        execution_error.set_message(message);
-                    }
-                },
-                SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
-                SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
-                SqlMigrationError::UnknownError => response_error.set_unknown_error(()),
-                SqlMigrationError::RuntimeError => response_error.set_runtime_error(()),
-            }
-        }
-    }
-
-    let bytes = capnp::serialize::write_message_to_words(&message);
-    let bytes_length = bytes.len();
-    let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
-
-    write_result(&mut caller, result_addr, SqlMigrationResultSerializeResult {
-        bytes_resource_id: bytes_resource_id.into(),
-        bytes_length: bytes_length as u64,
-    });
-
-    0
-}
-
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let result = resource_poll(
         &mut caller,
@@ -659,46 +614,6 @@ pub(super) fn fx_sql_exec_handler(mut caller: wasmtime::Caller<'_, FunctionInsta
         match response_rx.await {
             Ok(v) => v.map_err(|v| v.into()),
             Err(_) => Err(SqlQueryError::RuntimeShutdown),
-        }
-    }.boxed()).into()
-}
-
-pub(super) fn fx_sql_migrate_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, req_addr: u64, req_len: u64) -> u64 {
-    let memory = caller.get_export("memory").map(|v| v.into_memory().unwrap()).unwrap();
-    let context = caller.as_context();
-    let view = memory.data(&context);
-
-    let mut message_bytes = {
-        let ptr = req_addr as usize;
-        let len = req_len as usize;
-
-        &view[ptr..ptr+len]
-    };
-    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut message_bytes, capnp::message::ReaderOptions::default()).unwrap();
-    let message = message_reader.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().unwrap();
-
-    let binding = message.get_binding().unwrap().to_str().unwrap();
-    let binding = match caller.data().bindings.sql.get(binding) {
-        Some(v) => v,
-        None => return caller.data_mut().resource_set.sql_migration_result_futures.insert(std::future::ready(Err(SqlMigrationError::BindingNotFound)).boxed()).into(),
-    };
-
-    let (response_tx, response_rx) = oneshot::channel();
-    let send_result = caller.data().runtime_services.sql.send_message_migrate(SqlMigrateMessage {
-        binding: binding.clone(),
-        migrations: message.get_migrations().unwrap().into_iter()
-            .map(|v| v.unwrap().to_string().unwrap())
-            .collect(),
-        response: response_tx,
-    });
-
-    caller.data_mut().resource_set.sql_migration_result_futures.insert(async move {
-        match send_result {
-            Ok(_) => match response_rx.await {
-                Ok(v) => v.map_err(SqlMigrationError::from),
-                Err(_) => Err(SqlMigrationError::RuntimeShutdown),
-            },
-            Err(_) => Err(SqlMigrationError::RuntimeShutdown),
         }
     }.boxed()).into()
 }
@@ -1322,4 +1237,3 @@ macro_rules! future_poll_handler {
 
 future_poll_handler!(fx_kv_publish_result_future_poll, kv_publish_result_futures, kv_publish_results);
 future_poll_handler!(fx_kv_delex_result_future_poll, kv_delex_result_futures, kv_delex_results);
-future_poll_handler!(fx_migration_result_future_poll, sql_migration_result_futures, sql_migration_results);

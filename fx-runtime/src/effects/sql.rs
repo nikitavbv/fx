@@ -7,7 +7,7 @@ use {
     tokio::sync::oneshot,
     fx_types::{capnp, abi_sql_capnp},
     crate::{
-        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlBatchMessage},
+        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlBatchMessage, SqlMigrateMessage},
         function::instance::FunctionInstanceState,
         triggers::http::HttpBody,
     },
@@ -303,6 +303,74 @@ pub(crate) enum SqlQueryExecutionError {
 
 pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
     match req.uri().path() {
+        "/migrate" => {
+            let bindings = state.bindings.sql.clone();
+            let sql_controller = state.runtime_services.sql.clone();
+
+            async move {
+                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+                let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let message = message_reader.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().unwrap();
+
+                let binding = message.get_binding().unwrap().to_str().unwrap();
+                let binding = bindings.get(binding);
+
+                let migrate_result = match binding {
+                    Some(binding) => {
+                        let (response_tx, response_rx) = oneshot::channel();
+                        let send_result = sql_controller.send_message_migrate(SqlMigrateMessage {
+                            binding: binding.clone(),
+                            migrations: message.get_migrations().unwrap().into_iter()
+                                .map(|v| v.unwrap().to_string().unwrap())
+                                .collect(),
+                            response: response_tx,
+                        });
+
+                        match send_result {
+                            Ok(_) => match response_rx.await {
+                                Ok(v) => v.map_err(SqlMigrationError::from),
+                                Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                            },
+                            Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                        }
+                    },
+                    None => Err(SqlMigrationError::BindingNotFound),
+                };
+
+                let mut message = capnp::message::Builder::new_default();
+
+                let sql_migrate_result = message.init_root::<abi_sql_capnp::sql_migrate_result::Builder>();
+                let mut sql_migrate_result = sql_migrate_result.init_result();
+
+                match migrate_result {
+                    Ok(_) => {
+                        sql_migrate_result.set_ok(());
+                    },
+                    Err(err) => {
+                        let mut response_error = sql_migrate_result.init_error().init_error();
+                        match err {
+                            SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
+                            SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
+                            SqlMigrationError::MigrationExecutionError { message } => {
+                                let mut execution_error = response_error.init_execution_error();
+                                if let Some(message) = message {
+                                    execution_error.set_message(message);
+                                }
+                            },
+                            SqlMigrationError::SqlError { message } => response_error.set_sql_error(message),
+                            SqlMigrationError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                            SqlMigrationError::UnknownError => response_error.set_unknown_error(()),
+                            SqlMigrationError::RuntimeError => response_error.set_runtime_error(()),
+                        }
+                    }
+                }
+
+                let bytes = capnp::serialize::write_message_to_words(&message);
+
+                http::Response::new(HttpBody::for_bytes(bytes.into()))
+            }.boxed_local()
+        },
         "/batch" => {
             let bindings = state.bindings.sql.clone();
             let sql_tx = state.runtime_services.sql.clone();
@@ -310,7 +378,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             async move {
                 let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
 
-                let mut request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
                 let message = request_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
 
                 let binding = message.get_binding().unwrap().to_str().unwrap();
@@ -341,7 +409,9 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                             response: response_tx
                         })).unwrap();
 
-                        response_rx.await.unwrap().map_err(SqlBatchError::from)
+                        response_rx.await
+                            .map_err(|_| SqlBatchError::RuntimeShutdown)
+                            .and_then(|v| v.map_err(SqlBatchError::from))
                     },
                     None => Err(SqlBatchError::BindingNotFound),
                 };

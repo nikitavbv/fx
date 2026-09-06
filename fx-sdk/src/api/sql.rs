@@ -3,24 +3,17 @@ use {
         abi::{
             SqlQueryResultFuturePollResult,
             SqlQueryResultSerializeResult,
-            SqlBatchResultFuturePollResult,
-            SqlBatchResultSerializeResult,
-            SqlMigrationResultSerializeResult,
-            AsyncResourcePollResult,
         },
         capnp,
         abi_sql_capnp,
     },
     crate::{
-        sql::{SqlResult, SqlError, SqlBatchError},
+        sql::{SqlResult, SqlError},
         sys::{
             fx_sql_query_result_future_poll,
             fx_sql_query_result_serialize,
             fx_bytes_move,
-            fx_migration_result_future_poll,
-            fx_migration_result_serialize,
         },
-        utils::migrations::SqlMigrationError,
     },
 };
 
@@ -67,64 +60,6 @@ impl Future for SqlQueryResultFuture {
                 }
             }),
             _other => std::task::Poll::Ready(Err(SqlError::InternalSdkError)),
-        }
-    }
-}
-
-pub(crate) struct SqlMigrateResultFuture(u64);
-
-impl SqlMigrateResultFuture {
-    pub fn new(resource_id: u64) -> Self {
-        Self(resource_id)
-    }
-}
-
-impl Future for SqlMigrateResultFuture {
-    type Output = Result<(), SqlMigrationError>;
-
-    fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        let mut result = std::mem::MaybeUninit::<AsyncResourcePollResult>::zeroed();
-        assert!(unsafe { fx_migration_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
-
-        let result = unsafe { result.assume_init() };
-        match result.tag {
-            1 => std::task::Poll::Pending,
-            0 => std::task::Poll::Ready({
-                let mut serialization_result = std::mem::MaybeUninit::<SqlMigrationResultSerializeResult>::zeroed();
-                assert!(unsafe { fx_migration_result_serialize(result.resolved_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
-
-                let result = unsafe { serialization_result.assume_init() };
-                let mut result_vec = vec![0; result.bytes_length as usize];
-                unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
-
-                let result_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
-                let result = result_reader.get_root::<abi_sql_capnp::sql_migrate_result::Reader>().unwrap();
-
-                match result.get_result().which().unwrap() {
-                    abi_sql_capnp::sql_migrate_result::result::Which::Ok(_) => Ok(()),
-                    abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
-                        abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
-                        abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
-                        abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(error) => SqlMigrationError::MigrationExecutionError {
-                            message: {
-                                let error = error.unwrap();
-                                if error.has_message() {
-                                    Some(error.get_message().unwrap().to_string().unwrap())
-                                } else {
-                                    None
-                                }
-                            }
-                        },
-                        abi_sql_capnp::sql_migrate_error::error::Which::SqlError(message) => SqlMigrationError::SqlError {
-                            message: message.unwrap().to_string().unwrap(),
-                        },
-                        abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
-                        abi_sql_capnp::sql_migrate_error::error::Which::UnknownError(_) => SqlMigrationError::UnknownError,
-                        abi_sql_capnp::sql_migrate_error::error::Which::RuntimeError(_) => SqlMigrationError::RuntimeError,
-                    }),
-                }
-            }),
-            _other => std::task::Poll::Ready(Err(SqlMigrationError::InternalSdkError)),
         }
     }
 }

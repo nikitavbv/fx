@@ -76,10 +76,6 @@ pub(crate) struct FunctionResources {
     pub(crate) unit_futures: ResourceTable<UnitFutureResourceKey, BoxFuture<'static, ()>>,
     pub(crate) sql_query_result_futures: ResourceTable<SqlQueryResultFutureResourceKey, BoxFuture<'static, Result<Vec<SqlRow>, SqlQueryError>>>,
     pub(crate) sql_query_results: ResourceTable<SqlQueryResultResourceKey, Result<Vec<SqlRow>, SqlQueryError>>,
-    pub(crate) sql_batch_result_futures: ResourceTable<SqlBatchResultFutureResourceKey, BoxFuture<'static, Result<(), SqlBatchError>>>,
-    pub(crate) sql_batch_results: ResourceTable<SqlBatchResultResourceKey, Result<(), SqlBatchError>>,
-    pub(crate) sql_migration_result_futures: ResourceTable<SqlMigrationResultFutureResourceKey, BoxFuture<'static, Result<(), SqlMigrationError>>>,
-    pub(crate) sql_migration_results: ResourceTable<SqlMigrationResultResourceKey, Result<(), SqlMigrationError>>,
     pub(crate) fetch_result_futures: ResourceTable<FetchResultFutureResourceKey, SendWrapper<LocalBoxFuture<'static, FetchResultResource>>>,
     pub(crate) fetch_results: ResourceTable<FetchResultResourceKey, FetchResultResource>,
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
@@ -174,8 +170,6 @@ key!(pub(crate) struct BytesResourceKey);
 key!(pub(crate) struct KvGetResponseFutureResourceKey);
 key!(pub(crate) struct KvGetResponseKey);
 key!(pub(crate) struct FetchRequestHeaderResourceKey);
-key!(pub(crate) struct KvSetResponseFutureResourceKey);
-key!(pub(crate) struct KvSetResponseKey);
 key!(pub(crate) struct KvDelexResultFutureResourceKey);
 key!(pub(crate) struct KvDelexResultResourceKey);
 key!(pub(crate) struct KvPublishResultFutureResourceKey);
@@ -185,8 +179,6 @@ key!(pub(crate) struct SqlQueryResultFutureResourceKey);
 key!(pub(crate) struct SqlQueryResultResourceKey);
 key!(pub(crate) struct SqlBatchResultFutureResourceKey);
 key!(pub(crate) struct SqlBatchResultResourceKey);
-key!(pub(crate) struct SqlMigrationResultFutureResourceKey);
-key!(pub(crate) struct SqlMigrationResultResourceKey);
 key!(pub(crate) struct FetchResultFutureResourceKey);
 key!(pub(crate) struct FetchResultResourceKey);
 key!(pub(crate) struct HttpBodyResourceKey);

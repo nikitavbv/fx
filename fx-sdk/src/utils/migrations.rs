@@ -1,11 +1,7 @@
 use {
     thiserror::Error,
     fx_types::{capnp, abi_sql_capnp},
-    crate::{
-        SqlDatabase,
-        sys::fx_sql_migrate,
-        api::sql::SqlMigrateResultFuture,
-    },
+    crate::SqlDatabase,
 };
 
 pub struct Migrations {
@@ -38,7 +34,37 @@ impl Migrations {
             capnp::serialize::write_message_to_words(&message)
         };
 
-        SqlMigrateResultFuture::new(unsafe { fx_sql_migrate(request.as_ptr() as u64, request.len() as u64) }).await
+        let result_vec = crate::api::http::fetch(
+            crate::HttpRequest::post("http://sql.fx.internal/migrate").unwrap()
+                .with_body(request)
+        ).await.unwrap().bytes().await;
+
+        let result_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
+        let result = result_reader.get_root::<abi_sql_capnp::sql_migrate_result::Reader>().unwrap();
+
+        match result.get_result().which().unwrap() {
+            abi_sql_capnp::sql_migrate_result::result::Which::Ok(_) => Ok(()),
+            abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
+                abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
+                abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
+                abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(error) => SqlMigrationError::MigrationExecutionError {
+                    message: {
+                        let error = error.unwrap();
+                        if error.has_message() {
+                            Some(error.get_message().unwrap().to_string().unwrap())
+                        } else {
+                            None
+                        }
+                    }
+                },
+                abi_sql_capnp::sql_migrate_error::error::Which::SqlError(message) => SqlMigrationError::SqlError {
+                    message: message.unwrap().to_string().unwrap(),
+                },
+                abi_sql_capnp::sql_migrate_error::error::Which::RuntimeShutdown(_) => SqlMigrationError::RuntimeShutdown,
+                abi_sql_capnp::sql_migrate_error::error::Which::UnknownError(_) => SqlMigrationError::UnknownError,
+                abi_sql_capnp::sql_migrate_error::error::Which::RuntimeError(_) => SqlMigrationError::RuntimeError,
+            }),
+        }
     }
 }
 
