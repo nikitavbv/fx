@@ -6,7 +6,7 @@ pub(crate) use fx_types::{
 };
 
 use {
-    std::{task::Poll, time::{SystemTime, UNIX_EPOCH}, str::FromStr, collections::HashMap},
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH, Instant}, str::FromStr, collections::HashMap},
     tokio::time::Duration,
     tracing::{debug, error, warn},
     http::Method,
@@ -654,6 +654,8 @@ pub(super) fn fx_fetch_handler(
 
                 let client = caller.data().http_client.clone();
                 async move {
+                    let external_request_started_at = Instant::now();
+
                     match client.execute(fetch_request?).await {
                         Ok(result) => {
                             let http_response: ::http::Response<reqwest::Body> = result.into();
@@ -662,7 +664,7 @@ pub(super) fn fx_fetch_handler(
                             Ok(::http::Response::from_parts(parts, body))
                         }
                         Err(err) => {
-                            warn!("fetch: external http request timeout: {err:?}, request_id: {:?}", request_id);
+                            warn!("fetch: external http request timeout: {err:?}, request_id: {:?}, time since request start: {:?}", request_id, Instant::now() - external_request_started_at);
                             let error = if err.is_timeout() && err.is_connect() {
                                 FetchResultError::ConnectionTimeout
                             } else if err.is_timeout() {
