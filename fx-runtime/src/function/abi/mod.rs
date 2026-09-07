@@ -15,7 +15,6 @@ use {
     futures::{FutureExt, StreamExt, TryStreamExt},
     rand::TryRngCore,
     send_wrapper::SendWrapper,
-    zerocopy::IntoBytes,
     fx_types::abi::{
         ResourceMoveFromHostResult,
         UnitFuturePollResult,
@@ -30,9 +29,10 @@ use {
         MetricsCounterRegisterResult,
         MetricsCounterRegisterResultCode,
         RandomResultCode,
+        AbiOperationResultCode,
     },
     crate::{
-        function::instance::FunctionInstanceState,
+        function::{instance::FunctionInstanceState, abi::function_memory::FunctionMemoryAccessError},
         resources::{
             FunctionResourceId,
             resource::{
@@ -216,14 +216,17 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
         Poll::Pending => UnitFuturePollResult { tag: 1 },
         Poll::Ready(_) => UnitFuturePollResult { tag: 0 },
     };
-    let result = result.as_bytes();
 
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+    };
     let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
+    let mut memory = memory.view_mut(&mut context);
+    (match memory.write_struct(result_addr, result) {
+        Ok(()) => AbiOperationResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -239,14 +242,17 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
         _pad: Default::default(),
         fetch_result_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
     };
-    let result = result.as_bytes();
 
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+    };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
+    (match view.write_struct(result_addr, result) {
+        Ok(()) => AbiOperationResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -306,14 +312,17 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
         bytes_resource_id: bytes_resource_id.into(),
         bytes_length: bytes_length as u64,
     };
-    let result = result.as_bytes();
 
-    let memory = function_memory::FunctionMemory::from_caller(&mut caller).unwrap();
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+    };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
-
-    0
+    (match view.write_struct(result_addr, result) {
+        Ok(()) => AbiOperationResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -329,17 +338,23 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
 
     let result = result.map(|v| caller.data_mut().resource_set.http_frames.insert(v));
 
-    write_result(
-        &mut caller,
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+    };
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    (match view.write_struct(
         result_addr,
         HttpBodyPollFrameResult {
             tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
             _pad: Default::default(),
             http_frame_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
         },
-    );
-
-    0
+    ) {
+        Ok(()) => AbiOperationResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -364,16 +379,22 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
     let bytes_length = bytes.len();
     let bytes_resource_id = caller.data_mut().resource_set.bytes.insert(bytes);
 
-    write_result(
-        &mut caller,
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return HttpFrameSerializeResultCode::FailedToAccessMemory as u64,
+    };
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    (match view.write_struct(
         result_addr,
         HttpFrameSerializeResult {
             bytes_resource_id: bytes_resource_id.into(),
             bytes_length: bytes_length as u64,
         }
-    );
-
-    0
+    ) {
+        Ok(()) => HttpFrameSerializeResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => HttpFrameSerializeResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
@@ -398,20 +419,6 @@ fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
             Poll::Ready(result_resource_table_getter(&mut function_state.resource_set).insert(result))
         }
     }
-}
-
-fn write_result(
-    caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
-    result_addr: u64,
-    result: impl zerocopy::IntoBytes + zerocopy::Immutable,
-) {
-    let result = result.as_bytes();
-
-    let memory = function_memory::FunctionMemory::from_caller(caller).unwrap();
-    let mut context = caller.as_context_mut();
-    let mut view = memory.view_mut(&mut context);
-
-    view.copy_from_slice(result_addr, result.len() as u64, result).unwrap();
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
@@ -684,7 +691,7 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
     };
 
     let context = caller.as_context();
-    let view = memory.view(&context);
+    let mut view = memory.view(&context);
 
     let mut request = match view.slice(req_ptr, req_len) {
         Ok(v) => v,
@@ -733,11 +740,21 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
 
     let counter_id = caller.data_mut().metrics.counter_register(metric_key);
 
-    write_result(&mut caller, result_addr, MetricsCounterRegisterResult {
-        counter_id: counter_id.into_abi(),
-    });
-
-    MetricsCounterRegisterResultCode::Ok as u64
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+    };
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    (match view.write_struct(
+        result_addr,
+        MetricsCounterRegisterResult {
+            counter_id: counter_id.into_abi(),
+        }
+    ) {
+        Ok(()) => MetricsCounterRegisterResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => MetricsCounterRegisterResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 pub(super) fn fx_metrics_counter_increment_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, counter_id: u64, delta: u64) {
@@ -771,11 +788,21 @@ pub(crate) fn fx_env_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstan
         None => return EnvLenResultCode::NotFound as u64,
     };
 
-    write_result(&mut caller, result_addr, EnvLenResult {
-        len,
-    });
-
-    EnvLenResultCode::Ok as u64
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+    };
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+    (match view.write_struct(
+        result_addr,
+        EnvLenResult {
+            len,
+        }
+    ) {
+        Ok(()) => EnvLenResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => EnvLenResultCode::ResultAddrOutOfMemoryBounds,
+    }) as u64
 }
 
 pub(crate) fn fx_env_get_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, key_addr: u64, key_len: u64, value_addr: u64) -> u64 {

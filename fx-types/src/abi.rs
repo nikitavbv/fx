@@ -125,10 +125,12 @@ pub struct HttpFrameSerializeResult {
 }
 
 #[derive(TryFromPrimitive)]
-#[repr(i64)]
+#[repr(u64)]
 pub enum HttpFrameSerializeResultCode {
     Ok = 0,
     NotFound = 1,
+    FailedToAccessMemory = 2,
+    ResultAddrOutOfMemoryBounds = 3,
 }
 
 #[repr(C)]
@@ -243,6 +245,7 @@ pub enum EnvLenResultCode {
     FailedToReadRequest = 1,
     BadRequest = 2,
     NotFound = 3,
+    ResultAddrOutOfMemoryBounds = 4,
 }
 
 #[repr(C)]
@@ -273,6 +276,7 @@ pub enum MetricsCounterRegisterResultCode {
     Ok = 0,
     FailedToReadRequest = 1,
     BadRequest = 2,
+    ResultAddrOutOfMemoryBounds = 3,
 }
 
 #[derive(TryFromPrimitive)]
@@ -282,4 +286,12 @@ pub enum RandomResultCode {
     FailedToGenerate = 1,
     FailedToReadRequest = 2,
     BadRequest = 3,
+}
+
+#[derive(TryFromPrimitive)]
+#[repr(u64)]
+pub enum AbiOperationResultCode {
+    Ok = 0,
+    FailedToAccessMemory = 1,
+    ResultAddrOutOfMemoryBounds = 2,
 }

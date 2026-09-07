@@ -51,12 +51,16 @@ impl<'a> FunctionMemoryViewMut<'a> {
         self.view.get_mut(ptr..ptr+len).ok_or(FunctionMemoryAccessError::OutOfBounds)
     }
 
-
     pub(crate) fn copy_from_slice(&mut self, ptr: u64, len: u64, copy_from: &[u8]) -> Result<(), FunctionMemoryAccessError> {
         let ptr = ptr as usize;
         let len = len as usize;
         self.view.get_mut(ptr..ptr+len).ok_or(FunctionMemoryAccessError::OutOfBounds)?.copy_from_slice(copy_from);
         Ok(())
+    }
+
+    pub(crate) fn write_struct(&mut self, addr: u64, data: impl zerocopy::IntoBytes + zerocopy::Immutable) -> Result<(), FunctionMemoryAccessError> {
+        let data = data.as_bytes();
+        self.copy_from_slice(addr, data.len() as u64, data)
     }
 }
 

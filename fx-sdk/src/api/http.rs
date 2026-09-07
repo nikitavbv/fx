@@ -15,6 +15,8 @@ use {
             FetchResultSerializeResult,
             HttpBodyPollFrameResult,
             HttpFrameSerializeResult,
+            HttpFrameSerializeResultCode,
+            AbiOperationResultCode,
         },
     },
     crate::sys::{
@@ -328,7 +330,11 @@ impl Stream for HttpBody {
                 .map_err(|_| todo!()),
             HttpBodyInner::HostResource(resource_id) => {
                 let mut result = std::mem::MaybeUninit::<HttpBodyPollFrameResult>::zeroed();
-                assert!(unsafe { fx_http_body_poll_frame(*resource_id, result.as_mut_ptr() as u64) } == 0);
+
+                match AbiOperationResultCode::try_from(unsafe { fx_http_body_poll_frame(*resource_id, result.as_mut_ptr() as u64) }) {
+                    Ok(AbiOperationResultCode::Ok) => {},
+                    Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Some(Err(HttpBodyStreamError::InternalSdkError))),
+                }
 
                 let result = unsafe { result.assume_init() };
 
@@ -336,7 +342,11 @@ impl Stream for HttpBody {
                     0 => std::task::Poll::Ready({
                         let resource_id = result.http_frame_resource_id;
                         let mut result = std::mem::MaybeUninit::<HttpFrameSerializeResult>::zeroed();
-                        assert!(unsafe { fx_http_frame_serialize(resource_id, result.as_mut_ptr() as u64) } == 0);
+
+                        match HttpFrameSerializeResultCode::try_from(unsafe { fx_http_frame_serialize(resource_id, result.as_mut_ptr() as u64) }) {
+                            Ok(HttpFrameSerializeResultCode::Ok) => {},
+                            _other => return std::task::Poll::Ready(Some(Err(HttpBodyStreamError::InternalSdkError))),
+                        }
 
                         let result = unsafe { result.assume_init() };
                         let mut result_vec = vec![0; result.bytes_length as usize];
@@ -378,6 +388,8 @@ pub enum HttpBodyStreamError {
     AbiAssertionError,
     #[error("failed to read http stream")]
     FailedToRead,
+    #[error("internal sdk error while reading http stream")]
+    InternalSdkError,
 }
 
 impl axum::response::IntoResponse for HttpBody {
@@ -442,7 +454,11 @@ impl Future for FetchResultFuture {
 
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<FetchResultFuturePollResult>::zeroed();
-        assert!(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+        match AbiOperationResultCode::try_from(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) }) {
+            Ok(AbiOperationResultCode::Ok) => {},
+            Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
+        }
 
         let result = unsafe { result.assume_init() };
 
@@ -450,7 +466,11 @@ impl Future for FetchResultFuture {
             1 => std::task::Poll::Pending,
             0 => std::task::Poll::Ready({
                 let mut serialization_result = std::mem::MaybeUninit::<FetchResultSerializeResult>::zeroed();
-                assert!(unsafe { fx_fetch_result_serialize(result.fetch_result_resource_id, serialization_result.as_mut_ptr() as u64) } == 0);
+
+                match AbiOperationResultCode::try_from(unsafe { fx_fetch_result_serialize(result.fetch_result_resource_id, serialization_result.as_mut_ptr() as u64) }) {
+                    Ok(AbiOperationResultCode::Ok) => {},
+                    Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
+                }
 
                 let result = unsafe { serialization_result.assume_init() };
                 let mut result_vec = vec![0; result.bytes_length as usize];

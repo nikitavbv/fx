@@ -22,7 +22,8 @@ pub fn get(key: impl AsRef<str>) -> Result<Option<String>, EnvGetError> {
         EnvLenResultCode::Ok => {},
         EnvLenResultCode::NotFound => return Ok(None),
         EnvLenResultCode::BadRequest
-        | EnvLenResultCode::FailedToReadRequest => return Err(EnvGetError::InternalSdkError),
+        | EnvLenResultCode::FailedToReadRequest
+        | EnvLenResultCode::ResultAddrOutOfMemoryBounds => return Err(EnvGetError::InternalSdkError),
     }
 
     let result = unsafe { result.assume_init() };

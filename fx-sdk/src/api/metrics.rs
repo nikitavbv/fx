@@ -75,7 +75,7 @@ pub mod with_label_values {
             let result_code = unsafe { fx_metrics_counter_register(message.as_ptr() as u64, message.len() as u64, result.as_mut_ptr() as u64) };
             let result = match MetricsCounterRegisterResultCode::try_from(result_code).map_err(|_| CounterRegisterError::InternalSdkError)? {
                 MetricsCounterRegisterResultCode::Ok => unsafe { result.assume_init() },
-                MetricsCounterRegisterResultCode::BadRequest | MetricsCounterRegisterResultCode::FailedToReadRequest => return Err(CounterRegisterError::InternalSdkError),
+                MetricsCounterRegisterResultCode::BadRequest | MetricsCounterRegisterResultCode::FailedToReadRequest | MetricsCounterRegisterResultCode::ResultAddrOutOfMemoryBounds => return Err(CounterRegisterError::InternalSdkError),
             };
 
             Ok(Counter::from_metric_id(MetricId::from_abi(result.counter_id)))

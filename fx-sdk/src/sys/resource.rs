@@ -3,7 +3,7 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
-    fx_types::abi::UnitFuturePollResult,
+    fx_types::abi::{UnitFuturePollResult, AbiOperationResultCode},
     crate::{
         handler_fn::FunctionResponse,
         sys::{
@@ -196,7 +196,11 @@ mod host_unit_future {
 
         fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
             let mut result = std::mem::MaybeUninit::<UnitFuturePollResult>::zeroed();
-            assert!(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) } == 0);
+
+            match AbiOperationResultCode::try_from(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) }) {
+                Ok(AbiOperationResultCode::Ok) => {},
+                Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(PollError::InternalSdkError)),
+            }
 
             let result = unsafe { result.assume_init() };
 
