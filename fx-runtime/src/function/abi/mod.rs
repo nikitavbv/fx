@@ -159,7 +159,7 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
     for (index, (header_name, header_value)) in fetch_request_header.headers().iter().enumerate() {
         let mut request_header = request_headers.reborrow().get(index as u32);
         request_header.set_name(header_name.as_str());
-        request_header.set_value(header_value.to_str().unwrap());
+        request_header.set_value(header_value.as_bytes());
     }
 
     let mut resource_body = resource.init_body().init_body();
@@ -279,7 +279,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
             for (index, (name, value)) in ok.parts.headers.iter().enumerate() {
                 let mut header = headers.reborrow().get(index as u32);
                 header.set_name(name.as_str());
-                header.set_value(value.to_str().unwrap());
+                header.set_value(value.as_bytes());
             }
             ok_builder.reborrow().set_body_resource_id(ok.body.into());
         }
@@ -533,8 +533,7 @@ pub(super) fn fx_fetch_handler(
                 };
 
                 let value = header.get_value()
-                    .map_err(|_| FetchResultError::BadRequest)
-                    .and_then(|v| v.to_str().map_err(|_| FetchResultError::BadRequest));
+                    .map_err(|_| FetchResultError::BadRequest);
                 let value = match value {
                     Ok(v) => v,
                     Err(err) => {
@@ -555,7 +554,7 @@ pub(super) fn fx_fetch_handler(
                     }
                 };
 
-                let value = match value.parse() {
+                let value = match http::HeaderValue::from_bytes(&value) {
                     Ok(v) => v,
                     Err(_) => {
                         outgoing_request = Err(FetchResultError::BadRequest);

@@ -424,7 +424,7 @@ pub(crate) mod function_response_poll {
 
                             let value = header.get_value()
                                 .map_err(|_| FunctionResponsePollError::InvalidHeaders)?;
-                            let value = ::http::HeaderValue::from_bytes(value.as_bytes())
+                            let value = ::http::HeaderValue::from_bytes(value)
                                 .map_err(|_| FunctionResponsePollError::InvalidHeaders)?;
 
                             headers.push((name, value));

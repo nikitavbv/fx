@@ -1,4 +1,5 @@
 pub use http::{HeaderName, HeaderValue, Uri};
+use zerocopy::IntoBytes;
 
 use {
     std::{str::FromStr, cell::LazyCell, task::Poll},
@@ -174,7 +175,7 @@ impl FetchRequestHeaderResource {
                 headers: request.get_headers().unwrap().into_iter()
                     .map(|header| (
                         HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap(),
-                        HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap()
+                        HeaderValue::from_bytes(header.get_value().unwrap()).unwrap()
                     ))
                     .collect(),
                 body: match request.get_body().unwrap().get_body().which().unwrap() {
@@ -425,7 +426,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
             for (i, (name, value)) in headers.iter().enumerate() {
                 let mut h = capnp_headers.reborrow().get(i as u32);
                 h.set_name(name.as_str());
-                h.set_value(value.to_str().unwrap());
+                h.set_value(value.as_bytes());
             }
         }
 
@@ -491,7 +492,7 @@ impl Future for FetchResultFuture {
 
                         for header in response.get_headers().unwrap() {
                             let name = HeaderName::from_bytes(header.get_name().unwrap().as_bytes()).unwrap();
-                            let value = HeaderValue::from_str(header.get_value().unwrap().to_str().unwrap()).unwrap();
+                            let value = HeaderValue::from_bytes(header.get_value().unwrap().as_bytes()).unwrap();
                             parts.headers.append(name, value);
                         }
 

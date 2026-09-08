@@ -38,7 +38,11 @@ static mut PANIC_RESTORE_COUNTER: u32 = 0;
 #[handler]
 pub async fn http(mut req: HttpRequest) -> HttpResponse {
     let req = if req.uri().path().starts_with("/test/http/header-get-simple") {
-        return HttpResponse::new().with_body(format!("ok: {}\n", req.headers().get("x-test-header").unwrap().to_str().unwrap()))
+        return if let Some(header_value) = req.headers().get("x-test-header").and_then(|v| v.to_str().ok()) {
+            HttpResponse::new().with_body(format!("ok: {header_value}\n"))
+        } else {
+            HttpResponse::new().with_status(StatusCode::BAD_REQUEST).with_body("failed to parse header value provided in request.\n")
+        }
     } else if req.uri().path().starts_with("/test/http/uri-overwrite") {
         req.with_uri("http://localhost:8080/test/http/uri-overwritten".parse().unwrap())
     } else if req.uri().path().starts_with("/test/fetch/body-passthrough") {

@@ -21,7 +21,7 @@ enum HttpMethod {
 
 struct HttpHeader {
     name @0 :Text;
-    value @1 :Text;
+    value @1 :Data;
 }
 
 struct HttpBody {

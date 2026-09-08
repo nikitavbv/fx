@@ -128,6 +128,27 @@ async fn http_reserved_namespace() {
 }
 
 #[tokio::test]
+async fn http_header_non_utf8() {
+    let client = init_fx_server().await;
+
+    // when request contains bytes that are not valid utf-8
+    let response = client
+        .get("/test/http/header-get-simple")
+        .header("x-test-header", http::HeaderValue::from_bytes(&[b'o', b'k', 0xff]).unwrap())
+        .send()
+        .await
+        .unwrap();
+
+    // then runtime should not crash, instead it should return bad request error
+    assert_eq!(400, response.status().as_u16());
+
+    // and runtime must still be alive and serving after the malformed request
+    let response = client.get("/").send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("hello fx!", response.text().await.unwrap());
+}
+
+#[tokio::test]
 async fn sql_simple() {
     let client = init_fx_server().await;
     let response = client.get("/test/sql/simple").send().await.unwrap();

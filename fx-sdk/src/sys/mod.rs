@@ -161,7 +161,7 @@ pub extern "C" fn _fx_function_response_poll(resource_id: u64) -> u64 {
                     for (index, (name, value)) in http.headers.iter().enumerate() {
                         let mut header = headers.reborrow().get(index as u32);
                         header.set_name(name.as_str());
-                        header.set_value(value.to_str().unwrap());
+                        header.set_value(value.as_bytes());
                     }
 
                     let mut body = resource.init_body();
