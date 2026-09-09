@@ -160,17 +160,7 @@ impl FetchRequestHeaderResource {
             let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_request::Reader>().unwrap();
 
             HttpRequestData {
-                method: match &request.get_method().unwrap() {
-                    abi_http_capnp::HttpMethod::Get => Method::GET,
-                    abi_http_capnp::HttpMethod::Delete => Method::DELETE,
-                    abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
-                    abi_http_capnp::HttpMethod::Patch => Method::PATCH,
-                    abi_http_capnp::HttpMethod::Post => Method::POST,
-                    abi_http_capnp::HttpMethod::Put => Method::PUT,
-                    abi_http_capnp::HttpMethod::Head => Method::HEAD,
-                    abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
-                    abi_http_capnp::HttpMethod::Trace => Method::TRACE,
-                },
+                method: Method::from_bytes(request.get_method().unwrap().as_bytes()).unwrap(),
                 url: Uri::from_str(request.get_uri().unwrap().to_str().unwrap()).unwrap(),
                 headers: request.get_headers().unwrap().into_iter()
                     .map(|header| (
@@ -409,15 +399,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
     let fetch = {
         let mut message = capnp::message::Builder::new_default();
         let mut fetch = message.init_root::<abi_http_capnp::http_request::Builder>();
-        fetch.set_method(match request.method() {
-            &Method::GET => abi_http_capnp::HttpMethod::Get,
-            &Method::DELETE => abi_http_capnp::HttpMethod::Delete,
-            &Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
-            &Method::PATCH => abi_http_capnp::HttpMethod::Patch,
-            &Method::POST => abi_http_capnp::HttpMethod::Post,
-            &Method::PUT => abi_http_capnp::HttpMethod::Put,
-            other => todo!("http method not supported: {other:?}"),
-        });
+        fetch.set_method(request.method().as_str());
         fetch.set_uri(request.uri().to_string());
 
         let headers = request.headers();

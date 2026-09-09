@@ -149,6 +149,27 @@ async fn http_header_non_utf8() {
 }
 
 #[tokio::test]
+async fn http_nonstandard_method() {
+    let client = init_fx_server().await;
+
+    // hyper accepts any RFC 7230 token as an http method, so let's try using nonstandard method name in request
+    let method: reqwest::Method = "FOO".parse().unwrap();
+    let response = client
+        .request(method, "/test/http/header-get-simple")
+        .send()
+        .await
+        .unwrap();
+
+    // then runtime should not crash, instead it should return bad request error
+    assert_eq!(400, response.status().as_u16());
+
+    // and runtime must still be alive and serving after the malformed request
+    let response = client.get("/").send().await.unwrap();
+    assert!(response.status().is_success());
+    assert_eq!("hello fx!", response.text().await.unwrap());
+}
+
+#[tokio::test]
 async fn sql_simple() {
     let client = init_fx_server().await;
     let response = client.get("/test/sql/simple").send().await.unwrap();

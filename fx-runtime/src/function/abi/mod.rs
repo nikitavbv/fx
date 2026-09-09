@@ -142,18 +142,7 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
     let mut resource = message.init_root::<abi_http_capnp::http_request::Builder>();
 
     resource.set_uri(fetch_request_header.uri().to_string());
-    resource.set_method(match fetch_request_header.method() {
-        &hyper::Method::GET => abi_http_capnp::HttpMethod::Get,
-        &hyper::Method::POST => abi_http_capnp::HttpMethod::Post,
-        &hyper::Method::PUT => abi_http_capnp::HttpMethod::Put,
-        &hyper::Method::PATCH => abi_http_capnp::HttpMethod::Patch,
-        &hyper::Method::DELETE => abi_http_capnp::HttpMethod::Delete,
-        &hyper::Method::OPTIONS => abi_http_capnp::HttpMethod::Options,
-        &hyper::Method::HEAD => abi_http_capnp::HttpMethod::Head,
-        &hyper::Method::CONNECT => abi_http_capnp::HttpMethod::Connect,
-        &hyper::Method::TRACE => abi_http_capnp::HttpMethod::Trace,
-        other => panic!("http method not supported: {other:?}"),
-    });
+    resource.set_method(fetch_request_header.method());
 
     let mut request_headers = resource.reborrow().init_headers(fetch_request_header.headers().len() as u32);
     for (index, (header_name, header_value)) in fetch_request_header.headers().iter().enumerate() {
@@ -490,17 +479,7 @@ pub(super) fn fx_fetch_handler(
     let request_method = request.as_ref()
         .map_err(|err| err.clone())
         .and_then(|v| v.get_method().map_err(|_| FetchResultError::BadRequest))
-        .map(|v| match v {
-            abi_http_capnp::HttpMethod::Get => Method::GET,
-            abi_http_capnp::HttpMethod::Put => Method::PUT,
-            abi_http_capnp::HttpMethod::Post => Method::POST,
-            abi_http_capnp::HttpMethod::Patch => Method::PATCH,
-            abi_http_capnp::HttpMethod::Delete => Method::DELETE,
-            abi_http_capnp::HttpMethod::Options => Method::OPTIONS,
-            abi_http_capnp::HttpMethod::Head => Method::HEAD,
-            abi_http_capnp::HttpMethod::Connect => Method::CONNECT,
-            abi_http_capnp::HttpMethod::Trace => Method::TRACE,
-        });
+        .and_then(|v| Method::from_bytes(v.as_bytes()).map_err(|_| FetchResultError::BadRequest));
 
     let request_uri = request
         .as_ref().map_err(|err| err.clone())
