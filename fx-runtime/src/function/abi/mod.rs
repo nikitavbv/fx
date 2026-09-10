@@ -219,12 +219,23 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
 }
 
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let result = resource_poll(
-        &mut caller,
-        |s| &mut s.fetch_result_futures,
-        |s| &mut s.fetch_results,
-        resource_id
-    );
+    let result = {
+        let function_state = caller.data_mut();
+
+        let waker = function_state.waker.clone().unwrap();
+        let mut cx = std::task::Context::from_waker(&waker);
+
+        let resource_table = &mut function_state.resource_set.fetch_result_futures;
+
+        let future = resource_table.get_mut(resource_id.into()).unwrap();
+        match future.poll_unpin(&mut cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(result) => {
+                let _ = resource_table.remove(resource_id.into()).unwrap();
+                Poll::Ready(function_state.resource_set.fetch_results.insert(result))
+            }
+        }
+    };
 
     let result = FetchResultFuturePollResult {
         tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
@@ -318,14 +329,18 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
     let waker = caller.data_mut().waker.clone().unwrap();
     let mut cx = std::task::Context::from_waker(&waker);
 
-    let http_body = caller.data_mut().resource_set.http_bodies.get_mut(resource_id.into()).unwrap();
+    let result = match caller.data_mut().resource_set.http_bodies.get_mut(resource_id.into()) {
+        Some(http_body) => {
+            let result = match http_body.0 {
+                HttpBodyInner::Stream(ref mut stream) => stream.poll_next_unpin(&mut cx),
+                HttpBodyInner::FunctionStream(ref mut v) => v.poll_next_unpin(&mut cx)
+                    .map(|v| v.map(|v| v.map_err(|_| HttpStreamError::FunctionRequestBodyStreamError))),
+            };
 
-    let result = match http_body.0 {
-        HttpBodyInner::Stream(ref mut stream) => stream.poll_next_unpin(&mut cx),
-        HttpBodyInner::FunctionStream(ref mut v) =>  v.poll_next_unpin(&mut cx).map(|v| v.map(|v| Ok(hyper::body::Bytes::from(v.unwrap())))),
+            Some(result.map(|v| caller.data_mut().resource_set.http_frames.insert(v)))
+        },
+        None => None,
     };
-
-    let result = result.map(|v| caller.data_mut().resource_set.http_frames.insert(v));
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
@@ -336,9 +351,9 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
     (match view.write_struct(
         result_addr,
         HttpBodyPollFrameResult {
-            tag: match &result { Poll::Pending => 1, Poll::Ready(_) => 0 },
+            tag: match &result { None => 2, Some(Poll::Pending) => 1, Some(Poll::Ready(_)) => 0 },
             _pad: Default::default(),
-            http_frame_resource_id: match result { Poll::Ready(v) => v.into(), Poll::Pending => 0 },
+            http_frame_resource_id: match result { Some(Poll::Ready(v)) => v.into(), Some(Poll::Pending) | None => 0 },
         },
     ) {
         Ok(()) => AbiOperationResultCode::Ok,
@@ -384,30 +399,6 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
         Ok(()) => HttpFrameSerializeResultCode::Ok,
         Err(FunctionMemoryAccessError::OutOfBounds) => HttpFrameSerializeResultCode::ResultAddrOutOfMemoryBounds,
     }) as u64
-}
-
-fn resource_poll<T: Clone, T2: From<slotmap::DefaultKey>, F, V>(
-    caller: &mut wasmtime::Caller<'_, FunctionInstanceState>,
-    resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T, F>,
-    result_resource_table_getter: impl FnOnce(&mut FunctionResources) -> &mut ResourceTable<T2, V>,
-    resource_id: impl Into<T>
-) -> Poll<T2> where slotmap::DefaultKey: From<T>, F: Future<Output = V> + Unpin {
-    let function_state = caller.data_mut();
-
-    let waker = function_state.waker.clone().unwrap();
-    let mut cx = std::task::Context::from_waker(&waker);
-
-    let resource_table = resource_table_getter(&mut function_state.resource_set);
-
-    let resource_id = resource_id.into();
-    let future = resource_table.get_mut(resource_id.clone()).unwrap();
-    match future.poll_unpin(&mut cx) {
-        Poll::Pending => Poll::Pending,
-        Poll::Ready(result) => {
-            let _ = resource_table.remove(resource_id).unwrap();
-            Poll::Ready(result_resource_table_getter(&mut function_state.resource_set).insert(result))
-        }
-    }
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
@@ -533,7 +524,7 @@ pub(super) fn fx_fetch_handler(
                     }
                 };
 
-                let value = match http::HeaderValue::from_bytes(&value) {
+                let value = match http::HeaderValue::from_bytes(value) {
                     Ok(v) => v,
                     Err(_) => {
                         outgoing_request = Err(FetchResultError::BadRequest);
@@ -671,7 +662,7 @@ pub(super) fn fx_metrics_counter_register_handler(mut caller: wasmtime::Caller<'
     };
 
     let context = caller.as_context();
-    let mut view = memory.view(&context);
+    let view = memory.view(&context);
 
     let mut request = match view.slice(req_ptr, req_len) {
         Ok(v) => v,

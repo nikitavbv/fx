@@ -353,6 +353,7 @@ impl Stream for HttpBody {
                         }
                     }),
                     1 => std::task::Poll::Pending,
+                    2 => std::task::Poll::Ready(Some(Err(HttpBodyStreamError::InternalSdkError))),
                     _other => std::task::Poll::Ready(Some(Err(HttpBodyStreamError::AbiAssertionError))),
                 }
             },
