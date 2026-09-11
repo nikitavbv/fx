@@ -199,6 +199,7 @@ mod host_unit_future {
 
             match AbiOperationResultCode::try_from(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) }) {
                 Ok(AbiOperationResultCode::Ok) => {},
+                Ok(AbiOperationResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(PollError::RuntimeInternalError)),
                 Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(PollError::InternalSdkError)),
             }
 
@@ -216,6 +217,8 @@ mod host_unit_future {
     pub(crate) enum PollError {
         #[error("internal sdk error")]
         InternalSdkError,
+        #[error("internal error on runtime side")]
+        RuntimeInternalError,
     }
 }
 pub(crate) use host_unit_future::HostUnitFuture;

@@ -18,6 +18,7 @@ use {
             HttpFrameSerializeResult,
             HttpFrameSerializeResultCode,
             AbiOperationResultCode,
+            FetchResultSerializeResultCode,
         },
     },
     crate::sys::{
@@ -324,6 +325,7 @@ impl Stream for HttpBody {
 
                 match AbiOperationResultCode::try_from(unsafe { fx_http_body_poll_frame(*resource_id, result.as_mut_ptr() as u64) }) {
                     Ok(AbiOperationResultCode::Ok) => {},
+                    Ok(AbiOperationResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Some(Err(HttpBodyStreamError::InternalRuntimeError))),
                     Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Some(Err(HttpBodyStreamError::InternalSdkError))),
                 }
 
@@ -382,6 +384,8 @@ pub enum HttpBodyStreamError {
     FailedToRead,
     #[error("internal sdk error while reading http stream")]
     InternalSdkError,
+    #[error("internal error on runtime side")]
+    InternalRuntimeError,
 }
 
 impl axum::response::IntoResponse for HttpBody {
@@ -441,6 +445,7 @@ impl Future for FetchResultFuture {
 
         match AbiOperationResultCode::try_from(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) }) {
             Ok(AbiOperationResultCode::Ok) => {},
+            Ok(AbiOperationResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(FetchError::RuntimeInternalError)),
             Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
         }
 
@@ -451,9 +456,13 @@ impl Future for FetchResultFuture {
             0 => std::task::Poll::Ready({
                 let mut serialization_result = std::mem::MaybeUninit::<FetchResultSerializeResult>::zeroed();
 
-                match AbiOperationResultCode::try_from(unsafe { fx_fetch_result_serialize(result.fetch_result_resource_id, serialization_result.as_mut_ptr() as u64) }) {
-                    Ok(AbiOperationResultCode::Ok) => {},
-                    Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
+                match FetchResultSerializeResultCode::try_from(unsafe { fx_fetch_result_serialize(result.fetch_result_resource_id, serialization_result.as_mut_ptr() as u64) }) {
+                    Ok(FetchResultSerializeResultCode::Ok) => {},
+                    Ok(FetchResultSerializeResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(FetchError::RuntimeInternalError)),
+                    Ok(FetchResultSerializeResultCode::FailedToAccessMemory)
+                    | Ok(FetchResultSerializeResultCode::ResultAddrOutOfMemoryBounds)
+                    | Ok(FetchResultSerializeResultCode::ResourceNotFound)
+                    | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
                 }
 
                 let result = unsafe { serialization_result.assume_init() };

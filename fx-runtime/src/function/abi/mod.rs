@@ -30,14 +30,13 @@ use {
         MetricsCounterRegisterResultCode,
         RandomResultCode,
         AbiOperationResultCode,
+        FetchResultSerializeResultCode,
     },
     crate::{
         function::{instance::FunctionInstanceState, abi::function_memory::FunctionMemoryAccessError},
         resources::{
             FunctionResourceId,
             resource::{
-                ResourceTable,
-                FunctionResources,
                 FetchRequestHeaderResourceKey,
                 UnitFutureResourceKey,
             },
@@ -231,7 +230,13 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
-                let _ = resource_table.remove(resource_id.into()).unwrap();
+                let _ = match resource_table.remove(resource_id.into()) {
+                    Some(v) => v,
+                    None => {
+                        warn!("fx_fetch_result_future_poll: didn't expect resource to be not present in resource_table after it was previously read");
+                        return AbiOperationResultCode::InternalRuntimeAssertionError as u64
+                    },
+                };
                 Poll::Ready(function_state.resource_set.fetch_results.insert(result))
             }
         }
@@ -256,7 +261,10 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
 }
 
 pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let fetch_result = caller.data_mut().resource_set.fetch_results.remove(resource_id.into()).unwrap();
+    let fetch_result = match caller.data_mut().resource_set.fetch_results.remove(resource_id.into()) {
+        Some(v) => v,
+        None => return FetchResultSerializeResultCode::ResourceNotFound as u64,
+    };
 
     let resource = match fetch_result {
         Ok(response) => {
@@ -315,18 +323,21 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
-        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+        Err(_) => return FetchResultSerializeResultCode::FailedToAccessMemory as u64,
     };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
     (match view.write_struct(result_addr, result) {
-        Ok(()) => AbiOperationResultCode::Ok,
-        Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
+        Ok(()) => FetchResultSerializeResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => FetchResultSerializeResultCode::ResultAddrOutOfMemoryBounds,
     }) as u64
 }
 
 pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    let waker = caller.data_mut().waker.clone().unwrap();
+    let waker = match caller.data_mut().waker.clone() {
+        Some(v) => v,
+        None => return AbiOperationResultCode::InternalRuntimeAssertionError as u64,
+    };
     let mut cx = std::task::Context::from_waker(&waker);
 
     let result = match caller.data_mut().resource_set.http_bodies.get_mut(resource_id.into()) {
