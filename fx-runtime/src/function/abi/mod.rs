@@ -230,13 +230,13 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
-                let _ = match resource_table.remove(resource_id.into()) {
+                std::mem::drop(match resource_table.remove(resource_id.into()) {
                     Some(v) => v,
                     None => {
                         warn!("fx_fetch_result_future_poll: didn't expect resource to be not present in resource_table after it was previously read");
                         return AbiOperationResultCode::InternalRuntimeAssertionError as u64
                     },
-                };
+                });
                 Poll::Ready(function_state.resource_set.fetch_results.insert(result))
             }
         }
