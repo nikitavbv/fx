@@ -299,6 +299,15 @@ pub enum AbiOperationResultCode {
 
 #[derive(TryFromPrimitive)]
 #[repr(u64)]
+pub enum FetchResultPollResultCode {
+    Ok = 0,
+    FailedToAccessMemory = 1,
+    ResultAddrOutOfMemoryBounds = 2,
+    InternalRuntimeAssertionError = 3,
+}
+
+#[derive(TryFromPrimitive)]
+#[repr(u64)]
 pub enum FetchResultSerializeResultCode {
     Ok = 0,
     FailedToAccessMemory = 1,
