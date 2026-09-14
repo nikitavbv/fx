@@ -19,6 +19,7 @@ use {
             HttpFrameSerializeResultCode,
             AbiOperationResultCode,
             FetchResultSerializeResultCode,
+            FetchResultPollResultCode,
         },
     },
     crate::sys::{
@@ -443,10 +444,10 @@ impl Future for FetchResultFuture {
     fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
         let mut result = std::mem::MaybeUninit::<FetchResultFuturePollResult>::zeroed();
 
-        match AbiOperationResultCode::try_from(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) }) {
-            Ok(AbiOperationResultCode::Ok) => {},
-            Ok(AbiOperationResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(FetchError::RuntimeInternalError)),
-            Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
+        match FetchResultPollResultCode::try_from(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) }) {
+            Ok(FetchResultPollResultCode::Ok) => {},
+            Ok(FetchResultPollResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(FetchError::RuntimeInternalError)),
+            Ok(FetchResultPollResultCode::FailedToAccessMemory) | Ok(FetchResultPollResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
         }
 
         let result = unsafe { result.assume_init() };
