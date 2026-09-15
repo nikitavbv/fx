@@ -447,7 +447,10 @@ impl Future for FetchResultFuture {
         match FetchResultPollResultCode::try_from(unsafe { fx_fetch_result_future_poll(self.0, result.as_mut_ptr() as u64) }) {
             Ok(FetchResultPollResultCode::Ok) => {},
             Ok(FetchResultPollResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(FetchError::RuntimeInternalError)),
-            Ok(FetchResultPollResultCode::FailedToAccessMemory) | Ok(FetchResultPollResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
+            Ok(FetchResultPollResultCode::FailedToAccessMemory)
+            | Ok(FetchResultPollResultCode::ResultAddrOutOfMemoryBounds)
+            | Ok(FetchResultPollResultCode::ResourceNotFound)
+            | Err(_) => return std::task::Poll::Ready(Err(FetchError::InternalSdkError)),
         }
 
         let result = unsafe { result.assume_init() };

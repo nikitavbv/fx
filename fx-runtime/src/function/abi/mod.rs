@@ -227,7 +227,10 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
 
         let resource_table = &mut function_state.resource_set.fetch_result_futures;
 
-        let future = resource_table.get_mut(resource_id.into()).unwrap();
+        let future = match resource_table.get_mut(resource_id.into()) {
+            Some(v) => v,
+            None => return FetchResultPollResultCode::ResourceNotFound as u64,
+        };
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {

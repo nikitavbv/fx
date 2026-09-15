@@ -304,6 +304,7 @@ pub enum FetchResultPollResultCode {
     FailedToAccessMemory = 1,
     ResultAddrOutOfMemoryBounds = 2,
     InternalRuntimeAssertionError = 3,
+    ResourceNotFound = 4,
 }
 
 #[derive(TryFromPrimitive)]
