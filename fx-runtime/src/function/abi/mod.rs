@@ -222,7 +222,10 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
     let result = {
         let function_state = caller.data_mut();
 
-        let waker = function_state.waker.clone().unwrap();
+        let waker = match function_state.waker.clone() {
+            Some(v) => v,
+            None => return FetchResultPollResultCode::InternalRuntimeAssertionError as u64,
+        };
         let mut cx = std::task::Context::from_waker(&waker);
 
         let resource_table = &mut function_state.resource_set.fetch_result_futures;
