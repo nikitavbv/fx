@@ -195,7 +195,13 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(_) => {
-                let _ = function_state.resource_set.unit_futures.remove(key).unwrap();
+                std::mem::drop(match function_state.resource_set.unit_futures.remove(key) {
+                    Some(v) => v,
+                    None => {
+                        warn!("fx_unit_future_poll: didn't expect resource to not be present in resource_set.unit_futures after it was previously read");
+                        return AbiOperationResultCode::InternalRuntimeAssertionError as u64;
+                    }
+                });
                 Poll::Ready(())
             }
         }
