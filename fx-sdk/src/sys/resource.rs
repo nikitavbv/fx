@@ -3,7 +3,7 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
-    fx_types::abi::{UnitFuturePollResult, AbiOperationResultCode},
+    fx_types::abi::{UnitFuturePollResult, UnitFuturePollResultCode},
     crate::{
         handler_fn::FunctionResponse,
         sys::{
@@ -197,10 +197,13 @@ mod host_unit_future {
         fn poll(self: std::pin::Pin<&mut Self>, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
             let mut result = std::mem::MaybeUninit::<UnitFuturePollResult>::zeroed();
 
-            match AbiOperationResultCode::try_from(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) }) {
-                Ok(AbiOperationResultCode::Ok) => {},
-                Ok(AbiOperationResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(PollError::RuntimeInternalError)),
-                Ok(AbiOperationResultCode::FailedToAccessMemory) | Ok(AbiOperationResultCode::ResultAddrOutOfMemoryBounds) | Err(_) => return std::task::Poll::Ready(Err(PollError::InternalSdkError)),
+            match UnitFuturePollResultCode::try_from(unsafe { fx_unit_future_poll(self.0, result.as_mut_ptr() as u64) }) {
+                Ok(UnitFuturePollResultCode::Ok) => {},
+                Ok(UnitFuturePollResultCode::InternalRuntimeAssertionError) => return std::task::Poll::Ready(Err(PollError::RuntimeInternalError)),
+                Ok(UnitFuturePollResultCode::FailedToAccessMemory)
+                | Ok(UnitFuturePollResultCode::ResultAddrOutOfMemoryBounds)
+                | Ok(UnitFuturePollResultCode::ResourceNotFound)
+                | Err(_) => return std::task::Poll::Ready(Err(PollError::InternalSdkError)),
             }
 
             let result = unsafe { result.assume_init() };

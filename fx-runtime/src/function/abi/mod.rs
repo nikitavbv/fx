@@ -32,6 +32,7 @@ use {
         AbiOperationResultCode,
         FetchResultSerializeResultCode,
         FetchResultPollResultCode,
+        UnitFuturePollResultCode,
     },
     crate::{
         function::{instance::FunctionInstanceState, abi::function_memory::FunctionMemoryAccessError},
@@ -199,7 +200,7 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
                     Some(v) => v,
                     None => {
                         warn!("fx_unit_future_poll: didn't expect resource to not be present in resource_set.unit_futures after it was previously read");
-                        return AbiOperationResultCode::InternalRuntimeAssertionError as u64;
+                        return UnitFuturePollResultCode::InternalRuntimeAssertionError as u64;
                     }
                 });
                 Poll::Ready(())
@@ -214,13 +215,13 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
-        Err(_) => return AbiOperationResultCode::FailedToAccessMemory as u64,
+        Err(_) => return UnitFuturePollResultCode::FailedToAccessMemory as u64,
     };
     let mut context = caller.as_context_mut();
     let mut memory = memory.view_mut(&mut context);
     (match memory.write_struct(result_addr, result) {
-        Ok(()) => AbiOperationResultCode::Ok,
-        Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
+        Ok(()) => UnitFuturePollResultCode::Ok,
+        Err(FunctionMemoryAccessError::OutOfBounds) => UnitFuturePollResultCode::ResultAddrOutOfMemoryBounds,
     }) as u64
 }
 
