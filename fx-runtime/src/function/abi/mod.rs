@@ -192,7 +192,10 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
         let function_state = caller.data_mut();
 
         let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
-        let future = function_state.resource_set.unit_futures.get_mut(key.clone()).unwrap();
+        let future = match function_state.resource_set.unit_futures.get_mut(key.clone()) {
+            Some(v) => v,
+            None => return UnitFuturePollResultCode::ResourceNotFound as u64,
+        };
         match future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(_) => {
