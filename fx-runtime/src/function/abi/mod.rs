@@ -191,7 +191,12 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
         let key: UnitFutureResourceKey = resource_id.into();
         let function_state = caller.data_mut();
 
-        let mut cx = std::task::Context::from_waker(function_state.waker.as_ref().unwrap());
+        let waker = match function_state.waker.as_ref() {
+            Some(v) => v,
+            None => return UnitFuturePollResultCode::InternalRuntimeAssertionError as u64,
+        };
+
+        let mut cx = std::task::Context::from_waker(waker);
         let future = match function_state.resource_set.unit_futures.get_mut(key.clone()) {
             Some(v) => v,
             None => return UnitFuturePollResultCode::ResourceNotFound as u64,
