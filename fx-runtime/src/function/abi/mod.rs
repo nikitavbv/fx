@@ -166,7 +166,10 @@ pub(super) fn fx_bytes_len_handler(mut caller: wasmtime::Caller<'_, FunctionInst
 }
 
 pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
-    let bytes = caller.data_mut().resource_set.bytes.remove(resource_id.into()).unwrap();
+    let bytes = match caller.data_mut().resource_set.bytes.remove(resource_id.into()) {
+        Some(v) => v,
+        None => return ResourceMoveFromHostResult::ResourceNotFound as u64,
+    };
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,

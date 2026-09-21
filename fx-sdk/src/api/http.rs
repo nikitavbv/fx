@@ -20,6 +20,7 @@ use {
             AbiOperationResultCode,
             FetchResultSerializeResultCode,
             FetchResultPollResultCode,
+            ResourceMoveFromHostResult,
         },
     },
     crate::sys::{
@@ -344,7 +345,14 @@ impl Stream for HttpBody {
 
                         let result = unsafe { result.assume_init() };
                         let mut result_vec = vec![0; result.bytes_length as usize];
-                        unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+                        let bytes_move_result = unsafe { fx_bytes_move(result.bytes_resource_id, result_vec.as_mut_ptr() as u64) };
+                        match ResourceMoveFromHostResult::try_from(bytes_move_result) {
+                            Ok(ResourceMoveFromHostResult::Ok) => {},
+                            Ok(ResourceMoveFromHostResult::ArgumentOutOfMemoryBounds)
+                            | Ok(ResourceMoveFromHostResult::FailedToAccessMemory)
+                            | Ok(ResourceMoveFromHostResult::ResourceNotFound)
+                            | Err(_) => return std::task::Poll::Ready(Some(Err(HttpBodyStreamError::InternalSdkError))),
+                        }
 
                         let frame_reader = capnp::serialize::read_message_from_flat_slice(&mut result_vec.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
                         let frame = frame_reader.get_root::<abi_http_capnp::http_body_frame::Reader>().unwrap();

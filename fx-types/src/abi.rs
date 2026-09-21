@@ -13,12 +13,13 @@ pub enum FuturePollResult {
 }
 
 #[derive(TryFromPrimitive)]
-#[repr(i64)]
+#[repr(u64)]
 pub enum ResourceMoveFromHostResult {
     Ok = 0,
     // bad request:
     FailedToAccessMemory = 1,
     ArgumentOutOfMemoryBounds = 2,
+    ResourceNotFound = 3,
 }
 
 #[repr(C)]
