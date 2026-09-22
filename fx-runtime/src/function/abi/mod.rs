@@ -397,6 +397,10 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
     }) as u64
 }
 
+pub(super) fn fx_http_body_drop(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
+    let _ = caller.data_mut().resource_set.http_bodies.remove(resource_id.into());
+}
+
 pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
     let http_frame = match caller.data_mut().resource_set.http_frames.remove(resource_id.into()) {
         Some(v) => v,

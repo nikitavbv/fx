@@ -76,6 +76,7 @@ impl FunctionDeployment {
             "fx_fetch_result_future_poll" => super::abi::fx_fetch_result_future_poll;
             "fx_fetch_result_serialize" => super::abi::fx_fetch_result_serialize;
             "fx_http_body_poll_frame" => super::abi::fx_http_body_poll_frame;
+            "fx_http_body_drop" => super::abi::fx_http_body_drop;
             "fx_http_frame_serialize" => super::abi::fx_http_frame_serialize;
         );
 
