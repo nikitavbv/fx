@@ -33,6 +33,7 @@ use {
         fx_bytes_move,
         fx_http_body_poll_frame,
         fx_http_frame_serialize,
+        fx_http_body_drop,
     },
 };
 
@@ -120,7 +121,7 @@ impl HttpRequest {
     }
 
     pub fn with_body(mut self, body: impl IntoHttpBody) -> Self {
-        self.request_data_mut().body = Some(body.into_http_body().0);
+        self.request_data_mut().body = Some(body.into_http_body().into_inner());
         self
     }
 
@@ -283,6 +284,14 @@ impl Default for HttpBody {
     }
 }
 
+impl Drop for HttpBody {
+    fn drop(&mut self) {
+        if let HttpBodyInner::HostResource(resource_id) = &self.0 {
+            unsafe { fx_http_body_drop(*resource_id) };
+        }
+    }
+}
+
 impl HttpBody {
     pub fn empty() -> Self {
         Self(HttpBodyInner::Empty)
@@ -311,6 +320,10 @@ impl HttpBody {
                 .await
                 .unwrap()),
         }
+    }
+
+    pub(crate) fn into_inner(mut self) -> HttpBodyInner {
+        std::mem::replace(&mut self.0, HttpBodyInner::Empty)
     }
 }
 
@@ -428,7 +441,7 @@ pub async fn fetch(mut request: HttpRequest) -> Result<HttpResponse, FetchError>
 
         let mut request_body = fetch.init_body().init_body();
         match request.body() {
-            Some(body) => match body.0 {
+            Some(body) => match body.into_inner() {
                 HttpBodyInner::Empty => request_body.set_empty(()),
                 HttpBodyInner::Stream(stream) => request_body.set_function_stream(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody::stream(stream))).into()),
                 HttpBodyInner::HostResource(resource_id) => request_body.set_host_resource(resource_id),

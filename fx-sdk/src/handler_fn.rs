@@ -57,7 +57,7 @@ impl IntoFunctionResponse for HttpResponse {
         FunctionResponse(FunctionResponseInner::HttpResponse(FunctionHttpResponse {
             status: parts.status,
             headers: parts.headers,
-            body: match body.0 {
+            body: match body.into_inner() {
                 HttpBodyInner::HostResource(resource_id) => FunctionHttpResponseBody::HostResource(resource_id),
                 other => FunctionHttpResponseBody::FunctionResource(RESOURCE_SET.with_borrow_mut(|v| v.http_bodies.insert(HttpBody(other)))),
             },
