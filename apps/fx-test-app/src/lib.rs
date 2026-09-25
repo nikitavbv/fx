@@ -97,6 +97,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/fetch/body-read-all", get(test_fetch_body_read_all))
             .route("/test/fetch/timeout", get(test_fetch_timeout))
             .route("/test/fetch/response-timeout", get(test_fetch_response_timeout))
+            .route("/test/fetch/body-unread", get(test_fetch_body_unread))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
             .route("/test/metrics/counter-increment", get(test_metrics_counter_increment))
@@ -511,6 +512,14 @@ async fn test_fetch_response_timeout() -> impl IntoResponse {
         Err(FetchError::ResponseTimeout) => "response timeout".into_response(),
         Err(err) => format!("unexpected other error: {err:?}").into_response(),
     }
+}
+
+async fn test_fetch_body_unread() -> impl IntoResponse {
+    let response = fetch(
+        HttpRequest::get("https://fxruntime.com/test/get").unwrap()
+    ).await.unwrap();
+
+    format!("status: {}", response.status())
 }
 
 async fn test_log() -> &'static str {
