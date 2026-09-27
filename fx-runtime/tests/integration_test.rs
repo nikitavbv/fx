@@ -548,6 +548,23 @@ async fn fetch_read_timeout() {
 }
 
 #[tokio::test]
+async fn fetch_body_unread() {
+    let client = init_fx_server().await;
+
+    for _ in 0..100 {
+        let result = client.get("/test/fetch/body-unread").send().await.unwrap();
+        assert!(result.status().is_success());
+    }
+
+    let http_bodies: u64 = client.introspection_get("/metrics").send().await.unwrap().text().await.unwrap()
+        .lines()
+            .filter(|line| line.contains("function_id=\"test-app\"") && line.contains("resource_type=\"http_bodies\""))
+            .filter_map(|line| line.rsplit_once(' ').and_then(|(_, value)| value.parse::<u64>().ok()))
+            .sum();
+    assert!(http_bodies < 10, "expected http bodies to be cleaned up");
+}
+
+#[tokio::test]
 async fn log() {
     let client = init_fx_server().await;
 
