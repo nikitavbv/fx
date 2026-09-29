@@ -24,6 +24,19 @@ pub enum ResourceMoveFromHostResult {
 
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
+pub struct BytesLenHandlerResult {
+    pub len: u64,
+}
+
+#[derive(TryFromPrimitive)]
+#[repr(u64)]
+pub enum BytesLenResultCode {
+    Ok = 0,
+    ResourceNotFound = 1,
+}
+
+#[repr(C)]
+#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct KvGetResponseFuturePollResult {
     pub tag: u8, // 0 - ready, 1 - pending
     pub _pad: [u8; 7],
