@@ -33,6 +33,8 @@ pub struct BytesLenHandlerResult {
 pub enum BytesLenResultCode {
     Ok = 0,
     ResourceNotFound = 1,
+    FailedToAccessMemory = 2,
+    ArgumentOutOfMemoryBounds = 3,
 }
 
 #[repr(C)]

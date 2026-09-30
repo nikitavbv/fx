@@ -3,7 +3,12 @@ use {
     futures::future::LocalBoxFuture,
     slotmap::{SlotMap, DefaultKey, Key, KeyData},
     thiserror::Error,
-    fx_types::abi::{UnitFuturePollResult, UnitFuturePollResultCode},
+    fx_types::abi::{
+        UnitFuturePollResult,
+        UnitFuturePollResultCode,
+        BytesLenHandlerResult,
+        BytesLenResultCode,
+    },
     crate::{
         handler_fn::FunctionResponse,
         sys::{
@@ -144,13 +149,37 @@ pub struct BytesResource {
     is_consumed: bool,
 }
 
-impl BytesResource {
-    pub fn into_vec(mut self) -> Vec<u8> {
-        let length = unsafe { fx_bytes_len(self.resource_id) } as usize;
-        let data: Vec<u8> = vec![0u8; length];
-        unsafe { fx_bytes_move(self.resource_id, data.as_ptr() as u64); }
-        self.is_consumed = true;
-        data
+mod bytes_read {
+    use super::*;
+
+    #[derive(Debug, Error)]
+    pub(crate) enum BytesReadError {
+        #[error("internal sdk error")]
+        InternalSdkError,
+    }
+
+    impl BytesResource {
+        pub fn into_vec(mut self) -> Result<Vec<u8>, BytesReadError> {
+            let length = {
+                let mut result = std::mem::MaybeUninit::<BytesLenHandlerResult>::zeroed();
+
+                match BytesLenResultCode::try_from(unsafe { fx_bytes_len(self.resource_id, result.as_mut_ptr() as u64) }) {
+                    Ok(BytesLenResultCode::Ok) => {},
+                    Ok(BytesLenResultCode::ArgumentOutOfMemoryBounds)
+                    | Ok(BytesLenResultCode::FailedToAccessMemory)
+                    | Ok(BytesLenResultCode::ResourceNotFound)
+                    | Err(_) => return Err(BytesReadError::InternalSdkError),
+                }
+
+                unsafe { result.assume_init() }.len
+            };
+
+            let data: Vec<u8> = vec![0u8; length as usize];
+            unsafe { fx_bytes_move(self.resource_id, data.as_ptr() as u64); }
+            self.is_consumed = true;
+
+            Ok(data)
+        }
     }
 }
 

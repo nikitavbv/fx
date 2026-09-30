@@ -158,7 +158,7 @@ impl FetchRequestHeaderResource {
     fn new(id: FetchRequestHeaderResourceId) -> Self {
         Self(LazyCell::new(Box::new(move || {
             let bytes = BytesResource::from(unsafe { crate::sys::fx_fetch_request_header_serialize(id.consume_for_ffi()) });
-            let data = bytes.into_vec();
+            let data = bytes.into_vec().unwrap();
 
             let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
             let request = resource_reader.get_root::<fx_types::abi_http_capnp::http_request::Reader>().unwrap();

@@ -33,6 +33,8 @@ use {
         FetchResultSerializeResultCode,
         FetchResultPollResultCode,
         UnitFuturePollResultCode,
+        BytesLenResultCode,
+        BytesLenHandlerResult,
     },
     crate::{
         function::{instance::FunctionInstanceState, abi::function_memory::FunctionMemoryAccessError},
@@ -161,8 +163,32 @@ pub(super) fn fx_fetch_request_header_serialize_handler(mut caller: wasmtime::Ca
     resource_set.bytes.insert(capnp::serialize::write_message_to_words(&message)).into()
 }
 
-pub(super) fn fx_bytes_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) -> u64 {
-    caller.data_mut().resource_set.bytes.get(resource_id.into()).unwrap().len() as u64
+pub(super) fn fx_bytes_len_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
+    let len = match caller.data_mut().resource_set.bytes.get(resource_id.into()) {
+        Some(v) => v.len(),
+        None => return BytesLenResultCode::ResourceNotFound as u64,
+    };
+
+    let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
+        Ok(v) => v,
+        Err(err) => match err {
+            function_memory::FunctionMemoryError::MemoryNotFound
+            | function_memory::FunctionMemoryError::MemoryNotMemory => return BytesLenResultCode::ResourceNotFound as u64,
+        }
+    };
+    let mut context = caller.as_context_mut();
+    let mut view = memory.view_mut(&mut context);
+
+    let result = BytesLenHandlerResult {
+        len: len as u64,
+    };
+
+    (match view.write_struct(ptr, result) {
+        Ok(_) => BytesLenResultCode::Ok,
+        Err(err) => match err {
+            function_memory::FunctionMemoryAccessError::OutOfBounds => BytesLenResultCode::ArgumentOutOfMemoryBounds,
+        }
+    }) as u64
 }
 
 pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, ptr: u64) -> u64 {
