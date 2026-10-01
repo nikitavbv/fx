@@ -39,75 +39,8 @@ pub enum BytesLenResultCode {
 
 #[repr(C)]
 #[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct KvGetResponseFuturePollResult {
-    pub tag: u8, // 0 - ready, 1 - pending
-    pub _pad: [u8; 7],
-    pub kv_get_response_resource_id: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct KvGetResponseSerializeResult {
-    pub bytes_resource_id: u64,
-    pub bytes_length: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct KvSetResponseFuturePollResult {
-    pub tag: u8, // 0 - ready, 1 - pending
-    pub _pad: [u8; 7],
-    pub kv_set_response_resource_id: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct KvSetResponseSerializeResult {
-    pub bytes_resource_id: u64,
-    pub bytes_length: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
 pub struct UnitFuturePollResult {
     pub tag: u8, // 0 - ready, 1 - pending
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct SqlQueryResultFuturePollResult {
-    pub tag: u8, // 0 - ready, 1 - pending
-    pub _pad: [u8; 7],
-    pub sql_query_result_resource_id: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct SqlQueryResultSerializeResult {
-    pub bytes_resource_id: u64,
-    pub bytes_length: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct SqlBatchResultFuturePollResult {
-    pub tag: u8, // 0 - ready, 1 - pending,
-    pub _pad: [u8; 7],
-    pub sql_batch_result_resource_id: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct SqlBatchResultSerializeResult {
-    pub bytes_resource_id: u64,
-    pub bytes_length: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout)]
-pub struct SqlMigrationResultSerializeResult {
-    pub bytes_resource_id: u64,
-    pub bytes_length: u64,
 }
 
 #[repr(C)]
@@ -209,21 +142,6 @@ impl<T: Into<u64>> From<Poll<Option<T>>> for AsyncStreamResourcePollResult {
 pub struct ResourceSerializeResult {
     pub bytes_resource_id: u64,
     pub bytes_length: u64,
-}
-
-#[repr(C)]
-#[derive(FromBytes, IntoBytes, Immutable, KnownLayout, Default)]
-pub struct KvSubscriptionStreamPollResult {
-    // 0 - stream finished
-    // 1 - next item ready
-    // 2 - pending
-    // 3 - error: runtime shutdown
-    // 4 - binding not found
-    // 5 - bad request
-    // 6 - failed to read request
-    pub tag: u8,
-    pub _pad: [u8; 7],
-    pub resolved_resource_id: u64,
 }
 
 // exported by function
