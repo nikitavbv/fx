@@ -142,7 +142,18 @@ impl DefinitionsMonitor {
                     info!("shutting down definitions monitor because cron task shutdown.");
                     return;
                 },
-                Err(ApplyConfigError::CompilerError) => continue,
+                Err(ApplyConfigError::CompilerError) => {
+                    warn!("failed to apply config for {function_id:?} because of compiler error");
+                    continue;
+                },
+                Err(ApplyConfigError::FunctionCodeNotFound) => {
+                    warn!("failed to apply config for {function_id:?} because function code was not found");
+                    continue;
+                },
+                Err(ApplyConfigError::FunctionCodeFailedToRead) => {
+                    warn!("failed to apply config for {function_id:?} because failed to load function code");
+                    continue;
+                }
             };
         }
 
@@ -195,7 +206,12 @@ impl DefinitionsMonitor {
             },
             None => {
                 let module_code = self.function_id_to_path(&function_id).with_added_extension("wasm");
-                fs::read(&module_code).await.unwrap()
+                fs::read(&module_code).await
+                    .map_err(|err| if err.kind() == std::io::ErrorKind::NotFound {
+                        ApplyConfigError::FunctionCodeNotFound
+                    } else {
+                        ApplyConfigError::FunctionCodeFailedToRead
+                    })?
             }
         };
 
@@ -356,4 +372,8 @@ pub(crate) enum ApplyConfigError {
     CronTaskShutdown,
     #[error("failed to apply config because failed to compile module")]
     CompilerError,
+    #[error("function code not found")]
+    FunctionCodeNotFound,
+    #[error("failed to read function code")]
+    FunctionCodeFailedToRead,
 }

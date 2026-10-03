@@ -38,6 +38,10 @@ pub(crate) struct DeployFunctionMessage {
 pub(crate) enum DeployFunctionError {
     #[error("failed to deploy function: failed to compile wasm module")]
     CompileError,
+    #[error("failed to deploy function: function code not found")]
+    FunctionCodeNotFound,
+    #[error("failed to deploy function: failed to read function code")]
+    FunctionCodeFailedToRead,
 }
 
 #[derive(Debug)]
@@ -118,6 +122,8 @@ pub(crate) fn run_management_task(
                                             break;
                                         },
                                         Err(ApplyConfigError::CompilerError) => Err(DeployFunctionError::CompileError),
+                                        Err(ApplyConfigError::FunctionCodeNotFound) => Err(DeployFunctionError::FunctionCodeNotFound),
+                                        Err(ApplyConfigError::FunctionCodeFailedToRead) => Err(DeployFunctionError::FunctionCodeFailedToRead),
                                     };
                                     // error can be ignored here because it means that request was cancelled
                                     let _ = msg.on_ready.send(result);

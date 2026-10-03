@@ -346,6 +346,10 @@ mod deploy_function {
         RuntimeShutdown,
         #[error("failed to deploy function because failed to compile wasm module")]
         CompileError,
+        #[error("failed to deploy function because function code was not found")]
+        FunctionCodeNotFound,
+        #[error("failed to deploy function because failed to read function code")]
+        FunctionCodeFailedToRead,
     }
 
     impl From<crate::tasks::management::DeployFunctionError> for DeployError {
@@ -353,6 +357,8 @@ mod deploy_function {
             use crate::tasks::management::DeployFunctionError as SourceError;
             match err {
                 SourceError::CompileError => Self::CompileError,
+                SourceError::FunctionCodeNotFound => Self::FunctionCodeNotFound,
+                SourceError::FunctionCodeFailedToRead => Self::FunctionCodeFailedToRead,
             }
         }
     }
