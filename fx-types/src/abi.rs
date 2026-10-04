@@ -54,6 +54,8 @@ pub struct FetchRequestHeaderSerializeResult {
 pub enum FetchRequestHeaderSerializeResultCode {
     Ok = 0,
     ResourceNotFound = 1,
+    FailedToAccessMemory = 2,
+    ArgumentOutOfMemoryBounds = 3,
 }
 
 #[repr(C)]

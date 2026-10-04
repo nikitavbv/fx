@@ -21,6 +21,8 @@ use {
             FetchResultSerializeResultCode,
             FetchResultPollResultCode,
             ResourceMoveFromHostResult,
+            FetchRequestHeaderSerializeResult,
+            FetchRequestHeaderSerializeResultCode,
         },
     },
     crate::sys::{
@@ -157,7 +159,17 @@ struct FetchRequestHeaderResource(LazyCell<HttpRequestData, Box<dyn FnOnce() -> 
 impl FetchRequestHeaderResource {
     fn new(id: FetchRequestHeaderResourceId) -> Self {
         Self(LazyCell::new(Box::new(move || {
-            let bytes = BytesResource::from(unsafe { crate::sys::fx_fetch_request_header_serialize(id.consume_for_ffi()) });
+            let result = std::mem::MaybeUninit::<FetchRequestHeaderSerializeResult>::zeroed();
+
+            match FetchRequestHeaderSerializeResultCode::try_from(unsafe { crate::sys::fx_fetch_request_header_serialize(id.consume_for_ffi(), result.as_ptr() as u64) }) {
+                Ok(FetchRequestHeaderSerializeResultCode::Ok) => {},
+                Ok(FetchRequestHeaderSerializeResultCode::FailedToAccessMemory)
+                | Ok(FetchRequestHeaderSerializeResultCode::ArgumentOutOfMemoryBounds)
+                | Ok(FetchRequestHeaderSerializeResultCode::ResourceNotFound)
+                | Err(_) => todo!(),
+            }
+
+            let bytes = BytesResource::from(unsafe { result.assume_init() }.resource_id);
             let data = bytes.into_vec().unwrap();
 
             let resource_reader = capnp::serialize::read_message_from_flat_slice(&mut data.as_slice(), capnp::message::ReaderOptions::default()).unwrap();
