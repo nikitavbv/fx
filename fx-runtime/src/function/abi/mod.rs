@@ -94,7 +94,7 @@ pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSt
         }
     };
 
-    let message: LogMessageEvent = LogMessageEvent::new(
+    let message = LogMessageEvent::new(
         LogSource::function(&caller.data().function_id),
         message.get_event_type().map(|v| match v {
             abi_log_capnp::EventType::Begin => LogEventType::Begin,
@@ -132,7 +132,7 @@ pub(super) fn fx_log_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceSt
                 .collect(),
             Err(_) => HashMap::new(),
         }
-    ).into();
+    );
 
     if caller.data().runtime_services.logger.send(message).is_err() {
         warn!("failed to write log message to logger: log channel is closed.");
