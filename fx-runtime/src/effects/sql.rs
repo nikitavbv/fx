@@ -483,15 +483,16 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                 let sql_batch_result = match binding {
                     Some(binding) => {
                         let (response_tx, response_rx) = oneshot::channel();
-                        sql_tx.send_message(SqlMessage::Batch(SqlBatchMessage {
+                        match sql_tx.send_message(SqlMessage::Batch(SqlBatchMessage {
                             binding: binding.clone(),
                             queries,
                             response: response_tx
-                        })).unwrap();
-
-                        response_rx.await
-                            .map_err(|_| SqlBatchError::RuntimeShutdown)
-                            .and_then(|v| v.map_err(SqlBatchError::from))
+                        })) {
+                            Ok(()) => response_rx.await
+                                .map_err(|_| SqlBatchError::RuntimeShutdown)
+                                .and_then(|v| v.map_err(SqlBatchError::from)),
+                            Err(()) => Err(SqlBatchError::RuntimeShutdown),
+                        }
                     },
                     None => Err(SqlBatchError::BindingNotFound),
                 };
