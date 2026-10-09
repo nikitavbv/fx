@@ -78,6 +78,7 @@ struct SqlBatchError {
         runtimeShutdown @3 :Void;
         unknownError @4 :Void;
         runtimeError @5 :Void;
+        badRequest @6 :Void;
     }
 }
 

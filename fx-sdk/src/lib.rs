@@ -180,6 +180,7 @@ impl SqlDatabase {
                 abi_sql_capnp::sql_batch_error::error::Which::RuntimeShutdown(_) => SqlBatchError::RuntimeShutdown,
                 abi_sql_capnp::sql_batch_error::error::Which::UnknownError(_) => SqlBatchError::UnknownError,
                 abi_sql_capnp::sql_batch_error::error::Which::RuntimeError(_) => SqlBatchError::RuntimeError,
+                abi_sql_capnp::sql_batch_error::error::Which::BadRequest(()) => SqlBatchError::InternalSdkError,
             }),
         }
     }

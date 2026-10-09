@@ -76,6 +76,8 @@ pub(crate) enum SqlBatchError {
     UnknownError,
     #[error("error in sql task runtime implementation")]
     RuntimeError,
+    #[error("failed to read request")]
+    FailedToReadRequest,
 }
 
 impl From<SqlTaskBatchError> for SqlBatchError {
@@ -464,37 +466,40 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                 let binding = message.get_binding().unwrap().to_str().unwrap();
                 let binding = bindings.get(binding);
 
-                let queries: Vec<(String, Vec<SqlValue>)> = message.get_queries().unwrap().into_iter()
+                let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.get_queries().unwrap().into_iter()
                     .map(|query| {
                         let statement = query.get_statement().unwrap().to_string().unwrap();
                         let params = query.get_params().unwrap().into_iter()
                             .map(|v| match v.get_value().which().unwrap() {
-                                abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
-                                abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
-                                abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
-                                abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
-                                abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+                                abi_sql_capnp::sql_value::value::Null(_) => Ok(SqlValue::Null),
+                                abi_sql_capnp::sql_value::value::Integer(v) => Ok(SqlValue::Integer(v)),
+                                abi_sql_capnp::sql_value::value::Real(v) => Ok(SqlValue::Real(v)),
+                                abi_sql_capnp::sql_value::value::Which::Text(v) => Ok(SqlValue::Text(v.unwrap().to_string().unwrap())),
+                                abi_sql_capnp::sql_value::value::Which::Blob(v) => v.map_err(|_| SqlBatchError::FailedToReadRequest).map(|v| SqlValue::Blob(v.to_vec())),
                             })
-                            .collect();
-                        (statement, params)
+                            .collect::<Result<_, _>>();
+                        params.map(|params| (statement, params))
                     })
                     .collect();
 
-                let sql_batch_result = match binding {
-                    Some(binding) => {
-                        let (response_tx, response_rx) = oneshot::channel();
-                        match sql_tx.send_message(SqlMessage::Batch(SqlBatchMessage {
-                            binding: binding.clone(),
-                            queries,
-                            response: response_tx
-                        })) {
-                            Ok(()) => response_rx.await
-                                .map_err(|_| SqlBatchError::RuntimeShutdown)
-                                .and_then(|v| v.map_err(SqlBatchError::from)),
-                            Err(()) => Err(SqlBatchError::RuntimeShutdown),
-                        }
+                let sql_batch_result = match queries {
+                    Ok(queries) => match binding {
+                        Some(binding) => {
+                            let (response_tx, response_rx) = oneshot::channel();
+                            match sql_tx.send_message(SqlMessage::Batch(SqlBatchMessage {
+                                binding: binding.clone(),
+                                queries,
+                                response: response_tx
+                            })) {
+                                Ok(()) => response_rx.await
+                                    .map_err(|_| SqlBatchError::RuntimeShutdown)
+                                    .and_then(|v| v.map_err(SqlBatchError::from)),
+                                Err(()) => Err(SqlBatchError::RuntimeShutdown),
+                            }
+                        },
+                        None => Err(SqlBatchError::BindingNotFound),
                     },
-                    None => Err(SqlBatchError::BindingNotFound),
+                    Err(err) => Err(err),
                 };
 
                 let mut message = capnp::message::Builder::new_default();
@@ -514,6 +519,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                             SqlBatchError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
                             SqlBatchError::UnknownError => response_error.set_unknown_error(()),
                             SqlBatchError::RuntimeError => response_error.set_runtime_error(()),
+                            SqlBatchError::FailedToReadRequest => response_error.set_bad_request(()),
                         }
                     }
                 }
