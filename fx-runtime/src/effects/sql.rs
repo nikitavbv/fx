@@ -466,28 +466,32 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                 let binding = message.get_binding().unwrap().to_str().unwrap();
                 let binding = bindings.get(binding);
 
-                let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.get_queries().unwrap().into_iter()
-                    .map(|query| {
-                        let statement = query.get_statement().map_err(|_| SqlBatchError::FailedToReadRequest)
-                            .and_then(|v| v.to_string().map_err(|_| SqlBatchError::FailedToReadRequest));
+                let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.get_queries()
+                    .map_err(|_| SqlBatchError::FailedToReadRequest)
+                    .and_then(|queries| {
+                        queries.into_iter()
+                            .map(|query| {
+                                let statement = query.get_statement().map_err(|_| SqlBatchError::FailedToReadRequest)
+                                    .and_then(|v| v.to_string().map_err(|_| SqlBatchError::FailedToReadRequest));
 
-                        query.get_params()
-                            .map_err(|_| SqlBatchError::FailedToReadRequest)
-                            .and_then(|v| v.into_iter()
-                                .map(|v| v.get_value().which().map_err(|_| SqlBatchError::FailedToReadRequest).and_then(|v| match v {
-                                    abi_sql_capnp::sql_value::value::Null(_) => Ok(SqlValue::Null),
-                                    abi_sql_capnp::sql_value::value::Integer(v) => Ok(SqlValue::Integer(v)),
-                                    abi_sql_capnp::sql_value::value::Real(v) => Ok(SqlValue::Real(v)),
-                                    abi_sql_capnp::sql_value::value::Which::Text(v) => v.map_err(|_| SqlBatchError::FailedToReadRequest)
-                                        .and_then(|v| v.to_string().map_err(|_| SqlBatchError::FailedToReadRequest))
-                                        .map(SqlValue::Text),
-                                    abi_sql_capnp::sql_value::value::Which::Blob(v) => v.map_err(|_| SqlBatchError::FailedToReadRequest).map(|v| SqlValue::Blob(v.to_vec())),
-                                }))
-                                .collect::<Result<_, _>>()
-                                .and_then(|params| statement.map(|statement| (statement, params)))
-                            )
-                    })
-                    .collect();
+                                query.get_params()
+                                    .map_err(|_| SqlBatchError::FailedToReadRequest)
+                                    .and_then(|v| v.into_iter()
+                                        .map(|v| v.get_value().which().map_err(|_| SqlBatchError::FailedToReadRequest).and_then(|v| match v {
+                                            abi_sql_capnp::sql_value::value::Null(_) => Ok(SqlValue::Null),
+                                            abi_sql_capnp::sql_value::value::Integer(v) => Ok(SqlValue::Integer(v)),
+                                            abi_sql_capnp::sql_value::value::Real(v) => Ok(SqlValue::Real(v)),
+                                            abi_sql_capnp::sql_value::value::Which::Text(v) => v.map_err(|_| SqlBatchError::FailedToReadRequest)
+                                                .and_then(|v| v.to_string().map_err(|_| SqlBatchError::FailedToReadRequest))
+                                                .map(SqlValue::Text),
+                                            abi_sql_capnp::sql_value::value::Which::Blob(v) => v.map_err(|_| SqlBatchError::FailedToReadRequest).map(|v| SqlValue::Blob(v.to_vec())),
+                                        }))
+                                        .collect::<Result<_, _>>()
+                                        .and_then(|params| statement.map(|statement| (statement, params)))
+                                    )
+                            })
+                            .collect()
+                    });
 
                 let sql_batch_result = match queries {
                     Ok(queries) => match binding {
