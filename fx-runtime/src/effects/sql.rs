@@ -463,8 +463,10 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                 let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
                 let message = request_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
 
-                let binding = message.get_binding().unwrap().to_str().unwrap();
-                let binding = bindings.get(binding);
+                let binding = message.get_binding()
+                    .map_err(|_| SqlBatchError::FailedToReadRequest)
+                    .map(|v| v.to_str().unwrap());
+                let binding = binding.map(|binding| bindings.get(binding));
 
                 let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.get_queries()
                     .map_err(|_| SqlBatchError::FailedToReadRequest)
@@ -493,8 +495,8 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                             .collect()
                     });
 
-                let sql_batch_result = match queries {
-                    Ok(queries) => match binding {
+                let sql_batch_result = match queries.and_then(|v| binding.map(|t| (v, t))) {
+                    Ok((queries, binding)) => match binding {
                         Some(binding) => {
                             let (response_tx, response_rx) = oneshot::channel();
                             match sql_tx.send_message(SqlMessage::Batch(SqlBatchMessage {
