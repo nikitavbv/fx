@@ -465,7 +465,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
 
                 let binding = message.get_binding()
                     .map_err(|_| SqlBatchError::FailedToReadRequest)
-                    .map(|v| v.to_str().unwrap());
+                    .and_then(|v| v.to_str().map_err(|_| SqlBatchError::FailedToReadRequest));
                 let binding = binding.map(|binding| bindings.get(binding));
 
                 let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.get_queries()
