@@ -62,7 +62,7 @@ impl From<SqlTaskMigrationError> for SqlMigrationError {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub(crate) enum SqlBatchError {
     #[error("binding with this name is not found")]
     BindingNotFound,
@@ -461,15 +461,18 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                 let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
 
                 let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
-                let message = request_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().unwrap();
+                let message = request_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>()
+                    .map_err(|_| SqlBatchError::FailedToReadRequest);
 
-                let binding = message.get_binding()
-                    .map_err(|_| SqlBatchError::FailedToReadRequest)
+                let binding = message.as_ref()
+                    .map_err(|err| err.clone())
+                    .and_then(|v| v.get_binding().map_err(|_| SqlBatchError::FailedToReadRequest))
                     .and_then(|v| v.to_str().map_err(|_| SqlBatchError::FailedToReadRequest));
                 let binding = binding.map(|binding| bindings.get(binding));
 
-                let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.get_queries()
-                    .map_err(|_| SqlBatchError::FailedToReadRequest)
+                let queries: Result<Vec<(String, Vec<SqlValue>)>, SqlBatchError> = message.as_ref()
+                    .map_err(|err| err.clone())
+                    .and_then(|v| v.get_queries().map_err(|_| SqlBatchError::FailedToReadRequest))
                     .and_then(|queries| {
                         queries.into_iter()
                             .map(|query| {
