@@ -33,6 +33,8 @@ pub(crate) enum SqlMigrationError {
     BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("failed to run migration because of incorrect request")]
+    BadRequest,
     #[error("migration execution error: {message:?}")]
     MigrationExecutionError {
         message: Option<String>,
@@ -401,20 +403,28 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                 let migrate_result = match binding {
                     Some(binding) => {
                         let (response_tx, response_rx) = oneshot::channel();
-                        let send_result = sql_controller.send_message_migrate(SqlMigrateMessage {
-                            binding: binding.clone(),
-                            migrations: message.get_migrations().unwrap().into_iter()
-                                .map(|v| v.unwrap().to_string().unwrap())
-                                .collect(),
-                            response: response_tx,
-                        });
 
-                        match send_result {
-                            Ok(_) => match response_rx.await {
-                                Ok(v) => v.map_err(SqlMigrationError::from),
-                                Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                        let migrations: Result<Vec<String>, SqlMigrationError> = message.get_migrations().unwrap().into_iter()
+                            .map(|v| v.unwrap().to_string().map_err(|_| SqlMigrationError::BadRequest))
+                            .collect();
+
+                        match migrations {
+                            Ok(migrations) => {
+                                let send_result = sql_controller.send_message_migrate(SqlMigrateMessage {
+                                    binding: binding.clone(),
+                                    migrations,
+                                    response: response_tx,
+                                });
+
+                                match send_result {
+                                    Ok(_) => match response_rx.await {
+                                        Ok(v) => v.map_err(SqlMigrationError::from),
+                                        Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                                    },
+                                    Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                                }
                             },
-                            Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                            Err(err) => Err(err),
                         }
                     },
                     None => Err(SqlMigrationError::BindingNotFound),
@@ -433,6 +443,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                         let mut response_error = sql_migrate_result.init_error().init_error();
                         match err {
                             SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
+                            SqlMigrationError::BadRequest => response_error.set_bad_request(()),
                             SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
                             SqlMigrationError::MigrationExecutionError { message } => {
                                 let mut execution_error = response_error.init_execution_error();
@@ -458,11 +469,16 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             let sql_tx = state.runtime_services.sql.clone();
 
             async move {
-                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+                let bytes = req.into_body().collect().await.map_err(|_| SqlBatchError::FailedToReadRequest).map(|v| v.to_bytes());
 
-                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
-                let message = request_reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>()
-                    .map_err(|_| SqlBatchError::FailedToReadRequest);
+                let request_reader = bytes.as_ref()
+                    .map_err(|err| err.clone())
+                    .and_then(|bytes| capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
+                        .map_err(|_| SqlBatchError::FailedToReadRequest)
+                    );
+                let message = request_reader.as_ref()
+                    .map_err(|err| err.clone())
+                    .and_then(|reader| reader.get_root::<abi_sql_capnp::sql_batch_request::Reader>().map_err(|_| SqlBatchError::FailedToReadRequest));
 
                 let binding = message.as_ref()
                     .map_err(|err| err.clone())
