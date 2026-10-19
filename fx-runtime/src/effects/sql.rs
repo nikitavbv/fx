@@ -400,6 +400,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                     .map_err(|err| err.clone())
                     .and_then(|v| v.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().map_err(|_| SqlMigrationError::BadRequest));
 
+                // TODO: extract into helper function and use ? operator instead of and_then
                 let binding = message.as_ref()
                     .map_err(|err| err.clone())
                     .and_then(|v| v.get_binding().map_err(|_| SqlMigrationError::BadRequest))
