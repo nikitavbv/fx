@@ -27,7 +27,7 @@ pub enum SqlValue {
     Blob(Vec<u8>),
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub(crate) enum SqlMigrationError {
     #[error("binding with this name is not found")]
     BindingNotFound,
@@ -394,19 +394,28 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             async move {
                 let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
 
-                let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
-                let message = message_reader.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().unwrap();
+                let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
+                    .map_err(|_| SqlMigrationError::BadRequest);
+                let message = message_reader.as_ref()
+                    .map_err(|err| err.clone())
+                    .and_then(|v| v.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().map_err(|_| SqlMigrationError::BadRequest));
 
-                let binding = message.get_binding().unwrap().to_str().unwrap();
-                let binding = bindings.get(binding);
+                let binding = message.as_ref()
+                    .map_err(|err| err.clone())
+                    .and_then(|v| v.get_binding().map_err(|_| SqlMigrationError::BadRequest))
+                    .and_then(|v| v.to_str().map_err(|_| SqlMigrationError::BadRequest));
+                let binding = binding.map(|v| bindings.get(v));
 
                 let migrate_result = match binding {
-                    Some(binding) => {
+                    Ok(Some(binding)) => {
                         let (response_tx, response_rx) = oneshot::channel();
 
-                        let migrations: Result<Vec<String>, SqlMigrationError> = message.get_migrations().unwrap().into_iter()
-                            .map(|v| v.unwrap().to_string().map_err(|_| SqlMigrationError::BadRequest))
-                            .collect();
+                        let migrations: Result<Vec<String>, SqlMigrationError> = message
+                            .and_then(|v| v.get_migrations().map_err(|_| SqlMigrationError::BadRequest))
+                            .and_then(|v| v.into_iter()
+                                .map(|v| v.map_err(|_| SqlMigrationError::BadRequest)
+                                    .and_then(|v| v.to_string().map_err(|_| SqlMigrationError::BadRequest)))
+                                .collect());
 
                         match migrations {
                             Ok(migrations) => {
@@ -427,7 +436,8 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                             Err(err) => Err(err),
                         }
                     },
-                    None => Err(SqlMigrationError::BindingNotFound),
+                    Ok(None) => Err(SqlMigrationError::BindingNotFound),
+                    Err(err) => Err(err),
                 };
 
                 let mut message = capnp::message::Builder::new_default();
