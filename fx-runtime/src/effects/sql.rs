@@ -1,4 +1,5 @@
 use {
+    std::collections::HashMap,
     thiserror::Error,
     futures::FutureExt,
     rusqlite::{Connection, params_from_iter, types::{ValueRef, ToSqlOutput}, ToSql},
@@ -7,9 +8,10 @@ use {
     tokio::sync::oneshot,
     fx_types::{capnp, abi_sql_capnp},
     crate::{
-        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage},
+        tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage, SqlController},
         function::instance::FunctionInstanceState,
         triggers::http::HttpBody,
+        definitions::bindings::SqlBindingConfig,
     },
 };
 
@@ -392,54 +394,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             let sql_controller = state.runtime_services.sql.clone();
 
             async move {
-                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
-
-                let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
-                    .map_err(|_| SqlMigrationError::BadRequest);
-                let message = message_reader.as_ref()
-                    .map_err(|err| err.clone())
-                    .and_then(|v| v.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().map_err(|_| SqlMigrationError::BadRequest));
-
-                // TODO: extract into helper function and use ? operator instead of and_then
-                let binding = message.as_ref()
-                    .map_err(|err| err.clone())
-                    .and_then(|v| v.get_binding().map_err(|_| SqlMigrationError::BadRequest))
-                    .and_then(|v| v.to_str().map_err(|_| SqlMigrationError::BadRequest));
-                let binding = binding.map(|v| bindings.get(v));
-
-                let migrate_result = match binding {
-                    Ok(Some(binding)) => {
-                        let (response_tx, response_rx) = oneshot::channel();
-
-                        let migrations: Result<Vec<String>, SqlMigrationError> = message
-                            .and_then(|v| v.get_migrations().map_err(|_| SqlMigrationError::BadRequest))
-                            .and_then(|v| v.into_iter()
-                                .map(|v| v.map_err(|_| SqlMigrationError::BadRequest)
-                                    .and_then(|v| v.to_string().map_err(|_| SqlMigrationError::BadRequest)))
-                                .collect());
-
-                        match migrations {
-                            Ok(migrations) => {
-                                let send_result = sql_controller.send_message_migrate(SqlMigrateMessage {
-                                    binding: binding.clone(),
-                                    migrations,
-                                    response: response_tx,
-                                });
-
-                                match send_result {
-                                    Ok(_) => match response_rx.await {
-                                        Ok(v) => v.map_err(SqlMigrationError::from),
-                                        Err(_) => Err(SqlMigrationError::RuntimeShutdown),
-                                    },
-                                    Err(_) => Err(SqlMigrationError::RuntimeShutdown),
-                                }
-                            },
-                            Err(err) => Err(err),
-                        }
-                    },
-                    Ok(None) => Err(SqlMigrationError::BindingNotFound),
-                    Err(err) => Err(err),
-                };
+                let migrate_result = handle_migrate_request(bindings, sql_controller, req).await;
 
                 let mut message = capnp::message::Builder::new_default();
 
@@ -577,5 +532,56 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             *response.status_mut() = http::StatusCode::NOT_FOUND;
             std::future::ready(response).boxed_local()
         }
+    }
+}
+
+async fn handle_migrate_request(bindings: HashMap<String, SqlBindingConfig>, sql_controller: SqlController, req: http::Request<HttpBody>) -> Result<(), SqlMigrationError> {
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+    let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
+        .map_err(|_| SqlMigrationError::BadRequest);
+    let message = message_reader.as_ref()
+        .map_err(|err| err.clone())
+        .and_then(|v| v.get_root::<abi_sql_capnp::sql_migrate_request::Reader>().map_err(|_| SqlMigrationError::BadRequest));
+
+    // TODO: extract into helper function and use ? operator instead of and_then
+    let binding = message.as_ref()
+        .map_err(|err| err.clone())
+        .and_then(|v| v.get_binding().map_err(|_| SqlMigrationError::BadRequest))
+        .and_then(|v| v.to_str().map_err(|_| SqlMigrationError::BadRequest));
+    let binding = binding.map(|v| bindings.get(v));
+
+    match binding {
+        Ok(Some(binding)) => {
+            let (response_tx, response_rx) = oneshot::channel();
+
+            let migrations: Result<Vec<String>, SqlMigrationError> = message
+                .and_then(|v| v.get_migrations().map_err(|_| SqlMigrationError::BadRequest))
+                .and_then(|v| v.into_iter()
+                    .map(|v| v.map_err(|_| SqlMigrationError::BadRequest)
+                        .and_then(|v| v.to_string().map_err(|_| SqlMigrationError::BadRequest)))
+                    .collect());
+
+            match migrations {
+                Ok(migrations) => {
+                    let send_result = sql_controller.send_message_migrate(SqlMigrateMessage {
+                        binding: binding.clone(),
+                        migrations,
+                        response: response_tx,
+                    });
+
+                    match send_result {
+                        Ok(_) => match response_rx.await {
+                            Ok(v) => v.map_err(SqlMigrationError::from),
+                            Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                        },
+                        Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                    }
+                },
+                Err(err) => Err(err),
+            }
+        },
+        Ok(None) => Err(SqlMigrationError::BindingNotFound),
+        Err(err) => Err(err),
     }
 }
