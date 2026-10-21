@@ -35,6 +35,8 @@ pub(crate) enum SqlMigrationError {
     BindingNotFound,
     #[error("database is locked")]
     DatabaseBusy,
+    #[error("failed to read request")]
+    FailedToReadRequest,
     #[error("failed to run migration because of incorrect request")]
     BadRequest,
     #[error("migration execution error: {message:?}")]
@@ -409,6 +411,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                         let mut response_error = sql_migrate_result.init_error().init_error();
                         match err {
                             SqlMigrationError::DatabaseBusy => response_error.set_database_busy(()),
+                            SqlMigrationError::FailedToReadRequest => response_error.set_failed_to_read_request(()),
                             SqlMigrationError::BadRequest => response_error.set_bad_request(()),
                             SqlMigrationError::BindingNotFound => response_error.set_binding_not_found(()),
                             SqlMigrationError::MigrationExecutionError { message } => {
@@ -536,7 +539,9 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
 }
 
 async fn handle_migrate_request(bindings: HashMap<String, SqlBindingConfig>, sql_controller: SqlController, req: http::Request<HttpBody>) -> Result<(), SqlMigrationError> {
-    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let bytes: Bytes = req.into_body().collect().await
+        .map_err(|_| SqlMigrationError::FailedToReadRequest)?
+        .to_bytes();
 
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
         .map_err(|_| SqlMigrationError::BadRequest);

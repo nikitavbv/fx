@@ -47,6 +47,7 @@ impl Migrations {
             abi_sql_capnp::sql_migrate_result::result::Which::Error(err) => Err(match err.unwrap().get_error().which().unwrap() {
                 abi_sql_capnp::sql_migrate_error::error::Which::BindingNotFound(_) => SqlMigrationError::BindingNotFound,
                 abi_sql_capnp::sql_migrate_error::error::Which::DatabaseBusy(_) => SqlMigrationError::DatabaseBusy,
+                abi_sql_capnp::sql_migrate_error::error::Which::FailedToReadRequest(()) => SqlMigrationError::RuntimeError,
                 abi_sql_capnp::sql_migrate_error::error::Which::BadRequest(_) => SqlMigrationError::InternalSdkError,
                 abi_sql_capnp::sql_migrate_error::error::Which::ExecutionError(error) => SqlMigrationError::MigrationExecutionError {
                     message: {
