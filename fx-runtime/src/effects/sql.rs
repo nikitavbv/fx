@@ -316,40 +316,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             let sql_tx = state.runtime_services.sql.clone();
 
             async move {
-                let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
-
-                let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
-                let message = request_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
-
-                let binding = message.get_binding().unwrap().to_str().unwrap();
-                let binding = bindings.get(binding);
-
-                let params: Vec<SqlValue> = message.get_params().unwrap().into_iter()
-                    .map(|v| match v.get_value().which().unwrap() {
-                        abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
-                        abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
-                        abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
-                        abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
-                        abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
-                    })
-                    .collect();
-
-                let exec_result = match binding {
-                    Some(binding) => {
-                        let (response_tx, response_rx) = oneshot::channel();
-                        sql_tx.send_message(SqlMessage::Exec(SqlExecMessage {
-                            binding: binding.clone(),
-                            statement: message.get_statement().unwrap().to_string().unwrap(),
-                            params,
-                            response: response_tx,
-                        })).unwrap();
-
-                        response_rx.await
-                            .map_err(|_| SqlQueryError::RuntimeShutdown)
-                            .and_then(|v| v.map_err(SqlQueryError::from))
-                    },
-                    None => Err(SqlQueryError::BindingNotFound),
-                };
+                let exec_result = handle_exec_request(bindings, sql_tx, req).await;
 
                 let mut message = capnp::message::Builder::new_default();
                 let sql_exec_result_message = message.init_root::<abi_sql_capnp::sql_exec_result::Builder>();
@@ -535,6 +502,43 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             *response.status_mut() = http::StatusCode::NOT_FOUND;
             std::future::ready(response).boxed_local()
         }
+    }
+}
+
+async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx: SqlController, req: http::Request<HttpBody>) -> Result<Vec<SqlRow>, SqlQueryError> {
+    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+
+    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
+    let message = request_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
+
+    let binding = message.get_binding().unwrap().to_str().unwrap();
+    let binding = bindings.get(binding);
+
+    let params: Vec<SqlValue> = message.get_params().unwrap().into_iter()
+        .map(|v| match v.get_value().which().unwrap() {
+            abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
+            abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
+            abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
+            abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
+            abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+        })
+        .collect();
+
+    match binding {
+        Some(binding) => {
+            let (response_tx, response_rx) = oneshot::channel();
+            sql_tx.send_message(SqlMessage::Exec(SqlExecMessage {
+                binding: binding.clone(),
+                statement: message.get_statement().unwrap().to_string().unwrap(),
+                params,
+                response: response_tx,
+            })).unwrap();
+
+            response_rx.await
+                .map_err(|_| SqlQueryError::RuntimeShutdown)
+                .and_then(|v| v.map_err(SqlQueryError::from))
+        },
+        None => Err(SqlQueryError::BindingNotFound),
     }
 }
 
