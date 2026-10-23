@@ -22,6 +22,7 @@ struct SqlExecError {
         textValueDecodeError @4 :Void;
         unknownError @5 :Void;
         runtimeError @6 :Void;
+        badRequest @7 :Void;
     }
 }
 

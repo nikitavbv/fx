@@ -271,6 +271,8 @@ pub(crate) enum SqlQueryError {
     DatabaseBusy,
     #[error("runtime is being shutdown")]
     RuntimeShutdown,
+    #[error("bad sql query request")]
+    BadRequest,
     #[error("sql statement error: {0:?}")]
     StatementError(String),
     #[error("failed to convert database text value to utf8 string")]
@@ -345,6 +347,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                             SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
                             SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
                             SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                            SqlQueryError::BadRequest => response_error.set_bad_request(()),
                             SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
                             SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
                             SqlQueryError::UnknownError => response_error.set_unknown_error(()),
@@ -529,7 +532,8 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
             let (response_tx, response_rx) = oneshot::channel();
             sql_tx.send_message(SqlMessage::Exec(SqlExecMessage {
                 binding: binding.clone(),
-                statement: message.get_statement().unwrap().to_string().unwrap(),
+                statement: message.get_statement().unwrap().to_string()
+                    .map_err(|_| SqlQueryError::BadRequest)?,
                 params,
                 response: response_tx,
             })).unwrap();

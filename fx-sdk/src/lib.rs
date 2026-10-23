@@ -127,6 +127,7 @@ impl SqlDatabase {
                 abi_sql_capnp::sql_exec_error::error::Which::BindingNotFound(_) => SqlError::BindingNotFound,
                 abi_sql_capnp::sql_exec_error::error::Which::DatabaseBusy(_) => SqlError::DatabaseBusy,
                 abi_sql_capnp::sql_exec_error::error::Which::RuntimeShutdown(_) => SqlError::RuntimeShutdown,
+                abi_sql_capnp::sql_exec_error::error::Which::BadRequest(_) => SqlError::InternalSdkError,
                 abi_sql_capnp::sql_exec_error::error::Which::StatementError(reason) => SqlError::StatementError(reason.unwrap().to_string().unwrap()),
                 abi_sql_capnp::sql_exec_error::error::Which::TextValueDecodeError(_) => SqlError::TextValueDecodeError,
                 abi_sql_capnp::sql_exec_error::error::Which::UnknownError(_) => SqlError::UnknownError,
