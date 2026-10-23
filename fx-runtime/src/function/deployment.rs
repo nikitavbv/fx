@@ -185,20 +185,20 @@ pub(crate) mod handle_request {
                     *progress.borrow_mut() = RequestHandleProgress::HttpBodyReady;
 
                     debug!("resource obtained");
-                    let result = FunctionResponseFuture::new(
-                        instance.clone(),
-                        match instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from) {
-                            Ok(v) => v,
-                            Err(FunctionDeploymentHandleRequestError::FunctionPanicked) => {
-                                *instance.has_panicked.borrow_mut() = true;
-                                return Err(FunctionDeploymentHandleRequestError::FunctionPanicked);
-                            },
-                            Err(err) => return Err(err),
-                        },
-                    ).await;
-                    *progress.borrow_mut() = RequestHandleProgress::HttpTriggerInvoked;
 
-                    debug!("invoke_http_trigger called");
+                    let response_resource_id = match instance.invoke_http_trigger(&resource).await.map_err(FunctionDeploymentHandleRequestError::from) {
+                        Ok(v) => v,
+                        Err(FunctionDeploymentHandleRequestError::FunctionPanicked) => {
+                            *instance.has_panicked.borrow_mut() = true;
+                            return Err(FunctionDeploymentHandleRequestError::FunctionPanicked);
+                        },
+                        Err(err) => return Err(err),
+                    };
+                    *progress.borrow_mut() = RequestHandleProgress::ResponseResourceIdAvailable;
+
+                    let result = FunctionResponseFuture::new(instance.clone(), response_resource_id).await;
+                    *progress.borrow_mut() = RequestHandleProgress::FunctionResponseReady;
+
                     {
                         let mut function_state = instance.store.lock().await;
                         let function_state = function_state.data_mut();
@@ -248,7 +248,8 @@ pub(crate) mod handle_request {
         Init,
         InstanceReady,
         HttpBodyReady,
-        HttpTriggerInvoked,
+        ResponseResourceIdAvailable,
+        FunctionResponseReady,
         BackgroundTasksSpawned,
         ResultFutureCreated,
     }
