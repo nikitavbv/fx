@@ -532,7 +532,9 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
             let (response_tx, response_rx) = oneshot::channel();
             sql_tx.send_message(SqlMessage::Exec(SqlExecMessage {
                 binding: binding.clone(),
-                statement: message.get_statement().unwrap().to_string()
+                statement: message.get_statement()
+                    .map_err(|_| SqlQueryError::BadRequest)?
+                    .to_string()
                     .map_err(|_| SqlQueryError::BadRequest)?,
                 params,
                 response: response_tx,
