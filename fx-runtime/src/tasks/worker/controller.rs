@@ -181,12 +181,13 @@ pub(crate) mod local_worker_controller {
         }
 
         impl LocalWorkerController {
-            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: http::Request<()>) -> impl Future<Output = Result<http::Response<HttpBody>, FunctionInvokeError>> + 'static {
+            pub(crate) fn invoke_function(&self, function_id: FunctionId, header: http::Request<()>, body: Option<HttpBody>) -> impl Future<Output = Result<http::Response<HttpBody>, FunctionInvokeError>> + 'static {
                 let (response_tx, response_rx) = async_unsync::oneshot::channel().into_split();
 
                 let send_message_result = self.self_tx.send(WorkerLocalMessage::FunctionInvoke(Box::new(LocalFunctionInvokeMessage {
                     function_id,
                     header,
+                    body,
                     response_tx,
                 })));
 

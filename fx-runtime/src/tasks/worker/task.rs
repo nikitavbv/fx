@@ -328,6 +328,7 @@ async fn worker_handle_local_message(
             let function_id = message.function_id;
             let mut response_tx = message.response_tx;
             let header = message.header;
+            let body = message.body;
 
             let deployment = match functions.borrow().get(&function_id) {
                 Some(v) => v.clone(),
@@ -346,7 +347,7 @@ async fn worker_handle_local_message(
                     return;
                 },
             };
-            let function_future = deployment.handle_request(header, None);
+            let function_future = deployment.handle_request(header, body);
             tokio::task::spawn_local(async move {
                 tokio::select! {
                     response = function_future => {

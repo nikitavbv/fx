@@ -60,6 +60,7 @@ pub(crate) enum WorkerLocalMessage {
 pub(crate) struct LocalFunctionInvokeMessage {
     pub(crate) function_id: FunctionId,
     pub(crate) header: http::Request<()>,
+    pub(crate) body: Option<HttpBody>,
     pub(crate) response_tx: async_unsync::oneshot::Sender<Result<http::Response<HttpBody>, FunctionInvokeError>>,
 }
 

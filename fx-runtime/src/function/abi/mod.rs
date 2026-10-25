@@ -663,9 +663,10 @@ pub(super) fn fx_fetch_handler(
         Err(err) => std::future::ready(Err(err)).boxed_local(),
         Ok(request_host) => {
             if let Some(function_binding) = caller.data().bindings.functions.get(&request_host) {
-                let response_rx = match outgoing_request {
-                    Err(err) => Err(err),
-                    Ok(outgoing_request) => Ok(caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), outgoing_request).boxed_local()),
+                let response_rx = match (outgoing_request, body) {
+                    (Err(err), _) => Err(err),
+                    (_, Err(err)) => Err(err),
+                    (Ok(outgoing_request), Ok(body)) => Ok(caller.data().runtime_services.local_worker.invoke_function(function_binding.function_id.clone(), outgoing_request, Some(body)).boxed_local()),
                 };
 
                 async move { response_rx?.await.map_err(FetchResultError::from) }.boxed_local()
