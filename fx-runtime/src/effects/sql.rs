@@ -538,7 +538,7 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
                     .map_err(|_| SqlQueryError::BadRequest)?,
                 params,
                 response: response_tx,
-            })).unwrap();
+            })).map_err(|_| SqlQueryError::RuntimeShutdown)?;
 
             response_rx.await
                 .map_err(|_| SqlQueryError::RuntimeShutdown)
