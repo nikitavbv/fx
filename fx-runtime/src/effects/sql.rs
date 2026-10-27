@@ -519,13 +519,13 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
 
     let params: Vec<SqlValue> = message.get_params().unwrap().into_iter()
         .map(|v| match v.get_value().which().unwrap() {
-            abi_sql_capnp::sql_value::value::Null(_) => SqlValue::Null,
-            abi_sql_capnp::sql_value::value::Integer(v) => SqlValue::Integer(v),
-            abi_sql_capnp::sql_value::value::Real(v) => SqlValue::Real(v),
-            abi_sql_capnp::sql_value::value::Which::Text(v) => SqlValue::Text(v.unwrap().to_string().unwrap()),
-            abi_sql_capnp::sql_value::value::Which::Blob(v) => SqlValue::Blob(v.unwrap().to_vec()),
+            abi_sql_capnp::sql_value::value::Null(_) => Ok(SqlValue::Null),
+            abi_sql_capnp::sql_value::value::Integer(v) => Ok(SqlValue::Integer(v)),
+            abi_sql_capnp::sql_value::value::Real(v) => Ok(SqlValue::Real(v)),
+            abi_sql_capnp::sql_value::value::Which::Text(v) => Ok(SqlValue::Text(v.unwrap().to_string().unwrap())),
+            abi_sql_capnp::sql_value::value::Which::Blob(v) => v.map_err(|_| SqlQueryError::BadRequest).map(|v| SqlValue::Blob(v.to_vec())),
         })
-        .collect();
+        .collect::<Result<Vec<_>, SqlQueryError>>()?;
 
     match binding {
         Some(binding) => {
