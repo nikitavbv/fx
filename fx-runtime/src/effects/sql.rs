@@ -522,7 +522,9 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
             abi_sql_capnp::sql_value::value::Null(_) => Ok(SqlValue::Null),
             abi_sql_capnp::sql_value::value::Integer(v) => Ok(SqlValue::Integer(v)),
             abi_sql_capnp::sql_value::value::Real(v) => Ok(SqlValue::Real(v)),
-            abi_sql_capnp::sql_value::value::Which::Text(v) => Ok(SqlValue::Text(v.unwrap().to_string().unwrap())),
+            abi_sql_capnp::sql_value::value::Which::Text(v) => v.map_err(|_| SqlQueryError::BadRequest)
+                .and_then(|v| v.to_string().map_err(|_| SqlQueryError::BadRequest))
+                .map(|v| SqlValue::Text(v)),
             abi_sql_capnp::sql_value::value::Which::Blob(v) => v.map_err(|_| SqlQueryError::BadRequest).map(|v| SqlValue::Blob(v.to_vec())),
         })
         .collect::<Result<Vec<_>, SqlQueryError>>()?;
