@@ -7,3 +7,4 @@
 - handle errors everywhere
 - better syntax for sql queries.
 - remove unused dependencies in Cargo.toml of `fx-runtime`
+- function reload does not work when only wasm file is updated.
