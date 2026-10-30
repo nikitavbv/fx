@@ -514,7 +514,7 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
     let message = request_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
 
-    let binding = message.get_binding().unwrap().to_str().unwrap();
+    let binding = message.get_binding().unwrap().to_str().map_err(|_| SqlQueryError::BadRequest)?;
     let binding = bindings.get(binding);
 
     let params: Vec<SqlValue> = message.get_params()
