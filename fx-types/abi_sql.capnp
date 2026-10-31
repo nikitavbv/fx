@@ -23,6 +23,7 @@ struct SqlExecError {
         unknownError @5 :Void;
         runtimeError @6 :Void;
         badRequest @7 :Void;
+        failedToReadRequest @8 :Void;
     }
 }
 

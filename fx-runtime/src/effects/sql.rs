@@ -271,6 +271,8 @@ pub(crate) enum SqlQueryError {
     DatabaseBusy,
     #[error("runtime is being shutdown")]
     RuntimeShutdown,
+    #[error("failed to read request")]
+    FailedToReadRequest,
     #[error("bad sql query request")]
     BadRequest,
     #[error("sql statement error: {0:?}")]
@@ -347,6 +349,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
                             SqlQueryError::BindingNotFound => response_error.set_binding_not_found(()),
                             SqlQueryError::DatabaseBusy => response_error.set_database_busy(()),
                             SqlQueryError::RuntimeShutdown => response_error.set_runtime_shutdown(()),
+                            SqlQueryError::FailedToReadRequest => response_error.set_failed_to_read_request(()),
                             SqlQueryError::BadRequest => response_error.set_bad_request(()),
                             SqlQueryError::StatementError(reason) => response_error.set_statement_error(reason),
                             SqlQueryError::TextValueDecodeError => response_error.set_text_value_decode_error(()),
@@ -511,10 +514,14 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
 async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx: SqlController, req: http::Request<HttpBody>) -> Result<Vec<SqlRow>, SqlQueryError> {
     let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
 
-    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default()).unwrap();
-    let message = request_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().unwrap();
+    let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
+        .map_err(|_| SqlQueryError::FailedToReadRequest)?;
+    let message = request_reader.get_root::<abi_sql_capnp::sql_exec_request::Reader>().map_err(|_| SqlQueryError::BadRequest)?;
 
-    let binding = message.get_binding().unwrap().to_str().map_err(|_| SqlQueryError::BadRequest)?;
+    let binding = message.get_binding()
+        .map_err(|_| SqlQueryError::BadRequest)?
+        .to_str()
+        .map_err(|_| SqlQueryError::BadRequest)?;
     let binding = bindings.get(binding);
 
     let params: Vec<SqlValue> = message.get_params()
