@@ -1,5 +1,5 @@
 use {
-    std::{task::Poll, rc::Rc, pin::Pin},
+    std::{task::Poll, rc::Rc, pin::Pin, cell::RefCell},
     futures::{future::LocalBoxFuture, FutureExt},
     crate::{
         function::instance::{
@@ -60,21 +60,31 @@ pub(crate) struct FunctionResponseFuture {
     inner: LocalBoxFuture<'static, Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>>>,
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,
+    progress_tracker: Rc<RefCell<FunctionResponsePollProgress>>,
 }
 
 impl FunctionResponseFuture {
-    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> Self {
+    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId, progress_tracker: Rc<RefCell<FunctionResponsePollProgress>>) -> Self {
         Self {
-            inner: Self::start_new_poll_call(instance.clone(), resource_id.clone()),
+            inner: Self::start_new_poll_call(instance.clone(), resource_id.clone(), progress_tracker.clone()),
             instance,
             resource_id,
+            progress_tracker,
         }
     }
 
-    fn start_new_poll_call(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId) -> LocalBoxFuture<'static, Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>>> {
+    fn start_new_poll_call(
+        instance: Rc<FunctionInstance>,
+        resource_id: FunctionResourceId,
+        progress_tracker: Rc<RefCell<FunctionResponsePollProgress>>
+    ) -> LocalBoxFuture<'static, Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>>> {
         async move {
+            *progress_tracker.borrow_mut() = FunctionResponsePollProgress::NewPollStarted;
             let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-            instance.function_response_poll(&resource_id, waker).await
+            *progress_tracker.borrow_mut() = FunctionResponsePollProgress::WakerCreated;
+            let result = instance.function_response_poll(&resource_id, waker).await;
+            *progress_tracker.borrow_mut() = FunctionResponsePollProgress::PollDone;
+            result
         }.boxed_local()
     }
 }
@@ -86,7 +96,7 @@ impl Future for FunctionResponseFuture {
         match self.inner.poll_unpin(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Poll::Pending) => {
-                self.inner = Self::start_new_poll_call(self.instance.clone(), self.resource_id.clone());
+                self.inner = Self::start_new_poll_call(self.instance.clone(), self.resource_id.clone(), self.progress_tracker.clone());
                 Poll::Pending
             },
             Poll::Ready(Poll::Ready(Err(err))) => {
@@ -98,4 +108,12 @@ impl Future for FunctionResponseFuture {
             Poll::Ready(Poll::Ready(Ok(v))) => Poll::Ready(Ok(v)),
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) enum FunctionResponsePollProgress {
+    Init,
+    NewPollStarted,
+    WakerCreated,
+    PollDone,
 }

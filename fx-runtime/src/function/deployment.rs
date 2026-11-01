@@ -5,7 +5,7 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         triggers::http::HttpBody,
-        resources::future::{FunctionBackgroundTask, FunctionResponseFuture},
+        resources::future::{FunctionBackgroundTask, FunctionResponseFuture, FunctionResponsePollProgress},
         function::instance::{RuntimeServices, InstanceBindings, function_response_poll::FunctionResponsePollError},
     },
     super::instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
@@ -194,9 +194,10 @@ pub(crate) mod handle_request {
                         },
                         Err(err) => return Err(err),
                     };
-                    *progress.borrow_mut() = RequestHandleProgress::ResponseResourceIdAvailable;
 
-                    let result = FunctionResponseFuture::new(instance.clone(), response_resource_id).await;
+                    let future_response_polling_progress = Rc::new(RefCell::new(FunctionResponsePollProgress::Init));
+                    *progress.borrow_mut() = RequestHandleProgress::FunctionResponsePolling(future_response_polling_progress.clone());
+                    let result = FunctionResponseFuture::new(instance.clone(), response_resource_id, future_response_polling_progress).await;
                     *progress.borrow_mut() = RequestHandleProgress::FunctionResponseReady;
 
                     {
@@ -243,12 +244,13 @@ pub(crate) mod handle_request {
         }
     }
 
+    #[allow(dead_code)] // dead code is allowed because nested fields are used for Debug only.
     #[derive(Debug, Clone)]
     pub(crate) enum RequestHandleProgress {
         Init,
         InstanceReady,
         HttpBodyReady,
-        ResponseResourceIdAvailable,
+        FunctionResponsePolling(Rc<RefCell<FunctionResponsePollProgress>>),
         FunctionResponseReady,
         BackgroundTasksSpawned,
         ResultFutureCreated,
