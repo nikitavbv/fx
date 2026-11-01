@@ -24,6 +24,7 @@ use {
         triggers::http::HttpBody,
     },
     super::FunctionId,
+    self::store_lock::StoreLockAcquireError,
 };
 
 const SCHEDULING_YIELD_INTERVALS: u64 = 10; // yield every 10ms
@@ -343,6 +344,9 @@ pub(crate) mod function_response_poll {
         #[error("internal runtime assertion error")]
         AssertionError,
 
+        #[error("timeout when acquiring store lock")]
+        StoreLockAcquireTimeout,
+
         #[error("function returned incorrect abi response when polling background task")]
         AbiError,
         #[error("function panicked when polling function response")]
@@ -369,14 +373,31 @@ pub(crate) mod function_response_poll {
         }
     }
 
+    #[derive(Debug)]
+    pub(crate) enum FunctionResponsePollProgress {
+        Init,
+        StoreLockObtained,
+        FunctionResponsePollCalled,
+    }
+
     impl FunctionInstance {
-        pub(crate) async fn function_response_poll(&self, resource_id: &FunctionResourceId, waker: std::task::Waker) -> Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>> {
-            let mut store = self.store.lock().await;
+        pub(crate) async fn function_response_poll(
+            &self,
+            resource_id: &FunctionResourceId,
+            waker: std::task::Waker,
+            progress: Rc<RefCell<FunctionResponsePollProgress>>,
+        ) -> Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>> {
+            let mut store = match self.store_lock().await {
+                Ok(v) => v,
+                Err(StoreLockAcquireError::LockAcquireTimeout) => return Poll::Ready(Err(FunctionResponsePollError::StoreLockAcquireTimeout)),
+            };
+            *progress.borrow_mut() = FunctionResponsePollProgress::StoreLockObtained;
             store.data_mut().waker = Some(waker);
 
             let result = self.fn_function_response_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
                 .map_err(WasmFunctionCallError::from)
                 .map_err(FunctionResponsePollError::from);
+            *progress.borrow_mut() = FunctionResponsePollProgress::FunctionResponsePollCalled;
 
             let async_operation_addr = match result {
                 Ok(v) => v as usize,

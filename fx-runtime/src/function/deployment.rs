@@ -5,7 +5,7 @@ use {
     serde::{Serialize, Deserialize},
     crate::{
         triggers::http::HttpBody,
-        resources::future::{FunctionBackgroundTask, FunctionResponseFuture, FunctionResponsePollProgress},
+        resources::future::{FunctionBackgroundTask, FunctionResponseFuture, FunctionResponseFuturePollProgress},
         function::instance::{RuntimeServices, InstanceBindings, function_response_poll::FunctionResponsePollError},
     },
     super::instance::{FunctionInstanceState, FunctionInstance, FunctionInstanceInitError},
@@ -195,7 +195,7 @@ pub(crate) mod handle_request {
                         Err(err) => return Err(err),
                     };
 
-                    let future_response_polling_progress = Rc::new(RefCell::new(FunctionResponsePollProgress::Init));
+                    let future_response_polling_progress = Rc::new(RefCell::new(FunctionResponseFuturePollProgress::Init));
                     *progress.borrow_mut() = RequestHandleProgress::FunctionResponsePolling(future_response_polling_progress.clone());
                     let result = FunctionResponseFuture::new(instance.clone(), response_resource_id, future_response_polling_progress).await;
                     *progress.borrow_mut() = RequestHandleProgress::FunctionResponseReady;
@@ -222,6 +222,10 @@ pub(crate) mod handle_request {
                             | FunctionResponsePollError::HostResourceNotFound
                             | FunctionResponsePollError::InvalidStatusCode
                             | FunctionResponsePollError::InvalidHeaders => FunctionDeploymentHandleRequestError::FunctionIncorrectResponse,
+                            FunctionResponsePollError::StoreLockAcquireTimeout => {
+                                error!("store lock acquire timeout when reading function response");
+                                FunctionDeploymentHandleRequestError::RuntimeTimeout
+                            }
                         });
                     *progress.borrow_mut() = RequestHandleProgress::ResultFutureCreated;
 
@@ -250,7 +254,7 @@ pub(crate) mod handle_request {
         Init,
         InstanceReady,
         HttpBodyReady,
-        FunctionResponsePolling(Rc<RefCell<FunctionResponsePollProgress>>),
+        FunctionResponsePolling(Rc<RefCell<FunctionResponseFuturePollProgress>>),
         FunctionResponseReady,
         BackgroundTasksSpawned,
         ResultFutureCreated,

@@ -5,7 +5,7 @@ use {
         function::instance::{
             FunctionInstance,
             background_task_poll::BackgroundTaskPollError,
-            function_response_poll::FunctionResponsePollError,
+            function_response_poll::{FunctionResponsePollError, FunctionResponsePollProgress},
         },
         resources::FunctionResourceId,
         triggers::http::HttpBody,
@@ -60,11 +60,11 @@ pub(crate) struct FunctionResponseFuture {
     inner: LocalBoxFuture<'static, Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>>>,
     instance: Rc<FunctionInstance>,
     resource_id: FunctionResourceId,
-    progress_tracker: Rc<RefCell<FunctionResponsePollProgress>>,
+    progress_tracker: Rc<RefCell<FunctionResponseFuturePollProgress>>,
 }
 
 impl FunctionResponseFuture {
-    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId, progress_tracker: Rc<RefCell<FunctionResponsePollProgress>>) -> Self {
+    pub(crate) fn new(instance: Rc<FunctionInstance>, resource_id: FunctionResourceId, progress_tracker: Rc<RefCell<FunctionResponseFuturePollProgress>>) -> Self {
         Self {
             inner: Self::start_new_poll_call(instance.clone(), resource_id.clone(), progress_tracker.clone()),
             instance,
@@ -76,14 +76,17 @@ impl FunctionResponseFuture {
     fn start_new_poll_call(
         instance: Rc<FunctionInstance>,
         resource_id: FunctionResourceId,
-        progress_tracker: Rc<RefCell<FunctionResponsePollProgress>>
+        progress_tracker: Rc<RefCell<FunctionResponseFuturePollProgress>>
     ) -> LocalBoxFuture<'static, Poll<Result<http::Response<HttpBody>, FunctionResponsePollError>>> {
         async move {
-            *progress_tracker.borrow_mut() = FunctionResponsePollProgress::NewPollStarted;
+            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::NewPollStarted;
             let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
-            *progress_tracker.borrow_mut() = FunctionResponsePollProgress::WakerCreated;
-            let result = instance.function_response_poll(&resource_id, waker).await;
-            *progress_tracker.borrow_mut() = FunctionResponsePollProgress::PollDone;
+
+            let function_response_poll_progress = Rc::new(RefCell::new(FunctionResponsePollProgress::Init));
+            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollStarted(function_response_poll_progress.clone());
+            let result = instance.function_response_poll(&resource_id, waker, function_response_poll_progress).await;
+            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollDone;
+
             result
         }.boxed_local()
     }
@@ -110,10 +113,11 @@ impl Future for FunctionResponseFuture {
     }
 }
 
+#[allow(dead_code)] // dead code is allowed because nested fields are used in Debug.
 #[derive(Debug)]
-pub(crate) enum FunctionResponsePollProgress {
+pub(crate) enum FunctionResponseFuturePollProgress {
     Init,
     NewPollStarted,
-    WakerCreated,
+    PollStarted(Rc<RefCell<FunctionResponsePollProgress>>),
     PollDone,
 }
