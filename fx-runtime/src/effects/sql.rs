@@ -512,7 +512,7 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
 }
 
 async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx: SqlController, req: http::Request<HttpBody>) -> Result<Vec<SqlRow>, SqlQueryError> {
-    let bytes: Bytes = req.into_body().collect().await.unwrap().to_bytes();
+    let bytes: Bytes = req.into_body().collect().await.map_err(|_| SqlQueryError::FailedToReadRequest)?.to_bytes();
 
     let request_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
         .map_err(|_| SqlQueryError::FailedToReadRequest)?;
