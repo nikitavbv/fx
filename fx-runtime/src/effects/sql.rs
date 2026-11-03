@@ -155,7 +155,7 @@ impl SqlDatabase {
             .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
         let result_columns = stmt.column_count();
 
-        let mut rows = stmt.query(params_from_iter(query.params.into_iter()))
+        let mut rows = stmt.query(params_from_iter(query.params))
             .map_err(|err| SqlError::QueryRun { reason: err.to_string() })?;
 
         let mut result_rows = Vec::new();

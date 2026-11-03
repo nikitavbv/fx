@@ -212,7 +212,7 @@ impl MetricsRegistry {
     }
 }
 
-fn append_metric_labels(output: &mut String, labels: &Vec<(String, String)>) {
+fn append_metric_labels(output: &mut String, labels: &[(String, String)]) {
     if labels.is_empty() {
         return;
     }
@@ -234,12 +234,9 @@ fn append_metric_labels(output: &mut String, labels: &Vec<(String, String)>) {
 
 fn sanitize_metric_name(s: &str) -> String {
     s.chars()
-        .enumerate()
-        .map(|(i, c)| {
+        .map(|c| {
             if c.is_ascii_alphanumeric() || c == '_' || c == ':' {
                 c
-            } else if i == 0 && c.is_ascii_digit() {
-                '_'
             } else {
                 '_'
             }
