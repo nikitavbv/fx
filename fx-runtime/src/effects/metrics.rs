@@ -179,32 +179,32 @@ impl MetricsRegistry {
             result.push('\n');
         }
 
-        let all_metrics = self.function_metrics.read().unwrap();
-
         // function counters:
-        for (function_id, function_metrics) in all_metrics.iter() {
-            let function_id = sanitize_metric_name(function_id.as_str());
+        if let Ok(all_metrics) = self.function_metrics.read() {
+            for (function_id, function_metrics) in all_metrics.iter() {
+                let function_id = sanitize_metric_name(function_id.as_str());
 
-            for (counter_key, counter_value) in function_metrics.counters_delta.iter() {
-                let metric_name = {
-                    let mut metric_name = String::new();
-                    metric_name.push_str("function_");
-                    metric_name.push_str(sanitize_metric_name(function_id.as_str()).as_str());
-                    metric_name.push('_');
-                    metric_name.push_str(sanitize_metric_name(counter_key.name.as_str()).as_str());
-                    metric_name
-                };
+                for (counter_key, counter_value) in function_metrics.counters_delta.iter() {
+                    let metric_name = {
+                        let mut metric_name = String::new();
+                        metric_name.push_str("function_");
+                        metric_name.push_str(sanitize_metric_name(function_id.as_str()).as_str());
+                        metric_name.push('_');
+                        metric_name.push_str(sanitize_metric_name(counter_key.name.as_str()).as_str());
+                        metric_name
+                    };
 
-                result.push_str("# TYPE ");
-                result.push_str(metric_name.as_str());
-                result.push_str(" counter\n");
-                result.push_str(metric_name.as_str());
+                    result.push_str("# TYPE ");
+                    result.push_str(metric_name.as_str());
+                    result.push_str(" counter\n");
+                    result.push_str(metric_name.as_str());
 
-                append_metric_labels(&mut result, &counter_key.labels);
+                    append_metric_labels(&mut result, &counter_key.labels);
 
-                result.push(' ');
-                result.push_str(counter_value.to_string().as_str());
-                result.push('\n');
+                    result.push(' ');
+                    result.push_str(counter_value.to_string().as_str());
+                    result.push('\n');
+                }
             }
         }
 
