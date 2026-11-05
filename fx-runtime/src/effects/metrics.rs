@@ -165,18 +165,20 @@ impl MetricsRegistry {
         }
 
         // runtime gauges:
-        for (metric_key, gauge_value) in self.runtime_gauges.read().unwrap().iter() {
-            let metric_name = sanitize_metric_name(&metric_key.name);
+        if let Ok(runtime_gauges) = self.runtime_gauges.read() {
+            for (metric_key, gauge_value) in runtime_gauges.iter() {
+                let metric_name = sanitize_metric_name(&metric_key.name);
 
-            result.push_str("# TYPE ");
-            result.push_str(metric_name.as_str());
-            result.push_str(" gauge\n");
-            result.push_str(metric_name.as_str());
+                result.push_str("# TYPE ");
+                result.push_str(metric_name.as_str());
+                result.push_str(" gauge\n");
+                result.push_str(metric_name.as_str());
 
-            append_metric_labels(&mut result, &metric_key.labels);
-            result.push(' ');
-            result.push_str(gauge_value.to_string().as_str());
-            result.push('\n');
+                append_metric_labels(&mut result, &metric_key.labels);
+                result.push(' ');
+                result.push_str(gauge_value.to_string().as_str());
+                result.push('\n');
+            }
         }
 
         // function counters:
