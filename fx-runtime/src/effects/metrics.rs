@@ -150,18 +150,20 @@ impl MetricsRegistry {
             result.push('\n');
         }
 
-        for (metric_key, counter_value) in self.runtime_counters_float.read().unwrap().iter() {
-            let metric_name = sanitize_metric_name(&metric_key.name);
+        if let Ok(runtime_counters_float) = self.runtime_counters_float.read() {
+            for (metric_key, counter_value) in runtime_counters_float.iter() {
+                let metric_name = sanitize_metric_name(&metric_key.name);
 
-            result.push_str("# TYPE ");
-            result.push_str(metric_name.as_str());
-            result.push_str(" counter\n");
-            result.push_str(metric_name.as_str());
+                result.push_str("# TYPE ");
+                result.push_str(metric_name.as_str());
+                result.push_str(" counter\n");
+                result.push_str(metric_name.as_str());
 
-            append_metric_labels(&mut result, &metric_key.labels);
-            result.push(' ');
-            result.push_str(counter_value.to_string().as_str());
-            result.push('\n');
+                append_metric_labels(&mut result, &metric_key.labels);
+                result.push(' ');
+                result.push_str(counter_value.to_string().as_str());
+                result.push('\n');
+            }
         }
 
         // runtime gauges:
