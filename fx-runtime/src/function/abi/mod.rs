@@ -242,7 +242,7 @@ pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionIns
 }
 
 pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    *caller.data_mut().progress_tracker.borrow_mut() = FunctionProgressTracker::UnitFuturePoll;
+    let prev_progress = caller.data_mut().progress_tracker.replace(FunctionProgressTracker::UnitFuturePoll);
 
     let result = {
         let key: UnitFutureResourceKey = resource_id.into();
@@ -284,14 +284,18 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
     };
     let mut context = caller.as_context_mut();
     let mut memory = memory.view_mut(&mut context);
-    (match memory.write_struct(result_addr, result) {
+    let result = (match memory.write_struct(result_addr, result) {
         Ok(()) => UnitFuturePollResultCode::Ok,
         Err(FunctionMemoryAccessError::OutOfBounds) => UnitFuturePollResultCode::ResultAddrOutOfMemoryBounds,
-    }) as u64
+    }) as u64;
+
+    *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
+
+    result
 }
 
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    *caller.data_mut().progress_tracker.borrow_mut() = FunctionProgressTracker::FetchResultFuturePoll;
+    let prev_progress = caller.data_mut().progress_tracker.replace(FunctionProgressTracker::FetchResultFuturePoll);
 
     let result = {
         let function_state = caller.data_mut();
@@ -335,10 +339,14 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
     };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
-    (match view.write_struct(result_addr, result) {
+    let result = (match view.write_struct(result_addr, result) {
         Ok(()) => FetchResultPollResultCode::Ok,
         Err(FunctionMemoryAccessError::OutOfBounds) => FetchResultPollResultCode::ResultAddrOutOfMemoryBounds,
-    }) as u64
+    }) as u64;
+
+    *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
+
+    result
 }
 
 pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
@@ -415,7 +423,7 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
 }
 
 pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
-    *caller.data_mut().progress_tracker.borrow_mut() = FunctionProgressTracker::HttpBodyFramePoll;
+    let prev_progress = caller.data_mut().progress_tracker.replace(FunctionProgressTracker::HttpBodyFramePoll);
 
     let waker = match caller.data_mut().waker.clone() {
         Some(v) => v,
@@ -442,7 +450,7 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
     };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
-    (match view.write_struct(
+    let result = (match view.write_struct(
         result_addr,
         HttpBodyPollFrameResult {
             tag: match &result { None => 2, Some(Poll::Pending) => 1, Some(Poll::Ready(_)) => 0 },
@@ -452,7 +460,11 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
     ) {
         Ok(()) => AbiOperationResultCode::Ok,
         Err(FunctionMemoryAccessError::OutOfBounds) => AbiOperationResultCode::ResultAddrOutOfMemoryBounds,
-    }) as u64
+    }) as u64;
+
+    *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
+
+    result
 }
 
 pub(super) fn fx_http_body_drop(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {

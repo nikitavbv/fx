@@ -1,5 +1,5 @@
 use {
-    std::{task::Poll, rc::Rc, pin::Pin, cell::RefCell},
+    std::{task::Poll, rc::Rc, pin::Pin, cell::RefCell, time::{Instant, Duration}},
     futures::{future::LocalBoxFuture, FutureExt},
     crate::{
         function::instance::{
@@ -84,8 +84,9 @@ impl FunctionResponseFuture {
 
             let function_response_poll_progress = Rc::new(RefCell::new(FunctionResponsePollProgress::Init));
             *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollStarted(function_response_poll_progress.clone());
+            let started_at = Instant::now();
             let result = instance.function_response_poll(&resource_id, waker, function_response_poll_progress).await;
-            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollDone;
+            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollDone(Instant::now() - started_at);
 
             result
         }.boxed_local()
@@ -119,5 +120,5 @@ pub(crate) enum FunctionResponseFuturePollProgress {
     Init,
     NewPollStarted,
     PollStarted(Rc<RefCell<FunctionResponsePollProgress>>),
-    PollDone,
+    PollDone(Duration),
 }
