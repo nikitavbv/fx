@@ -727,7 +727,10 @@ impl From<wasmtime::Error> for WasmFunctionCallError {
 #[derive(Debug)]
 pub enum FunctionProgressTracker {
     Init,
+    Fetch,
     UnitFuturePoll,
     FetchResultFuturePoll,
     HttpBodyFramePoll,
+    BodyDrop,
+    HttpBodySerialize,
 }

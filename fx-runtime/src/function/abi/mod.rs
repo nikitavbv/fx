@@ -468,13 +468,22 @@ pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionI
 }
 
 pub(super) fn fx_http_body_drop(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64) {
+    let prev_progress = caller.data_mut().progress_tracker.replace(FunctionProgressTracker::BodyDrop);
+
     let _ = caller.data_mut().resource_set.http_bodies.remove(resource_id.into());
+
+    *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
 }
 
 pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    let prev_progress = caller.data_mut().progress_tracker.replace(FunctionProgressTracker::HttpBodySerialize);
+
     let http_frame = match caller.data_mut().resource_set.http_frames.remove(resource_id.into()) {
         Some(v) => v,
-        None => return HttpFrameSerializeResultCode::NotFound as u64,
+        None => {
+            *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
+            return HttpFrameSerializeResultCode::NotFound as u64;
+        },
     };
 
     let mut message = capnp::message::Builder::new_default();
@@ -495,11 +504,14 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
 
     let memory = match function_memory::FunctionMemory::from_caller(&mut caller) {
         Ok(v) => v,
-        Err(_) => return HttpFrameSerializeResultCode::FailedToAccessMemory as u64,
+        Err(_) => {
+            *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
+            return HttpFrameSerializeResultCode::FailedToAccessMemory as u64;
+        },
     };
     let mut context = caller.as_context_mut();
     let mut view = memory.view_mut(&mut context);
-    (match view.write_struct(
+    let result = (match view.write_struct(
         result_addr,
         HttpFrameSerializeResult {
             bytes_resource_id: bytes_resource_id.into(),
@@ -508,7 +520,11 @@ pub(super) fn fx_http_frame_serialize(mut caller: wasmtime::Caller<'_, FunctionI
     ) {
         Ok(()) => HttpFrameSerializeResultCode::Ok,
         Err(FunctionMemoryAccessError::OutOfBounds) => HttpFrameSerializeResultCode::ResultAddrOutOfMemoryBounds,
-    }) as u64
+    }) as u64;
+
+    *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
+
+    result
 }
 
 pub(super) fn fx_sleep_handler(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, sleep_millis: u64) -> u64 {
@@ -558,6 +574,7 @@ pub(super) fn fx_fetch_handler(
     req_len: u64,
 ) -> u64 {
     debug!("fx_fetch_handler - enter");
+    let prev_progress = caller.data_mut().progress_tracker.replace(FunctionProgressTracker::Fetch);
 
     let memory = function_memory::FunctionMemory::from_caller(&mut caller).map_err(|_| FetchResultError::FailedToReadRequest);
     let context = caller.as_context();
@@ -765,6 +782,7 @@ pub(super) fn fx_fetch_handler(
     };
     let result = caller.data_mut().resource_set.fetch_result_futures.insert(SendWrapper::new(result));
 
+    *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
     debug!("fx_fetch_handler - exit");
 
     result.into()
