@@ -39,7 +39,10 @@ use {
         FetchRequestHeaderSerializeResultCode,
     },
     crate::{
-        function::{instance::FunctionInstanceState, abi::function_memory::FunctionMemoryAccessError},
+        function::{
+            instance::{FunctionInstanceState, FunctionProgressTracker},
+            abi::function_memory::FunctionMemoryAccessError
+        },
         resources::{
             FunctionResourceId,
             resource::{
@@ -239,6 +242,8 @@ pub(super) fn fx_bytes_move_handler(mut caller: wasmtime::Caller<'_, FunctionIns
 }
 
 pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    *caller.data_mut().progress_tracker.borrow_mut() = FunctionProgressTracker::UnitFuturePoll;
+
     let result = {
         let key: UnitFutureResourceKey = resource_id.into();
         let function_state = caller.data_mut();
@@ -286,6 +291,8 @@ pub(super) fn fx_unit_future_poll(mut caller: wasmtime::Caller<'_, FunctionInsta
 }
 
 pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    *caller.data_mut().progress_tracker.borrow_mut() = FunctionProgressTracker::FetchResultFuturePoll;
+
     let result = {
         let function_state = caller.data_mut();
 
@@ -408,6 +415,8 @@ pub(super) fn fx_fetch_result_serialize(mut caller: wasmtime::Caller<'_, Functio
 }
 
 pub(super) fn fx_http_body_poll_frame(mut caller: wasmtime::Caller<'_, FunctionInstanceState>, resource_id: u64, result_addr: u64) -> u64 {
+    *caller.data_mut().progress_tracker.borrow_mut() = FunctionProgressTracker::HttpBodyFramePoll;
+
     let waker = match caller.data_mut().waker.clone() {
         Some(v) => v,
         None => return AbiOperationResultCode::InternalRuntimeAssertionError as u64,

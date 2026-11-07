@@ -373,10 +373,11 @@ pub(crate) mod function_response_poll {
         }
     }
 
+    #[allow(dead_code)] // nested fields are used in debug outputs
     #[derive(Debug)]
     pub(crate) enum FunctionResponsePollProgress {
         Init,
-        StoreLockObtained,
+        StoreLockObtained(Rc<RefCell<FunctionProgressTracker>>),
         FunctionResponsePollCalled,
     }
 
@@ -391,8 +392,14 @@ pub(crate) mod function_response_poll {
                 Ok(v) => v,
                 Err(StoreLockAcquireError::LockAcquireTimeout) => return Poll::Ready(Err(FunctionResponsePollError::StoreLockAcquireTimeout)),
             };
-            *progress.borrow_mut() = FunctionResponsePollProgress::StoreLockObtained;
-            store.data_mut().waker = Some(waker);
+            *progress.borrow_mut() = FunctionResponsePollProgress::StoreLockObtained({
+                let data = store.data_mut();
+                data.waker = Some(waker);
+
+                let progress_tracker = Rc::new(RefCell::new(FunctionProgressTracker::Init));
+                *data.progress_tracker = progress_tracker.clone();
+                progress_tracker
+            });
 
             let result = self.fn_function_response_poll.call_async(store.as_context_mut(), resource_id.as_u64()).await
                 .map_err(WasmFunctionCallError::from)
@@ -506,6 +513,7 @@ pub(crate) struct FunctionInstanceState {
     pub(crate) self_instance: send_wrapper::SendWrapper<Weak<FunctionInstance>>,
 
     pub(crate) waker: Option<std::task::Waker>,
+    pub(crate) progress_tracker: send_wrapper::SendWrapper<Rc<RefCell<FunctionProgressTracker>>>,
     pub(crate) runtime_services: RuntimeServices,
 
     pub(crate) function_id: FunctionId,
@@ -547,6 +555,7 @@ pub mod function_instance_state_new {
                 self_instance: send_wrapper::SendWrapper::new(Weak::new()),
 
                 waker: None,
+                progress_tracker: send_wrapper::SendWrapper::new(Rc::new(RefCell::new(FunctionProgressTracker::Init))),
                 runtime_services,
 
                 function_id,
@@ -713,4 +722,12 @@ impl From<wasmtime::Error> for WasmFunctionCallError {
             }
         }
     }
+}
+
+#[derive(Debug)]
+pub enum FunctionProgressTracker {
+    Init,
+    UnitFuturePoll,
+    FetchResultFuturePoll,
+    HttpBodyFramePoll,
 }
