@@ -118,6 +118,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/tasks/background/status", get(kv_tasks_background_status))
             .route("/test/limits/memory", get(test_limits_memory))
             .route("/test/limits/cpu-preemption", get(test_cpu_preemption))
+            .route("/test/sql/migrations-batch", get(test_sql_migrations_batch))
             .route("/_fx/cron", get(handle_cron))
             .route("/_fx/cron/custom-endpoint-for-task", get(handle_cron_custom_endpoint_for_task))
             .route("/_fx/cron/slow", get(handle_cron_slow))
@@ -752,6 +753,23 @@ async fn test_cpu_preemption() -> String {
     }
 
     format!("result: {}", BASE64_STANDARD.encode(data))
+}
+
+async fn test_sql_migrations_batch() -> &'static str {
+    let database = fx::sql("app");
+
+    Migrations::new()
+        .with_migration(Migration::new("create table if not exists t (v integer not null)"))
+        .run(&database)
+        .await
+        .unwrap();
+
+    database.batch(vec![
+        SqlQuery::new("delete from t"),
+        SqlQuery::new("insert into t (v) values (1)"),
+    ]).await.unwrap();
+
+    "ok"
 }
 
 #[derive(Clone)]

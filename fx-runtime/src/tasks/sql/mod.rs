@@ -1,5 +1,6 @@
 use {
     std::{collections::HashMap, path::PathBuf},
+    futures::StreamExt,
     tracing::{debug, error},
     tokio::sync::oneshot,
     thiserror::Error,
@@ -93,9 +94,9 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
         return;
     }
 
-    while let Ok(msg) = flume::Selector::new()
-        .recv(&sql_rx, |v| v)
-        .recv(&sql_thread_rx, |v| v).wait() {
+    let mut messages = Box::pin(futures::stream::select(sql_rx.stream(), sql_thread_rx.stream()));
+
+    while let Some(msg) = futures::executor::block_on(messages.next()) {
         let binding = match &msg {
             SqlMessage::Exec(v) => &v.binding,
             SqlMessage::Batch(v) => &v.binding,
@@ -378,7 +379,7 @@ pub(crate) fn run_sql_task(databases_path: PathBuf, sql_rx: flume::Receiver<SqlM
                                     Err(SqlTaskMigrationError::DatabaseBusy)
                                 },
                                 rusqlite::ErrorCode::Unknown => Err(SqlTaskMigrationError::MigrationExecutionError {
-                                    message: message,
+                                    message,
                                 }),
                                 other => {
                                     error!("unexpected rusqlite error code: {other:?}");

@@ -1172,6 +1172,52 @@ async fn introspection_cron_running_state() {
     assert!(found_running, "slow-cron row should show 'running' state");
 }
 
+#[tokio::test]
+async fn sql_migrations_should_not_hang_under_concurrent_load() {
+    let client = init_fx_server().await;
+
+    let response = client.get("/test/sql/migrations-batch").send().await.unwrap();
+    assert!(response.status().is_success(), "warmup failed: {:?}", response.status());
+    let _ = response.text().await;
+
+    const CONCURRENCY: usize = 32;
+
+    for round in 0..4 {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let failures = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+        let client_ref = &client;
+
+        let mut tasks: Vec<futures::future::LocalBoxFuture<'_, u64>> = Vec::new();
+        for _ in 0..CONCURRENCY {
+            let failures = failures.clone();
+            tasks.push(async move {
+                let mut count = 0u64;
+                while Instant::now() < deadline {
+                    let started_at = Instant::now();
+                    match client_ref.get("/test/sql/migrations-batch").timeout(Duration::from_secs(5)).send().await {
+                        Ok(response) if response.status().is_success() => {},
+                        other => failures.borrow_mut().push(format!("status={:?} after {:?}", other.map(|v| v.status()), started_at.elapsed())),
+                    }
+                    count += 1;
+                }
+                count
+            }.boxed_local());
+        }
+
+        let _total: u64 = futures::stream::iter(tasks)
+            .buffer_unordered(CONCURRENCY)
+            .fold(0u64, |acc, v| async move { acc + v })
+            .await;
+
+        assert!(
+            failures.borrow().is_empty(),
+            "round {round}: {} requests hung; first failures: {:?}",
+            failures.borrow().len(),
+            failures.borrow().iter().take(3).collect::<Vec<_>>()
+        );
+    }
+}
+
 async fn init_fx_server() -> TestClient {
     static TEST_SERVER: OnceLock<TestServer> = OnceLock::new();
 
