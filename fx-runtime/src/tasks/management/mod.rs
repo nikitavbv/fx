@@ -21,6 +21,7 @@ use {
 };
 
 pub(crate) mod runtime_state;
+mod system_metrics;
 
 pub(crate) enum ManagementMessage {
     DeployFunction(Box<DeployFunctionMessage>),
@@ -101,6 +102,9 @@ pub(crate) fn run_management_task(
                 } else {
                     None
                 };
+
+                let system_metrics_collector = system_metrics::SystemMetricsCollector::new();
+                let mut system_metrics_interval = tokio::time::interval(system_metrics::COLLECT_INTERVAL);
 
                 loop {
                     tokio::select! {
@@ -195,6 +199,9 @@ pub(crate) fn run_management_task(
                                     metrics.counter_float_increment(MetricKey::new("cron_task_iteration_delay_seconds").with_label("task", task_tag_value), iteration_delay.as_secs_f64());
                                 },
                             }
+                        }
+                        _ = system_metrics_interval.tick() => {
+                            system_metrics_collector.collect(metrics.as_ref()).await;
                         }
                     }
                 }
