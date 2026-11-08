@@ -756,7 +756,7 @@ async fn test_cpu_preemption() -> String {
 }
 
 async fn test_sql_migrations_batch() -> &'static str {
-    let database = fx::sql("app");
+    let database = fx::sql("sql-migrations-hang-test");
 
     Migrations::new()
         .with_migration(Migration::new("create table if not exists t (v integer not null)"))

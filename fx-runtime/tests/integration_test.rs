@@ -1287,6 +1287,7 @@ async fn init_fx_server() -> TestClient {
                                 SqlBindingConfig::new("nonexistent-db".to_owned(), "test".to_owned(), false)
                             )
                             .with_binding_sql_config(SqlBindingConfig::new("migration-sql-error".to_owned(), "migration-sql-error".to_owned(), true))
+                            .with_binding_sql_config(SqlBindingConfig::new("sql-migrations-hang-test".to_owned(), "sql-migrations-hang-test".to_owned(), true))
                             .with_binding_function(FunctionBindingConfig::new(
                                 "function-rpc".to_owned(),
                                 "test-app-rpc".to_owned(),
