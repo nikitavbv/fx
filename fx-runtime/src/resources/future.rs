@@ -1,5 +1,5 @@
 use {
-    std::{task::Poll, rc::Rc, pin::Pin, cell::RefCell, time::{Instant, Duration}},
+    std::{fmt, task::Poll, rc::Rc, pin::Pin, cell::RefCell, time::{Instant, Duration}},
     futures::{future::LocalBoxFuture, FutureExt},
     crate::{
         function::instance::{
@@ -83,10 +83,17 @@ impl FunctionResponseFuture {
             let waker = std::future::poll_fn(|cx| Poll::Ready(cx.waker().clone())).await;
 
             let function_response_poll_progress = Rc::new(RefCell::new(FunctionResponsePollProgress::Init));
-            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollStarted(function_response_poll_progress.clone());
             let started_at = Instant::now();
+            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollStarted {
+                progress: function_response_poll_progress.clone(),
+                started_at,
+            };
             let result = instance.function_response_poll(&resource_id, waker, function_response_poll_progress).await;
-            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollDone(Instant::now() - started_at);
+            let finished_at = Instant::now();
+            *progress_tracker.borrow_mut() = FunctionResponseFuturePollProgress::PollDone {
+                elapsed: finished_at - started_at,
+                finished_at,
+            };
 
             result
         }.boxed_local()
@@ -115,10 +122,34 @@ impl Future for FunctionResponseFuture {
 }
 
 #[allow(dead_code)] // dead code is allowed because nested fields are used in Debug.
-#[derive(Debug)]
 pub(crate) enum FunctionResponseFuturePollProgress {
     Init,
     NewPollStarted,
-    PollStarted(Rc<RefCell<FunctionResponsePollProgress>>),
-    PollDone(Duration),
+    PollStarted {
+        progress: Rc<RefCell<FunctionResponsePollProgress>>,
+        started_at: Instant,
+    },
+    PollDone {
+        elapsed: Duration,
+        finished_at: Instant,
+    },
+}
+
+impl fmt::Debug for FunctionResponseFuturePollProgress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Init => f.write_str("Init"),
+            Self::NewPollStarted => f.write_str("NewPollStarted"),
+            Self::PollStarted { progress, started_at } => f
+                .debug_struct("PollStarted")
+                .field("progress", progress)
+                .field("started_ago", &started_at.elapsed())
+                .finish(),
+            Self::PollDone { elapsed, finished_at } => f
+                .debug_struct("PollDone")
+                .field("elapsed", elapsed)
+                .field("finished_ago", &finished_at.elapsed())
+                .finish(),
+        }
+    }
 }

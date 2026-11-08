@@ -114,13 +114,14 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let timeout_future = tokio::time::sleep(std::time::Duration::from_secs(20));
 
             let response = tokio::select! {
-                result = &mut function_future => result,
+                biased;
                 _ = timeout_future => {
                     warn!("function timed out while handling request: {target_function:?}, state: {:?}", function_future.progress);
                     let mut response = Response::new(HttpBody::for_bytes(Bytes::from("function timed out while handling request.\n")));
                     *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
                     return Ok(response);
                 }
+                result = &mut function_future => result,
             };
 
             let mut response = match response {
