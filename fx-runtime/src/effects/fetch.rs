@@ -1,8 +1,12 @@
 use {
+    std::{cell::RefCell, rc::Rc, time::Instant},
+    futures::future::LocalBoxFuture,
+    send_wrapper::SendWrapper,
     thiserror::Error,
     crate::{
         resources::resource::HttpBodyResourceKey,
         tasks::worker::FunctionInvokeError,
+        triggers::http::HttpBody,
     },
 };
 
@@ -40,6 +44,24 @@ pub(crate) enum FetchResultError {
     InternalRuntimeAssertionError,
     #[error("internal runtime timeout error")]
     InternalRuntimeTimeoutError,
+}
+
+pub(crate) type FetchResultResource = Result<http::Response<HttpBody>, FetchResultError>;
+
+pub(crate) struct FetchResultFuture {
+    pub(crate) future: SendWrapper<LocalBoxFuture<'static, FetchResultResource>>,
+    pub(crate) uri: Result<http::Uri, FetchResultError>,
+    pub(crate) started_at: Instant,
+    pub(crate) progress: SendWrapper<Rc<RefCell<FetchProgress>>>,
+}
+
+#[derive(Debug)]
+pub(crate) enum FetchProgress {
+    Init,
+    TaskStarted,
+    BodyCollected,
+    MessageEnqueued,
+    ResponseReceived,
 }
 
 impl From<FunctionInvokeError> for FetchResultError {

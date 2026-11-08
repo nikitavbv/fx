@@ -6,7 +6,7 @@ pub(crate) use fx_types::{
 };
 
 use {
-    std::{task::Poll, time::{SystemTime, UNIX_EPOCH, Instant}, str::FromStr, collections::HashMap},
+    std::{task::Poll, time::{SystemTime, UNIX_EPOCH, Instant}, str::FromStr, collections::HashMap, rc::Rc, cell::RefCell},
     tokio::time::Duration,
     tracing::{debug, error, warn},
     http::Method,
@@ -48,7 +48,6 @@ use {
             resource::{
                 FetchRequestHeaderResourceKey,
                 UnitFutureResourceKey,
-                FetchResultFuture,
             },
         },
         effects::{
@@ -56,7 +55,7 @@ use {
             sql::handle_sql_request,
             blob::handle_blob_request,
             kv::handle_kv_request,
-            fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError},
+            fetch::{FetchResultWithBodyResource, FetchResultError, HttpStreamError, FetchResultFuture, FetchProgress},
             metrics::{MetricKey, MetricId},
         },
         triggers::http::{HttpBody, HttpBodyInner},
@@ -699,6 +698,7 @@ pub(super) fn fx_fetch_handler(
         },
     };
 
+    let progress = Rc::new(RefCell::new(FetchProgress::Init));
     let result = match request_host {
         Err(err) => std::future::ready(Err(err)).boxed_local(),
         Ok(request_host) => {
@@ -732,7 +732,7 @@ pub(super) fn fx_fetch_handler(
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
                 let response_future = match request {
-                    Ok(request) => handle_sql_request(caller.data(), request).map(Ok).boxed_local(),
+                    Ok(request) => handle_sql_request(caller.data(), request, progress.clone()).map(Ok).boxed_local(),
                     Err(err) => std::future::ready(Err(err)).boxed_local(),
                 };
 
@@ -786,6 +786,7 @@ pub(super) fn fx_fetch_handler(
         future: SendWrapper::new(result),
         uri: request_uri_for_log,
         started_at: Instant::now(),
+        progress: SendWrapper::new(progress),
     });
 
     *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;

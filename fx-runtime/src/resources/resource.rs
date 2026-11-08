@@ -1,13 +1,12 @@
 use {
-    std::{marker::PhantomData, time::Instant},
-    futures::future::{BoxFuture, LocalBoxFuture},
+    std::marker::PhantomData,
+    futures::future::BoxFuture,
     slotmap::{Key, SlotMap},
-    send_wrapper::SendWrapper,
     hyper::body::Bytes,
     crate::{
         triggers::http::HttpBody,
         effects::{
-            fetch::{FetchResultError, HttpStreamError},
+            fetch::{FetchResultFuture, FetchResultResource, HttpStreamError},
         },
     },
 };
@@ -76,12 +75,6 @@ impl FunctionResources {
     pub(crate) fn new() -> Self {
         Self::default()
     }
-}
-
-pub(crate) struct FetchResultFuture {
-    pub(crate) future: SendWrapper<LocalBoxFuture<'static, FetchResultResource>>,
-    pub(crate) uri: Result<http::Uri, FetchResultError>,
-    pub(crate) started_at: Instant,
 }
 
 pub(crate) struct ResourceTable<K, V> {
@@ -175,5 +168,3 @@ key!(pub(crate) struct FetchResultFutureResourceKey);
 key!(pub(crate) struct FetchResultResourceKey);
 key!(pub(crate) struct HttpBodyResourceKey);
 key!(pub(crate) struct HttpFrameResourceKey);
-
-type FetchResultResource = Result<http::Response<HttpBody>, FetchResultError>;

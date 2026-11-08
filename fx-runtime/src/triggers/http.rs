@@ -190,24 +190,36 @@ fn format_pending_fetches(deployment: &FunctionDeployment) -> String {
         None => return "store lock held".to_owned(),
     };
 
-    let mut grouped = HashMap::<Option<&http::Uri>, (u64, Duration)>::new();
+    let data = store.data();
+    let mut grouped = HashMap::<Option<&http::Uri>, (u64, Duration, HashMap<String, u64>)>::new();
 
-    for fetch in store.data().resource_set.fetch_result_futures.values() {
+    for fetch in data.resource_set.fetch_result_futures.values() {
         let age = fetch.started_at.elapsed();
-        let entry = grouped.entry(fetch.uri.as_ref().ok()).or_insert((0, age));
+        let state = format!("{:?}", *fetch.progress.borrow());
+        let entry = grouped.entry(fetch.uri.as_ref().ok()).or_insert_with(|| (0, age, HashMap::new()));
         entry.0 += 1;
-        entry.1 = entry.1.min(age);
+
+        if age < entry.1 {
+            entry.1 = age;
+        }
+
+        *entry.2.entry(state).or_insert(0) += 1;
     }
 
     let mut result = grouped
         .into_iter()
-        .map(|(uri, (count, newest))| {
+        .map(|(uri, (count, newest, states))| {
             let uri = match uri {
                 Some(uri) => uri.to_string(),
                 None => "invalid request uri".to_owned(),
             };
 
-            format!("{uri} x{count} (newest {newest:?} ago)")
+            let mut states = states.into_iter()
+                .map(|(state, count)| format!("{state}: {count}"))
+                .collect::<Vec<_>>();
+            states.sort();
+
+            format!("{uri} x{count} (newest {newest:?} ago; {})", states.join(", "))
         })
         .collect::<Vec<_>>();
     result.sort();

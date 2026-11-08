@@ -1,5 +1,5 @@
 use {
-    std::collections::HashMap,
+    std::{collections::HashMap, rc::Rc, cell::RefCell},
     thiserror::Error,
     futures::FutureExt,
     rusqlite::{Connection, params_from_iter, types::{ValueRef, ToSqlOutput}, ToSql},
@@ -10,6 +10,7 @@ use {
     crate::{
         tasks::sql::{SqlTaskBatchError, SqlTaskMigrationError, SqlMessage, SqlExecMessage, SqlBatchMessage, SqlMigrateMessage, SqlController},
         function::instance::FunctionInstanceState,
+        effects::fetch::FetchProgress,
         triggers::http::HttpBody,
         definitions::bindings::SqlBindingConfig,
     },
@@ -313,7 +314,7 @@ pub(crate) enum SqlQueryExecutionError {
     RuntimeError,
 }
 
-pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Request<HttpBody>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
+pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Request<HttpBody>, fetch_progress: Rc<RefCell<FetchProgress>>) -> futures::future::LocalBoxFuture<'static, http::Response<HttpBody>> {
     match req.uri().path() {
         "/exec" => {
             let bindings = state.bindings.sql.clone();
@@ -369,7 +370,9 @@ pub(crate) fn handle_sql_request(state: &FunctionInstanceState, req: http::Reque
             let sql_controller = state.runtime_services.sql.clone();
 
             async move {
-                let migrate_result = handle_migrate_request(bindings, sql_controller, req).await;
+                *fetch_progress.borrow_mut() = FetchProgress::TaskStarted;
+
+                let migrate_result = handle_migrate_request(bindings, sql_controller, req, fetch_progress).await;
 
                 let mut message = capnp::message::Builder::new_default();
 
@@ -562,10 +565,12 @@ async fn handle_exec_request(bindings: HashMap<String, SqlBindingConfig>, sql_tx
     }
 }
 
-async fn handle_migrate_request(bindings: HashMap<String, SqlBindingConfig>, sql_controller: SqlController, req: http::Request<HttpBody>) -> Result<(), SqlMigrationError> {
+async fn handle_migrate_request(bindings: HashMap<String, SqlBindingConfig>, sql_controller: SqlController, req: http::Request<HttpBody>, fetch_progress: Rc<RefCell<FetchProgress>>) -> Result<(), SqlMigrationError> {
     let bytes: Bytes = req.into_body().collect().await
         .map_err(|_| SqlMigrationError::FailedToReadRequest)?
         .to_bytes();
+
+    *fetch_progress.borrow_mut() = FetchProgress::BodyCollected;
 
     let message_reader = capnp::serialize::read_message_from_flat_slice(&mut bytes.as_ref(), capnp::message::ReaderOptions::default())
         .map_err(|_| SqlMigrationError::BadRequest);
@@ -600,9 +605,17 @@ async fn handle_migrate_request(bindings: HashMap<String, SqlBindingConfig>, sql
                     });
 
                     match send_result {
-                        Ok(_) => match response_rx.await {
-                            Ok(v) => v.map_err(SqlMigrationError::from),
-                            Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                        Ok(_) => {
+                            *fetch_progress.borrow_mut() = FetchProgress::MessageEnqueued;
+
+                            let response = match response_rx.await {
+                                Ok(v) => v.map_err(SqlMigrationError::from),
+                                Err(_) => Err(SqlMigrationError::RuntimeShutdown),
+                            };
+
+                            *fetch_progress.borrow_mut() = FetchProgress::ResponseReceived;
+
+                            response
                         },
                         Err(_) => Err(SqlMigrationError::RuntimeShutdown),
                     }
