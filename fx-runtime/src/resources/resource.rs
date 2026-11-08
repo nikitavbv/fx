@@ -1,5 +1,5 @@
 use {
-    std::marker::PhantomData,
+    std::{marker::PhantomData, time::Instant},
     futures::future::{BoxFuture, LocalBoxFuture},
     slotmap::{Key, SlotMap},
     send_wrapper::SendWrapper,
@@ -66,7 +66,7 @@ pub(crate) struct FunctionResources {
     pub(crate) bytes: ResourceTable<BytesResourceKey, Vec<u8>>,
     pub(crate) fetch_request_headers: ResourceTable<FetchRequestHeaderResourceKey, http::Request<Option<HttpBodyResourceKey>>>,
     pub(crate) unit_futures: ResourceTable<UnitFutureResourceKey, BoxFuture<'static, ()>>,
-    pub(crate) fetch_result_futures: ResourceTable<FetchResultFutureResourceKey, SendWrapper<LocalBoxFuture<'static, FetchResultResource>>>,
+    pub(crate) fetch_result_futures: ResourceTable<FetchResultFutureResourceKey, FetchResultFuture>,
     pub(crate) fetch_results: ResourceTable<FetchResultResourceKey, FetchResultResource>,
     pub(crate) http_bodies: ResourceTable<HttpBodyResourceKey, HttpBody>,
     pub(crate) http_frames: ResourceTable<HttpFrameResourceKey, Option<Result<Bytes, HttpStreamError>>>,
@@ -76,6 +76,12 @@ impl FunctionResources {
     pub(crate) fn new() -> Self {
         Self::default()
     }
+}
+
+pub(crate) struct FetchResultFuture {
+    pub(crate) future: SendWrapper<LocalBoxFuture<'static, FetchResultResource>>,
+    pub(crate) uri: Result<http::Uri, FetchResultError>,
+    pub(crate) started_at: Instant,
 }
 
 pub(crate) struct ResourceTable<K, V> {
@@ -109,6 +115,10 @@ impl<K, V> ResourceTable<K, V> {
 
     pub fn len(&self) -> usize {
         self.map.len()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &V> {
+        self.map.values()
     }
 }
 

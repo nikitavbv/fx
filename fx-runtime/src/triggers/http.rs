@@ -1,5 +1,5 @@
 use {
-    std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll, time::Instant},
+    std::{rc::Rc, cell::RefCell, collections::HashMap, convert::Infallible, pin::Pin, task::Poll, time::{Duration, Instant}},
     tracing::{warn, error},
     futures::{FutureExt, StreamExt, future::LocalBoxFuture, stream::BoxStream, Stream},
     hyper::{Response, body::Bytes},
@@ -116,7 +116,11 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
             let response = tokio::select! {
                 biased;
                 _ = timeout_future => {
-                    warn!("function timed out while handling request: {target_function:?}, state: {:?}", function_future.progress);
+                    let pending_fetches = format_pending_fetches(target_function_deployment.as_ref());
+                    warn!(
+                        "function timed out while handling request: {target_function:?}, state: {:?}, pending_fetches: {pending_fetches}",
+                        function_future.progress,
+                    );
                     let mut response = Response::new(HttpBody::for_bytes(Bytes::from("function timed out while handling request.\n")));
                     *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
                     return Ok(response);
@@ -179,8 +183,43 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     }
 }
 
-pub(crate) struct HttpBody(pub(crate) HttpBodyInner);
+fn format_pending_fetches(deployment: &FunctionDeployment) -> String {
+    let instance = deployment.instance.borrow().clone();
+    let store = match instance.store.try_lock() {
+        Some(v) => v,
+        None => return "store lock held".to_owned(),
+    };
 
+    let mut grouped = HashMap::<Option<&http::Uri>, (u64, Duration)>::new();
+
+    for fetch in store.data().resource_set.fetch_result_futures.values() {
+        let age = fetch.started_at.elapsed();
+        let entry = grouped.entry(fetch.uri.as_ref().ok()).or_insert((0, age));
+        entry.0 += 1;
+        entry.1 = entry.1.min(age);
+    }
+
+    let mut result = grouped
+        .into_iter()
+        .map(|(uri, (count, newest))| {
+            let uri = match uri {
+                Some(uri) => uri.to_string(),
+                None => "invalid request uri".to_owned(),
+            };
+
+            format!("{uri} x{count} (newest {newest:?} ago)")
+        })
+        .collect::<Vec<_>>();
+    result.sort();
+
+    if result.is_empty() {
+        "none".to_owned()
+    } else {
+        result.join(", ")
+    }
+}
+
+pub(crate) struct HttpBody(pub(crate) HttpBodyInner);
 impl HttpBody {
     pub fn for_bytes(bytes: Bytes) -> Self {
         Self::for_stream(futures::stream::once(async { Ok(bytes) }).boxed())

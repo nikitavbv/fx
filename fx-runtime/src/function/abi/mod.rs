@@ -48,6 +48,7 @@ use {
             resource::{
                 FetchRequestHeaderResourceKey,
                 UnitFutureResourceKey,
+                FetchResultFuture,
             },
         },
         effects::{
@@ -312,7 +313,7 @@ pub(super) fn fx_fetch_result_future_poll(mut caller: wasmtime::Caller<'_, Funct
             Some(v) => v,
             None => return FetchResultPollResultCode::ResourceNotFound as u64,
         };
-        match future.poll_unpin(&mut cx) {
+        match future.future.poll_unpin(&mut cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(result) => {
                 std::mem::drop(match resource_table.remove(resource_id.into()) {
@@ -605,6 +606,7 @@ pub(super) fn fx_fetch_handler(
         .and_then(|v| v.to_str().map_err(|_| FetchResultError::BadRequest))
         .and_then(|v| v.parse().map_err(|_| FetchResultError::BadRequest));
     let request_host = request_uri.as_ref().map_err(|v| v.clone()).and_then(|v: &http::Uri| v.host().ok_or(FetchResultError::BadRequest).map(|v| v.to_owned().to_lowercase()));
+    let request_uri_for_log = request_uri.clone();
 
     let mut outgoing_request = request_uri.and_then(|v| request_method.map(|t| (v, t))).map(|(request_uri, request_method)| {
         let mut outgoing_request = http::Request::new(());
@@ -780,7 +782,11 @@ pub(super) fn fx_fetch_handler(
             }
         }
     };
-    let result = caller.data_mut().resource_set.fetch_result_futures.insert(SendWrapper::new(result));
+    let result = caller.data_mut().resource_set.fetch_result_futures.insert(FetchResultFuture {
+        future: SendWrapper::new(result),
+        uri: request_uri_for_log,
+        started_at: Instant::now(),
+    });
 
     *caller.data_mut().progress_tracker.borrow_mut() = prev_progress;
     debug!("fx_fetch_handler - exit");
