@@ -110,6 +110,7 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
         let graceful = hyper_util::server::graceful::GracefulShutdown::new();
 
         let mut metrics_flush_interval = tokio::time::interval(Duration::from_secs(2));
+        let mut accept_error_backoff = accept_backoff::AcceptErrorBackoff::new();
 
         let (local_message_queue_tx, mut local_message_queue_rx) = async_unsync::unbounded::channel::<WorkerLocalMessage>().into_split();
         let local_controller = LocalWorkerController::new(local_message_queue_tx);
@@ -142,15 +143,24 @@ pub(crate) fn run_worker_task(worker: WorkerConfig, wasmtime: wasmtime::Engine) 
                 },
 
                 connection = listener.accept() => {
-                    worker_handle_http_connection(
-                        &graceful,
-                        &worker,
-                        world.function_deployments.clone(),
-                        world.functions.clone(),
-                        world.http_hosts.clone(),
-                        world.http_default.clone(),
-                        connection,
-                    ).await;
+                    match connection {
+                        Ok((tcp, _)) => {
+                            accept_error_backoff.reset();
+                            worker_handle_http_connection(
+                                &graceful,
+                                &worker,
+                                world.function_deployments.clone(),
+                                world.functions.clone(),
+                                world.http_hosts.clone(),
+                                world.http_default.clone(),
+                                tcp,
+                            ).await;
+                        },
+                        Err(err) => {
+                            let delay = accept_error_backoff.register_error(&err);
+                            tokio::time::sleep(delay).await;
+                        },
+                    }
                 },
 
                 message = worker.messages_shared_rx.recv_async() => match message {
@@ -375,16 +385,8 @@ async fn worker_handle_http_connection(
     functions: Rc<RefCell<HashMap<FunctionId, FunctionDeploymentId>>>,
     http_hosts: Rc<RefCell<HashMap<String, FunctionId>>>,
     http_default: Rc<RefCell<Option<FunctionId>>>,
-    connection: Result<(tokio::net::TcpStream, SocketAddr), tokio::io::Error>,
+    tcp: tokio::net::TcpStream,
 ) {
-    let (tcp, _) = match connection {
-        Ok(v) => v,
-        Err(err) => {
-            error!("failed to accept http connection: {err:?}");
-            return;
-        }
-    };
-
     let io = TokioIo::new(tcp);
     let conn = http1::Builder::new()
         .timer(TokioTimer::new())
@@ -408,6 +410,82 @@ async fn worker_handle_http_connection(
             }
         }
     });
+}
+
+mod accept_backoff {
+    use {
+        std::time::{Duration, Instant},
+        tracing::{error, warn},
+    };
+
+    const INITIAL_BACKOFF: Duration = Duration::from_millis(100);
+    const MAX_BACKOFF: Duration = Duration::from_secs(5);
+    const TRANSIENT_ERROR_BACKOFF: Duration = Duration::from_millis(10);
+    const LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+    pub(super) struct AcceptErrorBackoff {
+        delay: Duration,
+        last_logged_at: Option<Instant>,
+        suppressed_errors: u64,
+    }
+
+    impl AcceptErrorBackoff {
+        pub(super) fn new() -> Self {
+            Self {
+                delay: INITIAL_BACKOFF,
+                last_logged_at: None,
+                suppressed_errors: 0,
+            }
+        }
+
+        pub(super) fn reset(&mut self) {
+            self.delay = INITIAL_BACKOFF;
+            self.last_logged_at = None;
+            self.suppressed_errors = 0;
+        }
+
+        pub(super) fn register_error(&mut self, err: &std::io::Error) -> Duration {
+            let resource_exhausted = matches!(
+                err.raw_os_error(),
+                Some(libc::EMFILE | libc::ENFILE | libc::ENOMEM | libc::ENOBUFS)
+            );
+
+            let now = Instant::now();
+            let should_log = match self.last_logged_at {
+                Some(last_logged_at) => now.duration_since(last_logged_at) >= LOG_INTERVAL,
+                None => true,
+            };
+
+            if should_log {
+                let suppressed_errors = std::mem::take(&mut self.suppressed_errors);
+                self.last_logged_at = Some(now);
+
+                if resource_exhausted {
+                    error!(
+                        err = ?err,
+                        suppressed_errors,
+                        "failed to accept http connection because of resource exhaustion, backing off"
+                    );
+                } else {
+                    warn!(
+                        err = ?err,
+                        suppressed_errors,
+                        "failed to accept http connection"
+                    );
+                }
+            } else {
+                self.suppressed_errors += 1;
+            }
+
+            if resource_exhausted {
+                let delay = self.delay;
+                self.delay = (self.delay * 2).min(MAX_BACKOFF);
+                delay
+            } else {
+                TRANSIENT_ERROR_BACKOFF
+            }
+        }
+    }
 }
 
 mod worker_handle_metrics_flush {
