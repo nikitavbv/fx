@@ -1,5 +1,6 @@
 use {
     std::{collections::HashMap, sync::RwLock},
+    thiserror::Error,
     crate::function::FunctionId,
 };
 
@@ -100,6 +101,12 @@ pub(crate) struct MetricsRegistry {
     function_metrics: RwLock<HashMap<FunctionId, FunctionMetricsDelta>>,
 }
 
+#[derive(Debug, Error)]
+pub(crate) enum MetricUpdateError {
+    #[error("could not update metric because of failed assertion")]
+    AssertionFailed,
+}
+
 impl MetricsRegistry {
     pub fn new() -> Self {
         Self {
@@ -128,8 +135,9 @@ impl MetricsRegistry {
         *self.runtime_counters_float.write().unwrap().entry(metric_key).or_insert(0.0) += delta;
     }
 
-    pub fn gauge_update(&self, metric_key: MetricKey, value: i64) {
-        self.runtime_gauges.write().unwrap().insert(metric_key, value);
+    pub fn gauge_update(&self, metric_key: MetricKey, value: i64) -> Result<(), MetricUpdateError> {
+        self.runtime_gauges.write().map_err(|_| MetricUpdateError::AssertionFailed)?.insert(metric_key, value);
+        Ok(())
     }
 
     pub fn encode(&self) -> String {
