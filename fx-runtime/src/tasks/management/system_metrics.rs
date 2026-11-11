@@ -1,6 +1,6 @@
 use {
     std::{io, time::Duration},
-    crate::effects::metrics::{MetricKey, MetricsRegistry},
+    crate::effects::metrics::{MetricKey, MetricsRegistry, MetricUpdateError},
 };
 
 pub(super) const COLLECT_INTERVAL: Duration = Duration::from_secs(10);
@@ -12,23 +12,26 @@ impl SystemMetricsCollector {
         Self
     }
 
-    pub(super) async fn collect(&self, metrics: &MetricsRegistry) {
-        self.collect_fd_usage(metrics).await;
+    pub(super) async fn collect(&self, metrics: &MetricsRegistry) -> Result<(), MetricUpdateError> {
+        self.collect_fd_usage(metrics).await?;
+        Ok(())
     }
 
-    async fn collect_fd_usage(&self, metrics: &MetricsRegistry) {
+    async fn collect_fd_usage(&self, metrics: &MetricsRegistry) -> Result<(), MetricUpdateError> {
         let limits = nofile_limits();
-        metrics.gauge_update(MetricKey::new("fx_nofile_soft_limit"), limits.soft as i64);
-        metrics.gauge_update(MetricKey::new("fx_nofile_hard_limit"), limits.hard as i64);
+        metrics.gauge_update(MetricKey::new("fx_nofile_soft_limit"), limits.soft as i64)?;
+        metrics.gauge_update(MetricKey::new("fx_nofile_hard_limit"), limits.hard as i64)?;
 
         match sample_open_fds().await {
             Ok(open_fds) => {
-                metrics.gauge_update(MetricKey::new("fx_open_fds"), open_fds as i64);
+                metrics.gauge_update(MetricKey::new("fx_open_fds"), open_fds as i64)?;
             },
             Err(err) => {
                 metrics.counter_increment(MetricKey::new("fx_fd_sample_errors_total").with_label("reason", err.label()), 1);
             }
-        }
+        };
+
+        Ok(())
     }
 }
 
