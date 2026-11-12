@@ -201,7 +201,9 @@ pub(crate) fn run_management_task(
                             }
                         }
                         _ = system_metrics_interval.tick() => {
-                            system_metrics_collector.collect(metrics.as_ref()).await;
+                            if let Err(err) = system_metrics_collector.collect(metrics.as_ref()).await {
+                                error!("failed to collect system metrics: {err:?}");
+                            }
                         }
                     }
                 }
