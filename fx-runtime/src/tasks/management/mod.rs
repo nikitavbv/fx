@@ -9,7 +9,7 @@ use {
     crate::{
         function::FunctionId,
         definitions::{config::{FunctionConfig, ServerConfig}, monitor::{DefinitionsMonitor, ApplyConfigError}},
-        effects::metrics::{FunctionMetricsDelta, MetricsRegistry, MetricKey},
+        effects::metrics::{FunctionMetricsDelta, MetricsRegistry, MetricKey, MetricUpdateError},
         tasks::{
             worker::{WorkerMessage, WorkersController},
             compiler::CompilerMessage,
@@ -133,31 +133,8 @@ pub(crate) fn run_management_task(
                                     let _ = msg.on_ready.send(result);
                                 },
                                 ManagementMessage::WorkerMetrics(msg) => {
-                                    metrics.update(msg.function_metrics);
-
-                                    for (function_id, count) in msg.resource_count_fetch_result_futures {
-                                        metrics.gauge_update(
-                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "fetch_result_futures"),
-                                            count as i64
-                                        );
-                                    }
-                                    for (function_id, count) in msg.resource_count_fetch_results {
-                                        metrics.gauge_update(
-                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "fetch_results"),
-                                            count as i64
-                                        );
-                                    }
-                                    for (function_id, count) in msg.resource_count_http_bodies {
-                                        metrics.gauge_update(
-                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "http_bodies"),
-                                            count as i64
-                                        );
-                                    }
-                                    for (function_id, count) in msg.resource_count_http_frames {
-                                        metrics.gauge_update(
-                                            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "http_frames"),
-                                            count as i64
-                                        );
+                                    if let Err(err) = handle_worker_metrics_message(&metrics, msg) {
+                                        error!("failed to handle worker metrics message: {err:?}");
                                     }
                                 },
                                 ManagementMessage::FunctionInvoked(msg) => {
@@ -215,6 +192,37 @@ pub(crate) fn run_management_task(
             },
         )
     }));
+}
+
+fn handle_worker_metrics_message(metrics: &MetricsRegistry, msg: MetricsFlushMessage) -> Result<(), MetricUpdateError> {
+    metrics.update(msg.function_metrics);
+
+    for (function_id, count) in msg.resource_count_fetch_result_futures {
+        metrics.gauge_update(
+            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "fetch_result_futures"),
+            count as i64
+        )?;
+    }
+    for (function_id, count) in msg.resource_count_fetch_results {
+        metrics.gauge_update(
+            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "fetch_results"),
+            count as i64
+        )?;
+    }
+    for (function_id, count) in msg.resource_count_http_bodies {
+        metrics.gauge_update(
+            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "http_bodies"),
+            count as i64
+        )?;
+    }
+    for (function_id, count) in msg.resource_count_http_frames {
+        metrics.gauge_update(
+            MetricKey::new("resources").with_label("function_id", function_id.as_str()).with_label("resource_type", "http_frames"),
+            count as i64
+        )?;
+    }
+
+    Ok(())
 }
 
 async fn open_invocations_log_file(invocations_log_path: &Path) -> Option<tokio::fs::File> {
