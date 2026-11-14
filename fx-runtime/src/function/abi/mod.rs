@@ -740,15 +740,12 @@ pub(super) fn fx_fetch_handler(
             } else {
                 let request = body.and_then(|body| outgoing_request.map(|outgoing_request| http::Request::from_parts(outgoing_request.into_parts().0, body)));
 
+                // no request timeout: responses may stream for as long as the client stays connected - useful for SSE, long downloads, etc.
                 let fetch_request = request
                     .and_then(|request| {
                         let (parts, body) = request.into_parts();
                         let request = http::Request::from_parts(parts, reqwest::Body::wrap_stream(body.into_data_stream()));
                         reqwest::Request::try_from(request).map_err(|_| FetchResultError::InternalRuntimeAssertionError)
-                    })
-                    .map(|mut request| {
-                        *request.timeout_mut() = Some(Duration::from_secs(3));
-                        request
                     });
 
                 let client = caller.data().http_client.clone();

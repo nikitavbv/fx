@@ -24,7 +24,8 @@ pub async fn http(req: HttpRequest) -> HttpResponse {
             .route("/test/get", get(test_endpoints::get::handler))
             .route("/test/post", post(test_endpoints::post::handler))
             .route("/test/headers", get(test_endpoints::headers::handler))
-            .route("/test/delay/{delay}", get(test_endpoints::delay::handler)),
+            .route("/test/delay/{delay}", get(test_endpoints::delay::handler))
+            .route("/test/stream/{seconds}", get(test_endpoints::stream::handler)),
         req,
     ).await
 }

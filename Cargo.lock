@@ -1398,6 +1398,7 @@ name = "fx-website"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "futures",
  "fx-sdk",
  "include_dir",
  "serde",

@@ -1,5 +1,5 @@
 use {
-    std::{collections::HashMap, time::Duration},
+    std::{collections::HashMap, convert::Infallible, time::Duration},
     serde::Serialize,
     axum::{http::{Uri, HeaderMap, HeaderValue, header}, response::IntoResponse, extract::Path},
     fx_sdk::sleep,
@@ -62,6 +62,28 @@ pub(crate) mod headers {
                 headers: headers_into_map(headers),
             }).unwrap(),
         ).into_response()
+    }
+}
+
+pub(crate) mod stream {
+    use super::*;
+
+    pub(crate) async fn handler(Path(seconds): Path<u64>) -> impl IntoResponse {
+        let seconds = seconds.min(10);
+        let ticks = futures::stream::unfold(0, move |index| async move {
+            if index >= seconds {
+                return None;
+            }
+
+            sleep(Duration::from_secs(1)).await;
+
+            Some((Ok::<_, Infallible>(format!("tick {}\n", index + 1)), index + 1))
+        });
+
+        (
+            [(header::CONTENT_TYPE, HeaderValue::from_static("text/event-stream"))],
+            axum::body::Body::from_stream(ticks),
+        )
     }
 }
 

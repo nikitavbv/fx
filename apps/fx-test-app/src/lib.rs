@@ -96,7 +96,7 @@ pub async fn http(mut req: HttpRequest) -> HttpResponse {
             .route("/test/fetch/with-header", get(test_fetch_with_header))
             .route("/test/fetch/body-read-all", get(test_fetch_body_read_all))
             .route("/test/fetch/timeout", get(test_fetch_timeout))
-            .route("/test/fetch/response-timeout", get(test_fetch_response_timeout))
+            .route("/test/fetch/stream", get(test_fetch_stream))
             .route("/test/fetch/body-unread", get(test_fetch_body_unread))
             .route("/test/log", get(test_log))
             .route("/test/log/span", get(test_log_span))
@@ -507,12 +507,12 @@ async fn test_fetch_timeout() -> &'static str {
     }
 }
 
-async fn test_fetch_response_timeout() -> impl IntoResponse {
-    match fetch(HttpRequest::get("https://fxruntime.com/test/delay/10").unwrap()).await {
-        Ok(res) => format!("unexpected success, status: {:?}, body: {:?}", res.status().clone(), res.text().await).into_response(),
-        Err(FetchError::ResponseTimeout) => "response timeout".into_response(),
-        Err(err) => format!("unexpected other error: {err:?}").into_response(),
-    }
+async fn test_fetch_stream() -> impl IntoResponse {
+    fetch(HttpRequest::get("https://fxruntime.com/test/stream/10").unwrap())
+        .await
+        .unwrap()
+        .into_body()
+        .into_response()
 }
 
 async fn test_fetch_body_unread() -> impl IntoResponse {

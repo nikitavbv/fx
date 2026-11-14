@@ -538,13 +538,36 @@ async fn fetch_timeout() {
 }
 
 #[tokio::test]
-async fn fetch_read_timeout() {
+async fn fetch_stream() {
     let client = init_fx_server().await;
 
-    let result = client.get("/test/fetch/response-timeout").send().await.unwrap();
-    assert!(result.status().is_success());
-    let body = result.text().await.unwrap();
-    assert!(body == "response timeout", "expected fetch error, got: {}", body);
+    let started_at = Instant::now();
+    let response = client.get("/test/fetch/stream").send().await.unwrap();
+    assert!(response.status().is_success(), "streaming request failed: {}", response.status());
+
+    let mut pending = String::new();
+    let mut ticks = Vec::new();
+    let mut first_chunk_at = None;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        first_chunk_at.get_or_insert_with(|| started_at.elapsed());
+        pending.push_str(&String::from_utf8_lossy(&chunk.unwrap()));
+
+        while let Some(newline_index) = pending.find('\n') {
+            let line = pending.drain(..newline_index + 1).collect::<String>();
+            if line.starts_with("tick") {
+                ticks.push(started_at.elapsed());
+            }
+        }
+    }
+
+    let first_chunk_at = first_chunk_at.expect("expected at least one chunk");
+    assert!(first_chunk_at < Duration::from_secs(2), "expected the first chunk to arrive quickly, got {first_chunk_at:?}, which means the response was buffered instead of streamed");
+    assert_eq!(ticks.len(), 10, "expected 10 streamed ticks, got {}", ticks.len());
+
+    let gaps = ticks.windows(2).map(|window| window[1] - window[0]).collect::<Vec<_>>();
+    assert!(gaps.iter().all(|gap| *gap >= Duration::from_millis(500)), "expected ticks to be spread out in time, got gaps {gaps:?}");
+    assert!(ticks[9] >= Duration::from_secs(9), "expected the last tick to arrive after at least 9s, got {:?}", ticks[9]);
 }
 
 #[tokio::test]
