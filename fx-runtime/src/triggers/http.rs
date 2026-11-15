@@ -102,7 +102,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                 return Ok(response);
             }
 
-            let mut function_future = target_function_deployment
+            let function_future = target_function_deployment
                 .handle_request(
                     http::Request::from_parts(header, ()),
                     Some(HttpBody::for_stream(
@@ -111,22 +111,9 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
                             .boxed()
                     ))
                 );
-            let timeout_future = tokio::time::sleep(std::time::Duration::from_secs(20));
-
-            let response = tokio::select! {
-                biased;
-                _ = timeout_future => {
-                    let pending_fetches = format_pending_fetches(target_function_deployment.as_ref());
-                    warn!(
-                        "function timed out while handling request: {target_function:?}, state: {:?}, pending_fetches: {pending_fetches}",
-                        function_future.progress,
-                    );
-                    let mut response = Response::new(HttpBody::for_bytes(Bytes::from("function timed out while handling request.\n")));
-                    *response.status_mut() = StatusCode::GATEWAY_TIMEOUT;
-                    return Ok(response);
-                }
-                result = &mut function_future => result,
-            };
+            // no request timeout: a request may take as long as the client stays connected (like in
+            // cloudflare workers, where http requests have no duration limit)
+            let response = function_future.await;
 
             let mut response = match response {
                 Ok(function_response) => function_response,
@@ -183,6 +170,7 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for HttpHand
     }
 }
 
+#[allow(dead_code)] // kept as a debugging tool: prints what a function is waiting on
 fn format_pending_fetches(deployment: &FunctionDeployment) -> String {
     let instance = deployment.instance.borrow().clone();
     let store = match instance.store.try_lock() {

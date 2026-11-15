@@ -144,6 +144,7 @@ impl FunctionDeployment {
 pub(crate) mod handle_request {
     use super::*;
 
+    #[allow(dead_code)] // `progress` is read by debugging helpers only
     pub(crate) struct RequestHandleFuture {
         inner: Pin<Box<dyn Future<Output = Result<http::Response<HttpBody>, FunctionDeploymentHandleRequestError>>>>,
         pub(crate) progress: Rc<RefCell<RequestHandleProgress>>,

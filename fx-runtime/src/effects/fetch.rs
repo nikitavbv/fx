@@ -48,6 +48,7 @@ pub(crate) enum FetchResultError {
 
 pub(crate) type FetchResultResource = Result<http::Response<HttpBody>, FetchResultError>;
 
+#[allow(dead_code)] // fields are read by debugging helpers only
 pub(crate) struct FetchResultFuture {
     pub(crate) future: SendWrapper<LocalBoxFuture<'static, FetchResultResource>>,
     pub(crate) uri: Result<http::Uri, FetchResultError>,
