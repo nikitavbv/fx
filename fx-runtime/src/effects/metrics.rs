@@ -131,8 +131,9 @@ impl MetricsRegistry {
         *self.runtime_counters.write().unwrap().entry(metric_key).or_insert(0) += delta;
     }
 
-    pub fn counter_float_increment(&self, metric_key: MetricKey, delta: f64) {
-        *self.runtime_counters_float.write().unwrap().entry(metric_key).or_insert(0.0) += delta;
+    pub fn counter_float_increment(&self, metric_key: MetricKey, delta: f64) -> Result<(), MetricUpdateError> {
+        *self.runtime_counters_float.write().map_err(|_| MetricUpdateError::AssertionFailed)?.entry(metric_key).or_insert(0.0) += delta;
+        Ok(())
     }
 
     pub fn gauge_update(&self, metric_key: MetricKey, value: i64) -> Result<(), MetricUpdateError> {
