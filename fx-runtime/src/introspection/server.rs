@@ -27,6 +27,8 @@ pub(crate) async fn run_introspection_server(metrics: Arc<MetricsRegistry>, work
         .route("/metrics", get(introspection_metrics))
         .route("/api/functions/{function_id}", delete(management_api_function_remove))
         .route("/introspection", get(introspection))
+        .route("/functions/{function_id}", get(function_page))
+        .route("/fragments/functions/{function_id}/requests", get(function_requests_rows))
         .layer(Extension(metrics))
         .layer(Extension(IntrospectionWorkersController { controller: Arc::new(workers_controller) }))
         .layer(Extension(runtime_state));
@@ -93,7 +95,7 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
     } else {
         functions.iter().map(|f| view! {
             <tr>
-                <td>{f.as_str()}</td>
+                <td><a href={format!("/functions/{}", f.as_str())}>{f.as_str()}</a></td>
                 <td><span class="status ok">"ok"</span></td>
                 <td class="number">"-"</td>
                 <td class="number">"-"</td>
@@ -102,6 +104,9 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
             </tr>
         }.into_any()).collect()
     };
+
+    let in_flight = runtime_state.in_flight_requests();
+    let in_flight_count = in_flight.len();
 
     let cron_tasks = runtime_state.cron_tasks();
     let cron_rows: Vec<leptos::prelude::AnyView> = if cron_tasks.is_empty() {
@@ -164,6 +169,10 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
               <div class="summary-item">
                 <span class="label">functions:</span>
                 <span class="value">{function_count}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">in flight:</span>
+                <span class="value">{in_flight_count}</span>
               </div>
               <div class="summary-item">
                 <span class="label">pending futures:</span>
@@ -240,6 +249,101 @@ async fn introspection(Extension(runtime_state): Extension<SendWrapper<RuntimeSt
             <footer>
               fx runtime
             </footer>
+          </div>
+        </body>
+        </html>
+    })
+}
+
+async fn function_requests_rows(
+    Extension(runtime_state): Extension<SendWrapper<RuntimeState>>,
+    extract::Path(argument): extract::Path<FunctionIdPathArgument>,
+) -> Response {
+    let function_id = argument.function_id;
+
+    let rows: Vec<leptos::prelude::AnyView> = runtime_state.in_flight_requests().into_iter()
+        .filter(|request| request.function_id == function_id)
+        .map(|request| view! {
+            <tr>
+                <td class="mono">{request.request_id.clone()}</td>
+                <td class="number">{format!("{:.1}s", request.age_seconds)}</td>
+            </tr>
+        }.into_any())
+        .collect();
+
+    let rows: Vec<leptos::prelude::AnyView> = if rows.is_empty() {
+        vec![view! {
+            <tr>
+                <td colspan="2" class="empty-state">"no requests in flight"</td>
+            </tr>
+        }.into_any()]
+    } else {
+        rows
+    };
+
+    render_component(view! {
+        <tbody hx-get={format!("/fragments/functions/{function_id}/requests")} hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML">
+            {rows}
+        </tbody>
+    })
+}
+
+async fn function_page(
+    Extension(runtime_state): Extension<SendWrapper<RuntimeState>>,
+    extract::Path(argument): extract::Path<FunctionIdPathArgument>,
+) -> Response {
+    let function_id = argument.function_id;
+
+    let in_flight_count = runtime_state.in_flight_requests().into_iter()
+        .filter(|request| request.function_id == function_id)
+        .count();
+
+    render_component(view! {
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>{format!("fx introspection - {function_id}")}</title>
+          <meta charset="utf-8"></meta>
+          <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+          <style>{ include_str!("./style.css") }</style>
+          <script>{ include_str!("./script.js") }</script>
+        </head>
+        <body>
+          <div id="content">
+            <header>
+              <h1>{format!("function: {function_id}")}</h1>
+              <div class="controls"><a href="/introspection">"← all functions"</a></div>
+            </header>
+
+            <div class="summary">
+              <div class="summary-item">
+                <span class="label">function:</span>
+                <span class="value">{function_id.clone()}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">in flight:</span>
+                <span class="value">{in_flight_count}</span>
+              </div>
+            </div>
+
+            <section>
+              <h2>Requests</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>request</th>
+                    <th class="number">age</th>
+                  </tr>
+                </thead>
+                <tbody hx-get={format!("/fragments/functions/{function_id}/requests")} hx-trigger="every 1s" hx-target="this" hx-swap="outerHTML">
+                  <tr>
+                    <td colspan="2" class="empty-state">"loading…"</td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+
+            <footer>fx runtime</footer>
           </div>
         </body>
         </html>
