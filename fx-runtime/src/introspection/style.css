@@ -173,3 +173,6 @@ footer {
 }
 
 .htmx-request { opacity: 0.7; }
+
+.requests-function { margin-bottom: 16px; }
+.requests-function h3 { margin: 12px 0 6px; font-size: 13px; font-weight: normal; color: #9cdcfe; }
