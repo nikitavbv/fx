@@ -27,6 +27,7 @@ pub(crate) enum ManagementMessage {
     DeployFunction(Box<DeployFunctionMessage>),
     WorkerMetrics(MetricsFlushMessage),
     FunctionInvoked(FunctionInvokedMessage),
+    RequestEvent(RequestEventMessage),
 }
 
 pub(crate) struct DeployFunctionMessage {
@@ -59,6 +60,17 @@ pub(crate) struct MetricsFlushMessage {
 pub(crate) struct FunctionInvokedMessage {
     pub(crate) request_id: String,
     pub(crate) total_duration: Duration,
+}
+
+pub(crate) struct RequestEventMessage {
+    pub(crate) request_id: String,
+    pub(crate) function_id: FunctionId,
+    pub(crate) event: RequestEvent,
+}
+
+pub(crate) enum RequestEvent {
+    Started,
+    Finished,
 }
 
 pub(crate) fn run_management_task(
@@ -153,6 +165,12 @@ pub(crate) fn run_management_task(
                                     }
                                     metrics.counter_increment(MetricKey::new("function_invoked"), 1);
                                 },
+                                ManagementMessage::RequestEvent(msg) => {
+                                    match msg.event {
+                                        RequestEvent::Started => runtime_state.request_started(msg.request_id, msg.function_id),
+                                        RequestEvent::Finished => runtime_state.request_finished(&msg.request_id),
+                                    }
+                                },
                             }
                         }
                         event = cron_event_rx.recv_async() => {
@@ -173,7 +191,10 @@ pub(crate) fn run_management_task(
                                     if let Some(delay) = delay {
                                         metrics.counter_float_increment(MetricKey::new("cron_task_delay_seconds").with_label("task", &task_tag_value), delay.as_seconds_f64());
                                     }
-                                    metrics.counter_float_increment(MetricKey::new("cron_task_iteration_delay_seconds").with_label("task", task_tag_value), iteration_delay.as_secs_f64());
+                                    let result = metrics.counter_float_increment(MetricKey::new("cron_task_iteration_delay_seconds").with_label("task", task_tag_value), iteration_delay.as_secs_f64());
+                                    if let Err(err) = result {
+                                        error!("failed to record task iteration delay metric: {err:?}");
+                                    }
                                 },
                             }
                         }
