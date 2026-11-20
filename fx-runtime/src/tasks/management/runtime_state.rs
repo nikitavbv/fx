@@ -17,6 +17,14 @@ pub struct RuntimeState {
     cron_tasks: Rc<RefCell<Vec<CronTaskInfo>>>,
     cron_last_runs: Rc<RefCell<HashMap<CronTaskKey, DateTime<Utc>>>>,
     cron_running: Rc<RefCell<HashSet<(FunctionId, String)>>>,
+    in_flight_requests: Rc<RefCell<Vec<InFlightRequest>>>,
+}
+
+#[derive(Clone)]
+pub struct InFlightRequest {
+    pub request_id: String,
+    pub function_id: FunctionId,
+    pub started_at: DateTime<Utc>,
 }
 
 impl RuntimeState {
@@ -26,6 +34,7 @@ impl RuntimeState {
             cron_tasks: Rc::new(RefCell::new(Vec::new())),
             cron_last_runs: Rc::new(RefCell::new(HashMap::new())),
             cron_running: Rc::new(RefCell::new(HashSet::new())),
+            in_flight_requests: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
@@ -71,6 +80,22 @@ impl RuntimeState {
 
     pub fn is_cron_running(&self, name: &str, function_id: &FunctionId) -> bool {
         self.cron_running.borrow().contains(&(function_id.clone(), name.to_owned()))
+    }
+
+    pub fn request_started(&self, request_id: String, function_id: FunctionId) {
+        self.in_flight_requests.borrow_mut().push(InFlightRequest {
+            request_id,
+            function_id,
+            started_at: Utc::now(),
+        });
+    }
+
+    pub fn request_finished(&self, request_id: &str) {
+        self.in_flight_requests.borrow_mut().retain(|request| request.request_id != request_id);
+    }
+
+    pub fn in_flight_requests(&self) -> Vec<InFlightRequest> {
+        self.in_flight_requests.borrow().clone()
     }
 }
 
